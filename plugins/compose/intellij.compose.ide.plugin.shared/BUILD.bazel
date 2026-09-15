@@ -55,8 +55,6 @@ jvm_library(
         "//java/java-psi-api:psi",
         "//plugins/kotlin/code-insight/api",
         "//platform/lang-impl",
-        "//plugins/kotlin/code-insight/utils",
-        "//plugins/kotlin/base/psi",
         "//plugins/kotlin/base/facet",
         "//plugins/kotlin/base/util",
     ],
@@ -98,8 +96,6 @@ jvm_library(
         "//java/java-psi-api:psi_test_lib",
         "//plugins/kotlin/code-insight/api:api_test_lib",
         "//platform/lang-impl:lang-impl_test_lib",
-        "//plugins/kotlin/code-insight/utils:utils_test_lib",
-        "//plugins/kotlin/base/psi:psi_test_lib",
         "//plugins/kotlin/base/facet:facet_test_lib",
         "//plugins/kotlin/base/util:util_test_lib",
     ],
@@ -209,6 +205,10 @@ jvm_library(
         "//plugins/kotlin/base/compiler-configuration:compiler-configuration_test_lib",
         "//libraries/junit4",
         "//libraries/junit4:junit4_test_lib",
+        "//android/android-plugin:plugin",
+        "//android/android-plugin:plugin_test_lib",
+        "//libraries/kotlinc/compose-compiler-plugin:libraries-kotlinc-compose-compiler-plugin",
+        "//libraries/kotlinc/compose-compiler-plugin:libraries-kotlinc-compose-compiler-plugin_test_lib",
     ],
 )
 ### auto-generated section `build intellij.compose.ide.plugin.shared.tests` end

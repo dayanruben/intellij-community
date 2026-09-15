@@ -674,6 +674,7 @@ libraries/winp
 libraries/workspace-model-codegen
 libraries/xerces
 libraries/xerial-snappy-java
+libraries/xml-resolver
 libraries/xml-rpc
 libraries/xmlbeans
 libraries/xmlunit-core
@@ -1404,11 +1405,10 @@ plugins/kotlin/base/project-model
 plugins/kotlin/base/project-structure
 plugins/kotlin/base/psi
 plugins/kotlin/base/resources
-plugins/kotlin/base/scripting/scripting.k2
+plugins/kotlin/base/scripting/scripting
 plugins/kotlin/base/scripting/scripting.main.kts
 plugins/kotlin/base/scripting/scripting.scratch
 plugins/kotlin/base/scripting/scripting.scratch.definition
-plugins/kotlin/base/scripting/scripting.shared
 plugins/kotlin/base/statistics
 plugins/kotlin/base/testFramework
 plugins/kotlin/base/util
@@ -1485,8 +1485,7 @@ plugins/kotlin/gradle/gradle-tooling/impl
 plugins/kotlin/gradle/gradle-tooling/tests
 plugins/kotlin/gradle/gradle/tests
 plugins/kotlin/gradle/multiplatform-tests-k2
-plugins/kotlin/gradle/scripting/kotlin.gradle.scripting.k2
-plugins/kotlin/gradle/scripting/kotlin.gradle.scripting.shared
+plugins/kotlin/gradle/scripting
 plugins/kotlin/grazie
 plugins/kotlin/grazie/intellij.kotlin.grazie.tests
 plugins/kotlin/highlighting/highlighting-k2
@@ -1610,6 +1609,7 @@ plugins/markdown/projectView
 plugins/markdown/spellchecker
 plugins/markdown/test
 plugins/markdown/textMate
+plugins/markdown/vcs
 plugins/markdown/xml
 plugins/marketplace-ml
 plugins/maven
@@ -1955,6 +1955,7 @@ xml/emmet/shared
 xml/impl
 xml/langInjection
 xml/langInjection/xpath
+xml/plugin
 xml/relaxng
 xml/testFramework
 xml/tests

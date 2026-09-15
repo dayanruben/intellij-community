@@ -3,6 +3,7 @@ package com.intellij.find.impl;
 
 import com.intellij.codeWithMe.ClientId;
 import com.intellij.concurrency.ConcurrentCollectionFactory;
+import com.intellij.find.DirectorySearchEngine;
 import com.intellij.find.FindBundle;
 import com.intellij.find.FindInProjectSearchEngine;
 import com.intellij.find.FindInProjectSearchEngine.FindInProjectSearcher;
@@ -484,6 +485,8 @@ final class FindInProjectTask {
 
     //wrap into concurrent deque for multi-threaded processing
     ConcurrentLinkedDeque<Object> searchItemsDeque = new ConcurrentLinkedDeque<>(searchItems);
+    var directorySearchEngines = ContainerUtil.filter(DirectorySearchEngine.EP_NAME.getExtensionList(),
+                                                      engine -> engine.canSearch(findModel));
     ConcurrentBitSet visitedFileIds = ConcurrentBitSet.create();
     final var workspaceFileIndex = WorkspaceFileIndex.getInstance(project);
     processOnAllThreadsInReadActionWithRetries(
@@ -545,7 +548,12 @@ final class FindInProjectTask {
           }
           if (file.isDirectory()) {
             if (unfoldSubdirs) {
-              ContainerUtil.addAll(searchItemsDeque, file.getChildren());
+              // note that search engine may unfold more than one level and eventually visit already indexed, excluded or ignored
+              // files or directories. This might be a performance problem, but does not affect correctness: all the files
+              // will be checked against the WSM and requested scope later when this search task deals with individual files.
+              // MAYBE-ANK: While it is searcher's responsibility to work at least faster than the default implementation if it
+              // claims positive weight, it is also a good idea to not pass directories with excludes and indexed files into them.
+              selectDirectorySearchEngine(file, directorySearchEngines).searchDirectory(file, findModel, searchItemsDeque::addAll);
             }
             return true;
           }
@@ -595,6 +603,20 @@ final class FindInProjectTask {
     );
   }
 
+  private @NotNull DirectorySearchEngine selectDirectorySearchEngine(@NotNull VirtualFile directory,
+                                                                     @NotNull List<? extends DirectorySearchEngine> engines) {
+    DirectorySearchEngine bestEngine = null;
+    var bestWeight = -1;
+    for (var engine : engines) {
+      var weight = engine.getWeight(directory, findModel);
+      if (weight > bestWeight) {
+        bestEngine = engine;
+        bestWeight = weight;
+      }
+    }
+    return Objects.requireNonNull(bestEngine, "No directory search engine for " + directory);
+  }
+
 
   /**
    * @return list of search 'items'. Item contains 1 or more files:
@@ -623,6 +645,9 @@ final class FindInProjectTask {
       VirtualFile cacheAvoidingDirectory = NewVirtualFile.asCacheAvoiding(directoryToSearchIn);
       if (withSubdirectories) {
         searchItems.add(cacheAvoidingDirectory);
+
+        // DirectorySearchEngine is not obliged to add unsaved documents to the search queue - do it now.
+        searchItems.addAll(getUnsavedDocumentsUnderDirectory(directoryToSearchIn));
       }
       else {
         ContainerUtil.addAll(searchItems, cacheAvoidingDirectory.getChildren());
@@ -661,8 +686,26 @@ final class FindInProjectTask {
 
     searchItems.addAll(FindModelExtension.EP_NAME.getExtensionList());
 
-
     return searchItems;
+  }
+
+  private static Collection<VirtualFile> getUnsavedDocumentsUnderDirectory(VirtualFile directory) {
+    if (directory instanceof CacheAvoidingVirtualFile cacheAvoidingDirectory) {
+      directory = cacheAvoidingDirectory.asCacheable();
+      if (directory == null) {
+        return List.of();
+      }
+    }
+
+    var fileDocumentManager = FileDocumentManager.getInstance();
+    var changedFiles = new ArrayList<VirtualFile>();
+    for (Document document : fileDocumentManager.getUnsavedDocuments()) {
+      VirtualFile file = fileDocumentManager.getFile(document);
+      if (file != null && VfsUtilCore.isAncestor(directory, file, false)) {
+        changedFiles.add(file);
+      }
+    }
+    return changedFiles;
   }
 
   /** @return candidate files found by searchers, filtered by fileMaskFilter */

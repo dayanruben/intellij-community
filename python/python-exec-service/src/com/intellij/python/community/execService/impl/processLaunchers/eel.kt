@@ -35,7 +35,15 @@ private val log = fileLogger()
 
 internal suspend fun createProcessLauncherOnEel(binOnEel: BinOnEel, launchRequest: LaunchRequest): ProcessLauncher {
   val exePath: EelPath = with(binOnEel) {
-    (if (path.isAbsolute) path else workDir?.resolve(binOnEel.path) ?: path.toAbsolutePath()).asEelPath()
+    if (path.isAbsolute) {
+      path.asEelPath()
+    }
+    else {
+      // A relative binary sits in the work directory. Append the parts one by one, because the separator of a local
+      // path is not always the separator of the eel.
+      workDir?.let { dir -> path.fold(dir) { parent, part -> parent.getChild(part.pathString) } }
+      ?: path.toAbsolutePath().asEelPath()
+    }
   }
   val eel = exePath.descriptor.toEelApi()
   val (args, env) = launchRequest.args.getArgsAndEnv { file ->
@@ -66,10 +74,14 @@ private class EelProcessCommands(
 ) : ProcessCommands {
   private var eelProcess: EelProcess? = null
 
+  /**
+   * This must not read the file system. The work directory can disappear while the process runs. The caller reads
+   * [info] outside of a try block, so an [java.io.IOException] here escapes the whole exec call.
+   */
   override val info: ProcessCommandsInfo
     get() = ProcessCommandsInfo(
       env = env,
-      cwd = binOnEel.workDir?.toRealPath()?.pathString,
+      cwd = binOnEel.workDir?.toString(),
       target = binOnEel.path.getEelDescriptor().name,
     )
 
@@ -79,16 +91,15 @@ private class EelProcessCommands(
   )
 
   override suspend fun start(): Result<Process, ExecErrorReason.CantStart> {
-    var workDir = binOnEel.workDir
-    workDir = withContext(Dispatchers.IO) { if (workDir != null && !workDir.isAbsolute) workDir.toRealPath() else workDir }
+    val workDir = binOnEel.workDir
 
     // If project is untrusted we should not execute anything there
-    val nioPathToExec = withContext(Dispatchers.IO) {
-      path.asNioPath().toAbsolutePath()
+    val (nioPathToExec, nioWorkDir) = withContext(Dispatchers.IO) {
+      Pair(path.asNioPath().toAbsolutePath(), workDir?.asNioPath())
     }
     val pathIsProhibited = getProhibitedPaths().any { prohibitedParent ->
       nioPathToExec.startsWith(prohibitedParent) ||
-      (workDir != null && workDir.startsWith(prohibitedParent))
+      (nioWorkDir != null && nioWorkDir.startsWith(prohibitedParent))
     }
     if (pathIsProhibited) {
       log.trace { "Prohibited exec $nioPathToExec" }
@@ -101,7 +112,7 @@ private class EelProcessCommands(
         .scope(scopeToBind)
         .args(args)
         .env(env)
-        .workingDirectory(workDir?.asEelPath())
+        .workingDirectory(workDir)
         .interactionOptions(if (tty != null) EelExecApi.Pty(tty.cols.toInt(), tty.rows.toInt()) else null)
         .eelIt()
       this.eelProcess = eelProcess

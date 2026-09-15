@@ -29,7 +29,9 @@ import com.intellij.openapi.editor.impl.FocusModeModel;
 import com.intellij.openapi.editor.impl.FoldingModelInternal;
 import com.intellij.openapi.editor.impl.FontInfo;
 import com.intellij.openapi.editor.impl.SoftWrapModelImpl;
+import com.intellij.openapi.editor.impl.caret.model.CaretCursorSnapshot;
 import com.intellij.openapi.editor.impl.caret.model.CaretRectangle;
+import com.intellij.openapi.editor.impl.caret.model.CaretRepaintMetrics;
 import com.intellij.openapi.editor.impl.TextDrawingCallback;
 import com.intellij.openapi.editor.impl.view.animation.EditorAnimationCache;
 import com.intellij.openapi.editor.markup.TextAttributes;
@@ -61,10 +63,7 @@ import java.awt.font.FontRenderContext;
 import java.awt.font.LineMetrics;
 import java.awt.geom.AffineTransform;
 import java.awt.geom.Point2D;
-import java.awt.geom.Rectangle2D;
 import java.text.Bidi;
-import java.util.List;
-import java.util.function.Supplier;
 
 /**
  * A facade for components responsible for drawing editor contents, managing editor size 
@@ -86,7 +85,6 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
   private final TextLayoutCache myTextLayoutCache;
   private final LogicalPositionCache myLogicalPositionCache;
   private final CharWidthCache myCharWidthCache;
-  private final @Nullable EditorAnimationCache myContentAnimationCache;
   private final TabFragment myTabFragment;
   private final SelectionVisualModel mySelectionVisualModel;
 
@@ -124,16 +122,12 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
     myTextLayoutCache = new TextLayoutCache(this, new ComponentVisibilityTracker(myEditor.getContentComponent()));
     myLogicalPositionCache = new LogicalPositionCache(myDocument, () -> myEditor.throwDisposalError("Editor is already disposed"));
     myCharWidthCache = new CharWidthCache(this);
-    myContentAnimationCache = EditorAnimationCache.createAnimationCache(editor);
     myTabFragment = new TabFragment(this);
     mySelectionVisualModel = new SelectionVisualModel(myEditor);
 
     myEditor.getContentComponent().addHierarchyListener(this);
     getScrollingModel().addVisibleAreaListener(this);
 
-    if (myContentAnimationCache != null) {
-      Disposer.register(this, myContentAnimationCache);
-    }
     Disposer.register(this, myLogicalPositionCache);
     Disposer.register(this, myTextLayoutCache);
     Disposer.register(this, mySizeManager);
@@ -257,81 +251,40 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
   }
 
   @RequiresEdt
-  public void paint(Graphics2D g) {
+  public void paint(Graphics2D g, @Nullable EditorAnimationCache cache) {
     getSoftWrapModel().prepareToMapping();
     checkFontRenderContext(g.getFontRenderContext());
-
     Rectangle clip = g.getClipBounds();
-    EditorAnimationCache cache = myContentAnimationCache;
-    if (cache != null && clip != null && canPaintFromContentAnimationCache() && cache.paintFromCache(g, clip)) {
+    if (cache != null && clip != null && cache.paintFromCache(g, clip)) {
+      paintCaretFrame(g);
       runPaintCallback();
       return;
     }
-
     myPainter.paint(g);
     runPaintCallback();
   }
 
-  private boolean canPaintFromContentAnimationCache() {
-    return !myEditor.isCurrentlyBuildingCache() &&
-           !myEditor.isStickyLinePainting() &&
-           !myEditor.isPaintingDumbBuffer() &&
-           !myEditor.isPurePaintingMode();
-  }
-
   @ApiStatus.Internal
-  public void paintCaretFrame(Graphics2D graphics) {
-    CaretRectangle[] locations = myEditor.getCaretLocations(true);
-    if (locations == null) return;
-
-    Rectangle clip = graphics.getClipBounds();
-    if (clip == null) return;
-
-    myPainter.paintCaret(graphics, locations, clip.y);
-  }
-
-  private void runPaintCallback() {
-    if (!myEditor.isCurrentlyBuildingCache() && myPaintCallback != null) {
-      myPaintCallback.run();
-    }
+  @RequiresEdt
+  public @NotNull CaretRepaintMetrics getCaretRepaintMetrics() {
+    int caretHeight = getCaretHeight();
+    int topOverhang = myEditor.getSettings().isFullLineHeightCursor() ? 0 : getTopOverhang();
+    return new CaretRepaintMetrics(caretHeight, topOverhang);
   }
 
   @ApiStatus.Internal
   @RequiresEdt
-  public void cacheAreasForRepaint(@NotNull Object key, @NotNull Supplier<List<Rectangle2D>> rectangles) {
-    if (myContentAnimationCache != null) {
-      myContentAnimationCache.cacheAreasForRepaint(key, rectangles);
-    }
+  public Rectangle @NotNull [] caretRectanglesForLocations(CaretRectangle @NotNull [] locations) {
+    return myPainter.caretRectanglesForLocations(locations);
+  }
+
+  private void clearContentAnimationCache() {
+    myEditor.invalidateAnimationCaches(null);
   }
 
   @ApiStatus.Internal
-  @RequiresEdt
-  public Rectangle @NotNull [] caretRectanglesForLocations(CaretRectangle @NotNull [] locations, int grow) {
-    return myPainter.caretRectanglesForLocations(locations, grow);
-  }
-
-  @ApiStatus.Internal
-  public void invalidateContentAnimationCache(@Nullable Rectangle clip) {
-    if (myContentAnimationCache != null) {
-      myContentAnimationCache.invalidate(clip);
-    }
-  }
-
-  void clearContentAnimationCache() {
-    if (myContentAnimationCache != null) {
-      myContentAnimationCache.clear();
-    }
-  }
-
-  @RequiresEdt
-  public void repaintCarets() {
-    myPainter.repaintCarets();
-  }
-
-  @ApiStatus.Internal
-  @RequiresEdt
-  public void repaintCarets(CaretRectangle @NotNull [] locations) {
-    myPainter.repaintCarets(locations);
+  public void repaintCarets(@NotNull CaretCursorSnapshot snapshot) {
+    myPainter.repaintCarets(snapshot);
   }
 
   @RequiresEdt
@@ -805,6 +758,24 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
     return myBidiFlags;
   }
 
+  private void paintCaretFrame(Graphics2D graphics) {
+    CaretCursorSnapshot snapshot = myEditor.getCaretCursorSnapshot(true);
+    if (snapshot == null) {
+      return;
+    }
+    Rectangle clip = graphics.getClipBounds();
+    if (clip == null) {
+      return;
+    }
+    myPainter.paintCaret(graphics, snapshot, clip.y);
+  }
+
+  private void runPaintCallback() {
+    if (!myEditor.isCurrentlyBuildingCache() && myPaintCallback != null) {
+      myPaintCallback.run();
+    }
+  }
+
   private void invalidateFoldRegionLayouts() {
     EditorThreading.run(() -> {
       for (FoldRegion region : getFoldingModel().getAllFoldRegions()) {
@@ -916,8 +887,8 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
   }
 
   private void assertNotInBulkMode() {
-    if (myDocument instanceof DocumentImpl) {
-      ((DocumentImpl)myDocument).assertNotInBulkUpdate();
+    if (myDocument instanceof DocumentImpl impl) {
+      impl.assertNotInBulkUpdate();
     }
     else if (myDocument.isInBulkUpdate()) {
       throw new IllegalStateException("Current operation is not permitted in bulk mode");

@@ -926,7 +926,7 @@ class PluginDetailsPageComponent private constructor(
   private fun initializePluginSourceIdDropDownLink(infoPanel: JPanel) {
     val dropDownLink = object : DropDownLink<PluginUpdateSourceId?>(null, { link -> createPopup(link) }) {
       override fun itemToString(item: PluginUpdateSourceId?): String {
-        return item.getPresentableName()
+        return item.getShortenedPresentableName()
       }
     }
     dropDownLink.foreground = ListPluginComponent.GRAY_COLOR
@@ -942,15 +942,21 @@ class PluginDetailsPageComponent private constructor(
     myPluginUpdateSourceId = dropDownLink
   }
 
+  private fun PluginUpdateSourceId?.getShortenedPresentableName(): @Nls(capitalization = Nls.Capitalization.Sentence) String {
+    return StringUtil.shortenTextWithEllipsis(getPresentableName(), 40, 20)
+  }
+
   private fun createPopup(link: DropDownLink<PluginUpdateSourceId?>): JBPopup {
-    val initialItems: List<PluginUpdateSourceId?> = PluginUpdateSourceService.getInstance().getAllSources().sortedWith { first, second ->
-      when {
-        first.isMarketplace && second.isMarketplace -> 0
-        first.isMarketplace -> -1
-        second.isMarketplace -> 1
-        else -> first.host.compareTo(second.host)
+    val initialItems: List<PluginUpdateSourceId?> = PluginUpdateSourceService.getInstance().getAllSources()
+      .filter { it.isMarketplace || it.host.isNotBlank() }
+      .sortedWith { first, second ->
+        when {
+          first.isMarketplace && second.isMarketplace -> 0
+          first.isMarketplace -> -1
+          second.isMarketplace -> 1
+          else -> first.host.compareTo(second.host)
+        }
       }
-    }
 
     val builder = JBPopupFactory.getInstance()
       .createPopupChooserBuilder(initialItems)
@@ -959,12 +965,12 @@ class PluginDetailsPageComponent private constructor(
       }
       .setRenderer(listCellRenderer {
         val sourceId = value
-        text(sourceId.getPresentableName())
+        text(sourceId.getShortenedPresentableName())
       })
       .setItemChosenCallback { pluginUpdateSource ->
         val pluginToHandle = plugin
         if (pluginToHandle != null) {
-          link.text = pluginUpdateSource.getPresentableName()
+          link.text = pluginUpdateSource.getShortenedPresentableName()
           link.selectedItem = pluginUpdateSource
           coroutineScope.launch(Dispatchers.IO) {
             pluginModel.setPendingPluginUpdateSourceInSession(pluginToHandle.pluginId, pluginUpdateSource)
@@ -1376,7 +1382,7 @@ class PluginDetailsPageComponent private constructor(
   internal fun updatePluginUpdateSource(pluginUpdateSource: PluginUpdateSourceId?) {
     myPluginUpdateSourceId?.apply {
       selectedItem = pluginUpdateSource
-      text = pluginUpdateSource.getPresentableName()
+      text = pluginUpdateSource.getShortenedPresentableName()
     }
   }
 

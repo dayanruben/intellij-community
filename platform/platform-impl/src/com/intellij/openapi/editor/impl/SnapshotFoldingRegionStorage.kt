@@ -28,7 +28,6 @@ import com.intellij.util.containers.ConcurrentLongObjectMap
 import com.intellij.util.containers.Java11Shim
 import it.unimi.dsi.fastutil.longs.LongList
 import java.awt.Point
-import java.util.concurrent.atomic.AtomicReference
 
 private const val FOLD_REGION_FLAVOR: Int = 1
 private const val CUSTOM_FOLD_REGION_FLAVOR: Int = 2
@@ -40,7 +39,7 @@ internal class SnapshotFoldingRegionStorage(
   val document: DocumentImpl,
 ) : FoldingRegionStorage {
   private val regionsById: ConcurrentLongObjectMap<SnapshotFoldRegion> = Java11Shim.createConcurrentLongObjectMap()
-  private val rootStore: SnapshotMarkerRootStore = SnapshotMarkerRootStore(
+  val rootStore: SnapshotMarkerRootStore = SnapshotMarkerRootStore(
     document,
     onMarkersInvalidated = ::processInvalidatedRegions,
     onMarkersAffected = ::processAffectedRegions,
@@ -98,7 +97,7 @@ internal class SnapshotFoldingRegionStorage(
   }
 
   override fun dispose() {
-    rootStore.dispose()
+    rootStore.dispose(document.snapshotMarkerStores)
     regionsById.clear()
   }
 
@@ -147,8 +146,6 @@ internal class SnapshotFoldingRegionStorage(
     }
     sizesBeforeUpdate = sizes ?: emptyMap()
   }
-
-  fun rootReference(snapshot: DocumentSnapshot): AtomicReference<PMarkerRoot> = rootStore.rootReference(snapshot)
 
   fun currentSnapshot(): DocumentSnapshot = document.core.snapshot()
 
@@ -208,7 +205,9 @@ internal class SnapshotFoldingRegionStorage(
 
   private fun invalidateDuplicate(region: SnapshotFoldRegion) {
     rootStore.updateRoot(currentSnapshot()) { it.remove(region.id) }
-    if (regionsById.remove(region.id, region)) model.snapshotFoldRegionInvalidated(region)
+    if (regionsById.remove(region.id, region)) {
+      model.snapshotFoldRegionInvalidated(region)
+    }
   }
 
   private fun sizeBeforeUpdate(region: SnapshotFoldRegion): Int = sizesBeforeUpdate[region.id] ?: 0
@@ -218,7 +217,9 @@ internal class SnapshotFoldingRegionStorage(
     for (index in 0 until size) {
       val markerId = markerIds.getLong(index)
       val region = regionsById.get(markerId) ?: continue
-      if (regionsById.remove(markerId, region)) model.snapshotFoldRegionInvalidated(region)
+      if (regionsById.remove(markerId, region)) {
+        model.snapshotFoldRegionInvalidated(region)
+      }
     }
   }
 
@@ -263,7 +264,7 @@ internal open class SnapshotFoldRegion(
   private var placeholder: String,
   private val group: FoldingGroup?,
   private val neverExpands: Boolean,
-) : SnapshotRangeMarkerImpl(storage.document, markerId, spec, initialRange), FoldRegionMarker {
+) : SnapshotRangeMarkerImpl(storage.document, storage.rootStore, markerId, spec, initialRange), FoldRegionMarker {
   protected val editorImpl: EditorImpl
     get() = storage.editor
 
@@ -354,10 +355,6 @@ internal open class SnapshotFoldRegion(
   override fun dispose() {
     storage.model.removeRegionFromTree(this)
   }
-
-  override fun currentRootReference(): AtomicReference<PMarkerRoot> = storage.rootReference(storage.currentSnapshot())
-
-  override fun rootReference(snapshot: DocumentSnapshot): AtomicReference<PMarkerRoot> = storage.rootReference(snapshot)
 
   override fun toString(): String {
     return "FoldRegion ${if (expanded) "-" else "+"}($startOffset:$endOffset)" +
@@ -475,9 +472,12 @@ private object FoldRegionMarkerPolicy : MarkerPolicy {
     beforeText: DocumentText,
     afterText: DocumentText,
   ): MarkerTransformResult {
-    return when (val transformed = DefaultMarkerPolicy.transform(entry, patch, beforeText, afterText)) {
-      is MarkerTransformResult.Invalid -> transformed
-      is MarkerTransformResult.Valid -> validateRange(alignToCharacterBoundaries(transformed.entry, afterText))
+    val transformed = DefaultMarkerPolicy.transform(entry, patch, beforeText, afterText)
+    return if (transformed.errorReason != null) {
+      transformed
+    }
+    else {
+      validateRange(alignToCharacterBoundaries(transformed.entry, afterText))
     }
   }
 
@@ -486,11 +486,11 @@ private object FoldRegionMarkerPolicy : MarkerPolicy {
   }
 
   private fun validateRange(entry: PMarkerRoot.MarkerEntry): MarkerTransformResult {
-    return if (entry.startOffset < entry.endOffset) {
-      MarkerTransformResult.Valid(entry)
+    return if (entry.nodeStart < entry.nodeEnd) {
+      MarkerTransformResult(entry)
     }
     else {
-      MarkerTransformResult.Invalid("The fold region became empty", entry)
+      MarkerTransformResult(entry, "The fold region became empty")
     }
   }
 }
@@ -502,9 +502,12 @@ private object CustomFoldRegionMarkerPolicy : MarkerPolicy {
     beforeText: DocumentText,
     afterText: DocumentText,
   ): MarkerTransformResult {
-    return when (val transformed = DefaultMarkerPolicy.transform(entry, patch, beforeText, afterText)) {
-      is MarkerTransformResult.Invalid -> transformed
-      is MarkerTransformResult.Valid -> validateLineBoundaries(transformed.entry, afterText)
+    val transformed = DefaultMarkerPolicy.transform(entry, patch, beforeText, afterText)
+    return if (transformed.errorReason != null) {
+      transformed
+    }
+    else {
+      validateLineBoundaries(transformed.entry, afterText)
     }
   }
 
@@ -513,28 +516,28 @@ private object CustomFoldRegionMarkerPolicy : MarkerPolicy {
   }
 
   private fun validateLineBoundaries(entry: PMarkerRoot.MarkerEntry, text: DocumentText): MarkerTransformResult {
-    if (entry.startOffset >= entry.endOffset) {
-      return MarkerTransformResult.Invalid("The custom fold region became empty", entry)
+    if (entry.nodeStart >= entry.nodeEnd) {
+      return MarkerTransformResult(entry, "The custom fold region became empty")
     }
-    val startLine = text.lineNumber(entry.startOffset)
-    val endLine = text.lineNumber(entry.endOffset)
-    return if (entry.startOffset == text.lineStartOffset(startLine) && entry.endOffset == text.lineEndOffset(endLine)) {
-      MarkerTransformResult.Valid(entry)
+    val startLine = text.lineNumber(entry.nodeStart)
+    val endLine = text.lineNumber(entry.nodeEnd)
+    return if (entry.nodeStart == text.lineStartOffset(startLine) && entry.nodeEnd == text.lineEndOffset(endLine)) {
+      MarkerTransformResult(entry)
     }
     else {
-      MarkerTransformResult.Invalid("The custom fold region left its line boundaries", entry)
+      MarkerTransformResult(entry, "The custom fold region left its line boundaries")
     }
   }
 }
 
 private fun alignToCharacterBoundaries(entry: PMarkerRoot.MarkerEntry, text: DocumentText): PMarkerRoot.MarkerEntry {
-  val startOffset = if (isInsideCharacterPair(entry.startOffset, text)) entry.startOffset - 1 else entry.startOffset
-  val endOffset = if (isInsideCharacterPair(entry.endOffset, text)) entry.endOffset - 1 else entry.endOffset
-  return if (startOffset == entry.startOffset && endOffset == entry.endOffset) {
+  val startOffset = if (isInsideCharacterPair(entry.nodeStart, text)) entry.nodeStart - 1 else entry.nodeStart
+  val endOffset = if (isInsideCharacterPair(entry.nodeEnd, text)) entry.nodeEnd - 1 else entry.nodeEnd
+  return if (startOffset == entry.nodeStart && endOffset == entry.nodeEnd) {
     entry
   }
   else {
-    entry.copy(startOffset = startOffset, endOffset = endOffset)
+    entry.copy(nodeStart = startOffset, nodeEnd = endOffset)
   }
 }
 

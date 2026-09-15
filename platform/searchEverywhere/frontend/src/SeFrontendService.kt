@@ -42,6 +42,7 @@ import com.intellij.platform.searchEverywhere.frontend.ui.SePopupHeaderPane
 import com.intellij.platform.searchEverywhere.frontend.vm.SeDummyTabVm
 import com.intellij.platform.searchEverywhere.frontend.vm.SePopupVm
 import com.intellij.platform.searchEverywhere.impl.SeRemoteApi
+import com.intellij.platform.searchEverywhere.providers.SeLegacyContributorsRegistry
 import com.intellij.platform.searchEverywhere.providers.SeLog
 import com.intellij.platform.searchEverywhere.providers.SeLog.LIFE_CYCLE
 import com.intellij.platform.searchEverywhere.providers.SeProvidersHolder
@@ -105,8 +106,6 @@ class SeFrontendService(val project: Project?, private val coroutineScope: Corou
 
   private var selectionState: SeSelectionState? = null
 
-  val removeSessionRef: AtomicBoolean = AtomicBoolean(true)
-
   override fun show(tabId: String, searchText: String?, initEvent: AnActionEvent) {
     show(tabId, searchText, initEvent, false)
   }
@@ -148,6 +147,9 @@ class SeFrontendService(val project: Project?, private val coroutineScope: Corou
     val popupFuture = CompletableFuture<SePopupInstance>()
     popupInstanceFuture = popupFuture
 
+    // The Find tool window takes the session over, so it deletes the session itself.
+    val removeSession = AtomicBoolean(true)
+
     coroutineScope.launch {
       val session = SeSessionEntity.createSession()
 
@@ -178,7 +180,8 @@ class SeFrontendService(val project: Project?, private val coroutineScope: Corou
                                       initEvent,
                                       popupScope,
                                       session,
-                                      providersHolder)
+                                      providersHolder,
+                                      removeSession)
 
             val showPopupEndTime = System.currentTimeMillis()
             SeLog.log { "Search Everywhere popup opened in ${showPopupEndTime - showPopupStartTime} ms" }
@@ -228,7 +231,7 @@ class SeFrontendService(val project: Project?, private val coroutineScope: Corou
             }
           }
           popupScope.cancel()
-          if (removeSessionRef.get()) {
+          if (removeSession.get()) {
             change {
               shared {
                 session.asRef().derefOrNull()?.delete()
@@ -253,6 +256,7 @@ class SeFrontendService(val project: Project?, private val coroutineScope: Corou
     popupScope: CoroutineScope,
     session: SeSession,
     providersHolder: SeProvidersHolder,
+    removeSession: AtomicBoolean,
   ) {
     val tabInitializationTimeoutMillis: Long = 50
     val orderedTabFactoryIds = tabFactories.map { it.id }
@@ -314,7 +318,7 @@ class SeFrontendService(val project: Project?, private val coroutineScope: Corou
       providersHolder.legacyContributors,
       onShowFindToolWindow = {
         popupScope.launch(NonCancellable) {
-          removeSessionRef.set(false)
+          removeSession.set(false)
           try {
             it.openInFindWindow(session)
           }
@@ -350,7 +354,7 @@ class SeFrontendService(val project: Project?, private val coroutineScope: Corou
       }
       if (availableRemoteProviders == null) return@initAsync null
 
-      val fetchedRemoteLegacyContributors = availableRemoteProviders.originalBackendLegacyContributors?.separateTab ?: emptyMap()
+      val fetchedRemoteLegacyContributors = SeLegacyContributorsRegistry.getInstance().get(session)?.separateTab ?: emptyMap()
       val adaptedSeparateTabInfos = availableRemoteProviders.adaptedWithPresentationOrFetchable(fetchedRemoteLegacyContributors.keys).separateTab
       if (adaptedSeparateTabInfos.isEmpty()) return@initAsync null
 

@@ -61,7 +61,7 @@ public class SnapshotMarkerEngineBenchmark {
 
     for (int index = 0; index < MARKER_COUNT; index++) {
       int startOffset = markerStart(index);
-      PMarker marker = SnapshotMarkerEngineImpl.INSTANCE.createRangeMarker(
+      SnapshotMarker marker = SnapshotMarkerEngineImpl.INSTANCE.createRangeMarker(
         state.document,
         state.snapshot,
         startOffset,
@@ -84,14 +84,13 @@ public class SnapshotMarkerEngineBenchmark {
    */
   @Benchmark
   public long resolve4MMarkers(ResolveState state) {
-    PMarker[] markers = state.markers;
+    SnapshotMarker[] markers = state.markers;
     int[] resolveOrder = state.resolveOrder;
-    DocumentSnapshot snapshot = state.snapshot;
     long checksum = 0L;
 
     for (int index = 0; index < RESOLVE_CALLS; index++) {
-      PMarkerResolution resolution = SnapshotMarkerEngineImpl.INSTANCE.resolveRangeMarker(markers[resolveOrder[index]], snapshot);
-      checksum += (long)resolution.getStartOffset() + resolution.getEndOffset();
+      SnapshotMarker marker = markers[resolveOrder[index]];
+      checksum += (long)marker.getStartOffset() + marker.getEndOffset();
     }
 
     return checksum;
@@ -139,6 +138,7 @@ public class SnapshotMarkerEngineBenchmark {
 
     for (int index = 0; index < INTERSECTION_CALLS; index++) {
       SnapshotMarkerEngineImpl.INSTANCE.processRangeMarkersOverlappingWith(
+        state.rootStore,
         snapshot,
         queryStarts[index],
         queryEnds[index],
@@ -154,14 +154,14 @@ public class SnapshotMarkerEngineBenchmark {
   public static class CreateState {
     DocumentImpl document;
     DocumentSnapshot snapshot;
-    PMarker[] createdMarkers;
+    SnapshotMarker[] createdMarkers;
 
     /** A new mutable engine is required for every measured creation batch. */
     @Setup(Level.Invocation)
     public void setUp() {
       document = new DocumentImpl(BENCHMARK_TEXT);
       snapshot = document.getCore().snapshot();
-      createdMarkers = new PMarker[MARKER_COUNT];
+      createdMarkers = new SnapshotMarker[MARKER_COUNT];
     }
   }
 
@@ -169,7 +169,7 @@ public class SnapshotMarkerEngineBenchmark {
   public static class ResolveState {
     DocumentImpl document;
     DocumentSnapshot snapshot;
-    PMarker[] markers;
+    SnapshotMarker[] markers;
     int[] resolveOrder;
 
     /** Builds the 50,000-marker population once per fork, outside measured invocations. */
@@ -177,7 +177,7 @@ public class SnapshotMarkerEngineBenchmark {
     public void setUp() {
       document = new DocumentImpl(BENCHMARK_TEXT);
       snapshot = document.getCore().snapshot();
-      markers = new PMarker[MARKER_COUNT];
+      markers = new SnapshotMarker[MARKER_COUNT];
 
       for (int index = 0; index < MARKER_COUNT; index++) {
         int startOffset = markerStart(index);
@@ -233,7 +233,8 @@ public class SnapshotMarkerEngineBenchmark {
 
     DocumentImpl document;
     DocumentSnapshot snapshot;
-    PMarker[] markers;
+    SnapshotMarkerRootStore rootStore;
+    SnapshotMarker[] markers;
     int[] queryStarts;
     int[] queryEnds;
     final RangeMarkerIdAccumulator accumulator = new RangeMarkerIdAccumulator();
@@ -243,7 +244,8 @@ public class SnapshotMarkerEngineBenchmark {
     public void setUp() {
       document = new DocumentImpl(BENCHMARK_TEXT);
       snapshot = document.getCore().snapshot();
-      markers = new PMarker[MARKER_COUNT];
+      rootStore = document.getRangeMarkers().rootStore();
+      markers = new SnapshotMarker[MARKER_COUNT];
 
       for (int index = 0; index < MARKER_COUNT; index++) {
         int startOffset = markerStart(index);

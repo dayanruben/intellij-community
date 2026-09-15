@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.python.community.execService
 
 import com.intellij.execution.configurations.GeneralCommandLine
@@ -12,7 +12,9 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.platform.eel.EelApi
 import com.intellij.platform.eel.getShell
+import com.intellij.platform.eel.path.EelPath
 import com.intellij.platform.eel.provider.asNioPath
+import com.intellij.platform.eel.provider.getEelDescriptor
 import com.intellij.platform.eel.provider.utils.EelProcessExecutionResult
 import com.intellij.platform.eel.provider.utils.stdoutString
 import com.intellij.platform.util.progress.reportRawProgress
@@ -57,7 +59,13 @@ sealed interface BinaryToExec
  * [workDir] is pwd. As it should be on the same eel as [path] for most cases (except WSL), it is better not to set it at all.
  * Prefer full [path] over relative.
  */
-data class BinOnEel(val path: Path, internal val workDir: Path? = null) : BinaryToExec
+data class BinOnEel(val path: Path, internal val workDir: EelPath? = null) : BinaryToExec {
+  init {
+    require(workDir == null || workDir.descriptor == path.getEelDescriptor()) {
+      "The work directory $workDir and the binary $path are on two different eels"
+    }
+  }
+}
 
 /**
  * Legacy Targets-based approach. Do not use it, unless you know what you are doing
@@ -82,7 +90,10 @@ data class BinOnTarget(
   }
 }
 
-fun PythonBinary.asBinToExec(): BinaryToExec = BinOnEel(this)
+/**
+ * [workDir] is an optional workdir that must be on the same eel
+ */
+fun PythonBinary.asBinToExec(workDir: EelPath? = null): BinaryToExec = BinOnEel(this, workDir = workDir)
 
 /**
  * Execute [binary] right directly on the eel it resides on.
@@ -102,13 +113,11 @@ suspend fun ExecService.execGetStdout(
   args: Args = Args(),
   options: ExecOptions = ExecOptions(),
   procListener: PyProcessListener? = null,
-): PyResult<String> = execute(
-  binary = binary,
-  args = args,
-  options = options,
-  processOutputTransformer = ZeroCodeStdoutTransformer,
-  procListener = procListener
-)
+): PyResult<String> = execute(binary = binary,
+                              args = args,
+                              options = options,
+                              processOutputTransformer = ZeroCodeStdoutTransformer,
+                              procListener = procListener)
 
 
 /**
@@ -122,8 +131,10 @@ suspend fun ExecService.execGetStdout(
   options: ExecOptions = ExecOptions(),
   procListener: PyProcessListener? = null,
 ): PyResult<String> {
-  val binary = eelApi.exec.findExeFilesInPath(binaryName).firstOrNull()?.asNioPath()
-               ?: return PyResult.localizedError(message("py.exec.fileNotFound", binaryName, eelApi.descriptor.name))
+  val binary =
+    eelApi.exec.findExeFilesInPath(binaryName).firstOrNull()?.asNioPath() ?: return PyResult.localizedError(message("py.exec.fileNotFound",
+                                                                                                                    binaryName,
+                                                                                                                    eelApi.descriptor.name))
   return execGetStdout(BinOnEel(binary), args, options, procListener)
 }
 
@@ -183,8 +194,7 @@ suspend fun <T> reportOutputAsProgress(
           ProcessEvent.OutputType.STDERR -> ProcessOutputTypes.STDERR
         }
         ansiDecoder.escapeText(it.line, outType) { text, _ ->
-          @Suppress("HardCodedStringLiteral")
-          reporter.text(text)
+          @Suppress("HardCodedStringLiteral") reporter.text(text)
         }
       }
     }
@@ -218,9 +228,10 @@ val ZeroCodeStdoutTransformerBool: ZeroCodeStdoutTransformerTyped<Boolean> = Zer
 /**
  * See also [ZeroCodeStdoutTransformer], [ZeroCodeStdoutTransformerBool]
  */
-class ZeroCodeStdoutTransformerTyped<T : Any>(val strParser: (String) -> T?) : ProcessOutputTransformer<T> {
+class ZeroCodeStdoutTransformerTyped<T : Any>(private val checkExitCode: Boolean = true, val strParser: (String) -> T?) :
+  ProcessOutputTransformer<T> {
   override fun invoke(processOutput: EelProcessExecutionResult): Result<T, String?> {
-    if (processOutput.exitCode != 0) {
+    if (checkExitCode && processOutput.exitCode != 0) {
       return Result.failure(message("py.exec.error.not.zero"))
     }
     val output = processOutput.stdoutString.trim()
@@ -253,9 +264,7 @@ open class ZeroCodeStdoutParserTransformer<T>(val stdoutParser: (String) -> Resu
  * Limits are set via Registry.
  */
 enum class ConcurrentProcessWeight {
-  LIGHT,
-  MEDIUM,
-  HEAVY
+  LIGHT, MEDIUM, HEAVY
 }
 
 /**
@@ -439,6 +448,6 @@ class Args(vararg initialArgs: String) {
 
 
 fun BinaryToExec.asGeneralCommandLine(): PyResult<GeneralCommandLine> = when (this) {
-  is BinOnEel -> PyResult.success(GeneralCommandLine(path.toString()).withWorkingDirectory(workDir))
+  is BinOnEel -> PyResult.success(GeneralCommandLine(path.toString()).withWorkingDirectory(workDir?.asNioPath()))
   is BinOnTarget -> PyResult.localizedError(message("py.exec.target.binaries.are.not.supported"))
 }

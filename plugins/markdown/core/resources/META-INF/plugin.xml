@@ -78,6 +78,7 @@
     <module name="intellij.markdown.fenceInjector.textMate"/>
     <module name="intellij.markdown.projectView"/>
     <module name="intellij.markdown.figmaAdvertiser"/>
+    <module name="intellij.markdown.vcs"/>
   </content>
 
   <description><![CDATA[
@@ -247,6 +248,7 @@
     <applicationService serviceImplementation="org.intellij.plugins.markdown.settings.MarkdownCodeInsightSettings" />
     <applicationService serviceImplementation="org.intellij.plugins.markdown.settings.MarkdownExtensionsSettings" />
 
+    <applicationSettings service="org.intellij.plugins.markdown.settings.MarkdownApplicationSettings"/>
     <applicationSettings service="org.intellij.plugins.markdown.settings.MarkdownCodeInsightSettings"/>
     <applicationSettings service="org.intellij.plugins.markdown.settings.MarkdownPreviewSettings"/>
     <applicationSettings service="org.intellij.plugins.markdown.settings.MarkdownExtensionsSettings"/>

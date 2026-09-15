@@ -13,7 +13,6 @@ import com.intellij.openapi.editor.impl.marker.PMarkerRoot
 import com.intellij.openapi.editor.impl.marker.SnapshotMarkerEngineImpl
 import com.intellij.openapi.editor.impl.marker.SnapshotMarkerRootStore
 import com.intellij.openapi.editor.impl.marker.SnapshotRangeMarkerImpl
-import java.util.concurrent.atomic.AtomicReference
 import java.util.function.Consumer
 
 /** Stores caret position and selection markers for one editor. */
@@ -21,10 +20,10 @@ internal class SnapshotCaretMarkerStorage(
   val document: DocumentImpl,
   documentChanged: Consumer<DocumentEvent>,
 ) {
-  private val rootStore: SnapshotMarkerRootStore = SnapshotMarkerRootStore(document, onDocumentChanged = documentChanged::accept)
+  val rootStore: SnapshotMarkerRootStore = SnapshotMarkerRootStore(document, onDocumentChanged = documentChanged::accept)
 
   fun dispose() {
-    rootStore.dispose()
+    rootStore.dispose(document.snapshotMarkerStores)
   }
 
   fun nextMarkerId(): Long = SnapshotMarkerEngineImpl.nextMarkerId()
@@ -45,8 +44,6 @@ internal class SnapshotCaretMarkerStorage(
     }
   }
 
-  fun rootReference(snapshot: DocumentSnapshot): AtomicReference<PMarkerRoot> = rootStore.rootReference(snapshot)
-
   fun currentSnapshot(): DocumentSnapshot = document.core.snapshot()
 
   companion object {
@@ -62,23 +59,24 @@ private object CaretPositionMarkerPolicy : MarkerPolicy {
     beforeText: DocumentText,
     afterText: DocumentText,
   ): MarkerTransformResult {
-    val updatedEntry = when (val transformed = DefaultMarkerPolicy.transform(entry, patch, beforeText, afterText)) {
-      is MarkerTransformResult.Valid -> transformed.entry
-      is MarkerTransformResult.Invalid -> {
-        val offset = minOf(entry.startOffset, patch.startOffset() + patch.newFragment().length)
-        entry.copy(startOffset = offset, endOffset = offset)
-      }
+    val transformed = DefaultMarkerPolicy.transform(entry, patch, beforeText, afterText)
+    val updatedEntry = if (transformed.errorReason == null) {
+      transformed.entry
     }
-    return MarkerTransformResult.Valid(alignPoint(updatedEntry, afterText))
+    else {
+      val offset = minOf(entry.nodeStart, patch.startOffset() + patch.newFragment().length)
+      entry.copy(nodeStart = offset, nodeEnd = offset)
+    }
+    return MarkerTransformResult(alignPoint(updatedEntry, afterText))
   }
 
   override fun afterRetarget(entry: PMarkerRoot.MarkerEntry, text: DocumentText): MarkerTransformResult {
-    return MarkerTransformResult.Valid(alignPoint(entry, text))
+    return MarkerTransformResult(alignPoint(entry, text))
   }
 
   private fun alignPoint(entry: PMarkerRoot.MarkerEntry, text: DocumentText): PMarkerRoot.MarkerEntry {
-    val offset = alignToCodePointBoundary(entry.startOffset, text)
-    return if (offset == entry.startOffset) entry else entry.copy(startOffset = offset, endOffset = offset)
+    val offset = alignToCodePointBoundary(entry.nodeStart, text)
+    return if (offset == entry.nodeStart) entry else entry.copy(nodeStart = offset, nodeEnd = offset)
   }
 }
 
@@ -89,24 +87,27 @@ private object CaretSelectionMarkerPolicy : MarkerPolicy {
     beforeText: DocumentText,
     afterText: DocumentText,
   ): MarkerTransformResult {
-    return when (val transformed = DefaultMarkerPolicy.transform(entry, patch, beforeText, afterText)) {
-      is MarkerTransformResult.Invalid -> transformed
-      is MarkerTransformResult.Valid -> MarkerTransformResult.Valid(alignRange(transformed.entry, afterText))
+    val transformed = DefaultMarkerPolicy.transform(entry, patch, beforeText, afterText)
+    return if (transformed.errorReason != null) {
+      transformed
+    }
+    else {
+      MarkerTransformResult(alignRange(transformed.entry, afterText))
     }
   }
 
   override fun afterRetarget(entry: PMarkerRoot.MarkerEntry, text: DocumentText): MarkerTransformResult {
-    return MarkerTransformResult.Valid(alignRange(entry, text))
+    return MarkerTransformResult(alignRange(entry, text))
   }
 
   private fun alignRange(entry: PMarkerRoot.MarkerEntry, text: DocumentText): PMarkerRoot.MarkerEntry {
-    val startOffset = alignToCodePointBoundary(entry.startOffset, text)
-    val endOffset = alignToCodePointBoundary(entry.endOffset, text)
-    return if (startOffset == entry.startOffset && endOffset == entry.endOffset) {
+    val startOffset = alignToCodePointBoundary(entry.nodeStart, text)
+    val endOffset = alignToCodePointBoundary(entry.nodeEnd, text)
+    return if (startOffset == entry.nodeStart && endOffset == entry.nodeEnd) {
       entry
     }
     else {
-      entry.copy(startOffset = startOffset, endOffset = endOffset)
+      entry.copy(nodeStart = startOffset, nodeEnd = endOffset)
     }
   }
 }
