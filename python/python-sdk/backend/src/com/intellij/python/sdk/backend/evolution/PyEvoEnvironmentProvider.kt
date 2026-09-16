@@ -14,6 +14,7 @@ import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.io.toNioPathOrNull
 import com.intellij.python.community.common.tools.ToolId
+import com.intellij.python.sdk.backend.PythonInterpreter
 import com.intellij.python.sdk.common.evolution.EvoAddNewDto
 import com.intellij.python.sdk.common.evolution.EvoAddNewOptionDto
 import com.intellij.python.sdk.common.evolution.EvoBasePythonDto
@@ -84,6 +85,9 @@ class EvoWorkspace(
 
   /** The directory every tool runs in. */
   val baseDir: Directory get() = root.baseDir
+
+  /** The wire identity of the [root]. See [keyOf]. */
+  val rootKey: String = keyOf(root)
 }
 
 /**
@@ -101,15 +105,19 @@ class EvoPyProject(
   /**
    * The interpreter this project uses, as it stood when the snapshot was computed.
    *
-   * Every module of a workspace holds its own reference to the SDK, so the module of this project alone answers it.
+   * Every module of a workspace holds its own reference to the interpreter, so the module of this project alone
+   * answers it.
    *
    * A value rather than a question the caller asks: reading it used to wait for the project model on every call, and
    * that wait is what a snapshot exists to pay one time. A generation that holds one interpreter never states another,
-   * and a caller that cannot suspend reads it like any other field. Without the wait a configured SDK reads as `null`
-   * while the SDK table is still loading, and a surface then states that a project with an interpreter has none
+   * and a caller that cannot suspend reads it like any other field. Without the wait a configured interpreter reads as
+   * `null` while the SDK table is still loading, and a surface then states that a project with an interpreter has none
    * (PY-91871); the snapshot waits instead, once.
+   *
+   * A [PythonInterpreter] and not an [Sdk], so a caller asks the interpreter what it is. A caller that still needs the
+   * `Sdk` API calls [com.intellij.python.sdk.backend.getSdkAPI], whose deprecation marks the work left to do.
    */
-  val sdk: Sdk?,
+  val interpreter: PythonInterpreter?,
 ) {
   val module: Module get() = self.residesOnModule
 
@@ -117,7 +125,23 @@ class EvoPyProject(
 
   /** This project's own base dir. See [EvoWorkspace.baseDir] for the directory a tool runs in. */
   val baseDir: Directory get() = self.baseDir
+
+  /**
+   * This project's wire identity. See [keyOf].
+   *
+   * A field, so the key travels with the project it addresses. A caller that holds one never has to derive the other.
+   */
+  val key: String = keyOf(self)
 }
+
+/**
+ * A `PyProject`'s wire identity: its base dir, system-independent.
+ *
+ * System-independent because the frontend matches it against a content root's
+ * [com.intellij.openapi.vfs.VirtualFile.getPath], which is already in that form. So the comparison is plain string
+ * equality on both sides, with no path parsing and no VFS lookup.
+ */
+private fun keyOf(pyProject: PyProject): String = FileUtil.toSystemIndependentName(pyProject.baseDir.toString())
 
 /** [EvoToolContext.cached] key under which the core-supplied system-Python list is memoized. */
 private const val SYSTEM_PYTHONS_KEY: String = "core.systemPythons"

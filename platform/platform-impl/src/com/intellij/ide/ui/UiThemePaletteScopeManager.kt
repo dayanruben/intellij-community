@@ -101,7 +101,7 @@ internal class UiThemePaletteScopeManager(themeId: @NonNls String, theme: UIThem
 
   fun computeDigest(builder: InsecureHashBuilder): InsecureHashBuilder {
     // id and version of this class implementation, see ColorPatcherIdGenerator
-    builder.putLong(453973057740471735)
+    builder.putLong(804496732575600524)
       .putBoolean(isBasedOnExperimentalTheme)
     ui.updateHash(builder)
     checkBoxes.updateHash(builder)

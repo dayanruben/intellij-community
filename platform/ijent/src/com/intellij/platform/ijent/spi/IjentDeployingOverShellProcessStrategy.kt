@@ -78,12 +78,39 @@ abstract class IjentDeployingOverShellProcessStrategy(
     }
   }
 
+  /** Starts a deployment shell through a command when the target shell is unknown. */
+  abstract class WithShellBootstrap(scope: ParentOfIjentScopes, currentDispatcher: CoroutineDispatcher) :
+    IjentDeployingOverShellProcessStrategy(scope, currentDispatcher) {
+    private val shellBootstrap by lazy { createShellBootstrap() }
+
+    /** Runs [script] as the initial command and keeps the process streams open. */
+    protected abstract suspend fun createShellProcessFacade(
+      ijentProcessScope: IjentScope,
+      script: String,
+    ): IjentSessionProcessMediator.ProcessFacade
+
+    final override suspend fun createShellProcessFacade(ijentProcessScope: IjentScope): IjentSessionProcessMediator.ProcessFacade =
+      createShellProcessFacade(ijentProcessScope, shellBootstrap.command)
+
+    final override suspend fun getShellDialect(process: IjentSessionProcessMediator.ProcessFacade): ShellDialect {
+      val result = runCatching { detectBootstrappedShell(process, shellBootstrap.marker) }
+      result.exceptionOrNull()?.let { failure ->
+        withContext(NonCancellable) {
+          runCatching { process.destroyForcibly() }.exceptionOrNull()?.let(failure::addSuppressed)
+        }
+      }
+      return when (result.getOrThrow()) {
+        DetectedShell.Posix -> ShellDialect.POSIX
+        DetectedShell.PowerShell -> ShellDialect.POWERSHELL
+      }
+    }
+  }
+
   protected sealed interface ExecutionStrategy {
     data object Default : ExecutionStrategy
 
     /**
-     * [tlsCertificates] intentionally has no default value: every deployer must state explicitly whether the TCP socket
-     * of IJent is protected with mutual TLS or is left plaintext and unauthenticated.
+     * [tlsCertificates] protect the TCP socket of IJent with mutual TLS. A plaintext TCP socket is not an option.
      *
      * [noShutdownOnDisconnect] makes IJent outlive the death of its gRPC peer; in exchange, an explicit close asks it
      * to terminate in-band (the flag is mirrored into [IjentConnectionContext.noShutdownOnDisconnect]). Only a deployer
@@ -92,7 +119,7 @@ abstract class IjentDeployingOverShellProcessStrategy(
      */
     data class Tcp(
       val deployInfo: TcpDeployInfo,
-      val tlsCertificates: MutualTlsCertificates?,
+      val tlsCertificates: MutualTlsCertificates,
       val noShutdownOnDisconnect: Boolean = false,
     ) : ExecutionStrategy
   }
@@ -107,7 +134,7 @@ abstract class IjentDeployingOverShellProcessStrategy(
 
   protected enum class ShellDialect { POSIX, POWERSHELL }
 
-  protected open suspend fun getShellDialect(): ShellDialect = ShellDialect.POSIX
+  protected open suspend fun getShellDialect(process: IjentSessionProcessMediator.ProcessFacade): ShellDialect = ShellDialect.POSIX
 
   /**
    * Interruption strategy for the initial shell setup.
@@ -154,7 +181,7 @@ abstract class IjentDeployingOverShellProcessStrategy(
       currentCoroutineContext().ensureActive()
     }
     withShellInitializationInterruption {
-      val shellIo = when (getShellDialect()) {
+      val shellIo = when (getShellDialect(processFacade)) {
         ShellDialect.POSIX -> PosixShellIo(shell)
         ShellDialect.POWERSHELL -> PowerShellIo(shell)
       }
@@ -508,7 +535,7 @@ private sealed interface IjentLaunchOptions {
 
   data class Tcp(
     val deployInfo: TcpDeployInfo,
-    val tlsCertificates: MutualTlsCertificates?,
+    val tlsCertificates: MutualTlsCertificates,
     val noShutdownOnDisconnect: Boolean,
   ) : IjentLaunchOptions
 }
@@ -530,7 +557,7 @@ private fun IjentLaunchOptions.command(remoteBinaryPath: String): IjentLaunchCom
         selfDeleteOnExit = true,
         noShutdownOnDisconnect = noShutdownOnDisconnect,
         deployInfo = deployInfo,
-        useTLS = tlsCertificates != null,
+        useTLS = true,
       ),
       tlsCertificates = tlsCertificates,
     )

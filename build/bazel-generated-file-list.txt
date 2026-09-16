@@ -779,6 +779,7 @@ platform/eel-nioFs
 platform/eel-nioFs-impl
 platform/eel-provider
 platform/eel-tcp
+platform/eel/testFramework
 platform/execution
 platform/execution-impl
 platform/execution-impl/backend
@@ -859,6 +860,7 @@ platform/kernel/pasta
 platform/kernel/rpc
 platform/kernel/rpc.backend
 platform/kernel/rpc.lite
+platform/kernel/rpc.tests
 platform/kernel/shared
 platform/lang-api
 platform/lang-core
@@ -1412,6 +1414,7 @@ plugins/kotlin/base/scripting/scripting.scratch.definition
 plugins/kotlin/base/statistics
 plugins/kotlin/base/testFramework
 plugins/kotlin/base/util
+plugins/kotlin/build-tools-runtime
 plugins/kotlin/bundled-compiler-plugins-support
 plugins/kotlin/code-insight/api
 plugins/kotlin/code-insight/descriptions
@@ -1796,6 +1799,7 @@ python/impl.helperLocator
 python/installer
 python/intellij.python.community.communityOnly
 python/intellij.python.ml.features
+python/jcef
 python/junit5Tests-framework
 python/mcp
 python/openapi

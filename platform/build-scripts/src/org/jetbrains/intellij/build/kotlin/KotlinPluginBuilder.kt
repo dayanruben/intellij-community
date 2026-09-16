@@ -135,6 +135,9 @@ abstract class KotlinPluginBuilder(val kind: KotlinPluginKind = System.getProper
       spec.withModule("intellij.libraries.kotlinc.kotlin.compiler.fe10")
       withKotlincInPluginDirectory(spec = spec)
 
+      spec.withProjectLibraryUnpackedIntoJar("kotlinc.kotlin-build-tools-api", spec.mainJarName)
+      spec.withProjectLibraryUnpackedIntoJar("kotlinc.kotlin-build-tools-impl", spec.mainJarName)
+
       addition?.invoke(spec)
     }
   }

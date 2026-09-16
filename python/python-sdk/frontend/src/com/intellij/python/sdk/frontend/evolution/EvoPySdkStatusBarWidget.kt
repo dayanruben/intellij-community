@@ -25,6 +25,7 @@ import com.intellij.python.sdk.common.evolution.PyEvoWidgetCollector
 import com.intellij.python.sdk.common.evolution.PyInterpreterDto
 import com.intellij.python.sdk.common.evolution.evoRpcOrNull
 import com.intellij.python.sdk.common.evolution.requestEvoAssociatedInterpreters
+import org.jetbrains.annotations.ApiStatus
 import com.intellij.python.sdk.common.evolution.requestEvoCurrentInterpreter
 import com.intellij.python.sdk.common.evolution.requestEvoNodes
 import com.intellij.python.sdk.common.evolution.requestEvoPyProjects
@@ -298,7 +299,7 @@ private class EvoPySdkStatusBarWidget(project: Project, scope: CoroutineScope) :
 
   override fun getWidgetState(file: VirtualFile?): WidgetState {
     val structure = this.structure ?: return hidden()
-    val target = targetFor(file) ?: return hidden()
+    val target = forFile(file) ?: return hidden()
     shownKey = target.key
     val askedProject = structure.askedProjectOf(target)
     val dataKey = structure.dataKeyOf(target)
@@ -417,8 +418,7 @@ private class EvoPySdkStatusBarWidget(project: Project, scope: CoroutineScope) :
       try {
         val associated = evoRpcOrNull { requestEvoAssociatedInterpreters(project.projectId(), askedProject) }.orEmpty()
         val base = cache[dataKey] ?: return@launch
-        // Compare by what a row names, not by the DTOs: an IconId is not guaranteed to be equal across fetches.
-        if (base.associated.map { it.ref } == associated.map { it.ref }) return@launch
+        if (!interpreterRowsChanged(base.associated, associated)) return@launch
         cache[dataKey] = base.copy(associated = associated)
         dropPopupTreeBuiltFrom(dataKey)
         update()
@@ -574,8 +574,16 @@ private class EvoPySdkStatusBarWidget(project: Project, scope: CoroutineScope) :
    * project, i.e. whenever a `PyProject` is rooted at the project's base dir: in PyCharm that is always (a plain Python
    * module is kept at the project root even with no `pyproject.toml` declaring one), and in IDEA exactly when the
    * project root really is Python — which is what the widget used to approximate with a PyCharm-only check.
+   *
+   * The backend states the same rule in `EvoPyProjectModel.Snapshot.forFile`, which every backend surface reads.
+   * This copy exists because the frontend holds [EvoPyProjectDto] and not `EvoPyProject`. Change the two together: a
+   * surface that answers on its own rule names an interpreter another surface does not (PY-90174).
+   *
+   * No test covers this copy. `EvoPyProjectModelTest` and `PyConsoleSubprojectTargetTest` prove the backend rule
+   * only, so a change here that disagrees with it stays green. Covering it means either lifting the rule off this
+   * widget into something a unit test can call, or writing it in the UI suite.
    */
-  private fun targetFor(file: VirtualFile?): EvoPyProjectDto? {
+  private fun forFile(file: VirtualFile?): EvoPyProjectDto? {
     val structure = this.structure ?: return null
     val module = file?.let { findModule(it) }
     return if (module != null) structure.of(module) else structure.main
@@ -585,3 +593,26 @@ private class EvoPySdkStatusBarWidget(project: Project, scope: CoroutineScope) :
     ModuleManager.getInstance(project).modules.firstOrNull { it.moduleContentScope.contains(file) }
 
 }
+
+/**
+ * Whether [fresh] rows would draw differently from the [shown] ones, which is when the popup has to be rebuilt.
+ *
+ * Everything a row renders counts, except the icon: an [com.intellij.ide.ui.icons.IconId] is not guaranteed to be
+ * equal across fetches, so weighing it would rebuild the popup on every read.
+ *
+ * [PyInterpreterDto.title] is the field this exists for. It carries the version, and a comparison by
+ * [PyInterpreterDto.ref] alone missed it: an environment recreated on another Python keeps its SDK name, so the refs
+ * still matched, the fresh list was dropped, and the popup went on showing a version that was gone.
+ *
+ * Keep [rowIdentity] in step with [PyInterpreterDto]. A field added there and not here is a change the popup will
+ * not show.
+ *
+ * Public only to be reachable from `intellij.python.sdk.tests`, which is its own Kotlin module.
+ */
+@ApiStatus.Internal
+fun interpreterRowsChanged(shown: List<PyInterpreterDto>, fresh: List<PyInterpreterDto>): Boolean =
+  shown.map { it.rowIdentity() } != fresh.map { it.rowIdentity() }
+
+/** Everything [PyInterpreterDto] renders, less the icon. See [interpreterRowsChanged]. */
+private fun PyInterpreterDto.rowIdentity(): List<Any?> =
+  listOf(ref, title, description, dependencyFileUrl, activeNodeId)

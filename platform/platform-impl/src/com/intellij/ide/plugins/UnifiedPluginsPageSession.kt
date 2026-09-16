@@ -5,51 +5,14 @@ import com.intellij.icons.AllIcons
 import com.intellij.ide.CopyProvider
 import com.intellij.ide.IdeBundle
 import com.intellij.ide.impl.ProjectUtil.getActiveProject
-import com.intellij.ide.plugins.unified.BundledPluginCategoryAction
-import com.intellij.ide.plugins.unified.LegacyPluginDetailsPresenter
-import com.intellij.ide.plugins.unified.LegacyPluginRowFactory
-import com.intellij.ide.plugins.unified.UnifiedPluginLocalDataProvider
-import com.intellij.ide.plugins.unified.UnifiedPluginLocalSourceCoordinator
-import com.intellij.ide.plugins.unified.UnifiedPluginInternalGroup
-import com.intellij.ide.plugins.unified.UnifiedPluginInternalSourceCoordinator
-import com.intellij.ide.plugins.unified.UnifiedPluginMarketplaceDataProvider
-import com.intellij.ide.plugins.unified.UnifiedPluginMarketplaceSourceCoordinator
-import com.intellij.ide.plugins.unified.UnifiedPluginRepositoryCache
-import com.intellij.ide.plugins.unified.UnifiedPluginRepositoryDataProvider
-import com.intellij.ide.plugins.unified.UnifiedPluginRepositorySourceCoordinator
-import com.intellij.ide.plugins.unified.UnifiedPluginsPageSourceCoordinator
-import com.intellij.ide.plugins.unified.UnifiedPluginsPageSourceState
-import com.intellij.ide.plugins.unified.DefaultUnifiedPluginLocalDataProvider
-import com.intellij.ide.plugins.unified.DefaultUnifiedPluginMarketplaceDataProvider
-import com.intellij.ide.plugins.unified.DefaultUnifiedPluginRepositoryDataProvider
-import com.intellij.ide.plugins.unified.PluginOccurrenceId
-import com.intellij.ide.plugins.unified.PluginSectionId
-import com.intellij.ide.plugins.unified.PluginSectionStatus
-import com.intellij.ide.plugins.unified.PluginsQueryState
-import com.intellij.ide.plugins.unified.PluginsQueryScope
-import com.intellij.ide.plugins.unified.UnifiedPluginsPageActions
-import com.intellij.ide.plugins.unified.UnifiedPluginsPageController
-import com.intellij.ide.plugins.unified.UnifiedPluginsPageView
-import com.intellij.ide.plugins.unified.PageSessionPluginUpdateAllExecutor
-import com.intellij.ide.plugins.unified.UnifiedPluginUpdateAllButton
-import com.intellij.ide.plugins.unified.UnifiedPluginUpdateAllController
-import com.intellij.ide.plugins.unified.UnifiedPluginUpdateAllExecutor
-import com.intellij.ide.plugins.unified.UnifiedPluginUpdateAllIntent
-import com.intellij.ide.plugins.unified.eligibleBundledCategoryPluginModels
-import com.intellij.ide.plugins.unified.eligibleInstalledPluginModels
-import com.intellij.ide.plugins.unified.initialPluginsQueryState
-import com.intellij.ide.plugins.unified.loadUnifiedPluginInternalGroup
-import com.intellij.ide.plugins.unified.pluginDetailsMode
-import com.intellij.ide.plugins.unified.unifiedPluginSearchStatistics
-import com.intellij.ide.plugins.unified.withEnrichmentReadiness
 import com.intellij.ide.plugins.marketplace.statistics.PluginManagerUsageCollector
 import com.intellij.ide.plugins.marketplace.statistics.UnifiedPluginSearchStatistics
 import com.intellij.ide.plugins.marketplace.statistics.enums.PluginManagerOpenSourceEnum
 import com.intellij.ide.plugins.marketplace.statistics.enums.UnifiedPluginSearchSourceKind
 import com.intellij.ide.plugins.newui.LegacyPluginUiHost
 import com.intellij.ide.plugins.newui.PluginManagerCustomizer
-import com.intellij.ide.plugins.newui.PluginModelEvent
 import com.intellij.ide.plugins.newui.PluginModelAsyncOperationsExecutor
+import com.intellij.ide.plugins.newui.PluginModelEvent
 import com.intellij.ide.plugins.newui.PluginPriceService
 import com.intellij.ide.plugins.newui.PluginSource
 import com.intellij.ide.plugins.newui.PluginUpdatesEvent
@@ -57,14 +20,49 @@ import com.intellij.ide.plugins.newui.PluginUpdatesService
 import com.intellij.ide.plugins.newui.SearchQueryParser
 import com.intellij.ide.plugins.newui.TabbedPaneHeaderComponent
 import com.intellij.ide.plugins.newui.TagComponent
+import com.intellij.ide.plugins.unified.BundledPluginCategoryAction
+import com.intellij.ide.plugins.unified.DefaultUnifiedPluginLocalDataProvider
+import com.intellij.ide.plugins.unified.DefaultUnifiedPluginMarketplaceDataProvider
+import com.intellij.ide.plugins.unified.DefaultUnifiedPluginRepositoryDataProvider
+import com.intellij.ide.plugins.unified.LegacyPluginDetailsPresenter
+import com.intellij.ide.plugins.unified.LegacyPluginRowFactory
+import com.intellij.ide.plugins.unified.PageSessionPluginUpdateAllExecutor
+import com.intellij.ide.plugins.unified.PluginOccurrenceId
+import com.intellij.ide.plugins.unified.PluginSectionId
+import com.intellij.ide.plugins.unified.PluginSectionStatus
+import com.intellij.ide.plugins.unified.PluginsQueryScope
+import com.intellij.ide.plugins.unified.PluginsQueryState
+import com.intellij.ide.plugins.unified.UnifiedPluginInternalGroup
+import com.intellij.ide.plugins.unified.UnifiedPluginInternalSourceCoordinator
+import com.intellij.ide.plugins.unified.UnifiedPluginLocalDataProvider
+import com.intellij.ide.plugins.unified.UnifiedPluginLocalSourceCoordinator
+import com.intellij.ide.plugins.unified.UnifiedPluginMarketplaceDataProvider
+import com.intellij.ide.plugins.unified.UnifiedPluginMarketplaceSourceCoordinator
+import com.intellij.ide.plugins.unified.UnifiedPluginRepositoryCache
+import com.intellij.ide.plugins.unified.UnifiedPluginRepositoryDataProvider
+import com.intellij.ide.plugins.unified.UnifiedPluginRepositorySourceCoordinator
+import com.intellij.ide.plugins.unified.UnifiedPluginUpdateAllButton
+import com.intellij.ide.plugins.unified.UnifiedPluginUpdateAllController
+import com.intellij.ide.plugins.unified.UnifiedPluginUpdateAllExecutor
+import com.intellij.ide.plugins.unified.UnifiedPluginUpdateAllIntent
+import com.intellij.ide.plugins.unified.UnifiedPluginsPageActions
+import com.intellij.ide.plugins.unified.UnifiedPluginsPageController
+import com.intellij.ide.plugins.unified.UnifiedPluginsPageSourceCoordinator
+import com.intellij.ide.plugins.unified.UnifiedPluginsPageSourceState
+import com.intellij.ide.plugins.unified.UnifiedPluginsPageView
+import com.intellij.ide.plugins.unified.eligibleBundledCategoryPluginModels
+import com.intellij.ide.plugins.unified.eligibleInstalledPluginModels
+import com.intellij.ide.plugins.unified.initialPluginsQueryState
+import com.intellij.ide.plugins.unified.loadUnifiedPluginInternalGroup
+import com.intellij.ide.plugins.unified.pluginDetailsMode
+import com.intellij.ide.plugins.unified.unifiedPluginSearchStatistics
+import com.intellij.ide.plugins.unified.withEnrichmentReadiness
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.actionSystem.DataSink
 import com.intellij.openapi.actionSystem.PlatformDataKeys
 import com.intellij.openapi.actionSystem.UiDataProvider
-import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ModalityState
-import com.intellij.openapi.application.asContextElement
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.extensions.PluginId
@@ -84,6 +82,7 @@ import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.ui.JBDimension
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.TextTransferable
+import com.intellij.util.ui.launchOnShow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -91,7 +90,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import java.awt.BorderLayout
 import java.awt.GridBagConstraints
@@ -108,6 +106,7 @@ import kotlin.time.TimeSource
 internal class UnifiedPluginsPageSession @RequiresEdt(generateAssertion = false /* IJPL-115548 */) constructor(
   searchQuery: String?,
   openSource: PluginManagerOpenSourceEnum,
+  private val isStandaloneConfigurable: Boolean = false,
   localDataProviderFactory: (LegacyPluginUiHost) -> UnifiedPluginLocalDataProvider = ::DefaultUnifiedPluginLocalDataProvider,
   repositoryDataProviderFactory: () -> UnifiedPluginRepositoryDataProvider = ::DefaultUnifiedPluginRepositoryDataProvider,
   marketplaceDataProviderFactory:
@@ -291,13 +290,14 @@ internal class UnifiedPluginsPageSession @RequiresEdt(generateAssertion = false 
     headerComponent = createHeaderComponent()
     customizer?.initCustomizer(contentComponent)
     renderPageSourceState(pageSource.state.value)
-    val pageModalityState = ModalityState.current()
     updateAllButton.render(updateAllController.state.value.presentation)
-    updateAllStateCollectionJob = pageScope.launch(
-      Dispatchers.EDT + pageModalityState.asContextElement(),
-      start = CoroutineStart.UNDISPATCHED,
-    ) {
-      updateAllController.state.drop(1).collect { state ->
+    pageSourceCollectionJob = contentComponent.launchOnShow("UnifiedPluginsPageSession.pageSource") {
+      pageSource.state.collect { state ->
+        if (!disposed) renderPageSourceState(state)
+      }
+    }
+    updateAllStateCollectionJob = contentComponent.launchOnShow("UnifiedPluginsPageSession.updateAllState") {
+      updateAllController.state.collect { state ->
         if (!disposed) updateAllButton.render(state.presentation)
       }
     }
@@ -306,14 +306,6 @@ internal class UnifiedPluginsPageSession @RequiresEdt(generateAssertion = false 
         val installedPluginIds = localState.listModelData.installedModels.keys
         updates.copy(enabledUpdates = updates.enabledUpdates.filter { it.pluginId in installedPluginIds })
       }.collect(updateAllController::acceptUpdates)
-    }
-    pageSourceCollectionJob = pageScope.launch(
-      Dispatchers.EDT + pageModalityState.asContextElement(),
-      start = CoroutineStart.UNDISPATCHED,
-    ) {
-      pageSource.state.drop(1).collect { state ->
-        if (!disposed) renderPageSourceState(state)
-      }
     }
     PluginManagerUsageCollector.logUnifiedSessionStarted(openSource)
     startUnifiedSearch(pageSource.state.value.query)
@@ -324,7 +316,7 @@ internal class UnifiedPluginsPageSession @RequiresEdt(generateAssertion = false 
   override fun getCenterComponent(controller: Configurable.TopComponentController): JComponent {
     controller.showProgressIndicator(false)
     controller.showResetAction(false)
-    controller.setCenterComponentGap(JBUI.scale(-2))
+    controller.setCenterComponentGap(JBUI.scale(if (isStandaloneConfigurable) 13 else -2))
     host.setTopController(controller)
     return headerComponent
   }
