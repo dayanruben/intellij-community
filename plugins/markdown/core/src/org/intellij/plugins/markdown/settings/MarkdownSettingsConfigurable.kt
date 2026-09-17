@@ -45,6 +45,7 @@ import com.intellij.ui.layout.ValidationInfoBuilder
 import com.intellij.ui.treeStructure.ProjectViewUpdateCause
 import com.intellij.util.application
 import org.intellij.plugins.markdown.MarkdownBundle
+import org.intellij.plugins.markdown.editor.tables.ui.alignment.MarkdownTableAlignmentSettingsListener
 import org.intellij.plugins.markdown.extensions.MarkdownBrowserPreviewExtension
 import org.intellij.plugins.markdown.extensions.MarkdownConfigurableExtension
 import org.intellij.plugins.markdown.extensions.MarkdownExtensionWithDownloadableFiles
@@ -122,6 +123,17 @@ internal class MarkdownSettingsConfigurable(private val project: Project) : Boun
           .bindSelected(appSettings::enableLivePreview)
       }
       row {
+        checkBox(MarkdownBundle.message("markdown.settings.align.table.cells.visually"))
+          .bindSelected(
+            getter = { appSettings.alignTableCellsVisually },
+            setter = {
+              appSettings.alignTableCellsVisually = it
+              MarkdownTableAlignmentSettingsListener.fireChanged()
+            }
+          )
+          .comment(MarkdownBundle.message("markdown.settings.align.table.cells.visually.comment"))
+      }
+      row {
         checkBox(MarkdownBundle.message("markdown.settings.enable.injections"))
           .bindSelected(settings::areInjectionsEnabled)
       }
@@ -190,14 +202,15 @@ internal class MarkdownSettingsConfigurable(private val project: Project) : Boun
     publisher.extensionsSettingsChanged(fromSettingsDialog = true)
   }
 
-  private fun Panel.htmlPanelProvidersRow(availableProviders: List<MarkdownHtmlPanelProvider>): Row {
+  private fun Panel.htmlPanelProvidersRow(availableProviders: List<MarkdownHtmlPanelProvider>) {
     // guaranteed by MarkdownSettingsConfigurable.previewDependentOptionsBlock
     require(availableProviders.isNotEmpty())
-    return row(MarkdownBundle.message("markdown.settings.preview.providers.label")) {
+    if (availableProviders.size == 1) {
+      return
+    }
+    row(MarkdownBundle.message("markdown.settings.preview.providers.label")) {
       val providerInfos = availableProviders.map { it.providerInfo }
       comboBox(model = DefaultComboBoxModel(providerInfos.toTypedArray()))
-        .enabled(availableProviders.size > 1)
-        .applyIfEnabled()
         .bindItem(settings::previewPanelProviderInfo.toNullableProperty())
         .widthGroup(comboBoxWidthGroup)
     }

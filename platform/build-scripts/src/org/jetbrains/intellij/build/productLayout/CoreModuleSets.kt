@@ -172,8 +172,8 @@ object CoreModuleSets {
     // consumed by intellij.platform.ide - not by anything in corePlatform()
     embeddedModule("intellij.platform.welcomeScreen")
 
-    embeddedModule("intellij.platform.remoteServers.agent.rt")
-    embeddedModule("intellij.platform.remoteServers")
+    module("intellij.platform.remoteServers.agent.rt")
+    module("intellij.platform.remoteServers")
 
     embeddedModule("intellij.platform.usageView")
     embeddedModule("intellij.platform.credentialStore")
@@ -273,7 +273,7 @@ object CoreModuleSets {
     embeddedModule("intellij.platform.ide.concurrency")
     embeddedModule("intellij.platform.builtInServer")
     embeddedModule("intellij.platform.discoverability")
-    embeddedModule("intellij.platform.externalSystem")
+    module("intellij.platform.externalSystem")
     embeddedModule("intellij.platform.eel.impl")
     embeddedModule("intellij.platform.eel.nioFs.impl")
     embeddedModule("intellij.platform.diff")

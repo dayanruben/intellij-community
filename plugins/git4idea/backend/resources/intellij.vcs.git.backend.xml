@@ -293,6 +293,7 @@
     <group id="Git.Branches.List">
       <reference ref="Git.Ongoing.Rebase.Actions"/>
       <reference ref="Git.CreateNewBranch"/>
+      <reference ref="Git.CreateNewWorkingTree"/>
       <action class="git4idea.actions.branch.GitCheckoutFromInputAction"/>
     </group>
 
@@ -401,6 +402,9 @@
       <reference ref="Git.PushUpToCommit"/>
       <action id="Git.AddCommitToRemoteBranch"
               class="git4idea.actions.addCommit.GitAddCommitToRemoteBranchAction"
+              internal="true"/>
+      <action id="Git.PushSelectedCommits"
+              class="git4idea.actions.addCommit.GitPushSelectedCommitsAction"
               internal="true"/>
       <separator/>
       <reference ref="Git.BranchOperationGroup"/>
@@ -1082,6 +1086,9 @@
                     qualifiedName="Git4Idea.gitPushNotificationCustomizer"
                     dynamic="true"
                     area="IDEA_PROJECT"/>
+    <extensionPoint interface="git4idea.workingTrees.GitWorktreeOpenPathProvider"
+                    qualifiedName="Git4Idea.gitWorktreeOpenPathProvider"
+                    dynamic="true"/>
   </extensionPoints>
 
   <projectListeners>

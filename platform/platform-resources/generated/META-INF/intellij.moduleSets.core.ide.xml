@@ -65,7 +65,7 @@
     <module name="intellij.libraries.caffeine" loading="embedded"/>
     <module name="intellij.libraries.classgraph" loading="embedded"/>
     <module name="intellij.libraries.cli.parser" loading="embedded"/>
-    <module name="intellij.libraries.commons.cli" loading="embedded"/>
+    <module name="intellij.libraries.commons.cli"/>
     <module name="intellij.libraries.commons.codec" loading="embedded"/>
     <module name="intellij.libraries.commons.compress" loading="embedded"/>
     <module name="intellij.libraries.commons.io" loading="embedded"/>
@@ -213,8 +213,8 @@
     <!-- region direct modules -->
     <module name="intellij.platform.ide" loading="embedded"/>
     <module name="intellij.platform.welcomeScreen" loading="embedded"/>
-    <module name="intellij.platform.remoteServers.agent.rt" loading="embedded"/>
-    <module name="intellij.platform.remoteServers" loading="embedded"/>
+    <module name="intellij.platform.remoteServers.agent.rt"/>
+    <module name="intellij.platform.remoteServers"/>
     <module name="intellij.platform.usageView" loading="embedded"/>
     <module name="intellij.platform.credentialStore" loading="embedded"/>
     <!-- endregion -->

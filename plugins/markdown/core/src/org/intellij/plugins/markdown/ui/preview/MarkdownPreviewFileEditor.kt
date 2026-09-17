@@ -355,9 +355,13 @@ class MarkdownPreviewFileEditor(
             attachHtmlPanel()
           }
           else if (lastPanelProviderInfo == null ||
-                   MarkdownHtmlPanelProvider.createFromInfo(lastPanelProviderInfo!!) == retrievePanelProvider(settings)) {
+                   MarkdownHtmlPanelProvider.createFromInfo(lastPanelProviderInfo!!) != retrievePanelProvider(settings)) {
             detachHtmlPanel()
             attachHtmlPanel()
+          }
+          else {
+            panel?.reloadStyles()
+            updateHtml()
           }
         }
       }

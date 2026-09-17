@@ -99,6 +99,7 @@ class PluginsSettingsPageUiComponent(data: ComponentData) : LoadablePluginsUiCom
   val searchPluginTextField: JTextFieldUI = textField("Plugins search textfield") { byAccessibleName("Search plugins") }
   val unifiedFilterButton: JButtonUiComponent =
     button("Unified Plugins filter button") { byAccessibleName("Filter plugins") }
+  @Deprecated("Does not exist in Unified Plugins; consider using openInstalledTab()")
   val installedTab: JLabelUiComponent =
     x(JLabelUiComponent::class.java, readableName = "Installed tab") { and(byType(JLabel::class.java), byAccessibleName("Installed")) }
   val marketplaceTab: UiComponent = x("Marketplace tab") { and(byType(JLabel::class.java), byAccessibleName("Marketplace")) }
@@ -282,6 +283,21 @@ class PluginsSettingsPageUiComponent(data: ComponentData) : LoadablePluginsUiCom
       ListPluginComponent::class.java,
       readableName = "Plugin '$pluginName' in the '$sectionName' section",
     ).apply(action)
+
+  fun getInstalledPluginFromUnifiedSection(
+    pluginName: String,
+    action: ListPluginComponent.() -> Unit = {},
+  ): ListPluginComponent = getPluginFromUnifiedSection("Installed", pluginName, action)
+
+  fun getBundledPluginFromUnifiedSection(
+    pluginName: String,
+    action: ListPluginComponent.() -> Unit = {},
+  ): ListPluginComponent = getPluginFromUnifiedSection("Bundled", pluginName, action)
+
+  fun getMarketplacePluginFromUnifiedSection(
+    pluginName: String,
+    action: ListPluginComponent.() -> Unit = {},
+  ): ListPluginComponent = getPluginFromUnifiedSection("Marketplace", pluginName, action)
 
   fun getPluginFromList(pluginName: String, action: ListPluginComponent.() -> Unit = {}): ListPluginComponent =
     x(ListPluginComponent::class.java, readableName = "Plugin '$pluginName' in a list") {
