@@ -286,6 +286,7 @@ java/codeserver/core
 java/codeserver/highlighting
 java/compiler
 java/compiler/forms-compiler
+java/compiler/heavy-tests
 java/compiler/impl
 java/compiler/instrumentation-util
 java/compiler/instrumentation-util-8
@@ -790,6 +791,7 @@ platform/execution-process-mediator/common
 platform/execution-process-mediator/daemon
 platform/execution.dashboard
 platform/execution.dashboard/backend
+platform/execution.dashboard/debugger
 platform/execution.dashboard/frontend
 platform/execution.serviceView
 platform/execution.serviceView/backend
@@ -1313,7 +1315,6 @@ plugins/grazie/markdown
 plugins/grazie/properties
 plugins/grazie/src
 plugins/grazie/src/test
-plugins/grazie/src/tests.pro
 plugins/grazie/xml
 plugins/grazie/yaml
 plugins/groovy
@@ -1951,7 +1952,6 @@ uast/uast-java
 uast/uast-java-ide
 uast/uast-tests
 updater
-wintools
 xml/dom-impl
 xml/dom-openapi
 xml/dom-tests

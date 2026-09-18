@@ -11,6 +11,7 @@
     <module name="intellij.platform.editor.ui"/>
     <module name="intellij.platform.ide.core"/>
     <module name="intellij.platform.ide.impl"/>
+    <module name="intellij.platform.ide.observable"/>
     <module name="intellij.platform.lang"/>
     <module name="intellij.platform.lang.impl"/>
     <module name="intellij.platform.lsp"/>
@@ -35,6 +36,11 @@
   </extensionPoints>
   <extensions defaultExtensionNs="com.intellij">
     <python.lsp.typeEngineConfigurable implementation="com.intellij.python.lsp.core.typeEngine.BuiltInPyTypeEngineProvider"/>
+
+    <completion.contributor language="Python"
+                            id="PyLspCompletionContributor"
+                            order="first, after pythonConsoleCompletionBlocking, after comboEditor, before pyClassNameCompletionContributor"
+                            implementationClass="com.intellij.python.lsp.core.completion.PyLspCompletionContributor"/>
 
     <registryKey key="python.lsp.type.engine.notebooks"
                  defaultValue="true"

@@ -3,6 +3,7 @@
 
 package com.intellij.platform.projectView.impl
 
+import com.intellij.codeInsight.multiverse.EditorContextManager
 import com.intellij.codeWithMe.ClientId
 import com.intellij.codeWithMe.asContextElement
 import com.intellij.ide.DataManager
@@ -84,7 +85,6 @@ import com.intellij.platform.util.coroutines.childScope
 import com.intellij.platform.util.coroutines.flow.throttle
 import com.intellij.pom.Navigatable
 import com.intellij.psi.PsiDirectory
-import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiFileSystemItem
@@ -93,6 +93,7 @@ import com.intellij.psi.SmartPsiElementPointer
 import com.intellij.psi.createSmartPointer
 import com.intellij.psi.util.PsiUtilCore
 import com.intellij.ui.tree.TreeVisitor
+import com.intellij.ui.treeStructure.TreeNodePresentationImpl
 import com.intellij.util.concurrency.annotations.RequiresReadLock
 import com.intellij.util.containers.nullize
 import kotlinx.coroutines.CancellationException
@@ -456,6 +457,19 @@ abstract class TreeBasedProjectViewPaneModel<T : Any>(override val project: Proj
 
     private var nextId = 1L
 
+    /** Debug description of the node. */
+    private fun n(nodeId: Long): String {
+      return buildString {
+        append(nodeId)
+        val node = state.getNodeById(nodeId)
+        if (node != null) {
+          append(" [")
+          append((node.presentation as TreeNodePresentationImpl).mainText)
+          append("]")
+        }
+      }
+    }
+
     suspend fun run() {
       try {
         coroutineScope {
@@ -473,6 +487,7 @@ abstract class TreeBasedProjectViewPaneModel<T : Any>(override val project: Proj
           }
           launch(CoroutineName("Update requests for the PV pane $id")) {
             for (request in stateUpdateRequests) {
+              LOG.trace { "Processing update request $request" }
               when (request) {
                 is LoadChildrenRequest -> {
                   updateChildren(request.parentId, allowLoading = true, deep = false)
@@ -753,7 +768,7 @@ abstract class TreeBasedProjectViewPaneModel<T : Any>(override val project: Proj
       return if (fileEditor is TextEditor) {
         val editor = fileEditor.editor
         if (withContext(Dispatchers.UI) { editor.isDisposed }) return null
-        readAction { PsiDocumentManager.getInstance(project).getPsiFile(editor.document)?.createSmartPointer() }
+        readAction { EditorContextManager.getPsiFileForEditor(editor, project)?.createSmartPointer() }
       }
       else {
         val file = withContext(Dispatchers.UI) { fileEditor.file } ?: return null
@@ -898,29 +913,39 @@ abstract class TreeBasedProjectViewPaneModel<T : Any>(override val project: Proj
       // it could be that the update was requested after we updated it.
       // To avoid this scenario, we first remove all existing requests, then process it.
       // This guarantees that all our updates will be at least as recent as the requests are.
+      LOG.debug { "Processing pending updates for the path ${nodePath.nodeIds.joinToString { n(it) }}" }
       val updatesForPath = nodePath.nodeIds.map { nodeId -> nodeId to pendingUpdates.remove(nodeId) }
       for ((nodeId, updateOptions) in updatesForPath) {
+        LOG.trace { "Update for ${n(nodeId)}: $updateOptions" }
         if (updateOptions == null) continue
-        applyNodeUpdate(nodeId, updateOptions)
-        if (updateOptions.deep) break // we've just updated all deeper nodes
+        val effectiveOptions = applyNodeUpdate(nodeId, updateOptions)
+        if (effectiveOptions == null) break // the node is gone with all its children
+        if (effectiveOptions.deep) break // we've just updated all deeper nodes
       }
     }
 
-    private suspend fun applyNodeUpdate(nodeId: Long, updateOptions: ProjectViewNodeUpdateOptions) {
-      val node = suspendingState.getNodeById(nodeId) ?: return
-      val newNodeModel = createUpdatedModel(node)
-      if (newNodeModel == null) { // the node was removed/invalidated
-        val parent = suspendingState.getParentByChildId(nodeId) ?: return
-        val siblings = suspendingState.getChildren(parent) ?: return
-        val childIndex = siblings.indexOf(node).takeIf { it != -1 } ?: return
-        builder.removeNodeChild(parent.id, childIndex)
+    private suspend fun applyNodeUpdate(nodeId: Long, updateOptions: ProjectViewNodeUpdateOptions): ProjectViewNodeUpdateOptions? {
+      var node = suspendingState.getNodeById(nodeId) ?: return null // was removed earlier, nothing to update
+      var effectiveOptions = updateOptions
+      var newNodeModel: BackendProjectViewNodeModel<T>?
+      while (true) {
+        newNodeModel = createUpdatedModel(node)
+        if (newNodeModel != null) break
+        // A structural update like this can happen, for example, if there was some restructuring of a subtree.
+        // For example, we had "org.example", and created "org.something", which means "org.example" no longer exists as a single flattened node,
+        // and we have "org" instead with two children. Trying to update "org.example" will find out that it's gone, so we need to update its parent's children instead.
+        // Otherwise, it'll simply disappear (IJPL-255213).
+        LOG.trace { "The node ${n(node.id)} no longer exists, meaning it's a structural update of an ancestor, propagating..." }
+        node = suspendingState.getParentByChildId(node.id) ?: return null // was removed earlier, nothing to update
+        LOG.trace { "Trying ${n(node.id)}..." }
+        effectiveOptions = updateOptions.withDeep()
       }
-      else {
-        builder.updateNode(newNodeModel)
-        if (updateOptions.deep) { // update recursively, but only already loaded children
-          updateChildren(parentId = nodeId, allowLoading = false, deep = true)
-        }
+      LOG.trace { "The node ${n(node.id)} is updated, the new model is $newNodeModel" }
+      builder.updateNode(newNodeModel)
+      if (effectiveOptions.deep) { // update recursively, but only already loaded children
+        updateChildren(parentId = node.id, allowLoading = false, deep = true)
       }
+      return effectiveOptions
     }
 
     suspend fun updateChildren(parentId: Long, allowLoading: Boolean, deep: Boolean) {
@@ -929,13 +954,16 @@ abstract class TreeBasedProjectViewPaneModel<T : Any>(override val project: Proj
     }
 
     private suspend fun updateChildren(parentModel: BackendProjectViewNodeModel<T>, allowLoading: Boolean, deep: Boolean) {
-      LOG.debug { "Updating the children of ID = ${parentModel.id}" }
+      LOG.debug { "Updating the children of ${n(parentModel.id)}" }
       parentModel as ProjectViewNodeModelImpl<T>
       val newChildren = nodeProvider.getChildren(if (parentModel.id == SUPER_ROOT_ID) null else parentModel.userObject) ?: return
       LOG.trace { "The new children are $newChildren" }
       val oldModels = suspendingState.getChildren(parentModel)
 
-      if (oldModels == null && !allowLoading) return
+      if (oldModels == null && !allowLoading) {
+        LOG.trace { "The node children were not loaded, and loading was not requested: ${n(parentModel.id)}" }
+        return
+      }
 
       if (oldModels == null) { // first time loaded, must send even if empty
         LOG.trace { "The children were loaded for the first time, applying as-is" }
@@ -1075,7 +1103,7 @@ abstract class TreeBasedProjectViewPaneModel<T : Any>(override val project: Proj
 
     private suspend fun ensureNotLeaf(node: ProjectViewNodeModelImpl<T>) {
       if (node.presentation.isLeaf) {
-        LOG.debug { "The node ID = ${node.id} will have children now, making sure it's not a leaf" }
+        LOG.debug { "The node ${n(node.id)} will have children now, making sure it's not a leaf" }
         builder.updateNode(buildProjectViewNodeModel(node.id, node.userObject) { nodeBuilder ->
           nodeBuilder.setModel(node)
           nodeBuilder.buildPresentation { presentationBuilder ->

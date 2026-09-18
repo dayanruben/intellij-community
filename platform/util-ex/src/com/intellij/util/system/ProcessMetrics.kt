@@ -10,7 +10,6 @@ import org.jetbrains.annotations.ApiStatus
 import java.lang.foreign.Arena
 import java.lang.foreign.FunctionDescriptor
 import java.lang.foreign.Linker
-import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout.ADDRESS
 import java.lang.foreign.ValueLayout.JAVA_INT
 import java.lang.foreign.ValueLayout.JAVA_LONG
@@ -48,7 +47,7 @@ object ProcessMetrics {
       return when (OS.CURRENT) {
         OS.Linux -> LinuxProcessStatus.residentSetSize(pid)
         OS.macOS -> MacProcInfo.residentSetSize(pid)
-        OS.Windows -> WindowsProcessInfo.residentSetSize(pid)
+        OS.Windows -> WindowsProcessMetrics.residentSetSize(pid)
         else -> null
       }
     }
@@ -123,10 +122,8 @@ private object MacProcInfo {
  * Reads `WorkingSetSize` of `PROCESS_MEMORY_COUNTERS` through `OpenProcess` and a `GetProcessMemoryInfo` downcall into `psapi.dll`.
  * `PROCESS_QUERY_LIMITED_INFORMATION` is enough for the query since Windows 8.1.
  */
-private object WindowsProcessInfo {
-  private val LOG = logger<WindowsProcessInfo>()
-
-  private const val PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+private object WindowsProcessMetrics {
+  private val LOG = logger<WindowsProcessMetrics>()
 
   /** `sizeof(PROCESS_MEMORY_COUNTERS)` on x64 and ARM64: two `DWORD`s, then eight `SIZE_T`s. */
   private const val COUNTERS_SIZE = 72
@@ -134,70 +131,32 @@ private object WindowsProcessInfo {
   /** The offset of `WorkingSetSize`: after `cb`, `PageFaultCount` and `PeakWorkingSetSize`. */
   private const val WORKING_SET_SIZE = 16L
 
-  private val LINKER: Linker = Linker.nativeLinker()
-
-  /** `HANDLE OpenProcess(DWORD dwDesiredAccess, BOOL bInheritHandle, DWORD dwProcessId)` */
-  private val OPEN_PROCESS: MethodHandle by lazy {
-    LINKER.downcallHandle(
-      WindowsSystemLibraries.lookup("kernel32.dll").findOrThrow("OpenProcess"),
-      FunctionDescriptor.of(ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT),
-    )
-  }
-
-  /** `BOOL CloseHandle(HANDLE hObject)` */
-  private val CLOSE_HANDLE: MethodHandle by lazy {
-    LINKER.downcallHandle(
-      WindowsSystemLibraries.lookup("kernel32.dll").findOrThrow("CloseHandle"),
-      FunctionDescriptor.of(JAVA_INT, ADDRESS),
-    )
-  }
-
-  /** `BOOL GetExitCodeProcess(HANDLE hProcess, LPDWORD lpExitCode)` */
-  private val GET_EXIT_CODE_PROCESS: MethodHandle by lazy {
-    LINKER.downcallHandle(
-      WindowsSystemLibraries.lookup("kernel32.dll").findOrThrow("GetExitCodeProcess"),
-      FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS),
-    )
-  }
-
-  /** The exit code `GetExitCodeProcess` reports for a running process. */
-  private const val STILL_ACTIVE = 259
-
-  /** `BOOL GetProcessMemoryInfo(HANDLE Process, PPROCESS_MEMORY_COUNTERS ppsmemCounters, DWORD cb)` */
-  private val GET_PROCESS_MEMORY_INFO: MethodHandle by lazy {
-    LINKER.downcallHandle(
-      WindowsSystemLibraries.lookup("psapi.dll").findOrThrow("GetProcessMemoryInfo"),
-      FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, JAVA_INT),
-    )
-  }
-
   fun residentSetSize(pid: Long): Long? {
-    val process = OPEN_PROCESS.invokeExact(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid.toInt()) as MemorySegment
-    if (process == MemorySegment.NULL) {
-      return null
-    }
-    try {
-      Arena.ofConfined().use { arena ->
+    Arena.ofConfined().use { arena ->
+      val callState = arena.allocate(WindowsKernel32.CALL_STATE)
+      val process = WindowsKernel32.openProcess(callState, WindowsKernel32.PROCESS_QUERY_LIMITED_INFORMATION, pid)
+      if (process.address() == 0L) {
+        LOG.debug { "OpenProcess failed for the process $pid: ${WindowsError.prettyHRESULT(WindowsKernel32.lastError(callState))}" }
+        return null
+      }
+      try {
         // A process that exited keeps its object alive while another process holds a handle, and OpenProcess still succeeds.
         // Its working set is gone, so report nothing, like the other OSes do for a dead PID.
-        val exitCode = arena.allocate(JAVA_INT)
-        val hasExitCode = GET_EXIT_CODE_PROCESS.invokeExact(process, exitCode) as Int
-        if (hasExitCode != 0 && exitCode.get(JAVA_INT, 0) != STILL_ACTIVE) {
+        val exitCode = WindowsKernel32.exitCode(process)
+        if (exitCode != null && exitCode != WindowsKernel32.STILL_ACTIVE) {
           return null
         }
         val counters = arena.allocate(COUNTERS_SIZE.toLong())
         counters.set(JAVA_INT, 0, COUNTERS_SIZE)
-        val succeeded = GET_PROCESS_MEMORY_INFO.invokeExact(process, counters, COUNTERS_SIZE) as Int
-        if (succeeded == 0) {
+        if (!WindowsPsapi.processMemoryInfo(process, counters)) {
           return null
         }
         return counters.get(JAVA_LONG, WORKING_SET_SIZE)
       }
-    }
-    finally {
-      val closed = CLOSE_HANDLE.invokeExact(process) as Int
-      if (closed == 0) {
-        LOG.debug { "CloseHandle failed for the process $pid" }
+      finally {
+        if (!WindowsKernel32.closeHandle(process)) {
+          LOG.debug { "CloseHandle failed for the process $pid" }
+        }
       }
     }
   }

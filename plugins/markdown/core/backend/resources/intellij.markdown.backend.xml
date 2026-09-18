@@ -18,6 +18,7 @@
       <module name="intellij.platform.ide.core.impl"/>
       <module name="intellij.platform.ide.impl"/>
       <module name="intellij.platform.ide.progress"/>
+      <module name="intellij.platform.ide.rpc"/>
       <module name="intellij.platform.indexing"/>
       <module name="intellij.platform.kernel.backend"/>
       <module name="intellij.platform.lang"/>
@@ -121,6 +122,7 @@
                        groupKey="markdown.inspection.group.ruby.name"
                        enabledByDefault="true"
                        level="WARNING"
+                       editorAttributes="INFO_ATTRIBUTES"
                        implementationClass="com.intellij.markdown.backend.inspections.MarkdownUnresolvedFileReferenceInspection"/>
 
       <localInspection language="Markdown"

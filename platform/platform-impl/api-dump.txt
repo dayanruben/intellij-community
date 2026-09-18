@@ -1018,6 +1018,7 @@ f:com.intellij.ide.dnd.FileCopyPasteUtil
 - s:getFileList(java.awt.datatransfer.Transferable):java.util.List
 - s:getFileListFromAttachedObject(java.lang.Object):java.util.List
 - s:getFiles(java.awt.datatransfer.Transferable):java.util.List
+- s:getPathListFromAttachedObject(java.lang.Object):java.util.List
 - s:isFileListFlavorAvailable():Z
 - s:isFileListFlavorAvailable(com.intellij.ide.dnd.DnDEvent):Z
 - s:isFileListFlavorAvailable(java.awt.datatransfer.DataFlavor[]):Z
@@ -2700,7 +2701,6 @@ f:com.intellij.openapi.editor.impl.EditorImpl
 - com.intellij.openapi.editor.ex.EditorEx
 - com.intellij.openapi.editor.highlighter.HighlighterClient
 - com.intellij.openapi.ui.Queryable
-- java.awt.event.FocusListener
 - addEditorMouseListener(com.intellij.openapi.editor.event.EditorMouseListener):V
 - addEditorMouseMotionListener(com.intellij.openapi.editor.event.EditorMouseMotionListener):V
 - addFocusListener(com.intellij.openapi.editor.ex.FocusChangeListener):V

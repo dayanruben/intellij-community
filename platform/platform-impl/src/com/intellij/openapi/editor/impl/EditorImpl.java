@@ -11,8 +11,6 @@ import com.intellij.ide.DataManager;
 import com.intellij.ide.DeleteProvider;
 import com.intellij.ide.IdeEventQueue;
 import com.intellij.ide.PasteProvider;
-import com.intellij.ide.PowerSaveMode;
-import com.intellij.ide.RemoteDesktopService;
 import com.intellij.ide.actions.DistractionFreeModeController;
 import com.intellij.ide.dnd.DnDManager;
 import com.intellij.ide.dnd.DnDManagerImpl;
@@ -59,7 +57,6 @@ import com.intellij.openapi.editor.EditorBundle;
 import com.intellij.openapi.editor.EditorCoreUtil;
 import com.intellij.openapi.editor.EditorDropHandler;
 import com.intellij.openapi.editor.EditorGutter;
-import com.intellij.openapi.editor.EditorHostedComponent;
 import com.intellij.openapi.editor.EditorKind;
 import com.intellij.openapi.editor.EditorLinePainter;
 import com.intellij.openapi.editor.EditorModificationUtil;
@@ -178,6 +175,7 @@ import com.intellij.psi.codeStyle.CodeStyleSettingsListener;
 import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
 import com.intellij.ui.ColorUtil;
 import com.intellij.ui.DirtyUI;
+import com.intellij.ui.DrawUtil;
 import com.intellij.ui.EditorNotifications;
 import com.intellij.ui.ExperimentalUI;
 import com.intellij.ui.IslandsState;
@@ -208,6 +206,7 @@ import com.intellij.util.concurrency.annotations.RequiresEdt;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.ButtonlessScrollBarUI;
 import com.intellij.util.ui.EdtInvocationManager;
+import com.intellij.util.ui.FocusUtil;
 import com.intellij.util.ui.GraphicsUtil;
 import com.intellij.util.ui.ImageUtil;
 import com.intellij.util.ui.JBUI;
@@ -286,6 +285,7 @@ import java.awt.geom.Point2D;
 import java.awt.im.InputContext;
 import java.awt.im.InputMethodRequests;
 import java.awt.image.BufferedImage;
+import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.beans.PropertyChangeSupport;
 import java.io.IOException;
@@ -307,7 +307,7 @@ import java.util.function.Function;
 import java.util.function.IntFunction;
 import java.util.function.Predicate;
 
-public final class EditorImpl extends UserDataHolderBase implements EditorEx, HighlighterClient, Queryable, Dumpable, FocusListener {
+public final class EditorImpl extends UserDataHolderBase implements EditorEx, HighlighterClient, Queryable, Dumpable {
   public static final int TEXT_ALIGNMENT_LEFT = 0;
   public static final int TEXT_ALIGNMENT_RIGHT = 1;
 
@@ -521,6 +521,9 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   private boolean myForcePushHappened;
   private boolean myMouseIsInDrag;
   private boolean myIsCurrentlyInFocus = true;
+  private volatile boolean myIsInputFocusOwner;
+  private final AtomicBoolean gainedFocus = new AtomicBoolean(false);
+  private final MyFocusListener myFocusListener = new MyFocusListener();
 
   private @Nullable VisualPosition mySuppressedByBreakpointsLastPressPosition;
 
@@ -551,6 +554,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
 
   private final ImmediatePainter myImmediatePainter;
 
+  /// @noinspection TypeParameterExtendsFinalClass -- leaked to public api
   private final List<IntFunction<? extends @NotNull Collection<? extends LineExtensionInfo>>> myLineExtensionPainters = new SmartList<>();
 
   private volatile int myExpectedCaretOffset = -1;
@@ -658,7 +662,9 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
 
     setHighlighter(highlighter == null ? new NullEditorHighlighter() : highlighter);
 
-    new FoldingPopupManager(this);
+    FoldingPopupManager popupManager = new FoldingPopupManager(myDisposable);
+    addEditorMouseListener(popupManager);
+    addEditorMouseMotionListener(popupManager);
 
     myEditorComponent = new EditorComponentImpl(this);
     myVerticalScrollBar = (MyScrollBar)myScrollPane.getVerticalScrollBar();
@@ -878,40 +884,77 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     return myFocusModeModel;
   }
 
-  private final AtomicBoolean gainedFocus = new AtomicBoolean(false);
-
-  @Override
-  public void focusGained(@NotNull FocusEvent e) {
-    if (MOUSE_PRESS_LOG.isTraceEnabled() && myLastMousePressedLocation != null) {
-      MOUSE_PRESS_LOG.trace("[press #" + myMousePressSeq + "] focusGained with stale pressedLoc=" + myLastMousePressedLocation +
-                            " virtualSpace=" + EditorCoreUtil.inVirtualSpace(this, myLastMousePressedLocation) +
-                            " opposite=" + (e.getOppositeComponent() == null ? "null" : e.getOppositeComponent().getClass().getSimpleName()));
-    }
-    caretMutator.setVisible(true);
-    gainedFocus.set(true);
-
-    for (Caret caret : myCaretModel.getAllCarets()) {
-      int caretLine = caret.getLogicalPosition().line;
-      repaintLines(caretLine, caretLine);
-    }
-
-    fireFocusGained(e);
-
-    SwingUtilities.invokeLater(() -> {
-      if (isDisposed()) return;
-
-      if (shouldKeepSelectionInactiveOnMousePress()) {
+  /**
+   * The editor needs two focus sources. AWT sends a focus event only to the focus owner itself, so
+   * {@link FocusListener} stays silent when the focus moves into a child of the content component. Such a child can
+   * hold the input focus, so {@link #myIsInputFocusOwner} follows the global focus owner instead.
+   */
+  private final class MyFocusListener implements FocusListener, PropertyChangeListener {
+    /** AWT fires the focus owner change on the EDT, where the hierarchy that the walk reads is valid. */
+    @Override
+    public void propertyChange(PropertyChangeEvent event) {
+      if (isReleased) {
         return;
       }
+      Component focusOwner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
+      myIsInputFocusOwner = EditorInputFocusKt.isInputFocusOwner(focusOwner, getContentComponent());
+    }
 
-      setFocusGained();
-    });
+    @Override
+    public void focusGained(@NotNull FocusEvent e) {
+      if (MOUSE_PRESS_LOG.isTraceEnabled() && myLastMousePressedLocation != null) {
+        MOUSE_PRESS_LOG.trace("[press #" + myMousePressSeq + "] focusGained with stale pressedLoc=" + myLastMousePressedLocation +
+                              " virtualSpace=" + EditorCoreUtil.inVirtualSpace(EditorImpl.this, myLastMousePressedLocation) +
+                              " opposite=" + (e.getOppositeComponent() == null ? "null" : e.getOppositeComponent().getClass().getSimpleName()));
+      }
+      caretMutator.setVisible(true);
+      gainedFocus.set(true);
+      for (Caret caret : myCaretModel.getAllCarets()) {
+        int caretLine = caret.getLogicalPosition().line;
+        repaintLines(caretLine, caretLine);
+      }
+      fireFocusGained(e);
+      SwingUtilities.invokeLater(() -> {
+        if (isDisposed()) {
+          return;
+        }
+        if (shouldKeepSelectionInactiveOnMousePress()) {
+          return;
+        }
+        setFocusGained();
+      });
+    }
+
+    @Override
+    public void focusLost(@NotNull FocusEvent e) {
+      // IJPL-52267: if this fires while myLastMousePressedLocation is a non-null (virtual-space) value, the
+      // press's MOUSE_RELEASED was never delivered here — this is exactly the point where the proposed fix
+      // would clear the field. Logging it proves the stale value survives across focus loss without the fix.
+      if (MOUSE_PRESS_LOG.isTraceEnabled() && myLastMousePressedLocation != null) {
+        MOUSE_PRESS_LOG.trace("[press #" + myMousePressSeq + "] focusLost with stale pressedLoc=" + myLastMousePressedLocation +
+                              " virtualSpace=" + EditorCoreUtil.inVirtualSpace(EditorImpl.this, myLastMousePressedLocation) +
+                              " caret=" + myCaretModel.getLogicalPosition() +
+                              " ageMs=" + (System.nanoTime() - myMousePressTimestampNanos) / 1_000_000 +
+                              " opposite=" + (e.getOppositeComponent() == null ? "null" : e.getOppositeComponent().getClass().getSimpleName()));
+      }
+      updateFocus();
+      myFocusKeepSelectionOnMousePress = false;
+      mySelectionModel.reinitSettings();
+      invalidateAnimationCaches(null);
+      clearCaretThread();
+      for (Caret caret : myCaretModel.getAllCarets()) {
+        int caretLine = caret.getLogicalPosition().line;
+        repaintLines(caretLine, caretLine);
+      }
+      fireFocusLost(e);
+    }
   }
 
   private void setFocusGained() {
-    if (myIsCurrentlyInFocus) return;
+    if (myIsCurrentlyInFocus) {
+      return;
+    }
     updateFocus();
-
     mySelectionModel.reinitSettings();
     for (Caret caret : myCaretModel.getAllCarets()) {
       if (caret.hasSelection()) {
@@ -920,33 +963,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     }
   }
 
-  @Override
-  public void focusLost(@NotNull FocusEvent e) {
-    // IJPL-52267: if this fires while myLastMousePressedLocation is a non-null (virtual-space) value, the
-    // press's MOUSE_RELEASED was never delivered here — this is exactly the point where the proposed fix
-    // would clear the field. Logging it proves the stale value survives across focus loss without the fix.
-    if (MOUSE_PRESS_LOG.isTraceEnabled() && myLastMousePressedLocation != null) {
-      MOUSE_PRESS_LOG.trace("[press #" + myMousePressSeq + "] focusLost with stale pressedLoc=" + myLastMousePressedLocation +
-                            " virtualSpace=" + EditorCoreUtil.inVirtualSpace(this, myLastMousePressedLocation) +
-                            " caret=" + myCaretModel.getLogicalPosition() +
-                            " ageMs=" + (System.nanoTime() - myMousePressTimestampNanos) / 1_000_000 +
-                            " opposite=" + (e.getOppositeComponent() == null ? "null" : e.getOppositeComponent().getClass().getSimpleName()));
-    }
-    updateFocus();
-
-    myFocusKeepSelectionOnMousePress = false;
-    mySelectionModel.reinitSettings();
-    invalidateAnimationCaches(null);
-
-    clearCaretThread();
-    for (Caret caret : myCaretModel.getAllCarets()) {
-      int caretLine = caret.getLogicalPosition().line;
-      repaintLines(caretLine, caretLine);
-    }
-    fireFocusLost(e);
-  }
-
-  void updateFocus() {
+  private void updateFocus() {
     Window window = SwingUtilities.getWindowAncestor(myPanel);
     if (window == null) {
       return;
@@ -1568,7 +1585,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
       myMouseListeners.clear();
       myMouseMotionListeners.clear();
 
-      myEditorComponent.removeFocusListener(this);
+      myEditorComponent.removeFocusListener(myFocusListener);
 
       myEditorComponent.removeMouseListener(myMouseListener);
       myGutterComponent.removeMouseListener(myMouseListener);
@@ -1656,7 +1673,8 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     myEditorComponent.addMouseMotionListener(myMouseMotionListener);
     myGutterComponent.addMouseMotionListener(myMouseMotionListener);
 
-    myEditorComponent.addFocusListener(this);
+    myEditorComponent.addFocusListener(myFocusListener);
+    FocusUtil.addFocusOwnerListener(myDisposable, myFocusListener);
 
     UiNotifyConnector.doWhenFirstShown(myEditorComponent, myGutterComponent::updateSizeOnShowNotify, getDisposable());
 
@@ -2618,6 +2636,15 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
       return;
     }
 
+    if (!shouldPaint()) {
+      fillPlaceholder(g);
+      return;
+    }
+
+    if (myProject != null && myProject.isDisposed()) {
+      return;
+    }
+
     BufferedImage buffer = myDumbBuffer;
     if (buffer != null) {
       Rectangle rect = getContentComponent().getVisibleRect();
@@ -2625,21 +2652,17 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
       return;
     }
 
-    if (!shouldPaint()) {
-      fillPlaceholder(g);
-      return;
-    }
-
     if (myUpdateCursor && !myPurePaintingMode) {
-      setCursorPosition();
+      if (shouldSetCursorPositionImmediately()) {
+        caretMutator.caretMovedImmediately();
+      } else {
+        caretMutator.caretMoved();
+      }
       myUpdateCursor = false;
     }
 
-    if (myProject != null && myProject.isDisposed()) {
-      return;
-    }
-
-    myView.paint(g, canPaintFromContentAnimationCache() ? myContentAnimationCache : null);
+    EditorAnimationCache cache = canPaintFromContentAnimationCache() ? myContentAnimationCache : null;
+    myView.paint(g, cache);
 
     boolean isBackgroundImageSet = IdeBackgroundUtil.isEditorBackgroundImageSet(myProject);
     if (myBackgroundImageSet != isBackgroundImageSet) {
@@ -3372,7 +3395,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
               }
               oldSelectionStart = visualPositionToOffset(oldVisLeadSelectionStart);
             }
-            setSelectionAndBlockActions(e, oldVisLeadSelectionStart, oldSelectionStart, newVisualCaret, newCaretOffset);
+            setSelectionAndBlockActions(e, Objects.requireNonNull(oldVisLeadSelectionStart), oldSelectionStart, newVisualCaret, newCaretOffset);
             cancelAutoResetForMouseSelectionState();
             myDragSelectionStarted = true;
           }
@@ -3591,24 +3614,14 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
 
   @ApiStatus.Internal
   public boolean shouldDisableAnimations() {
-    return Registry.is("ui.simplified", false) ||
-           PowerSaveMode.isEnabled() ||
-           RemoteDesktopService.isRemoteSession();
+    return DrawUtil.isSimplifiedUI();
   }
 
   private boolean shouldSetCursorPositionImmediately() {
-    return !getSettings().isSmoothCaretMovement() ||
-           gainedFocus.getAndSet(false) ||
+    return gainedFocus.getAndSet(false) ||
            myMouseIsInDrag ||
+           !getSettings().isSmoothCaretMovement() ||
            shouldDisableAnimations();
-  }
-
-  private void setCursorPosition() {
-    if (shouldSetCursorPositionImmediately()) {
-      caretMutator.caretMovedImmediately();
-    } else {
-      caretMutator.caretMoved();
-    }
   }
 
   @Override
@@ -3691,18 +3704,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   }
 
   private boolean isEditorInputFocusOwner() {
-    Component focusOwner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
-    Component content = getContentComponent();
-    for (Component temp = focusOwner; temp != null; temp = temp instanceof Window ? null : temp.getParent()) {
-      if (temp == content) {
-        return true;
-      }
-      // check if hosted component is an input focus owner, in that case input focus belongs to hosted component instead of the editor
-      else if (temp instanceof EditorHostedComponent hostedComponent && hostedComponent.isInputFocusOwner()) {
-        return false;
-      }
-    }
-    return false;
+    return myIsInputFocusOwner;
   }
 
   @ApiStatus.Internal
@@ -4052,6 +4054,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
 
   @Override
   public int getVerticalScrollbarOrientation() {
+    //noinspection MagicConstant
     return myState.getVerticalScrollBarOrientation();
   }
 
@@ -5656,6 +5659,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
       setInputMap(WHEN_ANCESTOR_OF_FOCUSED_COMPONENT, null);
     }
 
+    /// @noinspection deprecation
     @Override
     public void layout() {
       if (isInDistractionFreeMode()) {

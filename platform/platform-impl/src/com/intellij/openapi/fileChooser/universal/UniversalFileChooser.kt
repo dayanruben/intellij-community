@@ -3,6 +3,7 @@ package com.intellij.openapi.fileChooser.universal
 
 import com.intellij.icons.AllIcons
 import com.intellij.ide.IdeBundle
+import com.intellij.ide.dnd.DroppedFileCopy
 import com.intellij.ide.ui.ProductIcons
 import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.Disposable
@@ -278,6 +279,7 @@ object UniversalFileChooser {
       for (contributor in effectiveContributors) {
         val restrictRoots = contributor in restrictedContributors
         val fileView = FileView(contributor, descriptor, disposable, project, okAction, scope, topToolbar, popupActionGroup, ::updateOkEnabled, restrictRoots)
+        fileView.fileTree.onFilesDropped = { dropTarget, paths -> handleFilesDropped(fileView, dropTarget, paths) }
         fileViews.add(fileView)
       }
       // If there is a single tab available, don't show the tab itself, only its content panel.
@@ -580,6 +582,54 @@ object UniversalFileChooser {
       }
       targetView.fileToSelect = file
       targetView.fileTree.select(file) { targetView.fileTree.expand(file, null) }
+    }
+
+    /**
+     * Handles an OS file drop on [fileView].
+     *
+     * When the dropped files and the drop destination share a file system, the drop only navigates
+     * to the first dropped file. When they differ, for example a local drop onto a non-local (WSL or
+     * Docker) view, the files are copied to the destination directory through the EEL API.
+     *
+     * [dropTarget] is the tree node under the drop point, or null for a drop on an empty area.
+     */
+    private fun handleFilesDropped(fileView: FileView, dropTarget: Path?, paths: List<Path>) {
+      if (paths.isEmpty()) return
+      // Capture the destination candidate on the EDT before the background work starts.
+      val candidate = dropTarget ?: fileView.fileTree.getSelectedFile()
+      scope.launch {
+        val destinationDir = withContext(Dispatchers.IO) { resolveDestinationDir(fileView, candidate) }
+                             ?: return@launch
+        val foreign = withContext(Dispatchers.IO) { DroppedFileCopy.isAcrossEnvironments(paths, destinationDir) }
+        if (!foreign) {
+          runOnEdt { navigateToFile(paths.first()) }
+          return@launch
+        }
+        copyDroppedFiles(fileView, destinationDir, paths)
+      }
+    }
+
+    private suspend fun resolveDestinationDir(fileView: FileView, candidate: Path?): Path? {
+      if (candidate != null) {
+        return if (Files.isDirectory(candidate)) candidate else candidate.parent
+      }
+      return runCatching { fileView.contributor.getRoots().firstOrNull()?.path }.getOrNull()
+    }
+
+    private suspend fun copyDroppedFiles(fileView: FileView, destinationDir: Path, paths: List<Path>) {
+      var copied: List<Path> = emptyList()
+      try {
+        copied = DroppedFileCopy.copy(project, destinationDir, paths)
+      }
+      finally {
+        // The tree must show the result also when the user cancels the copy, because the copy can
+        // stop after some files.
+        val done = copied
+        runOnEdt {
+          fileView.fileTree.updateTree()
+          done.firstOrNull()?.let { navigateToFile(it) }
+        }
+      }
     }
 
     fun getPreferredFocusedComponent(): JComponent? = getActiveFileView()?.pathTextField

@@ -45,6 +45,7 @@ private val LOG = Logger.getInstance(HttpClientUtil::class.java)
 
 object HttpClientUtil {
 
+  const val CONTENT_LENGTH_HEADER: String = "Content-Length"
   const val ACCEPT_ENCODING_HEADER: String = "Accept-Encoding"
   const val CONTENT_ENCODING_HEADER: String = "Content-Encoding"
   const val CONTENT_ENCODING_GZIP: String = "gzip"
@@ -65,7 +66,7 @@ object HttpClientUtil {
   const val ETAG_HEADER: String = "ETag"
   const val IF_NONE_MATCH_HEADER: String = "If-None-Match"
 
-  fun getRequestName(httpMethod: String, uri: URI): String = "Request $httpMethod $uri}"
+  fun getRequestName(httpMethod: String, uri: URI): String = "Request $httpMethod $uri"
   fun getRequestName(request: HttpRequest): String = getRequestName(request.method(), request.uri())
 
   fun isJsonMimeType(mimeType: String): Boolean {
@@ -193,6 +194,8 @@ fun <T> HttpResponse<out InputStream>.readBodyWithLoggingBlocking(
     }
     else {
       reader(contentType?.first, contentType?.second)
+    }.also {
+      logger.debug("$requestName : Response extracted")
     }
   }
 }

@@ -2,11 +2,14 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.projectView.frontend.window
 
+import com.intellij.configurationStore.SettingsSavingComponent
 import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.ide.projectView.impl.ProjectViewPane
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.UI
+import com.intellij.openapi.application.asContextElement
 import com.intellij.openapi.components.PersistentStateComponent
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
@@ -80,7 +83,7 @@ import kotlin.time.Duration.Companion.seconds
 @State(name = "FrontendProjectView", storages = [Storage(StoragePathMacros.PRODUCT_WORKSPACE_FILE)])
 internal class ProjectViewToolWindowServiceImpl(
   val project: Project,
-) : ProjectViewToolWindowService, PersistentStateComponent<Element> {
+) : ProjectViewToolWindowService, PersistentStateComponent<Element>, SettingsSavingComponent {
   companion object {
     fun getInstance(project: Project): ProjectViewToolWindowServiceImpl =
       ProjectViewToolWindowService.getInstance(project) as ProjectViewToolWindowServiceImpl
@@ -315,8 +318,18 @@ internal class ProjectViewToolWindowServiceImpl(
     pane.selectNode(nodePath)
   }
 
+  override suspend fun save() {
+    // Not sure if this thing can be invoked under a modal state, but it better run fast regardless.
+    withContext(Dispatchers.UI + ModalityState.any().asContextElement()) {
+      for (pane in panes.values) {
+        savePaneState(pane)
+      }
+    }
+  }
+
   override fun getState(): Element = Element("projectView").also { element ->
     persistentState.writeStateTo(element)
+    LOG.debug { "Serialized the state to save" }
   }
 
   override fun noStateLoaded() {
@@ -326,6 +339,21 @@ internal class ProjectViewToolWindowServiceImpl(
   override fun loadState(state: Element) {
     persistentState.readStateFrom(state)
     stateInitJob.complete(Unit)
+    LOG.debug { "Restored the saved state" }
+  }
+  
+  private fun loadPaneState(pane: FrontendProjectViewPane) {
+    val paneState = persistentState.getPaneState(pane.id)
+    pane.restoreStateFrom(paneState)
+    LOG.debug { "Applied the loaded state for ${pane.id}" }
+  }
+  
+  private fun savePaneState(pane: FrontendProjectViewPane) {
+    val paneElement = Element("pane")
+    paneElement.setAttribute("pane", pane.id.idString)
+    pane.saveStateTo(paneElement)
+    persistentState.putPaneState(pane.id, paneElement)
+    LOG.debug { "Saved the last state for ${pane.id}" }
   }
 
   private inner class PaneManager(
@@ -350,17 +378,11 @@ internal class ProjectViewToolWindowServiceImpl(
         launch(Dispatchers.UI + CoroutineName("Manage TW content for PV pane ${pane.id}")) {
           pane.component.launchOnShow("Pane ${pane.id} service state saving/restoring") {
             try {
-              val paneState = persistentState.getPaneState(pane.id)
-              pane.restoreStateFrom(paneState)
-              LOG.debug { "Applied the loaded state for ${pane.id}" }
+              loadPaneState(pane)
               awaitCancellation()
             }
             finally {
-              val paneElement = Element("pane")
-              paneElement.setAttribute("pane", pane.id.idString)
-              pane.saveStateTo(paneElement)
-              persistentState.putPaneState(pane.id, paneElement)
-              LOG.debug { "Saved the last state for ${pane.id}" }
+              savePaneState(pane)
             }
           }
           val selectedPaneId = persistentState.getSelectedPaneState() ?: defaultSelection

@@ -2,7 +2,6 @@
 package com.intellij.execution.impl;
 
 import com.intellij.debugger.engine.JavaDebugProcess;
-import com.intellij.debugger.impl.DebuggerUtilsEx;
 import com.intellij.debugger.impl.attach.JavaDebuggerAttachUtil;
 import com.intellij.debugger.impl.attach.PidRemoteConnection;
 import com.intellij.debugger.settings.DebuggerSettings;
@@ -67,6 +66,7 @@ import com.intellij.threadDumpParser.ThreadDumpParser;
 import com.intellij.threadDumpParser.ThreadState;
 import com.intellij.unscramble.AnalyzeStacktraceUtil;
 import com.intellij.unscramble.ThreadDumpConsoleFactory;
+import com.intellij.util.BitUtil;
 import com.intellij.util.TimeoutUtil;
 import com.intellij.util.concurrency.AppExecutorUtil;
 import com.intellij.util.containers.ContainerUtil;
@@ -86,7 +86,6 @@ import javax.swing.KeyStroke;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.util.List;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -166,7 +165,7 @@ public class DefaultJavaProgramRunner implements JvmPatchableProgramRunner<Runne
       ParametersList parametersList = parameters.getVMParametersList();
       if (!ContainerUtil.exists(parametersList.getList(), s -> s.startsWith("-agentlib:jdwp"))) {
         parametersList.add("-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,quiet=y");
-      } 
+      }
     }
   }
 
@@ -312,8 +311,6 @@ public class DefaultJavaProgramRunner implements JvmPatchableProgramRunner<Runne
   }
 
   static final class ControlBreakAction extends ProxyBasedAction implements ActionRemoteBehaviorSpecification.Disabled {
-    private final ExecutorService myExecutor = AppExecutorUtil.createBoundedApplicationPoolExecutor("Thread Dumper", 1);
-
     public ControlBreakAction() {
       super(ExecutionBundle.message("run.configuration.dump.threads.action.name"), null, AllIcons.Actions.Dump);
       setShortcutSet(new CustomShortcutSet(KeyStroke.getKeyStroke(KeyEvent.VK_CANCEL, InputEvent.CTRL_DOWN_MASK)));
@@ -337,18 +334,10 @@ public class DefaultJavaProgramRunner implements JvmPatchableProgramRunner<Runne
         GlobalSearchScope scope =
           runTab instanceof RunContentBuilder ? ((RunContentBuilder)runTab).getSearchScope() : GlobalSearchScope.allScope(project);
         if (!JavaDebuggerAttachUtil.getAttachedPids(project).contains(pid)) {
-          myExecutor.execute(() -> {
-            String dump = ThreadDumpProvider.dump(pid);
-            if (dump != null) {
-              List<ThreadState> threads = ThreadDumpParser.parse(dump);
-              ApplicationManager.getApplication().invokeLater(
-                () -> DebuggerUtilsEx.addThreadDump(project, threads, runnerContentUi.getRunnerLayoutUi(), scope),
-                ModalityState.nonModal());
-            }
-            else {
-              dumpWithBreak(proxy, project, processHandler);
-            }
-          });
+          boolean onlyPlatformThreads = BitUtil.isSet(event.getModifiers(), InputEvent.ALT_DOWN_MASK);
+          ThreadDumpExecutor.dump(project, pid, processHandler, runnerContentUi, scope,
+                                  onlyPlatformThreads,
+                                  () -> dumpWithBreak(proxy, project, processHandler));
           return;
         }
       }

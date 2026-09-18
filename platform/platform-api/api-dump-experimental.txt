@@ -27,6 +27,11 @@ f:com.intellij.execution.filters.HyperlinkInfoBaseKt
 *f:com.intellij.ide.RegionSettingsService$Companion
 - f:getInstance():com.intellij.ide.RegionSettingsService
 - f:getInstanceAsync(kotlin.coroutines.Continuation):java.lang.Object
+a:com.intellij.ide.RemoteDesktopService
+- *s:fireRemoteSessionChanged():V
+- *s:subscribe(com.intellij.openapi.Disposable,com.intellij.ide.RemoteDesktopService$Listener):V
+*:com.intellij.ide.RemoteDesktopService$Listener
+- a:remoteSessionChanged():V
 a:com.intellij.ide.SaveAndSyncHandler
 - *f:getExternalChangesTracker():com.intellij.openapi.util.ModificationTracker
 f:com.intellij.ide.dnd.SmoothAutoScroller
@@ -286,6 +291,10 @@ a:com.intellij.ui.ColoredTreeCellRenderer
 - com.intellij.ui.SimpleColoredComponent
 - javax.swing.tree.TreeCellRenderer
 - *:setAccessibleStatusText(java.lang.String):V
+f:com.intellij.ui.DrawUtil
+- *sf:subscribeSimplifiedUI(com.intellij.openapi.Disposable,com.intellij.ui.DrawUtil$SimplifiedUiListener):V
+*:com.intellij.ui.DrawUtil$SimplifiedUiListener
+- a:simplifiedUiChanged():V
 a:com.intellij.ui.GroupedElementsRenderer
 - javax.accessibility.Accessible
 - *p:getToolTipOverride():java.lang.String
@@ -970,6 +979,7 @@ com.intellij.util.net.JdkProxyCustomizer
 - s:client():java.net.http.HttpClient
 - s:clientBuilder():java.net.http.HttpClient$Builder
 - s:gzipStringBodyHandler():java.net.http.HttpResponse$BodyHandler
+- s:isAuthenticationFilterError(java.io.IOException):Z
 - s:request(java.net.URI):java.net.http.HttpRequest
 - s:requestBuilder(java.net.URI):java.net.http.HttpRequest$Builder
 - s:response(java.net.http.HttpClient,java.net.http.HttpRequest,java.net.http.HttpResponse$BodyHandler):java.net.http.HttpResponse
