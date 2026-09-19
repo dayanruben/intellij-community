@@ -15,6 +15,8 @@ import org.jetbrains.kotlin.analysis.api.components.isClassType
 import org.jetbrains.kotlin.analysis.api.evaluation.evaluateAsAnnotationValue
 import org.jetbrains.kotlin.analysis.api.expressions.expressionType
 import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbols
+import org.jetbrains.kotlin.analysis.api.resolution.simple
+import org.jetbrains.kotlin.analysis.api.resolution.symbol
 import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassSymbol
@@ -48,6 +50,7 @@ import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinAp
 import org.jetbrains.kotlin.idea.codeinsight.api.applicators.ApplicabilityRange
 import org.jetbrains.kotlin.idea.codeinsights.impl.base.inspection.WasExperimentalOptInsNecessityChecker
 import org.jetbrains.kotlin.idea.references.readWriteAccess
+import org.jetbrains.kotlin.idea.util.resolveSuccessfulExpressionCall
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.psi.KtAnnotated
@@ -217,7 +220,8 @@ private class MarkerCollector(private val moduleApiVersion: ApiVersion) {
 
     context(_: KaSession)
     fun collectMarkers(expression: KtReferenceExpression) {
-        val symbols = expression.resolveSuccessfulSymbols()
+        val symbols = expression.resolveSuccessfulExpressionCall()?.simple?.symbol?.let { listOf(it) }
+            ?: expression.resolveSuccessfulSymbols()
         for (symbol in symbols) {
             (symbol as? KaAnnotatedSymbol)?.collectMarkers()
 

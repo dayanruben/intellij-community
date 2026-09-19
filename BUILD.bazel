@@ -1,4 +1,4 @@
-load("@aspect_rules_lint//format:defs.bzl", "format_multirun")
+load("@buildifier_prebuilt//:rules.bzl", "buildifier")
 load("@community//build:bazel_targets_json.bzl", "current_bazel_targets_json")
 load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library", "kt_javac_options")
@@ -6,9 +6,23 @@ load("//build:compiler-options.bzl", "create_kotlinc_options")
 
 BAZEL_TARGETS_JSON = current_bazel_targets_json()
 
-format_multirun(
+buildifier(
     name = "format",
-    starlark = "@buildifier_prebuilt//:buildifier",
+    exclude_patterns = [
+        "./out/**",
+        "./**/~BUILD.bazel",
+    ],
+    mode = "fix",
+    visibility = ["//visibility:public"],
+)
+
+buildifier(
+    name = "format.check",
+    exclude_patterns = [
+        "./out/**",
+        "./**/~BUILD.bazel",
+    ],
+    mode = "check",
     visibility = ["//visibility:public"],
 )
 
@@ -700,6 +714,8 @@ jvm_library(
         "//plugins/devkit/intellij.devkit.workspaceModel/tests:tests_test_lib",
         "//plugins/performanceTesting/scripts-ui:ui",
         "//plugins/performanceTesting/scripts-ui:ui_test_lib",
+        "//plugins/performanceTesting/backend",
+        "//plugins/performanceTesting/backend:backend_test_lib",
         "//uast/uast-tests:tests",
         "//uast/uast-tests:tests_test_lib",
         "//platform/runtime/repository/tests",
@@ -1177,6 +1193,8 @@ jvm_library(
         "//platform/testFramework:testFramework_test_lib",
         "//platform/kernel/rpc.tests",
         "//platform/kernel/rpc.tests:rpc.tests_test_lib",
+        "//platform/core-impl:core-impl-tests",
+        "//platform/core-impl:core-impl-tests_test_lib",
     ],
 )
 ### auto-generated section `build intellij.idea.community.main.tests` end

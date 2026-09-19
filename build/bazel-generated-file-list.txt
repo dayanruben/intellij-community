@@ -293,10 +293,10 @@ java/compiler/instrumentation-util-8
 java/compiler/javac2
 java/compiler/openapi
 java/debugger/backend
-java/debugger/debugger-agent
 java/debugger/frontend
 java/debugger/impl
 java/debugger/jb-jdi
+java/debugger/jsp
 java/debugger/memory-agent
 java/debugger/openapi
 java/debugger/shared
@@ -323,7 +323,9 @@ java/java-frontback-tests
 java/java-frontend
 java/java-impl
 java/java-impl-inspections
+java/java-impl-jsp
 java/java-impl-refactorings
+java/java-impl-refactorings-jsp
 java/java-indexing-api
 java/java-indexing-impl
 java/java-indexing-serializers
@@ -335,6 +337,7 @@ java/java-runtime
 java/java-structure-view
 java/java-syntax
 java/java-tests
+java/java-todo
 java/jdkAnnotations
 java/jsp-base-openapi
 java/jsp-openapi
@@ -1179,6 +1182,7 @@ plugins/cucumber-jvm-formatter5
 plugins/dev
 plugins/dev/intellij.dev
 plugins/dev/intellij.dev.codeInsight
+plugins/dev/intellij.dev.core
 plugins/dev/intellij.dev.leakDetection
 plugins/dev/intellij.dev.pluginLoading
 plugins/dev/intellij.dev.psiViewer
@@ -1594,8 +1598,9 @@ plugins/lombok
 plugins/lombok/generated
 plugins/lombok/plugin
 plugins/lsp.client.playground
-plugins/lsp.ui
 plugins/lsp.ui/idea.product.modules
+plugins/lsp.ui/lsp.ui.frontend
+plugins/lsp.ui/lsp.ui.plugin
 plugins/markdown/compose
 plugins/markdown/core
 plugins/markdown/core/backend
@@ -1664,6 +1669,8 @@ plugins/minimap/core
 plugins/minimap/plugin
 plugins/ml-local-models
 plugins/ml-local-models/java
+plugins/peek-definition/frontend
+plugins/peek-definition/plugin
 plugins/performanceTesting/backend
 plugins/performanceTesting/commands-model
 plugins/performanceTesting/core

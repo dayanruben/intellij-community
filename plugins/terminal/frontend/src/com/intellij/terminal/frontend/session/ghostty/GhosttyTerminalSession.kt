@@ -5,12 +5,14 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.ex.EditorSettingsExternalizable
 import com.intellij.openapi.project.Project
 import com.intellij.platform.eel.EelDescriptor
+import com.intellij.platform.eel.EelOsFamily
 import com.intellij.platform.eel.provider.LocalEelDescriptor
 import com.intellij.platform.util.coroutines.childScope
 import com.intellij.terminal.JBTerminalSystemSettingsProviderBase
 import com.intellij.terminal.TerminalUiSettingsManager
 import com.intellij.terminal.emulator.CursorShape
 import com.intellij.terminal.emulator.ScreenChange
+import com.intellij.terminal.emulator.ScrollbackPullPolicy
 import com.intellij.terminal.emulator.TerminalCustomCommandListener
 import com.intellij.terminal.emulator.TerminalEmulator
 import com.intellij.terminal.emulator.TerminalListener
@@ -286,6 +288,16 @@ class GhosttyTerminalSession internal constructor(
     // below starts, so the emulator never shows Ghostty's own hardcoded defaults even briefly.
     installDefaultCursorStateUpdating(coroutineScope.childScope("Default cursor state updating"))
 
+    // Windows host is using ConPTY that has its own buffer: it stores screen lines only,
+    // and when terminal size grows, it can't pull scrollback lines to the screen.
+    // So, we have to use "ScrollbackPullPolicy.NEVER" in the Windows case to ensure
+    // that emulator and ConPTY buffers are in sync after resize.
+    val scrollbackPullPolicy = if (eelDescriptor.osFamily == EelOsFamily.Windows) {
+      ScrollbackPullPolicy.NEVER
+    }
+    else ScrollbackPullPolicy.CURSOR_AT_BOTTOM
+    emulator.setResizeScrollbackPullPolicy(scrollbackPullPolicy)
+
     // Read the PTY on a dedicated daemon thread rather than a coroutine in the session
     // scope (production uses a plain executor for the same reason): the blocking read()
     // is not a cancellation point, so keeping it off the structured scope lets teardown
@@ -416,11 +428,13 @@ class GhosttyTerminalSession internal constructor(
           if (disposed) return
           emulator.resize(TerminalSize(event.newSize.columns, event.newSize.rows))
           changedSinceLastProjection = true
-          runCatching { ttyConnector.resize(TermSize(event.newSize.columns, event.newSize.rows)) }
-            .onFailure { if (!disposed) LOG.warn("Failed to resize the PTY to ${event.newSize}", it) }
           responses = takeResponsesLocked()
         }
         flushResponses(responses)
+        // PTY resize must be called outside the lock: it is a blocking operation.
+        // Especially in the case of remote connection to IJent - it can be stuck indefinitely if the connection is lost.
+        runCatching { ttyConnector.resize(TermSize(event.newSize.columns, event.newSize.rows)) }
+          .onFailure { if (!disposed) LOG.warn("Failed to resize the PTY to ${event.newSize}", it) }
         // The reflowed frame is picked up by the next projection tick.
       }
       is TerminalClearBufferEvent -> handleClearBuffer()

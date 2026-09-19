@@ -33,6 +33,7 @@ dev_dist_plugin(
         "intellij.java.impl",
         "intellij.java.xml.dom.impl",
         "intellij.java.bookmarks",
+        "intellij.java.todo",
         "intellij.java.impl.refactorings",
         "intellij.java.compiler.impl",
         "intellij.java.typeMigration",

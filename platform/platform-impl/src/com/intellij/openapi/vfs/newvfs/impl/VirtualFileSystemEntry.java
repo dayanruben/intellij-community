@@ -10,7 +10,6 @@ import com.intellij.openapi.fileEditor.impl.LoadTextUtil;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.util.io.FileAttributes;
 import com.intellij.openapi.vfs.InvalidVirtualFileAccessException;
-import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VFileProperty;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -710,11 +709,6 @@ public abstract class VirtualFileSystemEntry extends NewVirtualFile {
     updateLinkStatus(newParent);
 
     owningPersistentFS().incStructuralModificationCount();
-  }
-
-  @Override
-  public boolean isInLocalFileSystem() {
-    return getFileSystem() instanceof LocalFileSystem;
   }
 
   private static final class DebugInvalidation {

@@ -7,6 +7,7 @@ import com.intellij.ide.ui.UISettings
 import com.intellij.ide.ui.UISettingsState
 import com.intellij.mock.Mock
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.UiWithModelAccess
 import com.intellij.openapi.application.readAction
@@ -29,10 +30,13 @@ import com.intellij.openapi.fileEditor.impl.FileEditorManagerImpl
 import com.intellij.openapi.fileEditor.impl.FileEditorOpenOptions
 import com.intellij.openapi.fileEditor.impl.FileEditorProviderManagerImpl
 import com.intellij.openapi.fileEditor.impl.blockingWaitForCompositeFileOpen
+import com.intellij.openapi.fileEditor.impl.getOrLoadDocumentUnderProgress
+import com.intellij.openapi.fileTypes.FileType
 import com.intellij.openapi.fileTypes.PlainTextFileType
 import com.intellij.openapi.fileTypes.UnknownFileType
 import com.intellij.openapi.options.advanced.AdvancedSettings
 import com.intellij.openapi.options.advanced.AdvancedSettingsImpl
+import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
@@ -40,16 +44,19 @@ import com.intellij.openapi.util.JDOMUtil
 import com.intellij.openapi.util.Pair
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.io.IoTestUtil
-import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.StandardFileSystems
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.openapi.vfs.VirtualFilePreCloseCheck
 import com.intellij.openapi.vfs.impl.VirtualFilePointerTracker
 import com.intellij.platform.ide.progress.runWithModalProgressBlocking
+import com.intellij.platform.util.progress.createProgressPipe
 import com.intellij.pom.Navigatable
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.testFramework.DumbModeTestUtils
 import com.intellij.testFramework.EditorTestUtil
 import com.intellij.testFramework.HeavyPlatformTestCase
+import com.intellij.testFramework.LightVirtualFile
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.VfsTestUtil
 import com.intellij.testFramework.common.timeoutRunBlocking
@@ -64,7 +71,11 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.plus
 import kotlinx.coroutines.withContext
 import org.assertj.core.api.Assertions.assertThat
 import org.intellij.lang.annotations.Language
@@ -79,9 +90,15 @@ import org.junit.jupiter.params.provider.MethodSource
 import java.awt.EventQueue
 import java.io.IOException
 import java.nio.file.Path
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.SwingConstants
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
 
 @TestApplication
 class FileEditorManagerTest {
@@ -138,6 +155,88 @@ class FileEditorManagerTest {
     val (repeatedEditorComponent, consumedEditorState) = fileEditorManager.init()
     assertThat(repeatedEditorComponent).isSameAs(editorComponent)
     assertThat(consumedEditorState).isNull()
+  }
+
+  @Test
+  fun testSuspendingOpenReportsDocumentProgressToCaller(): Unit = timeoutRunBlocking {
+    val firstRead = AtomicBoolean(true)
+    val file = object : LightVirtualFile("progress.txt", PlainTextFileType.INSTANCE, "text") {
+      override fun getLength(): Long = 4
+
+      override fun getContent(): CharSequence {
+        if (firstRead.compareAndSet(true, false)) {
+          assertThat(ApplicationManager.getApplication().isDispatchThread).isFalse()
+          val indicator = assertThatNotNull(ProgressManager.getInstance().progressIndicator)
+          indicator.text = "Reading the document"
+        }
+        return super.getContent()
+      }
+    }
+    val pipe = (this + Dispatchers.Unconfined).createProgressPipe()
+    val updates = CopyOnWriteArrayList<String?>()
+    val collector = launch(Dispatchers.Unconfined) {
+      pipe.progressUpdates().collect { updates.add(it.text) }
+    }
+    try {
+      val composite = pipe.collectProgressUpdates {
+        manager.openFile(file = file, options = FileEditorOpenOptions())
+      }
+      assertThat(composite.allEditors).isNotEmpty()
+      assertThat(updates).contains("Reading the document")
+      withContext(Dispatchers.EDT) {
+        composite.allEditors.filterIsInstance<TextEditor>().forEach { EditorTestUtil.waitForLoading(it.editor) }
+      }
+    }
+    finally {
+      collector.cancelAndJoin()
+      withContext(Dispatchers.EDT) {
+        manager.closeFile(file)
+      }
+    }
+  }
+
+  @Test
+  fun testCancellingDocumentPreparationDoesNotOpenTab(): Unit = timeoutRunBlocking {
+    val started = CompletableDeferred<Unit>()
+    val release = CountDownLatch(1)
+    val file = object : LightVirtualFile("cancelled.txt", PlainTextFileType.INSTANCE, "text") {
+      override fun getLength(): Long = 4
+
+      override fun getContent(): CharSequence {
+        started.complete(Unit)
+        check(release.await(5, TimeUnit.SECONDS))
+        ProgressManager.checkCanceled()
+        return super.getContent()
+      }
+    }
+    val opening = async {
+      manager.openFile(file = file, options = FileEditorOpenOptions())
+    }
+    try {
+      started.await()
+      opening.cancel()
+    }
+    finally {
+      release.countDown()
+      opening.cancelAndJoin()
+    }
+
+    withContext(Dispatchers.EDT) {
+      assertThat(manager.isFileOpen(file)).isFalse()
+    }
+    assertThat(FileDocumentManager.getInstance().getCachedDocument(file)).isNull()
+  }
+
+  @Test
+  fun `returns no document for a binary file without a decompiler`(): Unit = timeoutRunBlocking {
+    val file = object : LightVirtualFile("binary", UnknownFileType.INSTANCE, "binary") {
+      override fun getFileType(): FileType {
+        assertFalse(ApplicationManager.getApplication().isReadAccessAllowed)
+        return UnknownFileType.INSTANCE
+      }
+    }
+
+    assertNull(FileDocumentManager.getInstance().getOrLoadDocumentUnderProgress(file))
   }
 
   @Test
@@ -759,7 +858,7 @@ class FileEditorManagerTest {
     var file: VirtualFile? = null
     try {
       FileUtil.writeToFile(ioFile, byteArrayOf(1, 2, 3, 4, 29)) // to convince IDEA it's binary when renamed to an unknown extension
-      file = assertThatNotNull(LocalFileSystem.getInstance().refreshAndFindFileByIoFile(ioFile))
+      file = assertThatNotNull(StandardFileSystems.local().refreshAndFindFileByPath(ioFile.absolutePath))
       assertThat(file.fileType).isEqualTo(PlainTextFileType.INSTANCE)
       FileEditorManager.getInstance(project).openFile(file, true)
       //noinspection SpellCheckingInspection
@@ -899,13 +998,13 @@ class FileEditorManagerTest {
 
   private fun getFile(path: String): VirtualFile {
     val fullPath = testDataPath + path
-    return assertThatNotNull(LocalFileSystem.getInstance().refreshAndFindFileByPath(fullPath), "Can't find $fullPath")
+    return assertThatNotNull(StandardFileSystems.local().refreshAndFindFileByPath(fullPath), "Can't find $fullPath")
   }
 
   private fun createTempFooBar(): VirtualFile {
     val io = Path.of(FileUtil.getTempDirectory(), "/src/foo.bar")
     io.write(byteArrayOf(1, 0, 2, 3))
-    return assertThatNotNull(LocalFileSystem.getInstance().refreshAndFindFileByNioFile(io), "Can't find $io")
+    return assertThatNotNull(VirtualFileManager.getInstance().refreshAndFindFileByNioPath(io), "Can't find $io")
   }
 
   private fun openFiles(femSerialisedText: String) {

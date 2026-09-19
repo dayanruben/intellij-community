@@ -28,6 +28,7 @@ import com.intellij.ide.plugins.marketplace.utils.MarketplaceUrls.getPluginWrite
 import com.intellij.ide.plugins.newui.PluginsViewCustomizer.PluginDetailsCustomizer
 import com.intellij.ide.plugins.newui.SelectionBasedPluginModelAction.OptionButtonController
 import com.intellij.ide.plugins.newui.buttons.InstallOptionButton
+import com.intellij.ide.setToolTipText
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ModalityState
@@ -42,7 +43,6 @@ import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.updateSettings.impl.PluginUpdateSourceId
-import com.intellij.openapi.updateSettings.impl.PluginUpdateSourceService
 import com.intellij.openapi.updateSettings.impl.getPresentableName
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.text.HtmlChunk
@@ -67,6 +67,7 @@ import com.intellij.ui.components.JBTabbedPane
 import com.intellij.ui.components.labels.LinkListener
 import com.intellij.ui.components.panels.ListLayout
 import com.intellij.ui.components.panels.ListLayout.Companion.horizontal
+import com.intellij.ui.components.panels.ListLayout.Companion.vertical
 import com.intellij.ui.components.panels.NonOpaquePanel
 import com.intellij.ui.components.panels.OpaquePanel
 import com.intellij.ui.components.panels.Wrapper
@@ -90,15 +91,13 @@ import com.intellij.util.ui.components.BorderLayoutPanel
 import com.intellij.util.ui.launchOnShow
 import com.intellij.xml.util.XmlStringUtil
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus
-import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.Nls
 import java.awt.BorderLayout
 import java.awt.Component
@@ -133,7 +132,7 @@ import javax.swing.text.html.ParagraphView
 import kotlin.coroutines.coroutineContext
 import kotlin.time.TimeSource
 
-@Internal
+@ApiStatus.Internal
 class PluginDetailsPageComponent private constructor(
   private val pluginModel: PluginModelFacade,
   private val searchListener: LinkListener<Any>,
@@ -240,7 +239,7 @@ class PluginDetailsPageComponent private constructor(
   private lateinit var bottomScrollPane: JBScrollPane
   private val scrollPanes = ArrayList<JBScrollPane>()
   private var descriptionComponent: JEditorPane? = null
-  private var description: String? = null
+  private var description: @NlsSafe String? = null
   private var changeNotesPanel: ChangeNotes? = null
   private var myChangeNotesEmptyState: JBPanelWithEmptyText? = null
   private var myImagesComponent: PluginImagesComponent? = null
@@ -269,7 +268,6 @@ class PluginDetailsPageComponent private constructor(
   private val operationLauncher = operationLauncherOverride?.launcher ?: PluginOperationLauncher(coroutineScope)
   private val operationUi = operationLauncherOverride?.operationUiBridge?.createHandle(this) ?: PluginOperationUiHandle(this)
   private val showPluginSemaphore = OverflowSemaphore(overflow = BufferOverflow.DROP_OLDEST)
-  private var buttonsLoadedDeferred: Deferred<Unit>? = null
   private var detached = false
 
   private val tracker: PluginManagerUiTracker = PluginManagerUiTracker()
@@ -332,7 +330,7 @@ class PluginDetailsPageComponent private constructor(
       val editorPane = JEditorPane()
       editorPane.isEditable = false
       editorPane.isOpaque = false
-      editorPane.border = null
+      editorPane.border = JBUI.Borders.empty()
       editorPane.contentType = "text/html"
       editorPane.editorKit = kit
       editorPane.addHyperlinkListener(HelpIdAwareLinkListener.getInstance())
@@ -432,7 +430,7 @@ class PluginDetailsPageComponent private constructor(
   private fun createTabsContentPanel() {
     panel = OpaquePanel(BorderLayout(), PluginManagerConfigurable.MAIN_BG_COLOR)
 
-    val topPanel = OpaquePanel(VerticalLayout(JBUI.scale(8)), PluginManagerConfigurable.MAIN_BG_COLOR)
+    val topPanel = OpaquePanel(vertical(8, horGrow = ListLayout.GrowPolicy.NO_GROW), PluginManagerConfigurable.MAIN_BG_COLOR)
     topPanel.border = createMainBorder(layout.contentHorizontalInset)
     panel!!.add(topPanel, BorderLayout.NORTH)
 
@@ -445,10 +443,11 @@ class PluginDetailsPageComponent private constructor(
     homePage = LinkPanel(linkPanel, false)
 
     topPanel.add(nameAndButtons)
-    topPanel.add(mySuggestedIdeBanner, VerticalLayout.FILL_HORIZONTAL)
+    topPanel.add(mySuggestedIdeBanner, ListLayout.GrowPolicy.GROW)
 
-    suggestedFeatures = SuggestedComponent()
-    topPanel.add(suggestedFeatures, VerticalLayout.FILL_HORIZONTAL)
+    val suggestedFeaturesComponent = SuggestedComponent()
+    suggestedFeatures = suggestedFeaturesComponent
+    topPanel.add(suggestedFeaturesComponent, ListLayout.GrowPolicy.GROW)
 
     val unknownUpdateSourceWarning = UpdateSourceBanner.createUnknownPluginUpdateSourceWarning {
       val popup = createUpdateSourcesPopup(myPluginUpdateSourceId!!) {
@@ -461,11 +460,11 @@ class PluginDetailsPageComponent private constructor(
       }
     }
     unknownUpdateSourceBanner = unknownUpdateSourceWarning
-    topPanel.add(unknownUpdateSourceWarning, VerticalLayout.FILL_HORIZONTAL)
+    topPanel.add(unknownUpdateSourceWarning, ListLayout.GrowPolicy.GROW)
 
     val successBanner = UpdateSourceBanner.createSuccessfullyUpdateSourceSetting()
     updateSourceInitializedBanner = successBanner
-    topPanel.add(successBanner, VerticalLayout.FILL_HORIZONTAL)
+    topPanel.add(successBanner, ListLayout.GrowPolicy.GROW)
 
     additionalTextLabel.foreground = ListPluginComponent.GRAY_COLOR
     additionalTextLabel.isVisible = false
@@ -479,18 +478,18 @@ class PluginDetailsPageComponent private constructor(
     createButtons()
     nameAndButtons!!.setProgressDisabledButton((if (isMarketplace) installButton?.getComponent() else if (pluginManagerCustomizer != null && updateDescriptor == null) gearButton else updateButton)!!)
 
-    topPanel.add(ErrorComponent().also { errorComponent = it }, VerticalLayout.FILL_HORIZONTAL)
+    topPanel.add(ErrorComponent().also { errorComponent = it }, ListLayout.GrowPolicy.GROW)
     topPanel.add(licensePanel)
     licensePanel.border = JBUI.Borders.emptyBottom(5)
     topPanel.add(customLicensePanel)
     customLicensePanel.border = JBUI.Borders.emptyBottom(5)
 
     if (unavailableWithoutSubscriptionBanner != null) {
-      topPanel.add(unavailableWithoutSubscriptionBanner, VerticalLayout.FILL_HORIZONTAL)
+      topPanel.add(unavailableWithoutSubscriptionBanner, ListLayout.GrowPolicy.GROW)
       unavailableWithoutSubscriptionBanner.isVisible = false
     }
     if (partiallyAvailableBanner != null) {
-      topPanel.add(partiallyAvailableBanner, VerticalLayout.FILL_HORIZONTAL)
+      topPanel.add(partiallyAvailableBanner, ListLayout.GrowPolicy.GROW)
       partiallyAvailableBanner.isVisible = false
     }
 
@@ -624,7 +623,7 @@ class PluginDetailsPageComponent private constructor(
 
   fun setOnlyUpdateMode() {
     nameAndButtons!!.removeButtons()
-    emptyPanel!!.border = null
+    emptyPanel!!.border = JBUI.Borders.empty()
   }
 
   private fun updatePlugin() {
@@ -753,6 +752,7 @@ class PluginDetailsPageComponent private constructor(
             InsetsUIResource(insets.top, left, insets.bottom, insets.right)
           }
           else {
+            @Suppress("UseDPIAwareInsets") // values are already scaled
             Insets(insets.top, left, insets.bottom, insets.right)
           }
         }
@@ -795,12 +795,13 @@ class PluginDetailsPageComponent private constructor(
   private fun createDescriptionTab(pane: JBTabbedPane) {
     descriptionComponent = createDescriptionComponent(createHtmlImageViewHandler())
 
-    myImagesComponent = PluginImagesComponent()
+    val imagesComponent = PluginImagesComponent()
+    myImagesComponent = imagesComponent
     myImagesComponent!!.border = JBUI.Borders.emptyRight(layout.overviewImagesRightInset)
 
     val parent: JPanel = OpaquePanel(BorderLayout(), PluginManagerConfigurable.MAIN_BG_COLOR)
     parent.border = JBUI.Borders.empty(16, 16, 0, layout.overviewRightInset)
-    parent.add(myImagesComponent, BorderLayout.NORTH)
+    parent.add(imagesComponent, BorderLayout.NORTH)
     parent.add(descriptionComponent)
 
     addTabWithoutBorders(pane) {
@@ -865,7 +866,7 @@ class PluginDetailsPageComponent private constructor(
     val nextPageButton = reviewNextPageButton
     reviewsPanel.add(Wrapper(FlowLayout(), reviewNextPageButton), BorderLayout.SOUTH)
 
-    nextPageButton?.addActionListener { e: ActionEvent? ->
+    nextPageButton?.addActionListener { _: ActionEvent? ->
       val component = showComponent ?: return@addActionListener
       coroutineScope.launch(Dispatchers.EDT + ModalityState.stateForComponent(component).asContextElement()) {
 
@@ -901,7 +902,7 @@ class PluginDetailsPageComponent private constructor(
   }
 
   private fun createAdditionalInfoTab(pane: JBTabbedPane) {
-    val infoPanel: JPanel = OpaquePanel(VerticalLayout(JBUI.scale(16)), PluginManagerConfigurable.MAIN_BG_COLOR)
+    val infoPanel: JPanel = OpaquePanel(vertical(16, horGrow = ListLayout.GrowPolicy.NO_GROW), PluginManagerConfigurable.MAIN_BG_COLOR)
     val horizontalInset = layout.tabContentHorizontalInset
     infoPanel.border = if (horizontalInset == null) {
       JBUI.Borders.empty(16, 12, 0, 0)
@@ -932,7 +933,7 @@ class PluginDetailsPageComponent private constructor(
     mySize = addLabel()
     myPluginId = addLabel()
     initializePluginSourceIdDropDownLink(infoPanel)
-    infoPanel.add(createRequiredPluginsComponent().also { requiredPlugins = it }, VerticalLayout.FILL_HORIZONTAL)
+    infoPanel.add(createRequiredPluginsComponent().also { requiredPlugins = it }, ListLayout.GrowPolicy.GROW)
 
     if (isMarketplace && ApplicationManager.getApplication().isInternal) {
       infoPanel.add(JLabel().also { customRepoForDebug = it })
@@ -980,8 +981,7 @@ class PluginDetailsPageComponent private constructor(
       .setItemChosenCallback { pluginUpdateSource ->
         val pluginId = plugin?.pluginId
         if (pluginId != null) {
-          link.text = pluginUpdateSource.getShortenedPresentableName()
-          link.selectedItem = pluginUpdateSource
+          setPluginUpdateSource(pluginUpdateSource, link)
           pluginModel.getModel().updateUiAfterUpdateSourceChange(pluginId, pluginUpdateSource)
           coroutineScope.launch(Dispatchers.IO) {
             pluginModel.setPendingPluginUpdateSourceInSession(pluginId, pluginUpdateSource)
@@ -1001,13 +1001,13 @@ class PluginDetailsPageComponent private constructor(
           UiPluginManager.getInstance().getAllPluginUpdateSources()
             .filter { it.isMarketplace || it.host.isNotBlank() }
             .sortedWith { first, second ->
-            when {
-              first.isMarketplace && second.isMarketplace -> 0
-              first.isMarketplace -> -1
-              second.isMarketplace -> 1
-              else -> first.host.compareTo(second.host)
+              when {
+                first.isMarketplace && second.isMarketplace -> 0
+                first.isMarketplace -> -1
+                second.isMarketplace -> 1
+                else -> first.host.compareTo(second.host)
+              }
             }
-          }
         }
         updater.replaceModel(loadedItems)
         shouldPack = true
@@ -1243,7 +1243,7 @@ class PluginDetailsPageComponent private constructor(
   }
 
   private suspend fun showPlugin(pluginModel: PluginUiModel) {
-    val text: @NlsSafe String = "<html><span>" + pluginModel.name + "</span></html>"
+    val text: @NlsSafe String = HtmlChunk.html().children(HtmlChunk.span().children(HtmlChunk.text(pluginModel.name ?: ""))).toString()
     nameComponent.text = text
     nameComponent.foreground = null
     scheduleNotificationsUpdate()
@@ -1301,7 +1301,9 @@ class PluginDetailsPageComponent private constructor(
       updateEnabledForProject()
     }
 
+    @Suppress("HardCodedStringLiteral")
     val vendor = if (pluginModel.isBundled) null else pluginModel.vendor?.trim()
+    @Suppress("HardCodedStringLiteral")
     val organization = if (pluginModel.isBundled) null else pluginModel.organization?.trim()
     if (!organization.isNullOrBlank()) {
       author!!.show(organization) {
@@ -1379,12 +1381,12 @@ class PluginDetailsPageComponent private constructor(
       this.show((node ?: pluginModel))
     }
 
-    ApplicationManager.getApplication().invokeLater({
-                                                      IdeEventQueue.getInstance().flushQueue()
-                                                      for (scrollPane in scrollPanes) {
-                                                        (scrollPane.verticalScrollBar as JBScrollBar).setCurrentValue(0)
-                                                      }
-                                                    }, ModalityState.any())
+    withContext(Dispatchers.EDT) {
+      IdeEventQueue.getInstance().flushQueue()
+      for (scrollPane in scrollPanes) {
+        (scrollPane.verticalScrollBar as JBScrollBar).setCurrentValue(0)
+      }
+    }
 
     if (this@PluginDetailsPageComponent.pluginModel.isPluginInstallingOrUpdating(pluginModel) && indicator == null) {
       applyCustomization()
@@ -1420,10 +1422,7 @@ class PluginDetailsPageComponent private constructor(
       return
     }
 
-    myPluginUpdateSourceId?.apply {
-      selectedItem = pluginUpdateSource
-      text = pluginUpdateSource.getShortenedPresentableName()
-    }
+    setPluginUpdateSource(pluginUpdateSource, myPluginUpdateSourceId)
 
     val isPluginUpdateSourceVisible: Boolean = (!isMarketplace && currentPlugin.isUpdateable) ||
                                                installedPluginForMarketplace != null || installedDescriptorForMarketplace != null
@@ -1432,6 +1431,15 @@ class PluginDetailsPageComponent private constructor(
                                            pluginUpdateSource == null &&
                                            UiPluginManager.getInstance().isMissingUpdateSourceWarningEnabled()
     updateSourceInitializedBanner?.isVisible = false
+  }
+
+  private fun setPluginUpdateSource(pluginUpdateSource: PluginUpdateSourceId?, component: DropDownLink<PluginUpdateSourceId?>?) {
+    component?.apply {
+      selectedItem = pluginUpdateSource
+      text = pluginUpdateSource.getShortenedPresentableName()
+      setToolTipText(HtmlChunk.text(pluginUpdateSource.getPresentableName()))
+      accessibleContext.accessibleName = pluginUpdateSource.getPresentableName()
+    }
   }
 
   private fun showMarketplaceData(model: PluginUiModel?) {
@@ -2149,21 +2157,20 @@ suspend fun loadAllPluginDetails(existingModel: PluginUiModel, targetModel: Plug
 }
 
 @ApiStatus.Internal
-suspend fun loadReviews(existingModel: PluginUiModel): PluginUiModel? {
+private suspend fun loadReviews(existingModel: PluginUiModel): PluginUiModel {
   val reviews = UiPluginManager.getInstance().loadPluginReviews(existingModel.pluginId, 1) ?: emptyList()
   existingModel.reviewComments = ReviewsPageContainer.firstPage(reviews)
   return existingModel
 }
 
 @ApiStatus.Internal
-suspend fun loadDependencyNames(targetModel: PluginUiModel): PluginUiModel? {
-  val resultNode = targetModel
-  val pluginIds = resultNode.dependencies
+private suspend fun loadDependencyNames(targetModel: PluginUiModel): PluginUiModel {
+  val pluginIds = targetModel.dependencies
     .filter { !it.isOptional }
     .map(PluginDependencyModel::pluginId)
     .filter { isNotPlatformAlias(it) }
 
-  resultNode.dependencyNames = UiPluginManager.getInstance().findPluginNames(pluginIds)
+  targetModel.dependencyNames = UiPluginManager.getInstance().findPluginNames(pluginIds)
 
   return targetModel
 }
@@ -2327,7 +2334,8 @@ private fun createNameComponent(): JEditorPane {
 
   editorPane.font = JBFont.create(labelFont.deriveFont(Font.BOLD, 18f))
 
-  val text: @NlsSafe String = "<html><span>Foo</span></html>"
+  @Suppress("HardCodedStringLiteral")
+  val text: @NlsSafe String = HtmlChunk.html().children(HtmlChunk.span().children(HtmlChunk.text("Foo"))).toString()
   editorPane.text = text
   editorPane.minimumSize = editorPane.preferredSize
   editorPane.text = null

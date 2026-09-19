@@ -1,6 +1,7 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.ide.navigation.impl
 
+import com.intellij.ide.IdeBundle
 import com.intellij.ide.util.PsiNavigationSupport
 import com.intellij.injected.editor.VirtualFileWindow
 import com.intellij.openapi.application.EDT
@@ -9,6 +10,7 @@ import com.intellij.openapi.application.writeIntentReadAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.editor.Document
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.fileEditor.FileEditorManager
@@ -23,7 +25,9 @@ import com.intellij.openapi.fileEditor.impl.EditorComposite
 import com.intellij.openapi.fileEditor.impl.EditorWindow
 import com.intellij.openapi.fileEditor.impl.FileEditorManagerImpl
 import com.intellij.openapi.fileEditor.impl.FileEditorOpenOptions
+import com.intellij.openapi.fileEditor.impl.getOrLoadDocumentUnderProgress
 import com.intellij.openapi.fileEditor.impl.navigateAndSelectEditor
+import com.intellij.openapi.fileEditor.impl.withProgressReport
 import com.intellij.openapi.fileEditor.navigateInProjectView
 import com.intellij.openapi.fileTypes.FileType
 import com.intellij.openapi.fileTypes.FileTypeManager
@@ -33,6 +37,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.findPsiFile
+import com.intellij.openapi.wm.StatusBar
 import com.intellij.platform.backend.navigation.NavigationRequest
 import com.intellij.platform.backend.navigation.impl.DirectoryNavigationRequest
 import com.intellij.platform.backend.navigation.impl.RawNavigationRequest
@@ -42,14 +47,21 @@ import com.intellij.platform.ide.navigation.NavigationOptions
 import com.intellij.platform.ide.navigation.NavigationService
 import com.intellij.platform.ide.navigation.NavigationTaskCoordinator
 import com.intellij.platform.ide.navigation.RequestedEditor
+import com.intellij.platform.ide.progress.withBackgroundProgress
+import com.intellij.platform.util.progress.hasProgressStep
 import com.intellij.platform.util.progress.mapWithProgress
+import com.intellij.platform.util.progress.reportRawProgress
+import com.intellij.platform.util.progress.reportSequentialProgress
 import com.intellij.pom.Navigatable
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.containers.sequenceOfNotNull
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asContextElement
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
 @Service(Service.Level.PROJECT)
@@ -68,12 +80,12 @@ internal class IdeNavigationService(private val project: Project) : NavigationSe
 
   override suspend fun navigate(options: NavigationOptions, supplier: suspend () -> Collection<Navigatable>): Boolean {
     return doExclusively(options) {
-      withContext(Dispatchers.Default) { supplier() }.toNavigationRequests()
+      withContext(Dispatchers.Default) { supplier() }.toNavigationRequests(this, options)
     }
   }
 
   override suspend fun navigate(navigatables: List<Navigatable>, options: NavigationOptions): Boolean {
-    return navigatables.isNotEmpty() && doExclusively(options) { navigatables.toNavigationRequests() }
+    return navigatables.isNotEmpty() && doExclusively(options) { navigatables.toNavigationRequests(this, options) }
   }
 
   override suspend fun navigate(request: NavigationRequest, options: NavigationOptions): Boolean {
@@ -84,10 +96,22 @@ internal class IdeNavigationService(private val project: Project) : NavigationSe
     return requests.isNotEmpty() && doExclusively(options) { requests }
   }
 
-  private suspend fun Collection<Navigatable>.toNavigationRequests(): List<NavigationRequest> {
-    return mapWithProgress {
-      readAction {
-        it.navigationRequest()
+  private suspend fun Collection<Navigatable>.toNavigationRequests(
+    preparation: TwoPhaseOverflowExecutor.Preparation,
+    options: NavigationOptions,
+  ): List<NavigationRequest> {
+    if (!preparation.registerTargetKey(singleOrNull(), options)) {
+      return emptyList()
+    }
+    return mapWithProgress { navigatable ->
+      // Progress needed if we want to navigate in ProjectView and keep "Decompiling file <N>..."
+      // Keep reporter outside the RA to survive restarts
+      reportRawProgress {
+        readAction {
+          withProgressReport {
+            navigatable.navigationRequest()
+          }
+        }
       }
     }.filterNotNull()
   }
@@ -95,7 +119,10 @@ internal class IdeNavigationService(private val project: Project) : NavigationSe
   /**
    * Resolves the targets of a navigation and applies them as the latest navigation of this project, see [TwoPhaseOverflowExecutor]
    */
-  private suspend inline fun doExclusively(options: NavigationOptions, crossinline action: suspend () -> Collection<NavigationRequest>): Boolean {
+  private suspend inline fun doExclusively(
+    options: NavigationOptions,
+    crossinline action: suspend TwoPhaseOverflowExecutor.Preparation.() -> Collection<NavigationRequest>,
+  ): Boolean {
     if (isInNavigation.get()) {
       LOG.error("Navigation is already running: use `NavigationRequest` instead of starting a navigation from `navigate()`")
       return false
@@ -104,14 +131,66 @@ internal class IdeNavigationService(private val project: Project) : NavigationSe
     return taskCoordinator.runWithTracking {
       withContext(isInNavigation.asContextElement(true)) {
         twoPhaseExecutor.submit(
-          prepare = { action().takeIf { it.isNotEmpty() } }
+          prepare = {
+            val currentPreparation = this
+            prepareWithProgressIfNeeded(options) {
+              // keep the visible progress as one task
+              reportSequentialProgress { reporter ->
+                val requests = reporter.indeterminateStep {
+                  limitRequestsToNavigate(action())
+                }.takeIf { it.isNotEmpty() }
+                requests?.let {
+                  if (!currentPreparation.registerTargetKey(it, options)) {
+                    return@reportSequentialProgress null
+                  }
+                  it to reporter.indeterminateStep {
+                    preloadTargetDocuments(it)
+                  }
+                }
+              }
+            }
+          }
         ) { requests ->
           withHistoryIfNeeded(options) {
-            navigate(project = project, requests = requests, options = options)
+            navigate(project = project, requests = requests.first, options = options)
           }.takeIf { it }
         }
       } ?: false
     }
+  }
+
+  private suspend inline fun <T> prepareWithProgressIfNeeded(options: NavigationOptions, crossinline action: suspend () -> T): T {
+    options as NavigationOptions.Impl
+    // auto-scroll
+    val shouldSkipProgress = (!options.requestFocus && !options.recordAsBackHistory) ||
+                               currentCoroutineContext().hasProgressStep()
+    if (shouldSkipProgress) {
+      return action()
+    }
+
+    return try {
+      withBackgroundProgress(project, IdeBundle.message("progress.title.preparing.navigation.background")) {
+        action()
+      }
+    }
+    catch (e: CancellationException) {
+      currentCoroutineContext().ensureActive()
+      withContext(Dispatchers.EDT) {
+        StatusBar.Info.set(IdeBundle.message("status.text.navigation.cancelled"), project)
+      }
+      throw e
+    }
+  }
+
+  /**
+   * Loads documents for the selected targets and returns references to retain during navigation.
+   */
+  private suspend fun preloadTargetDocuments(requests: Collection<NavigationRequest>): List<Document> {
+    val fileDocumentManager = serviceAsync<FileDocumentManager>()
+    val files = requests.mapNotNullTo(LinkedHashSet()) { (it as? SourceNavigationRequest)?.file }
+    return files.mapWithProgress { file ->
+      fileDocumentManager.getOrLoadDocumentUnderProgress(file)
+    }.filterNotNull()
   }
 
   private suspend inline fun <T> withHistoryIfNeeded(options: NavigationOptions, crossinline action: suspend () -> T): T {
@@ -124,6 +203,23 @@ internal class IdeNavigationService(private val project: Project) : NavigationSe
 }
 
 private val LOG: Logger = Logger.getInstance("#com.intellij.platform.ide.navigation.impl")
+
+private fun limitRequestsToNavigate(requests: Collection<NavigationRequest>): Collection<NavigationRequest> {
+  val limit = Registry.intValue("ide.source.file.navigation.limit", 100)
+  if (requests.size <= 1 || limit <= 0) {
+    return requests
+  }
+  var sourceRequests = 0
+  return requests.takeWhile { request ->
+    if (sourceRequests >= limit) {
+      return@takeWhile false
+    }
+    if (request is SourceNavigationRequest || request is RawNavigationRequest && request.canNavigateToSource) {
+      sourceRequests++
+    }
+    true
+  }
+}
 
 private suspend fun navigate(project: Project, requests: Collection<NavigationRequest>, options: NavigationOptions): Boolean {
   options as NavigationOptions.Impl

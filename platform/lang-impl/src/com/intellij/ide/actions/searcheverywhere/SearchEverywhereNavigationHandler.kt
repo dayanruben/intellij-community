@@ -9,6 +9,7 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.OpenFileDescriptor
+import com.intellij.openapi.fileEditor.impl.withProgressReport
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.newvfs.CacheAvoidingVirtualFile
@@ -19,6 +20,7 @@ import com.intellij.platform.ide.navigation.NavigationOptions
 import com.intellij.platform.ide.navigation.NavigationService
 import com.intellij.platform.util.coroutines.childScope
 import com.intellij.platform.util.coroutines.sync.OverflowSemaphore
+import com.intellij.platform.util.progress.reportRawProgress
 import com.intellij.pom.Navigatable
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
@@ -162,8 +164,13 @@ open class SearchEverywhereNavigationHandler(val project: Project) {
     offset: Int,
   ): NavigationRequest? {
     if (element is Navigatable) {
-      return readAction {
-        element.navigationRequest()
+      // keep reporter outside cancellable section
+      return reportRawProgress {
+        readAction {
+          withProgressReport {
+            element.navigationRequest()
+          }
+        }
       }
     }
     else {

@@ -466,7 +466,7 @@
     />
     <registryKey
       key="ide.update.toolbar.widget"
-      defaultValue="false"
+      defaultValue="true"
       description="Show an available IDE update as a main toolbar button instead of an item in the Settings menu"
     />
     <registryKey
@@ -651,7 +651,9 @@
     <applicationService serviceImplementation="com.intellij.diagnostic.LowMemoryNotifier" preload="true" open="true"/>
     <applicationService serviceInterface="com.intellij.diagnostic.EditMemorySettingsService" open="true"
                         serviceImplementation="com.intellij.diagnostic.EditMemorySettingsServiceImpl" preload="true"/>
-    <backgroundPostStartupActivity implementation="com.intellij.diagnostic.IdeHeartbeatEventReporter"/>
+    <postStartupActivity implementation="com.intellij.diagnostic.IdeHeartbeatEventReporter"/>
+    <registryKey key="ide.heartbeat.delay" defaultValue="60000"
+                 description="Delay before the heartbeat thread starts reporting performance data"/>
     <applicationService serviceInterface="com.intellij.ide.plugins.PluginManagerConfigurableService"
                         serviceImplementation="com.intellij.ide.plugins.PluginManagerConfigurableServiceImpl"/>
     <applicationService serviceInterface="com.intellij.ide.plugins.UltimateDependencyChecker"
@@ -680,6 +682,8 @@
     <virtualFileSystem implementationClass="com.intellij.openapi.vfs.impl.local.AsyncableLocalFileSystemImpl" key="file" physical="true"/>
     <virtualFileSystem implementationClass="com.intellij.openapi.vfs.impl.jar.JarFileSystemImpl" key="jar" physical="true"/>
     <virtualFileSystem implementationClass="com.intellij.openapi.vfs.ex.temp.TempFileSystem" key="temp" physical="true"/>
+    <applicationService serviceInterface="com.intellij.openapi.vfs.WatchRoots"
+                        serviceImplementation="com.intellij.openapi.vfs.impl.local.WatchRootsServiceImpl"/>
     <applicationService serviceInterface="com.intellij.ide.ui.IdeUiService"
                         serviceImplementation="com.intellij.openapi.fileEditor.impl.IdeUiServiceImpl"/>
     <applicationService serviceInterface="com.intellij.openapi.wm.impl.FrameTitleBuilder" open="true"

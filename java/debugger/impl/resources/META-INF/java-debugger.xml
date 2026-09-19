@@ -81,6 +81,8 @@
                     interface="com.intellij.debugger.impl.ThreadDumpItemsProviderFactory" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.debugger.agentParametersModifier"
                     interface="com.intellij.debugger.engine.DebuggerAgentParametersModifier" dynamic="true"/>
+    <extensionPoint qualifiedName="com.intellij.debugger.agentProvider"
+                    interface="com.intellij.debugger.engine.DebuggerAgentProvider" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.debugger.hotSwapSourceFileFilterProvider"
                     interface="com.intellij.debugger.impl.hotswap.HotSwapSourceFileFilterProvider" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.debugger.hotSwapSourceChangeCompatibilityCheckerProvider"
@@ -120,9 +122,6 @@
 
     <xdebugger.breakpointGroupingRule implementation="com.intellij.debugger.ui.XBreakpointGroupingByPackageRule"/>
     <xdebugger.breakpointGroupingRule implementation="com.intellij.debugger.ui.XBreakpointGroupingByClassRule"/>
-
-    <projectConfigurable parentId="project.propDebugger" instance="com.intellij.debugger.settings.CaptureConfigurable"
-                         key="async.stacktraces.configurable.display.name" bundle="messages.JavaDebuggerBundle"/>
 
     <xdebugger.attachDebuggerProvider implementation="com.intellij.debugger.impl.attach.JavaAttachDebuggerProvider"/>
     <xdebugger.attachDebuggerProvider implementation="com.intellij.debugger.impl.attach.JavaSAAttachDebuggerProvider"/>

@@ -57,8 +57,8 @@
       ExportSettings
       <separator>
       RestoreDefaultSettings
-      SettingsSyncOpenSettingsAction
       SaveAsNewFormat
+      SettingsSyncOpenSettingsAction
     FileOtherSettingsGroup
       TemplateProjectProperties
       RunConfigurationTemplatesForNewProjects
@@ -567,9 +567,9 @@
       delombokFieldNameCostants
       delombokUtilityClass
       delombokStandardException
-    I18nize
     ConvertGroovyToJava
     ConvertToCompileStatic
+    I18nize
     AdditionalRefactoringsMenu
       RemoveMiddleman
       ReplaceTempWithQuery
@@ -587,10 +587,10 @@
       <separator>
       <separator>
       BuildArtifact
-    UpdateIdeFromSources
     Groovy.CheckResources
       Groovy.CheckResources.Make
       Groovy.CheckResources.Rebuild
+    UpdateIdeFromSources
     PluginDeployActions
       MakeJarAction
       MakeAllJarsAction
@@ -716,19 +716,18 @@
         DropAnErrorWithAttachments
         DropPluginError
         DropAnOutOfMemoryError
-        ExceptionShowCaseAction
         DebugListen
         Internal.Errors.Additional
           <separator>
           ResetFreezeNotificationState
           PrintErrorAutoReporterState
+        ExceptionShowCaseAction
       <separator>
       Internal.WorkspaceModel
         WorkspaceEntitiesJsonClipboard
         WorkspaceEntitiesJsonLog
         WorkspaceEntitiesJsonLogFile
         PrintModulesAndEntitySources
-      TriggerProjectIndexableFilesFilterHealthCheckAction
       <separator>
       Internal.Editor
         AddInlayInternalAction
@@ -736,54 +735,16 @@
         AddInlayBlockInternalAction
         DumpEditorStateInternalAction
         SetCaretVisualAttributesInternalAction
+        EditorRenderingBenchmarkAction
         EditorAddCustomWrap
         EditorRemoveCustomWrapsAtCaret
-        EditorRenderingBenchmarkAction
       Internal.UI
-        ShowNotificationIconsDialogAction
-        NotificationTestAction
-        TestMessageBoxAction
-        ShowCountdownDialog
-        PlayTestSoundAction
-        <separator>
         ShowSplash
-        ColorBlindnessTest
-        UIDefaults
         EnableMetalRendering
         EnableWayland
         ShowHideDebugInfoInUi
         <separator>
-        AddTestProcessAction
-        AddRandomNamesTestProcessAction
-        AddManyTestProcesses
-        <separator>
         ShowBundleLocalizationDialogAction
-        ShowCompressibleToolbarAction
-        TestGestureAction
-        ShowProgressTestDialogAction
-        ShowSouthPanelTestDialogAction
-        TestTextFieldAction
-        FeedbackDialogGroup
-          <separator>
-          com.intellij.platform.feedback.demo.action.ShowDemoFeedbackDialogAction
-          com.intellij.platform.feedback.demo.action.ShowDemoFeedbackDialogWithEmailAction
-          com.intellij.platform.feedback.localization.dialog.ShowLocalizationFeedbackDialog
-          Editor.ShowSmoothCaretFeedbackNotification
-          Editor.ShowEditorUxFeedbackNotification
-          ShowWslSatisfactionDialog
-          OnboardingKotlin
-            org.jetbrains.kotlin.onboarding.ShowKotlinOnboardingFeedbackDialogAction
-          MavenBuildProcessSatisfaction
-            org.jetbrains.kotlin.onboarding.maven.ShowMavenBuildProcessSatisfactionDialogAction
-          BuildProcessSatisfaction
-            org.jetbrains.kotlin.onboarding.gradle.ShowBuildProcessSatisfactionDialogAction
-        UiInspectorGroup
-          UiInspector
-          UiThemeColorPickerAction
-          CopyUiLabel
-          Internal.PMM
-            ApplyFixedWindowSize
-            ConfigureDefaultSize
         Internal.UI.Ex
           Internal.UI.Demos
             LabelSizeDemoAction
@@ -794,6 +755,15 @@
             ShowInlineBanner
             ToolbarDemo
             TreeViewModelDemo
+          WriteActionUnderProgress
+          LongBackgroundWriteAction
+          FrequentBackgroundWriteAction
+          FrequentBackgroundReadAction
+          TestProgressWindow
+          TestCoroutineProgress
+          PositionTrackerTestAction
+          UIFreeze
+          PooledFreeze
           Internal.UI.Animation
             AnimationPanelTestAction
             AnimatorTestAction
@@ -812,41 +782,61 @@
               UiDslShowcaseAction
           ComponentPanelTestAction
           WrapLayoutTestAction
-          UIFreeze
-          PooledFreeze
           GrayFilterConfig
           TextGrayFilterConfig
-          ValidationTest
           MacMessagesTest
           UnixInfoTest
           TreeExpandAll
           RulerGuide
-          WriteActionUnderProgress
-          LongBackgroundWriteAction
-          FrequentBackgroundWriteAction
-          FrequentBackgroundReadAction
-          TestProgressWindow
-          TestCoroutineProgress
-          TestDndAction
-          PositionTrackerTestAction
+        FeedbackDialogGroup
+          <separator>
+          com.intellij.platform.feedback.demo.action.ShowDemoFeedbackDialogAction
+          com.intellij.platform.feedback.demo.action.ShowDemoFeedbackDialogWithEmailAction
+          com.intellij.platform.feedback.localization.dialog.ShowLocalizationFeedbackDialog
+          Editor.ShowSmoothCaretFeedbackNotification
+          Editor.ShowEditorUxFeedbackNotification
+          ShowWslSatisfactionDialog
+          OnboardingKotlin
+            org.jetbrains.kotlin.onboarding.ShowKotlinOnboardingFeedbackDialogAction
+          BuildProcessSatisfaction
+            org.jetbrains.kotlin.onboarding.gradle.ShowBuildProcessSatisfactionDialogAction
+          MavenBuildProcessSatisfaction
+            org.jetbrains.kotlin.onboarding.maven.ShowMavenBuildProcessSatisfactionDialogAction
+        UiInspectorGroup
+          UiInspector
+          UiThemeColorPickerAction
+          CopyUiLabel
+          Internal.PMM
+            ApplyFixedWindowSize
+            ConfigureDefaultSize
+        ShowNotificationIconsDialogAction
+        NotificationTestAction
+        TestMessageBoxAction
+        ShowCountdownDialog
+        PlayTestSoundAction
+        ColorBlindnessTest
+        UIDefaults
+        AddTestProcessAction
+        AddRandomNamesTestProcessAction
+        AddManyTestProcesses
+        ShowCompressibleToolbarAction
+        TestGestureAction
+        ShowProgressTestDialogAction
+        ShowSouthPanelTestDialogAction
+        TestTextFieldAction
         UISandboxAction
-      ImageDuplicates
-      TestIconMappings
-      ShowNonRetinaImages
       DataSharingOptions
       <separator>
       MaintenanceGroup
         ShowRegistry
-        UiDebugger
         ShowExperiments
         DumpMLCompletionFeatures
         DumpLookupElementWeights
         IdeScriptingConsole
+        UiDebugger
         com.intellij.searchEverywhereMl.typos.actions.DumpDictionaryToFileAction
         com.intellij.searchEverywhereMl.typos.actions.CorpusToFileAction
         com.intellij.searchEverywhereMl.ranking.core.actions.OpenFeaturesInScratchFileAction
-      ShowEditorHighlighterTokens
-      ShowSearchEverywhereItemInfo
       Internal.HeapAnalysis
         UserInvokedFullAnalysis
         SilentHeapDumpSnapshot
@@ -857,6 +847,12 @@
         CheckVfsSanityInMenu
         MarkVfsCorrupted
         RequestCachesDefragmentation
+        <separator>
+        PruneEmptyDirectories
+        FixLineSeparators
+        <separator>
+        MarkFileDirty
+        ValidateLocalHistory
         LoadAllContent
         LoadAllVFSContent
         ComputeVFStatistics
@@ -864,15 +860,9 @@
         DumpVfsInfoForFsRoot
         DumpWatchedRoots
         CountVfsFileChildrenAction
-        <separator>
-        PruneEmptyDirectories
-        FixLineSeparators
-        <separator>
-        MarkFileDirty
-        ValidateLocalHistory
-      CompletionQualityStats
-      ShowControlFlowAction
       Internal.Dump
+        DumpCodeStyleCache
+        DumpPluginDescriptorsAction
         DumpExtensions
         DumpInspectionDescriptions
         DumpIntentionsDescriptions
@@ -880,11 +870,9 @@
         DumpScreenConfiguration
         DumpIElementTypesAction
         DumpLoadedInspectionsAction
-        DumpPluginDescriptorsAction
         DumpRunConfigurationTypesAction
         DumpFormattingModel
         CheckClassLoading
-        DumpCodeStyleCache
         DumpGroovyControlFlowAction
       DetectProjectLeaks
       TestJbProtocolCommand
@@ -913,28 +901,34 @@
         PyTypeBenchmarkAction
       ReloadProjectAction
       Internal.Ex
-        ShowEdtUtilizationChart
         ClearIDEStatistics
         ShowMainMenu
         DumbMode
-        ShortDumbMode
         ToggleIncompleteMode
+        ResetGotItTooltips
+        Internal.Performance
+          LaggingMode
+          TypingLatencyReport
+          RetypeFile
+        ShowUpdateDialogAction
+        ShowEdtUtilizationChart
+        ShortDumbMode
         DumbModeTremble
         IoFlooding
         ShowPoweredProgress
         SkipWindowDeactivationEvents
-        ResetGotItTooltips
         ListPersistentStateComponents
-        Internal.Performance
-          TurnOnOffCachedValueProfilerAction
-          LaggingMode
-          TypingLatencyReport
-          RetypeFile
         ShowIconsNotPatchedForExpUi
         TopAnomalies
-        ShowUpdateDialogAction
         KeymapToCsv
         CompareKeymaps
+      TriggerProjectIndexableFilesFilterHealthCheckAction
+      ImageDuplicates
+      TestIconMappings
+      ShowNonRetinaImages
+      ShowSearchEverywhereItemInfo
+      CompletionQualityStats
+      ShowControlFlowAction
       PythonGenerateDictionaries
       Internal.Python
         PyUpdateProjectSdk
@@ -963,9 +957,9 @@
       InternalKotlin
         <separator>
         KotlinInternalGroup
+          InspectBreakpointApplicability
           InvalidateK2CachesInternalAction
           ShortenSelectionAction
-          InspectBreakpointApplicability
           CreateIncrementalCompilationBackup
           ReactivePostOpenProjectActionsAction
         <separator>
@@ -983,6 +977,7 @@
         ShowHelpPageById
         DevKit.AnalyzePersistentSyntaxTreeOverhead
         AnalyzeUnloadablePlugins
+      ShowEditorHighlighterTokens
     Markdown.Tools
       Markdown.ImportFromDocx
       Markdown.Export
@@ -1009,8 +1004,8 @@
       ShowKotlinBytecode
       ConfigureKotlinInProject
       DecompileKotlinToJava
-    WorkspaceModelGeneration
     Groovy.Console
+    WorkspaceModelGeneration
   VcsGroups
     Vcs.MainMenu
       Start.Use.Vcs
@@ -1505,8 +1500,8 @@
   ToggleBreakpointEnabled
 [group BuildMenu]
   Java.BuildMenu
-  UpdateIdeFromSources
   Groovy.CheckResources
+  UpdateIdeFromSources
   PluginDeployActions
   AntBuildGroup
   RunTargetAction
@@ -1884,6 +1879,7 @@
   Gradle.ImportExternalProject
   JsonPathEvaluateAction
   XmlGenerateToolsGroup
+  OpenInSceneBuilder
   Git.Stage.Index.File.Menu
   GitLab.Create.Snippet
   Github.Create.Gist
@@ -1891,7 +1887,6 @@
   Mermaid.ExportDiagram
   Maven.AddFileAsMavenProject
   Maven.GlobalProjectMenu
-  OpenInSceneBuilder
   ChangeTemplateDataLanguage
   XPathView.EditorPopup
   PackageFile
@@ -1977,12 +1972,12 @@
   ReopenClosedTab
   popup@ExpandableBookmarkContextMenu
   EditorTabPopupMenuEx
-  GitLab.Create.Snippet
-  Github.Create.Gist
   ConvertJavaToKotlin
   ConvertJavaToKotlinGroup
   OpenInSceneBuilder
   ExcludeFromStubGeneration
+  GitLab.Create.Snippet
+  Github.Create.Gist
 [group EditorTabPopupMenuEx]
   <separator>
   Scratch.ChangeLanguage
@@ -2077,8 +2072,8 @@
   ExportSettings
   <separator>
   RestoreDefaultSettings
-  SettingsSyncOpenSettingsAction
   SaveAsNewFormat
+  SettingsSyncOpenSettingsAction
 [group ExternalToolsGroup]
 [group ExtractMethodToolWindow.TreePopup]
   EditSource
@@ -2240,9 +2235,9 @@
   Markdown.InsertGroup
   org.editorconfig.configmanagement.generate.EditorConfigGenerateLanguagePropertiesAction
   GenerateCopyright
+  JavaGenerateGroup2
   HtmlAddTableColumnBefore
   HtmlAddTableColumnAfter
-  JavaGenerateGroup2
   KotlinMavenGenerate
   GenerateExternalization
   GuiDesigner.GenerateMain
@@ -2579,18 +2574,18 @@
   GoToChangeMarkerGroup
 [group NewFromTemplate]
 [group NewGroup]
+  AddNewPropertyFile
   NewGroup1
   Groovy.NewClass
   Kotlin.NewFile
-  AddNewPropertyFile
   NewPythonFile
   NewFile
   WelcomeNewEmptyFile
   NewScratchFile
   NewDir
   NewRemoteDevModule
-  JavaFxCreateActions
   compose.newVectorAsset
+  JavaFxCreateActions
   NewJavaSpecialFile
   AddPyProject
   NewPythonPackage
@@ -2604,10 +2599,10 @@
   CreateEditorConfigFile
   Markdown.NewFile
   NewXmlDescriptor
-  DevkitObsoleteNewActions
-  DevKit.NewTheme
   Groovy.NewScript
   Gant.NewScript
+  DevkitObsoleteNewActions
+  DevKit.NewTheme
   GuiDesigner.NewActions
 [group NewMicroservices]
 [group NewProjectOrModuleGroup]
@@ -2738,23 +2733,23 @@
   ProjectViewPopupMenuSettingsGroup
   XmlGenerateToolsGroup
   UpdateCopyright
+  ConvertJavaToKotlin
+  ConvertJavaToKotlinGroup
+  OpenInSceneBuilder
   DissociateResourceBundleAction
   CombinePropertiesFilesAction
   Images.SetBackgroundImage
   GitLab.Create.Snippet
   Github.Create.Gist
   Mermaid.ExportDiagram
-  ConvertJavaToKotlin
-  ConvertJavaToKotlinGroup
   Maven.AddFileAsMavenProject
   Maven.GlobalProjectMenu
-  OpenInSceneBuilder
   AddAntBuildFile
   XPathView.XSLT.Associations
   Gradle.ProjectViewDependencyAnalyzer
+  PackageFile
   Images.EditExternally
   Images.ConvertSvgToPng
-  PackageFile
   Maven.ProjectViewDependencyAnalyzer
   PluginDeployActions
 [group ProjectViewPopupMenuModifyGroup]
@@ -2822,9 +2817,9 @@
   PyConvertPackageToModuleAction
   LombokActionGroup
   DelombokActionGroup
-  I18nize
   ConvertGroovyToJava
   ConvertToCompileStatic
+  I18nize
   AdditionalRefactoringsMenu
 [group RemoveBom.Group]
   RemoveBom
@@ -3130,8 +3125,8 @@
   PyPackagingMenu
   DevKit.Bootstrap
   KotlinToolsGroup
-  WorkspaceModelGeneration
   Groovy.Console
+  WorkspaceModelGeneration
 [group ToolsMenu.Services]
 [group TopStripeActionGroup]
 [group TouchBar]
