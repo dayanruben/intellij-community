@@ -478,11 +478,9 @@ abstract class ProductProperties {
   @ApiStatus.Internal
   open fun addRemoteDevelopmentLibraries(context: BuildContext): Boolean = context.getBundledPluginModules().contains("intellij.remoteDevServer")
 
-  /**
-   * Checks whether some necessary conditions specific for the product are met and report errors via [BuildContext.messages] if they aren't.
-   */
-  @ApiStatus.Experimental
-  open fun validateLayout(platformLayout: PlatformLayout, context: BuildContext) {}
+  /** Checks the complete platform layout before source derivation or packaging uses it. */
+  @ApiStatus.Internal
+  open fun validateLayout(platformLayout: PlatformLayout) {}
 
   /**
    * Copies additional localization resources to the plugin-generated localization resources directory.

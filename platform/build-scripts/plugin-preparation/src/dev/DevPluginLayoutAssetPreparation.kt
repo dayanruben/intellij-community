@@ -3,19 +3,41 @@ package org.jetbrains.intellij.build.dev
 import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
-import org.apache.commons.compress.archivers.zip.ZipFile
 import org.jetbrains.annotations.ApiStatus
-import java.io.ByteArrayOutputStream
 import java.nio.file.FileSystems
-import java.nio.file.Files
-import java.nio.file.LinkOption.NOFOLLOW_LINKS
-import java.nio.file.Path
-import java.util.zip.Deflater
-import java.util.zip.GZIPOutputStream
 
 /** A semantic source that the dev-plugin generator resolves to declared Bazel inputs. */
 @ApiStatus.Internal
 sealed interface DevPluginLayoutAssetSource {
+  data class ModuleDirectory(@JvmField val moduleName: String, @JvmField val path: String) : DevPluginLayoutAssetSource
+
+  /** A debugger egg prepared in Kotlin from two raw checkout directories. Paths are relative to the project root. */
+  data class DebuggerEgg(
+    @JvmField val pydevModule: String,
+    @JvmField val pydevPath: String,
+    @JvmField val metadataModule: String,
+    @JvmField val metadataPath: String,
+    @JvmField val buildNumber: String,
+    @JvmField val fileName: String,
+  ) : DevPluginLayoutAssetSource
+
+  /** Declares Jupyter configuration and frontend inputs. Paths are relative to the project root. */
+  data class JupyterFrontend(
+    @JvmField val configurationModule: String,
+    @JvmField val remoteConfigurationPath: String,
+    /** A null path disables local configuration. A missing file permits a later override. */
+    @JvmField val localConfigurationPath: String?,
+    @JvmField val frontendModule: String,
+    @JvmField val frontendPath: String,
+    /** Files and directories relative to [frontendPath], including the declarations of tool versions. */
+    @JvmField val buildInputPaths: List<String>,
+    @JvmField val optionalLicensePath: String,
+    @JvmField val resourceDirectory: String,
+    @JvmField val licenseMetadataFileName: String,
+    @JvmField val skipStep: String,
+    @JvmField val operation: JupyterFrontendOperation,
+  ) : DevPluginLayoutAssetSource
+
   data class BazelTarget(
     @JvmField val label: String,
     @JvmField val kind: String,
@@ -42,6 +64,12 @@ sealed interface DevPluginLayoutAssetSource {
     @JvmField val folder: String,
     @JvmField val language: String,
   ) : DevPluginLayoutAssetSource
+}
+
+@ApiStatus.Internal
+enum class JupyterFrontendOperation {
+  RESOURCES_AND_LICENSES,
+  LICENSES_ONLY,
 }
 
 /**
@@ -104,6 +132,8 @@ data class DevPluginLayoutAssetTransform(
   @EncodeDefault(EncodeDefault.Mode.NEVER) @JvmField val stripComponents: Int = 0,
   @EncodeDefault(EncodeDefault.Mode.NEVER) @JvmField val text: String = "",
   @EncodeDefault(EncodeDefault.Mode.NEVER) @JvmField val mappings: List<DevPluginLayoutAssetMapping> = emptyList(),
+  @EncodeDefault(EncodeDefault.Mode.NEVER) @JvmField val excludes: List<String> = emptyList(),
+  @EncodeDefault(EncodeDefault.Mode.NEVER) @JvmField val directoryExcludes: List<String> = emptyList(),
 ) {
   companion object {
     fun archiveTree(
@@ -121,8 +151,12 @@ data class DevPluginLayoutAssetTransform(
       return DevPluginLayoutAssetTransform(kind = "inline-text", text = text)
     }
 
-    fun treeMap(mappings: List<DevPluginLayoutAssetMapping>): DevPluginLayoutAssetTransform {
-      return DevPluginLayoutAssetTransform(kind = "tree-map", mappings = mappings)
+    fun treeMap(
+      mappings: List<DevPluginLayoutAssetMapping>,
+      excludes: List<String> = emptyList(),
+      directoryExcludes: List<String> = emptyList(),
+    ): DevPluginLayoutAssetTransform {
+      return DevPluginLayoutAssetTransform(kind = "tree-map", mappings = mappings, excludes = excludes, directoryExcludes = directoryExcludes)
     }
   }
 }
@@ -137,9 +171,9 @@ data class DevPluginLayoutAssetPreparation(
 )
 
 /**
- * Validates one layout-assets payload at generation and at action time. The Go packer ports these rules to `plan.go`.
- * A `gzip-xml-archive` asset is a Kotlin preparation. It requires the `entries` format and shares its operation with
- * `gzip-xml-archive` assets only, so that one executor owns every asset of an operation ([isGoExecutedOperation]).
+ * Validates one layout-assets payload at generation time. The Go packer ports these rules to `plan.go`.
+ * A `file` preparation holds one asset at its root: a plain copy of one file or an inline text. A `gzip-xml-archive`
+ * asset requires the `entries` format.
  */
 internal fun validateDevPluginLayoutAssetPreparation(
   preparation: DevPluginLayoutAssetPreparation,
@@ -156,13 +190,17 @@ internal fun validateDevPluginLayoutAssetPreparation(
   for (asset in preparation.assets) {
     val transform = asset.transform
     if (asset.destination.isEmpty()) {
-      require(preparation.format == "tree" || preparation.format == "entries" && transform?.kind in setOf("gzip-xml-archive", "tree-map")) {
-        "Only a tree or mapped entry asset can use its output root"
+      // An entry asset writes its output root when every entry brings its own relative path: a mapped tree, an
+      // extracted archive, a gzip archive, or a copied directory. The Go packer checks the directory kind.
+      require(preparation.format == "tree" ||
+              preparation.format == "entries" && transform?.kind in setOf("archive-tree", "gzip-xml-archive", "tree-map", null)) {
+        "Only a tree, a mapped entry asset, an extracted archive, a gzip archive, or a copied directory can use its output root"
       }
     }
     else {
       validatePreparationPath(asset.destination)
     }
+    require(preparation.format != "file" || asset.destination == preparation.root) { "A file layout asset requires one asset at its root" }
     require(asset.mode == 0 || asset.mode in 1..511) { "Unsupported layout asset mode ${asset.mode}" }
     require(asset.sources.all { it in inputs.indices }) { "A layout asset has an invalid source index: ${asset.sources}" }
     if (transform == null) {
@@ -174,14 +212,21 @@ internal fun validateDevPluginLayoutAssetPreparation(
     }
     require(preparation.format != "file" || transform.kind == "inline-text") { "A file layout asset allows a plain copy or inline text only" }
     require(transform.stripComponents >= 0) { "A layout asset strip count must not be negative" }
+    require(transform.kind == "tree-map" || transform.excludes.isEmpty() && transform.directoryExcludes.isEmpty()) {
+      "Only a tree-map transform accepts exclusions"
+    }
+    for (pattern in transform.excludes + transform.directoryExcludes) {
+      require(pattern.isNotEmpty()) { "A layout asset exclusion requires a pattern" }
+      FileSystems.getDefault().getPathMatcher("glob:$pattern")
+    }
     for (mapping in transform.mappings) {
       require(mapping.pattern.isNotEmpty() && mapping.stripComponents >= 0) { "A layout asset mapping requires a pattern and a valid strip count" }
       if (mapping.destination.isNotEmpty()) validatePreparationPath(mapping.destination)
       FileSystems.getDefault().getPathMatcher("glob:${mapping.pattern}")
     }
     when (transform.kind) {
-      "archive-tree" -> require(preparation.format == "tree" && asset.sources.size == 1 && transform.text.isEmpty()) {
-        "An archive-tree transform requires one archive and a tree output"
+      "archive-tree" -> require(asset.sources.size == 1 && transform.text.isEmpty()) {
+        "An archive-tree transform requires one archive"
       }
       "gzip-xml-archive" -> require(preparation.format == "entries" && asset.sources.isNotEmpty() && transform.stripComponents == 0 &&
                                               transform.text.isEmpty() && transform.mappings.isEmpty()) {
@@ -197,108 +242,5 @@ internal fun validateDevPluginLayoutAssetPreparation(
       }
     }
   }
-  val gzipAssets = preparation.assets.count { it.transform?.kind == "gzip-xml-archive" }
-  require(gzipAssets == 0 || gzipAssets == preparation.assets.size) {
-    "A gzip-xml-archive asset shares its operation with gzip-xml-archive assets only"
-  }
   require(preparation.format != "file" || preparation.assets.size == 1) { "A file layout asset preparation requires one asset" }
-}
-
-/**
- * Compiles the Kotlin action of a layout-assets operation that stays a Kotlin preparation. That is a
- * `gzip-xml-archive` entries operation, or a `file` operation with one plain file copy or one inline text.
- * [compileDevPluginPreparationActions] skips a Go-executed operation ([isGoExecutedOperation]).
- */
-internal fun compileDevPluginLayoutAssetAction(operation: DevPluginPreparationOperation): DevPluginPreparationAction {
-  val preparation = requireNotNull(operation.layoutAssets)
-  validateDevPluginLayoutAssetPreparation(preparation, operation.inputs)
-  require(preparation.format == "entries" || preparation.format == "file") {
-    "Layout asset preparation '${operation.id}' with the format '${preparation.format}' is executed by the Go packer"
-  }
-  return DevPluginPreparationAction { context -> listOf(prepareLayoutAssetEntries(operation, preparation, context)) }
-}
-
-private fun prepareLayoutAssetEntries(
-  operation: DevPluginPreparationOperation,
-  preparation: DevPluginLayoutAssetPreparation,
-  context: DevPluginPreparationContext,
-): DevPluginPreparedSource {
-  val entries = ArrayList<DevPluginPreparedEntry>()
-  val destinations = HashSet<String>()
-  val writer = LayoutAssetEntryWriter { path, content, mode ->
-    validatePreparationPath(path)
-    if (!destinations.add(path)) return@LayoutAssetEntryWriter
-    val reference = context.writeFile(
-      output = operation.output,
-      relativePath = "entries/${entries.size}",
-      content = content,
-      executable = mode and 0x49 != 0,
-    )
-    entries.add(DevPluginPreparedEntry(kind = "file", name = path, input = reference))
-  }
-  for (asset in preparation.assets) {
-    val references = asset.sources.map(operation.inputs::get)
-    val transform = asset.transform
-    when (transform?.kind) {
-      null -> copyLayoutAssetFile(context.inputPath(references.single()), asset.destination, asset.mode, writer)
-      "gzip-xml-archive" -> gzipLayoutAssetXmlArchives(references.map(context::inputPath), asset.destination, writer)
-      "inline-text" -> writer.file(asset.destination, transform.text.toByteArray(Charsets.UTF_8), asset.mode.takeIf { it != 0 } ?: 420)
-      else -> error("Layout asset transform '${transform.kind}' is executed by the Go packer")
-    }
-  }
-  return DevPluginPreparedSource(operation.output, listOf(DevPluginExecutionSource(kind = "entries", manifest = "keep", entries = entries)))
-}
-
-/** Writes one file entry of a jar layout asset. The first contribution to a destination wins. */
-private fun interface LayoutAssetEntryWriter {
-  fun file(path: String, content: ByteArray, mode: Int)
-}
-
-private fun copyLayoutAssetFile(source: Path, destination: String, mode: Int, writer: LayoutAssetEntryWriter) {
-  require(Files.isRegularFile(source, NOFOLLOW_LINKS)) { "A jar layout asset requires a regular file: $source" }
-  writer.file(destination, Files.readAllBytes(source), effectiveLayoutAssetMode(source, mode))
-}
-
-/** Reads the XML entries of zip or jar archives in central-directory order and writes each one as `<path>.gzip`. */
-private fun gzipLayoutAssetXmlArchives(archives: List<Path>, destination: String, writer: LayoutAssetEntryWriter) {
-  for (archive in archives) {
-    val name = archive.fileName.toString().lowercase()
-    require(name.endsWith(".zip") || name.endsWith(".jar")) { "A gzip-xml-archive transform reads a zip or jar archive: $archive" }
-    @Suppress("DEPRECATION")
-    ZipFile(archive).use { zip ->
-      val entries = zip.entries
-      while (entries.hasMoreElements()) {
-        val entry = entries.nextElement()
-        val path = entry.name.removeSuffix("/")
-        if (path.isEmpty()) continue
-        validatePreparationPath(path)
-        require(!entry.isUnixSymlink) { "Unexpected file '$path' in $archive" }
-        if (entry.isDirectory) continue
-        require(path.endsWith(".xml")) { "Unexpected file '$path' in $archive" }
-        val content = zip.getInputStream(entry).use { it.readAllBytes() }
-        val bytes = ByteArrayOutputStream()
-        FastGzipOutputStream(bytes).use { it.write(content) }
-        writer.file(joinLayoutAssetPath(destination, "$path.gzip"), bytes.toByteArray(), 420)
-      }
-    }
-  }
-}
-
-private fun joinLayoutAssetPath(first: String, second: String): String {
-  return when {
-    first.isEmpty() -> second
-    second.isEmpty() -> first
-    else -> "$first/$second"
-  }
-}
-
-private fun effectiveLayoutAssetMode(path: Path, override: Int): Int {
-  if (override != 0) return override
-  return fileMode(path) and 0x1FF
-}
-
-private class FastGzipOutputStream(output: ByteArrayOutputStream) : GZIPOutputStream(output) {
-  init {
-    def.setLevel(Deflater.BEST_SPEED)
-  }
 }

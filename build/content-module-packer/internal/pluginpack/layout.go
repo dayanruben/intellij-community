@@ -1,6 +1,8 @@
 package pluginpack
 
 import (
+	"bytes"
+	"compress/gzip"
 	"fmt"
 	"io/fs"
 	"os"
@@ -13,10 +15,9 @@ import (
 	"jetbrains.com/content-module-packer/internal/javaglob"
 )
 
-// layoutTransforms names the transform kinds this packer executes: archive-tree, inline-text, and tree-map.
-// A plain copy needs no transform. Plan refuses every other kind.
-// The kind gzip-xml-archive stays a Kotlin preparation, because Go writes no JDK gzip bytes.
-var layoutTransforms = map[string]bool{"archive-tree": true, "inline-text": true, "tree-map": true}
+// layoutTransforms names the transform kinds this packer executes: archive-tree, gzip-xml-archive, inline-text, and
+// tree-map. A plain copy needs no transform. Plan refuses every other kind.
+var layoutTransforms = map[string]bool{"archive-tree": true, "gzip-xml-archive": true, "inline-text": true, "tree-map": true}
 
 func mappingPattern(mapping LayoutMapping) string {
 	if mapping.Pattern == "" {
@@ -51,8 +52,8 @@ func stripLayoutPath(name string, components int) (string, bool) {
 	return strings.Join(parts[components:], "/"), true
 }
 
-// layoutScratch holds the trees, entries, and decoded archives the layout assets write before the remainder copies them.
-// It lives beside the output and is removed before the stage rename.
+// layoutScratch holds the trees, entries, decoded archives, and selected natives the layout assets and the native-tree
+// operations write before the remainder copies them. It lives beside the output and is removed before the stage rename.
 type layoutScratch struct {
 	root  string
 	count int
@@ -60,7 +61,8 @@ type layoutScratch struct {
 
 func newLayoutScratch(recipe Recipe, output string) (*layoutScratch, error) {
 	hasLayout := slices.ContainsFunc(recipe.Operations, func(operation Operation) bool {
-		return operation.Layout != nil || slices.ContainsFunc(operation.Sources, func(source Source) bool { return source.Layout != nil })
+		return operation.Layout != nil || operation.Kind == "native-tree" ||
+			slices.ContainsFunc(operation.Sources, func(source Source) bool { return source.Layout != nil })
 	})
 	if !hasLayout {
 		return &layoutScratch{}, nil
@@ -139,6 +141,27 @@ func (executor *layoutExecutor) tree(operation Operation) ([]resolvedOperation, 
 	return resolveDirectoryTree(operation, root)
 }
 
+// file writes the one layout asset of a layout-file operation into a scratch file and resolves it like a copy.
+func (executor *layoutExecutor) file(operation Operation) (resolvedOperation, error) {
+	root, err := executor.scratch.directory("file")
+	if err != nil {
+		return resolvedOperation{}, err
+	}
+	writer := &layoutFileWriter{path: filepath.Join(root, "file")}
+	if err := executor.execute(operation.Layout, writer); err != nil {
+		return resolvedOperation{}, err
+	}
+	if !writer.written {
+		return resolvedOperation{}, fmt.Errorf("layout file %q wrote no file", operation.Destination)
+	}
+	info, err := os.Stat(writer.path)
+	if err != nil {
+		return resolvedOperation{}, err
+	}
+	copied := Operation{Kind: "copy", Destination: operation.Destination, Scope: operation.Scope, Mode: operation.Mode}
+	return resolvedOperation{operation: copied, input: writer.path, sourceInfo: info}, nil
+}
+
 // entries writes the file entries of a layout source and returns one single-file jar source per entry.
 func (executor *layoutExecutor) entries(source Source) ([]jarpack.Source, error) {
 	root, err := executor.scratch.directory("entries")
@@ -176,6 +199,8 @@ func (executor *layoutExecutor) execute(layout *LayoutAssets, writer layoutWrite
 			err = executor.copyAsset(inputs[0], asset, writer)
 		case "archive-tree":
 			err = executor.extractArchive(inputs[0], asset, writer)
+		case "gzip-xml-archive":
+			err = executor.gzipXMLArchives(inputs, asset, writer)
 		case "inline-text":
 			err = writer.file(asset.Destination, []byte(asset.Transform.Text), modeOr(asset.Mode, 0o644))
 		case "tree-map":
@@ -343,6 +368,7 @@ type layoutTreeEntry struct {
 
 // walkLayoutTree visits a directory in pre-order and raw directory order, the order of Kotlin's Files.walk.
 // It reads every directory through (*os.File).ReadDir, which does not sort. It does not follow links.
+// A visitor can return fs.SkipDir for a directory to skip its descendants.
 func walkLayoutTree(root string, visit func(layoutTreeEntry) error) error {
 	var walk func(directory, prefix string) error
 	walk = func(directory, prefix string) error {
@@ -362,6 +388,9 @@ func walkLayoutTree(root string, visit func(layoutTreeEntry) error) error {
 			}
 			item := layoutTreeEntry{relative: prefix + entry.Name(), full: filepath.Join(directory, entry.Name()), info: info}
 			if err := visit(item); err != nil {
+				if err == fs.SkipDir && info.IsDir() {
+					continue
+				}
 				return err
 			}
 			if info.IsDir() {
@@ -375,8 +404,28 @@ func walkLayoutTree(root string, visit func(layoutTreeEntry) error) error {
 	return walk(root, "")
 }
 
+func compileLayoutExcludes(patterns []string) ([]javaglob.Matcher, error) {
+	matchers := make([]javaglob.Matcher, 0, len(patterns))
+	for _, pattern := range patterns {
+		matcher, err := javaglob.Compile(pattern)
+		if err != nil {
+			return nil, fmt.Errorf("invalid exclude: %w", err)
+		}
+		matchers = append(matchers, matcher)
+	}
+	return matchers, nil
+}
+
 // mapTrees copies the entries of every source directory that a mapping selects. The first mapping per entry wins.
 func (executor *layoutExecutor) mapTrees(inputs []layoutInput, asset LayoutAsset, writer layoutWriter) error {
+	excludes, err := compileLayoutExcludes(asset.Transform.Excludes)
+	if err != nil {
+		return err
+	}
+	directoryExcludes, err := compileLayoutExcludes(asset.Transform.DirectoryExcludes)
+	if err != nil {
+		return err
+	}
 	mappings := asset.Transform.Mappings
 	matchers := make([]javaglob.Matcher, 0, len(mappings))
 	for _, mapping := range mappings {
@@ -392,6 +441,13 @@ func (executor *layoutExecutor) mapTrees(inputs []layoutInput, asset LayoutAsset
 		}
 		transportRoot := ""
 		err := walkLayoutTree(input.path, func(entry layoutTreeEntry) error {
+			if entry.info.IsDir() {
+				if slices.ContainsFunc(directoryExcludes, func(matcher javaglob.Matcher) bool { return matcher.Match(entry.relative) }) {
+					return fs.SkipDir
+				}
+			} else if slices.ContainsFunc(excludes, func(matcher javaglob.Matcher) bool { return matcher.Match(entry.relative) }) {
+				return nil
+			}
 			index := slices.IndexFunc(matchers, func(matcher javaglob.Matcher) bool { return matcher.Match(entry.relative) })
 			if index < 0 {
 				return nil
@@ -489,4 +545,57 @@ func (executor *layoutExecutor) extractArchive(input layoutInput, asset LayoutAs
 		}
 		return fmt.Errorf("unknown archive entry kind %q", entry.kind)
 	})
+}
+
+// gzipXMLArchives reads the .xml entries of every source archive in central-directory order and writes each one as
+// <destination>/<name>.gzip. A source is a .zip or a .jar. A file that is not XML, and a link, fail with the archive name.
+func (executor *layoutExecutor) gzipXMLArchives(inputs []layoutInput, asset LayoutAsset, writer layoutWriter) error {
+	for _, input := range inputs {
+		name := strings.ToLower(filepath.Base(input.path))
+		if input.kind != "file" || !strings.HasSuffix(name, ".zip") && !strings.HasSuffix(name, ".jar") {
+			return fmt.Errorf("a gzip-xml-archive transform reads a zip or jar archive: %s", input.path)
+		}
+		archive, err := openLayoutArchive(input.path, executor.scratch)
+		if err != nil {
+			return err
+		}
+		err = archive.visit(func(entry layoutArchiveEntry) error {
+			switch {
+			case entry.kind == "directory":
+				return nil
+			case entry.kind != "file" || !strings.HasSuffix(entry.name, ".xml"):
+				return fmt.Errorf("unexpected file %q in %s", entry.name, input.path)
+			}
+			content, err := entry.content()
+			if err != nil {
+				return fmt.Errorf("%s: %s: %w", input.path, entry.name, err)
+			}
+			compressed, err := gzipBytes(content)
+			if err != nil {
+				return err
+			}
+			return writer.file(joinLayoutPath(asset.Destination, entry.name+".gzip"), compressed, 0o644)
+		})
+		archive.close()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// gzipBytes compresses the content as one gzip member at the best speed, with a zero modification time and no name.
+func gzipBytes(content []byte) ([]byte, error) {
+	var buffer bytes.Buffer
+	compressor, err := gzip.NewWriterLevel(&buffer, gzip.BestSpeed)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := compressor.Write(content); err != nil {
+		return nil, err
+	}
+	if err := compressor.Close(); err != nil {
+		return nil, err
+	}
+	return buffer.Bytes(), nil
 }
