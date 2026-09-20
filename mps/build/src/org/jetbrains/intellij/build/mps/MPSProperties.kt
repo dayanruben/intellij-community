@@ -120,7 +120,6 @@ class MPSProperties : JetBrainsProductProperties() {
 
             layout.withModule("intellij.java.rt", "idea_rt.jar")
             layout.withProjectLibrary("Eclipse", "lib.jar", "withProjectLibrary")
-            layout.withModuleLibrary("http-client", "intellij.libraries.http.client", "lib.jar")
             // the JPS build process reads the library from lib/; the wrapper module itself ships with the aether dependency resolver plugin
             layout.withModuleLibrary("maven-resolver-provider", "intellij.libraries.maven.resolver.provider", "")
         }
@@ -192,6 +191,7 @@ class MPSProperties : JetBrainsProductProperties() {
         include(CommunityProductFragments.platformCoreFragment())
 
         moduleSet(CommunityModuleSets.ideCommon())
+        moduleSet(CommunityModuleSets.platformResourceDefaults())
 
         // JSP base modules — the Java plugin's intellij.jsp/intellij.jsp.spi content modules depend on
         // intellij.jsp.base, which java-capable products provide (see CommunityProductFragments.javaIdeBaseFragment).
