@@ -9721,6 +9721,21 @@ jvm_import(
 )
 
 copy_file(
+    name = "tools.jackson.dataformat/jackson-dataformat-cbor-3.2.2.jar_copy",
+    src = "@tools_jackson_dataformat-jackson-dataformat-cbor-3_2_2_http//file",
+    out = "tools.jackson.dataformat/jackson-dataformat-cbor-3.2.2.jar",
+    allow_symlink = True,
+    visibility = ["//visibility:public"],
+)
+
+jvm_import(
+    name = "libraries-jackson3-dataformat-cbor-jackson3-dataformat-cbor",
+    jar = "@tools_jackson_dataformat-jackson-dataformat-cbor-3_2_2_http//file",
+    source_jar = "@tools_jackson_dataformat-jackson-dataformat-cbor-3_2_2-sources_http//file",
+    visibility = ["//visibility:public"],
+)
+
+copy_file(
     name = "tools.jackson.dataformat/jackson-dataformat-toml-3.2.2.jar_copy",
     src = "@tools_jackson_dataformat-jackson-dataformat-toml-3_2_2_http//file",
     out = "tools.jackson.dataformat/jackson-dataformat-toml-3.2.2.jar",
@@ -9732,6 +9747,21 @@ jvm_import(
     name = "libraries-jackson3-dataformat-toml-jackson3-dataformat-toml",
     jar = "@tools_jackson_dataformat-jackson-dataformat-toml-3_2_2_http//file",
     source_jar = "@tools_jackson_dataformat-jackson-dataformat-toml-3_2_2-sources_http//file",
+    visibility = ["//visibility:public"],
+)
+
+copy_file(
+    name = "tools.jackson.dataformat/jackson-dataformat-xml-3.2.2.jar_copy",
+    src = "@tools_jackson_dataformat-jackson-dataformat-xml-3_2_2_http//file",
+    out = "tools.jackson.dataformat/jackson-dataformat-xml-3.2.2.jar",
+    allow_symlink = True,
+    visibility = ["//visibility:public"],
+)
+
+jvm_import(
+    name = "libraries-jackson3-dataformat-xml-jackson3-dataformat-xml",
+    jar = "@tools_jackson_dataformat-jackson-dataformat-xml-3_2_2_http//file",
+    source_jar = "@tools_jackson_dataformat-jackson-dataformat-xml-3_2_2-sources_http//file",
     visibility = ["//visibility:public"],
 )
 
@@ -9901,17 +9931,17 @@ jvm_import(
 )
 
 copy_file(
-    name = "org.jetbrains.intellij.deps.jcef/jcef-150.0.14-g7c1aa68-chromium-150.0.7871.129-api-1.21-263-b11.jar_copy",
-    src = "@org_jetbrains_intellij_deps_jcef-jcef-150_0_14-g7c1aa68-chromium-150_0_7871_129-api-1_21-263-b11_http//file",
-    out = "org.jetbrains.intellij.deps.jcef/jcef-150.0.14-g7c1aa68-chromium-150.0.7871.129-api-1.21-263-b11.jar",
+    name = "org.jetbrains.intellij.deps.jcef/jcef-150.0.14-g7c1aa68-chromium-150.0.7871.129-api-1.21-263-b16.jar_copy",
+    src = "@org_jetbrains_intellij_deps_jcef-jcef-150_0_14-g7c1aa68-chromium-150_0_7871_129-api-1_21-263-b16_http//file",
+    out = "org.jetbrains.intellij.deps.jcef/jcef-150.0.14-g7c1aa68-chromium-150.0.7871.129-api-1.21-263-b16.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
 
 jvm_import(
     name = "libraries-jcef-jcef",
-    jar = "@org_jetbrains_intellij_deps_jcef-jcef-150_0_14-g7c1aa68-chromium-150_0_7871_129-api-1_21-263-b11_http//file",
-    source_jar = "@org_jetbrains_intellij_deps_jcef-jcef-150_0_14-g7c1aa68-chromium-150_0_7871_129-api-1_21-263-b11-sources_http//file",
+    jar = "@org_jetbrains_intellij_deps_jcef-jcef-150_0_14-g7c1aa68-chromium-150_0_7871_129-api-1_21-263-b16_http//file",
+    source_jar = "@org_jetbrains_intellij_deps_jcef-jcef-150_0_14-g7c1aa68-chromium-150_0_7871_129-api-1_21-263-b16-sources_http//file",
     visibility = ["//visibility:public"],
 )
 
@@ -11740,17 +11770,17 @@ jvm_import(
 )
 
 copy_file(
-    name = "org.jetbrains.kotlinx/kotlinx-io-core-jvm-0.7.0.jar_copy",
-    src = "@org_jetbrains_kotlinx-kotlinx-io-core-jvm-0_7_0_http//file",
-    out = "org.jetbrains.kotlinx/kotlinx-io-core-jvm-0.7.0.jar",
+    name = "org.jetbrains.kotlinx/kotlinx-io-core-jvm-0.9.1.jar_copy",
+    src = "@org_jetbrains_kotlinx-kotlinx-io-core-jvm-0_9_1_http//file",
+    out = "org.jetbrains.kotlinx/kotlinx-io-core-jvm-0.9.1.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
 
 copy_file(
-    name = "org.jetbrains.kotlinx/kotlinx-io-bytestring-jvm-0.7.0.jar_copy",
-    src = "@org_jetbrains_kotlinx-kotlinx-io-bytestring-jvm-0_7_0_http//file",
-    out = "org.jetbrains.kotlinx/kotlinx-io-bytestring-jvm-0.7.0.jar",
+    name = "org.jetbrains.kotlinx/kotlinx-io-bytestring-jvm-0.9.1.jar_copy",
+    src = "@org_jetbrains_kotlinx-kotlinx-io-bytestring-jvm-0_9_1_http//file",
+    out = "org.jetbrains.kotlinx/kotlinx-io-bytestring-jvm-0.9.1.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
@@ -11760,42 +11790,42 @@ java_library(
     visibility = ["//visibility:public"],
     exports = [
         # do not sort,
-        ":org_jetbrains_kotlinx-kotlinx-io-core-jvm-0_7_0_http_import",
-        ":org_jetbrains_kotlinx-kotlinx-io-bytestring-jvm-0_7_0_http_import",
+        ":org_jetbrains_kotlinx-kotlinx-io-core-jvm-0_9_1_http_import",
+        ":org_jetbrains_kotlinx-kotlinx-io-bytestring-jvm-0_9_1_http_import",
     ],
 )
 
 jvm_import(
-    name = "org_jetbrains_kotlinx-kotlinx-io-core-jvm-0_7_0_http_import",
-    jar = "@org_jetbrains_kotlinx-kotlinx-io-core-jvm-0_7_0_http//file",
-    source_jar = "@org_jetbrains_kotlinx-kotlinx-io-core-jvm-0_7_0-sources_http//file",
+    name = "org_jetbrains_kotlinx-kotlinx-io-core-jvm-0_9_1_http_import",
+    jar = "@org_jetbrains_kotlinx-kotlinx-io-core-jvm-0_9_1_http//file",
+    source_jar = "@org_jetbrains_kotlinx-kotlinx-io-core-jvm-0_9_1-sources_http//file",
 )
 
 jvm_import(
-    name = "org_jetbrains_kotlinx-kotlinx-io-bytestring-jvm-0_7_0_http_import",
-    jar = "@org_jetbrains_kotlinx-kotlinx-io-bytestring-jvm-0_7_0_http//file",
-    source_jar = "@org_jetbrains_kotlinx-kotlinx-io-bytestring-jvm-0_7_0-sources_http//file",
+    name = "org_jetbrains_kotlinx-kotlinx-io-bytestring-jvm-0_9_1_http_import",
+    jar = "@org_jetbrains_kotlinx-kotlinx-io-bytestring-jvm-0_9_1_http//file",
+    source_jar = "@org_jetbrains_kotlinx-kotlinx-io-bytestring-jvm-0_9_1-sources_http//file",
 )
 
 copy_file(
-    name = "org.jetbrains.kotlinx/kotlinx-serialization-cbor-jvm-1.9.0.jar_copy",
-    src = "@org_jetbrains_kotlinx-kotlinx-serialization-cbor-jvm-1_9_0_http//file",
-    out = "org.jetbrains.kotlinx/kotlinx-serialization-cbor-jvm-1.9.0.jar",
+    name = "org.jetbrains.kotlinx/kotlinx-serialization-cbor-jvm-1.11.0.jar_copy",
+    src = "@org_jetbrains_kotlinx-kotlinx-serialization-cbor-jvm-1_11_0_http//file",
+    out = "org.jetbrains.kotlinx/kotlinx-serialization-cbor-jvm-1.11.0.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
 
 jvm_import(
     name = "libraries-kotlinx-serialization-cbor-kotlinx-serialization-cbor",
-    jar = "@org_jetbrains_kotlinx-kotlinx-serialization-cbor-jvm-1_9_0_http//file",
-    source_jar = "@org_jetbrains_kotlinx-kotlinx-serialization-cbor-jvm-1_9_0-sources_http//file",
+    jar = "@org_jetbrains_kotlinx-kotlinx-serialization-cbor-jvm-1_11_0_http//file",
+    source_jar = "@org_jetbrains_kotlinx-kotlinx-serialization-cbor-jvm-1_11_0-sources_http//file",
     visibility = ["//visibility:public"],
 )
 
 copy_file(
-    name = "org.jetbrains.kotlinx/kotlinx-serialization-core-jvm-1.9.0.jar_copy",
-    src = "@org_jetbrains_kotlinx-kotlinx-serialization-core-jvm-1_9_0_http//file",
-    out = "org.jetbrains.kotlinx/kotlinx-serialization-core-jvm-1.9.0.jar",
+    name = "org.jetbrains.kotlinx/kotlinx-serialization-core-jvm-1.11.0.jar_copy",
+    src = "@org_jetbrains_kotlinx-kotlinx-serialization-core-jvm-1_11_0_http//file",
+    out = "org.jetbrains.kotlinx/kotlinx-serialization-core-jvm-1.11.0.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
@@ -11803,53 +11833,53 @@ copy_file(
 jvm_import(
     name = "libraries-kotlinx-serialization-core-kotlinx-serialization-core",
     exported_compiler_plugins = ["@lib//:kotlin-serialization-plugin"],
-    jar = "@org_jetbrains_kotlinx-kotlinx-serialization-core-jvm-1_9_0_http//file",
-    source_jar = "@org_jetbrains_kotlinx-kotlinx-serialization-core-jvm-1_9_0-sources_http//file",
+    jar = "@org_jetbrains_kotlinx-kotlinx-serialization-core-jvm-1_11_0_http//file",
+    source_jar = "@org_jetbrains_kotlinx-kotlinx-serialization-core-jvm-1_11_0-sources_http//file",
     visibility = ["//visibility:public"],
 )
 
 copy_file(
-    name = "org.jetbrains.kotlinx/kotlinx-serialization-json-io-jvm-1.9.0.jar_copy",
-    src = "@org_jetbrains_kotlinx-kotlinx-serialization-json-io-jvm-1_9_0_http//file",
-    out = "org.jetbrains.kotlinx/kotlinx-serialization-json-io-jvm-1.9.0.jar",
+    name = "org.jetbrains.kotlinx/kotlinx-serialization-json-io-jvm-1.11.0.jar_copy",
+    src = "@org_jetbrains_kotlinx-kotlinx-serialization-json-io-jvm-1_11_0_http//file",
+    out = "org.jetbrains.kotlinx/kotlinx-serialization-json-io-jvm-1.11.0.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
 
 jvm_import(
     name = "libraries-kotlinx-serialization-json-io-kotlinx-serialization-json-io",
-    jar = "@org_jetbrains_kotlinx-kotlinx-serialization-json-io-jvm-1_9_0_http//file",
-    source_jar = "@org_jetbrains_kotlinx-kotlinx-serialization-json-io-jvm-1_9_0-sources_http//file",
+    jar = "@org_jetbrains_kotlinx-kotlinx-serialization-json-io-jvm-1_11_0_http//file",
+    source_jar = "@org_jetbrains_kotlinx-kotlinx-serialization-json-io-jvm-1_11_0-sources_http//file",
     visibility = ["//visibility:public"],
 )
 
 copy_file(
-    name = "org.jetbrains.kotlinx/kotlinx-serialization-json-jvm-1.9.0.jar_copy",
-    src = "@org_jetbrains_kotlinx-kotlinx-serialization-json-jvm-1_9_0_http//file",
-    out = "org.jetbrains.kotlinx/kotlinx-serialization-json-jvm-1.9.0.jar",
+    name = "org.jetbrains.kotlinx/kotlinx-serialization-json-jvm-1.11.0.jar_copy",
+    src = "@org_jetbrains_kotlinx-kotlinx-serialization-json-jvm-1_11_0_http//file",
+    out = "org.jetbrains.kotlinx/kotlinx-serialization-json-jvm-1.11.0.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
 
 jvm_import(
     name = "libraries-kotlinx-serialization-json-kotlinx-serialization-json",
-    jar = "@org_jetbrains_kotlinx-kotlinx-serialization-json-jvm-1_9_0_http//file",
-    source_jar = "@org_jetbrains_kotlinx-kotlinx-serialization-json-jvm-1_9_0-sources_http//file",
+    jar = "@org_jetbrains_kotlinx-kotlinx-serialization-json-jvm-1_11_0_http//file",
+    source_jar = "@org_jetbrains_kotlinx-kotlinx-serialization-json-jvm-1_11_0-sources_http//file",
     visibility = ["//visibility:public"],
 )
 
 copy_file(
-    name = "org.jetbrains.kotlinx/kotlinx-serialization-protobuf-jvm-1.9.0.jar_copy",
-    src = "@org_jetbrains_kotlinx-kotlinx-serialization-protobuf-jvm-1_9_0_http//file",
-    out = "org.jetbrains.kotlinx/kotlinx-serialization-protobuf-jvm-1.9.0.jar",
+    name = "org.jetbrains.kotlinx/kotlinx-serialization-protobuf-jvm-1.11.0.jar_copy",
+    src = "@org_jetbrains_kotlinx-kotlinx-serialization-protobuf-jvm-1_11_0_http//file",
+    out = "org.jetbrains.kotlinx/kotlinx-serialization-protobuf-jvm-1.11.0.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
 
 jvm_import(
     name = "libraries-kotlinx-serialization-protobuf-kotlinx-serialization-protobuf",
-    jar = "@org_jetbrains_kotlinx-kotlinx-serialization-protobuf-jvm-1_9_0_http//file",
-    source_jar = "@org_jetbrains_kotlinx-kotlinx-serialization-protobuf-jvm-1_9_0-sources_http//file",
+    jar = "@org_jetbrains_kotlinx-kotlinx-serialization-protobuf-jvm-1_11_0_http//file",
+    source_jar = "@org_jetbrains_kotlinx-kotlinx-serialization-protobuf-jvm-1_11_0-sources_http//file",
     visibility = ["//visibility:public"],
 )
 
@@ -19700,28 +19730,6 @@ jvm_import(
     name = "net_jqwik-jqwik-engine-1_9_2_http_import",
     jar = "@net_jqwik-jqwik-engine-1_9_2_http//file",
     source_jar = "@net_jqwik-jqwik-engine-1_9_2-sources_http//file",
-)
-
-copy_file(
-    name = "com.fasterxml.jackson.dataformat/jackson-dataformat-cbor-2.19.0.jar_copy",
-    src = "@com_fasterxml_jackson_dataformat-jackson-dataformat-cbor-2_19_0_http//file",
-    out = "com.fasterxml.jackson.dataformat/jackson-dataformat-cbor-2.19.0.jar",
-    allow_symlink = True,
-    visibility = ["//visibility:public"],
-)
-
-jvm_import(
-    name = "platform-settings-local-jackson-dataformat-cbor",
-    jar = "@com_fasterxml_jackson_dataformat-jackson-dataformat-cbor-2_19_0_http//file",
-    source_jar = "@com_fasterxml_jackson_dataformat-jackson-dataformat-cbor-2_19_0-sources_http//file",
-    visibility = ["//visibility:public"],
-)
-
-jvm_import(
-    name = "platform-settings-local-tests-jackson-dataformat-cbor",
-    jar = "@com_fasterxml_jackson_dataformat-jackson-dataformat-cbor-2_19_0_http//file",
-    source_jar = "@com_fasterxml_jackson_dataformat-jackson-dataformat-cbor-2_19_0-sources_http//file",
-    visibility = ["//visibility:public"],
 )
 
 copy_file(
