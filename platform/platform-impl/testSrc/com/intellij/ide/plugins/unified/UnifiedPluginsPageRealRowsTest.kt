@@ -68,7 +68,11 @@ internal class UnifiedPluginsPageRealRowsTest {
     assertThat(factory.row(PluginSectionId.Installed, firstItem)).isSameAs(firstRow)
     assertThat(factory.row(PluginSectionId.Installed, secondItem)).isSameAs(secondRow)
 
-    controller.updateSection(section(PluginSectionId.Installed, secondItem, firstItem))
+    controller.replaceSourceState(
+      query = PluginsQueryState("reordered", "reordered", revision = 1),
+      updatedSections = listOf(section(PluginSectionId.Installed, secondItem, firstItem)),
+      mayEstablishSelection = false,
+    )
     view.render(controller.state.value)
 
     assertThat(factory.row(PluginSectionId.Installed, firstItem)).isSameAs(firstRow)
@@ -95,6 +99,27 @@ internal class UnifiedPluginsPageRealRowsTest {
   }
 
   @Test
+  fun `unified rows have a four pixel gap`(): Unit = timeoutRunBlocking(context = Dispatchers.UI) {
+    val factory = RecordingRowFactory()
+    val firstItem = item("first.plugin")
+    val secondItem = item("second.plugin")
+    val controller = UnifiedPluginsPageController(
+      listOf(section(PluginSectionId.Installed, firstItem, secondItem))
+    )
+    val view = createView(factory)
+
+    view.render(controller.state.value)
+    val firstRow = factory.row(PluginSectionId.Installed, firstItem).component
+    val secondRow = factory.row(PluginSectionId.Installed, secondItem).component
+    val rowsPanel = firstRow.parent as JComponent
+    rowsPanel.setSize(JBUI.scale(500), rowsPanel.preferredSize.height)
+    rowsPanel.doLayout()
+
+    assertThat(secondRow.y - firstRow.y - firstRow.height).isEqualTo(JBUI.scale(4))
+    view.close()
+  }
+
+  @Test
   fun `expanded sections grow and retain real row prefixes while scrolling`(): Unit = timeoutRunBlocking(context = Dispatchers.UI) {
     val factory = RecordingRowFactory()
     val items = (1..250).map { item("plugin.$it") }
@@ -107,15 +132,18 @@ internal class UnifiedPluginsPageRealRowsTest {
 
     assertThat(factory.activeRows).hasSize(100)
     val scrollPane = componentsOfType(view.component, JBScrollPane::class.java).single()
+    val initialViewHeight = scrollPane.viewport.view.height
     val firstRow = factory.activeRows.values.first().component
     val rowsTop = SwingUtilities.convertPoint(firstRow.parent, Point(), scrollPane.viewport.view).y
     scrollPane.viewport.viewPosition = Point(0, rowsTop + 120 * ROW_HEIGHT)
 
     assertThat(factory.activeRows).hasSize(200)
+    assertThat(scrollPane.viewport.view.height).isEqualTo(initialViewHeight)
     assertThat(factory.row(PluginSectionId.Installed, item("plugin.121"))).isNotNull()
 
     scrollPane.viewport.viewPosition = Point(0, rowsTop + 220 * ROW_HEIGHT)
     assertThat(factory.activeRows).hasSize(250)
+    assertThat(scrollPane.viewport.view.height).isEqualTo(initialViewHeight)
     scrollPane.viewport.viewPosition = Point()
     assertThat(factory.activeRows).hasSize(250)
     assertThat(factory.activeRows.keys.map(PluginOccurrenceId::pluginId)).contains(items.last().pluginId)
@@ -398,6 +426,109 @@ internal class UnifiedPluginsPageRealRowsTest {
     assertThat(factory.row(PluginSectionId.Installing, installingItem)).isSameAs(installingRow)
     assertThat(componentOffset(scrollPane, anchor)).isEqualTo(initialOffset)
     assertThat(scrollPane.viewport.viewPosition.y).isGreaterThan(initialViewY)
+    view.close()
+  }
+
+  @Test
+  fun `reordered real rows preserve the top visible occurrence after a height change`(): Unit =
+    timeoutRunBlocking(context = Dispatchers.UI) {
+      val factory = RecordingRowFactory()
+      val items = (1..20).map { item("installed.$it") }
+      val controller = UnifiedPluginsPageController()
+      controller.updateSection(section(PluginSectionId.Installed, *items.toTypedArray()))
+      controller.setSectionExpanded(PluginSectionId.Installed, true)
+      val view = createView(factory)
+      view.render(controller.state.value)
+      prepareForScrolling(view)
+
+      val scrollPane = componentsOfType(view.component, JBScrollPane::class.java).single()
+      scrollToComponent(scrollPane, factory.row(PluginSectionId.Installed, items[9]).component)
+
+      val reversedItems = items.reversed()
+      controller.replaceSourceState(
+        query = PluginsQueryState("reordered", "reordered", revision = 1),
+        updatedSections = listOf(section(PluginSectionId.Installed, *reversedItems.toTypedArray())),
+        mayEstablishSelection = false,
+      )
+      view.render(controller.state.value)
+      val visibleItems = reversedItems.filter { item ->
+        val component = factory.row(PluginSectionId.Installed, item).component
+        val bounds = SwingUtilities.convertRectangle(
+          component,
+          Rectangle(0, 0, component.width, component.height),
+          scrollPane.viewport.view,
+        )
+        bounds.intersects(scrollPane.viewport.viewRect)
+      }
+      assertThat(visibleItems).hasSizeGreaterThan(2)
+      val anchorItem = visibleItems.first()
+      val anchor = factory.row(PluginSectionId.Installed, anchorItem).component
+      val initialOffset = componentOffset(scrollPane, anchor)
+
+      val resizedItem = visibleItems[visibleItems.size / 2]
+      factory.row(PluginSectionId.Installed, resizedItem).setHeight(ROW_HEIGHT * 3)
+      val revisedItems = reversedItems.map { item ->
+        if (item.pluginId == resizedItem.pluginId) item.copy(contentRevision = 1) else item
+      }
+      controller.updateSection(section(PluginSectionId.Installed, *revisedItems.toTypedArray()))
+      view.render(controller.state.value)
+
+      assertThat(componentOffset(scrollPane, anchor)).isEqualTo(initialOffset)
+      view.close()
+    }
+
+  @Test
+  fun `same query refreshes preserve real-row order and visible offset`(): Unit = timeoutRunBlocking(context = Dispatchers.UI) {
+    val factory = RecordingRowFactory()
+    val items = (1..20).map { item("installed.$it") }
+    val controller = UnifiedPluginsPageController(
+      initialSections = listOf(section(PluginSectionId.Installed, *items.toTypedArray())),
+    )
+    controller.setSectionExpanded(PluginSectionId.Installed, true)
+    val view = createView(factory)
+    view.render(controller.state.value)
+    prepareForScrolling(view)
+
+    val scrollPane = componentsOfType(view.component, JBScrollPane::class.java).single()
+    scrollToComponent(scrollPane, factory.row(PluginSectionId.Installed, items[9]).component)
+    val expectedOrder = items.map { PluginOccurrenceId(PluginSectionId.Installed, it.pluginId) }
+    val sourceOrders = listOf(
+      items.reversed(),
+      items.drop(5) + items.take(5),
+      items.filterIndexed { index, _ -> index % 2 == 0 } + items.filterIndexed { index, _ -> index % 2 != 0 },
+    )
+    val heightChanges = listOf(items[7] to ROW_HEIGHT * 3, items[8] to ROW_HEIGHT * 2, items[7] to ROW_HEIGHT)
+
+    sourceOrders.zip(heightChanges).forEachIndexed { index, (sourceOrder, heightChange) ->
+      val viewRect = scrollPane.viewport.viewRect
+      val anchor = items.asSequence()
+        .map { item -> factory.row(PluginSectionId.Installed, item).component }
+        .map { component ->
+          component to SwingUtilities.convertRectangle(
+            component,
+            Rectangle(0, 0, component.width, component.height),
+            scrollPane.viewport.view,
+          )
+        }
+        .filter { (_, bounds) -> bounds.intersects(viewRect) }
+        .minBy { (_, bounds) -> bounds.y }
+        .first
+      val anchorOffset = componentOffset(scrollPane, anchor)
+      val (resizedItem, height) = heightChange
+      factory.row(PluginSectionId.Installed, resizedItem).setHeight(height)
+      val updatedItems = sourceOrder.map { item ->
+        if (item.pluginId == resizedItem.pluginId) item.copy(contentRevision = index + 1L) else item
+      }
+      controller.replaceSourceState(
+        query = PluginsQueryState(),
+        updatedSections = listOf(section(PluginSectionId.Installed, *updatedItems.toTypedArray())),
+        mayEstablishSelection = false,
+      )
+      view.render(controller.state.value)
+
+      assertThat(factory.renderedOccurrences).containsExactlyElementsOf(expectedOrder)
+      assertThat(componentOffset(scrollPane, anchor)).isEqualTo(anchorOffset)
+    }
     view.close()
   }
 

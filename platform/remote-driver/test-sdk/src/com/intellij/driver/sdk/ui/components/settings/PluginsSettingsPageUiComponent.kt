@@ -345,6 +345,13 @@ class PluginsSettingsPageUiComponent(data: ComponentData) : LoadablePluginsUiCom
     val uninstalledButton: UiComponent =
       x("Uninstalled button") { and(byType(JButton::class.java), byAccessibleName("Uninstalled")) }
     val enabledCheckBox: JCheckBoxUi = checkBox("State checkbox") { and(byType(JCheckBox::class.java), byAccessibleName("Enabled")) }
+    val enabledControl: EnabledControlUiComponent =
+      x(EnabledControlUiComponent::class.java, readableName = "Plugin state control") {
+        and(
+          or(byType(JCheckBox::class.java), byType("com.intellij.ui.components.OnOffButton")),
+          byAccessibleName("Enabled"),
+        )
+      }
     val ultimateTagLabel: UiComponent = x("'Ultimate' label") { and(byType("com.intellij.ide.plugins.newui.TagComponent"), byAccessibleName("Ultimate")) }
     val proTagLabel: UiComponent = x("'Pro' label") { and(byType("com.intellij.ide.plugins.newui.TagComponent"), byAccessibleName("Pro")) }
     val errorNotice: JTextComponentUI = textComponent("Error notice") { byType("com.intellij.ide.plugins.newui.ErrorComponent") }
@@ -443,6 +450,16 @@ class PluginsSettingsPageUiComponent(data: ComponentData) : LoadablePluginsUiCom
       }
       return driver.ui.x(PluginDetailsPage::class.java) { byType("com.intellij.ide.plugins.newui.PluginDetailsPageComponent") }
     }
+
+    class EnabledControlUiComponent(data: ComponentData) : UiComponent(data) {
+      private val abstractButton get() = driver.cast(component, AbstractButtonRef::class)
+
+      fun waitSelected(selected: Boolean, timeout: Duration = 5.seconds) {
+        waitFor("Plugin state control should be ${if (selected) "selected" else "not selected"}", timeout) {
+          abstractButton.isSelected() == selected
+        }
+      }
+    }
   }
 
   class UnifiedPluginsSectionUiComponent(data: ComponentData) : UiComponent(data)
@@ -450,6 +467,11 @@ class PluginsSettingsPageUiComponent(data: ComponentData) : LoadablePluginsUiCom
   @Remote("com.intellij.ide.plugins.newui.ListPluginComponent")
   interface ListPluginComponentRef {
     fun getPluginModel(): PluginUiModel
+  }
+
+  @Remote("javax.swing.AbstractButton")
+  interface AbstractButtonRef {
+    fun isSelected(): Boolean
   }
 
   @Remote("com.intellij.ide.plugins.newui.PluginUiModel")
@@ -482,11 +504,13 @@ class PluginsSettingsPageUiComponent(data: ComponentData) : LoadablePluginsUiCom
       x("Uninstall dropdown") { byType($$"com.intellij.ui.components.BasicOptionButtonUI$ArrowButton") }
     val restartIdeButton: UiComponent = x("Restart button") { byAccessibleName("Restart IDE") }
 
-    val tabbedPane: JBTabbedPaneUiComponent = tabbedPane()
-    val overviewTab: UiComponent = tabbedPane.tab("Overview")
-    val whatsNewTab: UiComponent = tabbedPane.tab("What's New")
-    val reviewsTab: UiComponent = tabbedPane.tab("Reviews")
-    val additionalInfoTab: UiComponent = tabbedPane.tab("Additional Info")
+    val tabbedPane: JBTabbedPaneUiComponent
+      get() = this@PluginDetailsPage.tabbedPane()
+    val detailsTabs: PluginDetailsTabs = PluginDetailsTabs(this)
+    val overviewTab: UiComponent = detailsTabs.tab("Overview")
+    val whatsNewTab: UiComponent = detailsTabs.tab("What's New")
+    val reviewsTab: UiComponent = detailsTabs.tab("Reviews")
+    val additionalInfoTab: UiComponent = detailsTabs.tab("Additional Info")
     val updateSourceValue: UiComponent =
       x("${xQuery { and(byType(JLabel::class.java), byText("Updates from:")) }}/following-sibling::div[1]")
     val updateSourceBanners: UIComponentsList<UpdateSourceBannerUiComponent> =
@@ -509,13 +533,28 @@ class PluginsSettingsPageUiComponent(data: ComponentData) : LoadablePluginsUiCom
 
     fun chooseUpdateSourceFromDescription(updateSource: String): PluginDetailsPage {
       step("Choose '$updateSource' update source from `Update from` description") {
-        check(tabbedPane.selectedTabName == additionalInfoTab.accessibleName) {
-          "Tab \'${additionalInfoTab.accessibleName}\' is not selected; selected tab\'${tabbedPane.selectedTabName}\'"
+        check(detailsTabs.selectedTabName == additionalInfoTab.accessibleName) {
+          "Tab \'${additionalInfoTab.accessibleName}\' is not selected; selected tab\'${detailsTabs.selectedTabName}\'"
         }
         updateSourceValue.click()
         driver.ui.popup().list().clickItem(updateSource)
       }
       return this
+    }
+
+    class PluginDetailsTabs(private val detailsPage: PluginDetailsPage) {
+      private val intellijTabs: UIComponentsList<UiComponent> =
+        detailsPage.xx { byType("com.intellij.ui.tabs.impl.JBTabsImpl") }
+      private val swingTabs: JBTabbedPaneUiComponent by lazy { detailsPage.tabbedPane() }
+
+      val selectedTabName: String?
+        get() = intellijTabs.list().singleOrNull()?.accessibleName ?: swingTabs.selectedTabName
+
+      fun tab(name: String): UiComponent {
+        return intellijTabs.list().singleOrNull()?.x {
+          and(byType("com.intellij.ui.tabs.impl.TabLabel"), byAccessibleName(name))
+        } ?: swingTabs.tab(name)
+      }
     }
 
     fun updatePlugin(): PluginDetailsPage {

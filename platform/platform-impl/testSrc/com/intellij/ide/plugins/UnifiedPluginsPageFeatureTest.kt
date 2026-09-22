@@ -15,8 +15,8 @@ internal class UnifiedPluginsPageFeatureTest {
   }
 
   @Test
-  fun `density variant uses the baseline by default`() {
-    assertThat(UnifiedPluginsPageFeature.densityVariant()).isEqualTo(UnifiedPluginsPageDensityVariant.Baseline)
+  fun `density variant uses 32 pixel icons by default`() {
+    assertThat(UnifiedPluginsPageFeature.densityVariant()).isEqualTo(UnifiedPluginsPageDensityVariant.Icons32)
   }
 
   @Test
@@ -30,6 +30,7 @@ internal class UnifiedPluginsPageFeatureTest {
     assertThat(variant).isEqualTo(UnifiedPluginsPageDensityVariant.Icons32)
     assertThat(variant.pluginIconScale).isEqualTo(0.8f)
     assertThat(variant.collapsedItemLimit).isEqualTo(3)
+    assertThat(variant.compactRows).isTrue()
   }
 
   @Test
@@ -43,5 +44,6 @@ internal class UnifiedPluginsPageFeatureTest {
     assertThat(variant).isEqualTo(UnifiedPluginsPageDensityVariant.TwoPreviewRows)
     assertThat(variant.pluginIconScale).isEqualTo(1.0f)
     assertThat(variant.collapsedItemLimit).isEqualTo(2)
+    assertThat(variant.compactRows).isFalse()
   }
 }

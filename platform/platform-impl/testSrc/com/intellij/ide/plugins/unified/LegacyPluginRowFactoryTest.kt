@@ -15,11 +15,13 @@ import com.intellij.ide.plugins.newui.LinkComponent
 import com.intellij.ide.plugins.newui.ListPluginComponent
 import com.intellij.ide.plugins.newui.PluginDetailsPageComponent
 import com.intellij.ide.plugins.newui.PluginDetailsPageLayout
+import com.intellij.ide.plugins.newui.PluginInstallationCustomization
 import com.intellij.ide.plugins.newui.PluginInstallationState
 import com.intellij.ide.plugins.newui.PluginNodeModelBuilderFactory
 import com.intellij.ide.plugins.newui.PluginPreparedUpdateState
 import com.intellij.ide.plugins.newui.PluginProgressState
 import com.intellij.ide.plugins.newui.PluginRowInput
+import com.intellij.ide.plugins.newui.PluginSource
 import com.intellij.ide.plugins.newui.PluginStatus
 import com.intellij.ide.plugins.newui.SearchQueryParser
 import com.intellij.ide.plugins.newui.TagComponent
@@ -31,19 +33,23 @@ import com.intellij.ide.ui.LafManager
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.UiWithModelAccess
+import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.util.text.HtmlChunk
+import com.intellij.testFramework.ExtensionTestUtil
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.common.waitUntilAssertSucceeds
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.junit5.TestDisposable
 import com.intellij.testFramework.replaceService
+import com.intellij.ui.RelativeFont
 import com.intellij.ui.components.Badge
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTabbedPane
 import com.intellij.ui.components.OnOffButton
+import com.intellij.ui.tabs.impl.JBTabsImpl
 import com.intellij.ui.components.labels.LinkListener
 import com.intellij.util.ui.JBUI
 import kotlinx.coroutines.Dispatchers
@@ -56,13 +62,16 @@ import org.junit.jupiter.api.Timeout
 import java.awt.BorderLayout
 import java.awt.Component
 import java.awt.Container
+import java.awt.event.FocusEvent
+import java.awt.event.KeyEvent
 import java.util.concurrent.CompletableFuture
 import javax.swing.JButton
 import javax.swing.JComponent
+import javax.swing.JEditorPane
 import javax.swing.JLabel
 import javax.swing.JPanel
+import javax.swing.JTabbedPane
 import javax.swing.JProgressBar
-import javax.swing.plaf.basic.BasicTabbedPaneUI
 import kotlin.math.abs
 
 @TestApplication
@@ -216,6 +225,7 @@ internal class LegacyPluginRowFactoryTest {
     try {
       val pluginId = PluginId.getId("toggle.plugin")
       val plugin = PluginNodeModelBuilderFactory.createBuilder(pluginId).setName("Toggle Plugin").build()
+      val update = PluginNodeModelBuilderFactory.createBuilder(pluginId).setName("Toggle Plugin Update").build()
       val listModel = ListPluginModel().apply {
         setPluginInstallationState(pluginId, PluginInstallationState(true))
       }
@@ -227,7 +237,7 @@ internal class LegacyPluginRowFactoryTest {
           installedPlugin = plugin,
           installationState = PluginInstallationState(true),
           errors = emptyList(),
-          updateDescriptor = null,
+          updateDescriptor = update,
           enabled = true,
           restrictedByProduct = false,
         ),
@@ -236,24 +246,92 @@ internal class LegacyPluginRowFactoryTest {
       val factory = LegacyPluginRowFactory(host, listModel, { _, _ -> }, onSelectionChanged = {})
       factory.createReconciler { _, _ -> }.use { reconciler ->
         val binding = reconciler.reconcile(listOf(factory.specification(section, item))).single()
+        JPanel().add((binding.row as LegacyPluginRow).component)
         factory.rowsRendered(listOf(binding))
         val row = (binding.row as LegacyPluginRow).component
         row.size = row.preferredSize
         row.doLayout()
         val toggle = componentsOfType(row, OnOffButton::class.java).single()
+        val updateButton = checkNotNull(row.myUpdateButton)
         val title = componentsOfType(row, JBLabel::class.java).single { it.text == plugin.name }
 
         assertThat(toggle.accessibleContext.accessibleName).isNotBlank()
         assertThat(toggle.actionListeners).isNotEmpty()
         assertThat(toggle.isFocusable).isTrue()
         assertThat(toggle.isSelected).isTrue()
-        assertThat(verticalCenterTwice(toggle)).isEqualTo(verticalCenterTwice(title))
+        assertThat(title.y).isEqualTo(row.insets.top)
+        assertThat(abs(verticalCenterTwice(toggle) - 2 * (row.insets.top + JBUI.scale(20)))).isLessThanOrEqualTo(1)
+        assertThat(row.width - row.insets.right + JBUI.scale(4)).isEqualTo(toggle.x + toggle.width)
+        assertThat(toggle.x - updateButton.x - updateButton.width).isEqualTo(JBUI.scale(2))
+
+        val updatedItem = item.copy(rowInput = checkNotNull(item.rowInput).copy(enabled = false))
+        val updatedSection = section.copy(items = listOf(updatedItem))
+        val updatedBinding = reconciler.reconcile(listOf(factory.specification(updatedSection, updatedItem))).single()
+        factory.rowsRendered(listOf(updatedBinding))
+
+        assertThat(updatedBinding.row).isSameAs(binding.row)
+        assertThat(componentsOfType(row, OnOffButton::class.java).single()).isSameAs(toggle)
       }
     }
     finally {
       host.dispose(closeSession = false)
     }
   }
+
+  @Test
+  fun `reused update button resolves the refreshed descriptor`(): Unit =
+    timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+      val host = LegacyPluginUiHost(parentScope = this, operationScope = this)
+      try {
+        val pluginId = PluginId.getId("refreshed.update.plugin")
+        val installed = PluginNodeModelBuilderFactory.createBuilder(pluginId).setName("Installed Plugin").build()
+        val firstUpdate = PluginNodeModelBuilderFactory.createBuilder(pluginId).setName("First Update").build().apply {
+          source = PluginSource.LOCAL
+        }
+        val refreshedUpdate = PluginNodeModelBuilderFactory.createBuilder(pluginId).setName("Refreshed Update").build().apply {
+          source = PluginSource.REMOTE
+        }
+        val listModel = ListPluginModel().apply {
+          setPluginInstallationState(pluginId, PluginInstallationState(true))
+        }
+        val item = PluginItemState(
+          pluginId,
+          installed.name,
+          modelHandle = PluginItemModelHandle(installed),
+          rowInput = PluginRowInput(
+            installedPlugin = installed,
+            installationState = PluginInstallationState(true),
+            errors = emptyList(),
+            updateDescriptor = firstUpdate,
+            enabled = true,
+            restrictedByProduct = false,
+          ),
+        )
+        val section = PluginSectionState(PluginSectionId.Installed, items = listOf(item))
+        val factory = LegacyPluginRowFactory(host, listModel, { _, _ -> }, onSelectionChanged = {})
+        factory.createReconciler { _, _ -> }.use { reconciler ->
+          val binding = reconciler.reconcile(listOf(factory.specification(section, item))).single()
+          val row = (binding.row as LegacyPluginRow).component
+          JPanel().add(row)
+          factory.rowsRendered(listOf(binding))
+          val updateButton = checkNotNull(row.myUpdateButton)
+
+          val refreshedItem = item.copy(rowInput = checkNotNull(item.rowInput).copy(updateDescriptor = refreshedUpdate))
+          val refreshedSection = section.copy(items = listOf(refreshedItem))
+          val refreshedBinding = reconciler.reconcile(listOf(factory.specification(refreshedSection, refreshedItem))).single()
+          factory.rowsRendered(listOf(refreshedBinding))
+
+          assertThat(refreshedBinding.row).isSameAs(binding.row)
+          assertThat(row.myUpdateButton).isSameAs(updateButton)
+          val (actionDescriptor, updateDescriptor) = checkNotNull(row.getUpdateActionDescriptors())
+          assertThat(actionDescriptor).isSameAs(installed)
+          assertThat(updateDescriptor).isSameAs(refreshedUpdate)
+        }
+      }
+      finally {
+        host.dispose(closeSession = false)
+      }
+    }
 
   @Test
   fun `details page spacing is enabled only for the unified page`(): Unit =
@@ -279,36 +357,50 @@ internal class LegacyPluginRowFactoryTest {
         assertHorizontalInsets(unifiedHeader, left = 16, right = 16)
 
         val legacyTabs = componentsOfType(legacyRoot, JBTabbedPane::class.java).single()
-        val unifiedTabs = componentsOfType(unifiedRoot, JBTabbedPane::class.java).single()
-        legacyTabs.setUI(BasicTabbedPaneUI())
-        unifiedTabs.setUI(BasicTabbedPaneUI())
+        val unifiedTabs = componentsOfType(unifiedRoot, JBTabsImpl::class.java).single()
+        assertThat(legacyTabs.tabLayoutPolicy).isEqualTo(JTabbedPane.WRAP_TAB_LAYOUT)
+        assertThat(componentsOfType(unifiedRoot, JBTabbedPane::class.java)).isEmpty()
+        assertThat(unifiedTabs.isSingleRow).isTrue()
+        assertThat(legacyTabs.getTabComponentAt(0)).isNotNull()
+        assertThat(unifiedTabs.tabs.map { it.text }).allMatch(String::isNotBlank)
+        assertThat(unifiedTabs.presentation.showBorder).isTrue()
+        assertThat(unifiedTabs.getDecoration().labelInsets).isEqualTo(JBUI.insets(10, 8))
         legacyTabs.setBounds(0, 0, JBUI.scale(800), JBUI.scale(600))
         unifiedTabs.setBounds(0, 0, JBUI.scale(800), JBUI.scale(600))
         legacyTabs.doLayout()
         unifiedTabs.doLayout()
-        assertThat(unifiedTabs.getBoundsAt(0).x - legacyTabs.getBoundsAt(0).x).isEqualTo(JBUI.scale(12))
+        assertThat(unifiedTabs.canShowMorePopup()).isFalse()
+
+        unifiedTabs.setBounds(0, 0, JBUI.scale(300), JBUI.scale(600))
+        unifiedTabs.doLayout()
+        assertThat(unifiedTabs.canShowMorePopup()).isTrue()
+
+        unifiedTabs.setBounds(0, 0, JBUI.scale(800), JBUI.scale(600))
+        unifiedTabs.doLayout()
+        assertThat(unifiedTabs.canShowMorePopup()).isFalse()
+        assertThat(unifiedTabs.getFirstTabOffset()).isEqualTo(JBUI.scale(PluginDetailsPageLayout.Unified.tabStripLeftInset))
 
         val legacyOverview = scrollTabContent(legacyTabs, 0)
-        val unifiedOverview = scrollTabContent(unifiedTabs, 0)
+        val unifiedOverview = scrollTabContent(unifiedTabs.getTabAt(0).component)
         assertHorizontalInsets(legacyOverview, left = 16, right = 0)
         assertHorizontalInsets(unifiedOverview, left = 16, right = 16)
         assertHorizontalInsets(borderLayoutChild(legacyOverview, BorderLayout.NORTH), left = 0, right = 16)
         assertHorizontalInsets(borderLayoutChild(unifiedOverview, BorderLayout.NORTH), left = 0, right = 0)
 
         assertHorizontalInsets(scrollTabContent(legacyTabs, 1), left = 12, right = 0)
-        assertHorizontalInsets(scrollTabContent(unifiedTabs, 1), left = 16, right = 16)
+        assertHorizontalInsets(scrollTabContent(unifiedTabs.getTabAt(1).component), left = 16, right = 16)
         assertHorizontalInsets(
           borderLayoutChild(scrollTabContent(legacyTabs, 2), BorderLayout.NORTH),
           left = 16,
           right = 16,
         )
         assertHorizontalInsets(
-          borderLayoutChild(scrollTabContent(unifiedTabs, 2), BorderLayout.NORTH),
+          borderLayoutChild(scrollTabContent(unifiedTabs.getTabAt(2).component), BorderLayout.NORTH),
           left = 16,
           right = 16,
         )
         assertHorizontalInsets(scrollTabContent(legacyTabs, 3), left = 12, right = 0)
-        assertHorizontalInsets(scrollTabContent(unifiedTabs, 3), left = 16, right = 16)
+        assertHorizontalInsets(scrollTabContent(unifiedTabs.getTabAt(3).component), left = 16, right = 16)
       }
       finally {
         legacyHost.dispose(closeSession = false)
@@ -352,6 +444,53 @@ internal class LegacyPluginRowFactoryTest {
       assertThat(baselineWidths.first).isEqualTo(baselineWidths.second)
       assertThat(compactWidths.first).isEqualTo(compactWidths.second)
       assertThat(compactWidths.first.toDouble() / baselineWidths.first).isCloseTo(0.8, within(0.05))
+    }
+
+  @Test
+  fun `compact unified rows scale the full row geometry to 52 pixels`(): Unit =
+    timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+      val host = LegacyPluginUiHost(
+        parentScope = this,
+        operationScope = this,
+        pluginIconScale = 0.8f,
+        compactRows = true,
+      )
+      try {
+        val pluginId = PluginId.getId("compact.row.plugin")
+        val model = PluginNodeModelBuilderFactory.createBuilder(pluginId)
+          .setName("Compact Row Plugin")
+          .setDownloads("22.1M")
+          .setRating("4.44")
+          .setVendor("JetBrains")
+          .build()
+        val item = PluginItemState(pluginId, model.name, modelHandle = PluginItemModelHandle(model))
+        val section = PluginSectionState(PluginSectionId.Suggested, items = listOf(item))
+        val factory = LegacyPluginRowFactory(host, ListPluginModel(), LinkListener { _, _ -> }, onSelectionChanged = {})
+        val specification = factory.specification(section, item)
+
+        (factory.createRow(specification.occurrenceId, specification.item, specification.renderKey) as LegacyPluginRow).use { row ->
+          val component = row.component
+          component.setBounds(0, 0, JBUI.scale(500), component.preferredSize.height)
+          component.doLayout()
+          val button = checkNotNull(component.myInstallButton)
+          val title = componentsOfType(component, JBLabel::class.java).single { it.text == model.name }
+          val icon = component.components.filterIsInstance<JLabel>().single { it.icon != null }
+          val vendor = componentsOfType(component, JLabel::class.java).single { it.text == "JetBrains" }
+          val metadataPanel = vendor.parent
+
+          assertThat(component.preferredSize.height).isEqualTo(JBUI.scale(52))
+          assertThat(component.insets.top).isEqualTo(JBUI.scale(8))
+          assertThat(title.y).isEqualTo(component.insets.top)
+          assertThat(title.x - icon.x - icon.width).isEqualTo(JBUI.scale(12))
+          assertThat(title.font.size2D).isEqualTo(JBLabel().font.size2D)
+          assertThat(vendor.font.size2D).isEqualTo(RelativeFont.SMALL.install(JLabel()).font.size2D)
+          assertThat(metadataPanel.y - title.y - title.height).isEqualTo(JBUI.scale(4))
+          assertThat(abs(verticalCenterTwice(button) - 2 * (component.insets.top + JBUI.scale(16)))).isLessThanOrEqualTo(1)
+        }
+      }
+      finally {
+        host.dispose(closeSession = false)
+      }
     }
 
   @Test
@@ -459,14 +598,14 @@ internal class LegacyPluginRowFactoryTest {
     }
 
   @Test
-  fun `unified host uses badge tags in rows and details`(): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+  fun `unified host uses marketplace badge tags in rows and details`(): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
     val host = LegacyPluginUiHost(parentScope = this, operationScope = this)
     try {
       val listener = LinkListener<Any> { _, _ -> }
       val pluginId = PluginId.getId("paid.plugin")
       val model = PluginNodeModelBuilderFactory.createBuilder(pluginId)
         .setName("Paid Plugin")
-        .setTags(listOf(Tags.Paid.name))
+        .setTags(listOf(Tags.EAP.name, Tags.Paid.name, Tags.Freemium.name))
         .build()
       val item = PluginItemState(pluginId, model.name, modelHandle = PluginItemModelHandle(model))
       val section = PluginSectionState(PluginSectionId.Suggested, items = listOf(item))
@@ -481,8 +620,8 @@ internal class LegacyPluginRowFactoryTest {
         val badgeLink = componentsOfType(row, LinkComponent::class.java).single { it.icon is Badge }
         val badge = badgeLink.icon as Badge
 
-        assertThat(badge.text).isEqualTo(Tags.Paid.name)
-        assertThat(badge.colorType).isEqualTo(Badge.ColorType.BLUE_SECONDARY)
+        assertThat(badge.text).isIn(Tags.Paid.name, Tags.Freemium.name)
+        assertThat(badge.colorType).isNotEqualTo(Badge.ColorType.GRAY_SECONDARY)
         assertThat(abs(verticalCenterTwice(title) - verticalCenterTwice(badgeLink))).isLessThanOrEqualTo(1)
 
         val details = host.createDetails(listener, marketplace = true)
@@ -493,6 +632,106 @@ internal class LegacyPluginRowFactoryTest {
       host.dispose(closeSession = false)
     }
   }
+
+  @Test
+  fun `unified rows hide gray tags`(): Unit =
+    timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+      val host = LegacyPluginUiHost(parentScope = this, operationScope = this)
+      try {
+        val pluginId = PluginId.getId("gray.tag.plugin")
+        val model = PluginNodeModelBuilderFactory.createBuilder(pluginId)
+          .setName("Gray Tag Plugin")
+          .setTags(listOf(Tags.EAP.name))
+          .build()
+        val item = PluginItemState(pluginId, model.name, modelHandle = PluginItemModelHandle(model))
+        val section = PluginSectionState(PluginSectionId.Installed, items = listOf(item))
+        val factory = LegacyPluginRowFactory(host, ListPluginModel(), LinkListener { _, _ -> }, onSelectionChanged = {})
+        val specification = factory.specification(section, item)
+
+        (factory.createRow(specification.occurrenceId, specification.item, specification.renderKey) as LegacyPluginRow).use { row ->
+          assertThat(componentsOfType(row.component, LinkComponent::class.java).filter { it.icon is Badge }).isEmpty()
+        }
+      }
+      finally {
+        host.dispose(closeSession = false)
+      }
+    }
+
+  @Test
+  fun `unified installed rows keep the first colored tag`(): Unit =
+    timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+      val host = LegacyPluginUiHost(parentScope = this, operationScope = this)
+      try {
+        val pluginId = PluginId.getId("colored.tag.plugin")
+        val model = PluginNodeModelBuilderFactory.createBuilder(pluginId)
+          .setName("Colored Tag Plugin")
+          .setTags(listOf(Tags.EAP.name, Tags.Paid.name, Tags.Freemium.name))
+          .build()
+        val item = PluginItemState(pluginId, model.name, modelHandle = PluginItemModelHandle(model))
+        val section = PluginSectionState(PluginSectionId.Installed, items = listOf(item))
+        val factory = LegacyPluginRowFactory(host, ListPluginModel(), LinkListener { _, _ -> }, onSelectionChanged = {})
+        val specification = factory.specification(section, item)
+
+        (factory.createRow(specification.occurrenceId, specification.item, specification.renderKey) as LegacyPluginRow).use { row ->
+          val badges = componentsOfType(row.component, LinkComponent::class.java).filter { it.icon is Badge }
+          assertThat(badges).hasSize(1)
+          val badge = badges.single().icon as Badge
+          assertThat(badge.text).isIn(Tags.Paid.name, Tags.Freemium.name)
+          assertThat(badge.colorType).isNotEqualTo(Badge.ColorType.GRAY_SECONDARY)
+        }
+      }
+      finally {
+        host.dispose(closeSession = false)
+      }
+    }
+
+  @Test
+  fun `unified row uses tags captured by its render key`(): Unit =
+    timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+      val host = LegacyPluginUiHost(parentScope = this, operationScope = this)
+      try {
+        val pluginId = PluginId.getId("customized.tag.plugin")
+        var customizationCalls = 0
+        val customization = object : PluginInstallationCustomization {
+          override val pluginId: PluginId = pluginId
+
+          override fun createLicensePanel(isMarketplace: Boolean, update: Boolean): JComponent? = null
+
+          override fun beforeInstallOrUpdate(update: Boolean) = Unit
+
+          override fun customizeTags(tags: List<String>): List<String> {
+            customizationCalls++
+            return tags + Tags.Paid.name
+          }
+        }
+        ExtensionTestUtil.maskExtensions(
+          ExtensionPointName.create("com.intellij.pluginInstallationCustomization"),
+          listOf(customization),
+          disposable,
+        )
+        val model = PluginNodeModelBuilderFactory.createBuilder(pluginId)
+          .setName("Customized Tag Plugin")
+          .setTags(listOf(Tags.EAP.name))
+          .build()
+        val item = PluginItemState(pluginId, model.name, modelHandle = PluginItemModelHandle(model))
+        val section = PluginSectionState(PluginSectionId.Installed, items = listOf(item))
+        val factory = LegacyPluginRowFactory(host, ListPluginModel(), LinkListener { _, _ -> }, onSelectionChanged = {})
+        val specification = factory.specification(section, item)
+
+        assertThat(customizationCalls).isOne()
+        (factory.createRow(specification.occurrenceId, specification.item, specification.renderKey) as LegacyPluginRow).use { row ->
+          val badge = componentsOfType(row.component, LinkComponent::class.java)
+            .single { it.icon is Badge }
+            .icon as Badge
+
+          assertThat(badge.text).isEqualTo(Tags.Paid.name)
+          assertThat(customizationCalls).isOne()
+        }
+      }
+      finally {
+        host.dispose(closeSession = false)
+      }
+    }
 
   @Test
   fun `unified rows use stable island selection geometry`(): Unit =
@@ -510,8 +749,10 @@ internal class LegacyPluginRowFactoryTest {
           factory.rowsRendered(listOf(binding))
           val row = (binding.row as LegacyPluginRow).component
           val initialPreferredSize = row.preferredSize
+          val contentBorder = row.border
           val insets = row.border.getBorderInsets(row)
 
+          assertThat(row.isFocusable).isTrue()
           assertThat(row.selectionArc).isEqualTo(JBUI.scale(8))
           assertThat(row.selectionInsets).isEqualTo(JBUI.insets(0, 8))
           assertThat(insets.top).isEqualTo(JBUI.scale(12))
@@ -531,6 +772,211 @@ internal class LegacyPluginRowFactoryTest {
           row.setSelection(EventHandler.SelectionType.NONE, false)
           assertThat(row.selectionColor).isNull()
           assertThat(row.preferredSize).isEqualTo(initialPreferredSize)
+
+          val traversalFocusEvent = FocusEvent(row, FocusEvent.FOCUS_GAINED, false, null, FocusEvent.Cause.TRAVERSAL_FORWARD)
+          row.focusListeners.forEach { it.focusGained(traversalFocusEvent) }
+          assertThat(row.border).isNotSameAs(contentBorder)
+          assertThat(row.border.getBorderInsets(row)).isEqualTo(insets)
+          assertThat(row.preferredSize).isEqualTo(initialPreferredSize)
+          assertThat(row.getSelection()).isEqualTo(EventHandler.SelectionType.NONE)
+
+          binding.row.renderSelection(true)
+          assertThat(row.border).isSameAs(contentBorder)
+
+          binding.row.renderSelection(false)
+          assertThat(row.border).isNotSameAs(contentBorder)
+
+          row.focusListeners.forEach { it.focusLost(FocusEvent(row, FocusEvent.FOCUS_LOST)) }
+          assertThat(row.border).isSameAs(contentBorder)
+
+          val mouseFocusEvent = FocusEvent(row, FocusEvent.FOCUS_GAINED, false, null, FocusEvent.Cause.MOUSE_EVENT)
+          row.focusListeners.forEach { it.focusGained(mouseFocusEvent) }
+          assertThat(row.border).isSameAs(contentBorder)
+          assertThat(row.getSelection()).isEqualTo(EventHandler.SelectionType.NONE)
+        }
+      }
+      finally {
+        host.dispose(closeSession = false)
+      }
+    }
+
+  @Test
+  fun `card activation selects plugin without invoking its primary action`(): Unit =
+    timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+      val host = LegacyPluginUiHost(parentScope = this, operationScope = this)
+      try {
+        val pluginId = PluginId.getId("card.activation.plugin")
+        val model = PluginNodeModelBuilderFactory.createBuilder(pluginId).setName("Card Activation Plugin").build()
+        val item = PluginItemState(
+          pluginId,
+          model.name,
+          modelHandle = PluginItemModelHandle(model),
+          rowInput = PluginRowInput(
+            installedPlugin = null,
+            installationState = PluginInstallationState(false),
+            errors = emptyList(),
+            updateDescriptor = null,
+            enabled = true,
+            restrictedByProduct = false,
+          ),
+        )
+        val section = PluginSectionState(PluginSectionId.Suggested, items = listOf(item))
+        val selectionChanges = ArrayList<List<PluginOccurrenceId>>()
+        val listener = LinkListener<Any> { _, _ -> }
+        val factory = LegacyPluginRowFactory(host, ListPluginModel(), listener, onSelectionChanged = selectionChanges::add)
+        factory.createReconciler { _, _ -> }.use { reconciler ->
+          val binding = reconciler.reconcile(listOf(factory.specification(section, item))).single()
+          val row = (binding.row as LegacyPluginRow).component
+          JPanel().add(row)
+          factory.rowsRendered(listOf(binding))
+
+          val installButton = checkNotNull(row.myInstallButton)
+          installButton.actionListeners.forEach(installButton::removeActionListener)
+          var installRequests = 0
+          installButton.addActionListener { installRequests++ }
+
+          val contentBorder = row.border
+          val traversalFocusEvent = FocusEvent(row, FocusEvent.FOCUS_GAINED, false, null, FocusEvent.Cause.TRAVERSAL_FORWARD)
+          row.focusListeners.forEach { it.focusGained(traversalFocusEvent) }
+          assertThat(row.border).isNotSameAs(contentBorder)
+
+          for (keyCode in listOf(KeyEvent.VK_ENTER, KeyEvent.VK_SPACE)) {
+            val event = KeyEvent(row, KeyEvent.KEY_PRESSED, 0, 0, keyCode, KeyEvent.CHAR_UNDEFINED)
+            row.keyListeners.forEach { it.keyPressed(event) }
+            assertThat(event.isConsumed).isTrue()
+          }
+
+          assertThat(row.getSelection()).isEqualTo(EventHandler.SelectionType.SELECTION)
+          assertThat(row.border).isSameAs(contentBorder)
+          assertThat(selectionChanges).containsExactly(listOf(binding.occurrenceId))
+          assertThat(installRequests).isZero()
+        }
+      }
+      finally {
+        host.dispose(closeSession = false)
+      }
+    }
+
+  @Test
+  fun `keyboard navigation does not outline the row that loses selection`(): Unit =
+    timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+      val host = LegacyPluginUiHost(parentScope = this, operationScope = this)
+      try {
+        val items = listOf("first.navigation.plugin", "second.navigation.plugin").map { id ->
+          val pluginId = PluginId.getId(id)
+          val model = PluginNodeModelBuilderFactory.createBuilder(pluginId).setName(id).build()
+          PluginItemState(pluginId, model.name, modelHandle = PluginItemModelHandle(model))
+        }
+        val section = PluginSectionState(PluginSectionId.Installed, items = items)
+        val selectionChanges = ArrayList<List<PluginOccurrenceId>>()
+        val factory = LegacyPluginRowFactory(
+          host,
+          ListPluginModel(),
+          LinkListener { _, _ -> },
+          onSelectionChanged = selectionChanges::add,
+        )
+        factory.createReconciler { _, _ -> }.use { reconciler ->
+          val bindings = reconciler.reconcile(items.map { factory.specification(section, it) })
+          factory.rowsRendered(bindings)
+          val firstRow = (bindings.first().row as LegacyPluginRow).component
+          val secondRow = (bindings.last().row as LegacyPluginRow).component
+          val firstContentBorder = firstRow.border
+
+          val focusEvent = FocusEvent(firstRow, FocusEvent.FOCUS_GAINED, false, null, FocusEvent.Cause.TRAVERSAL_FORWARD)
+          firstRow.focusListeners.forEach { it.focusGained(focusEvent) }
+          bindings.first().row.renderSelection(true)
+          assertThat(firstRow.border).isSameAs(firstContentBorder)
+
+          val downEvent = KeyEvent(firstRow, KeyEvent.KEY_PRESSED, 0, 0, KeyEvent.VK_DOWN, KeyEvent.CHAR_UNDEFINED)
+          firstRow.keyListeners.forEach { it.keyPressed(downEvent) }
+
+          assertThat(downEvent.isConsumed).isTrue()
+          assertThat(firstRow.getSelection()).isEqualTo(EventHandler.SelectionType.NONE)
+          assertThat(firstRow.border).isSameAs(firstContentBorder)
+          assertThat(secondRow.getSelection()).isEqualTo(EventHandler.SelectionType.SELECTION)
+          assertThat(selectionChanges.last()).containsExactly(bindings.last().occurrenceId)
+        }
+      }
+      finally {
+        host.dispose(closeSession = false)
+      }
+    }
+
+  @Test
+  fun `unified metadata stops before the Install button`(): Unit =
+    timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+      val host = LegacyPluginUiHost(parentScope = this, operationScope = this)
+      try {
+        val pluginId = PluginId.getId("constrained.metadata.plugin")
+        val vendor = "A vendor name that does not fit in the available text column"
+        val model = PluginNodeModelBuilderFactory.createBuilder(pluginId)
+          .setName("Constrained Metadata Plugin")
+          .setDownloads("22.1M")
+          .setRating("4.44")
+          .setVendor(vendor)
+          .build()
+        val item = PluginItemState(pluginId, model.name, modelHandle = PluginItemModelHandle(model))
+        val section = PluginSectionState(PluginSectionId.Suggested, items = listOf(item))
+        val factory = LegacyPluginRowFactory(host, ListPluginModel(), LinkListener { _, _ -> }, onSelectionChanged = {})
+        val specification = factory.specification(section, item)
+        (factory.createRow(specification.occurrenceId, specification.item, specification.renderKey) as LegacyPluginRow).use { row ->
+          val component = row.component
+          component.setBounds(0, 0, JBUI.scale(360), component.preferredSize.height)
+          component.doLayout()
+          val installButton = checkNotNull(component.myInstallButton)
+          val vendorLabel = componentsOfType(component, JLabel::class.java).single { it.text == vendor }
+          val metricsPanel = vendorLabel.parent
+          metricsPanel.doLayout()
+
+          assertThat(metricsPanel.x + metricsPanel.width).isLessThanOrEqualTo(installButton.x - JBUI.scale(8))
+          assertThat(vendorLabel.toolTipText).isEqualTo(vendor)
+        }
+      }
+      finally {
+        host.dispose(closeSession = false)
+      }
+    }
+
+  @Test
+  fun `unified error spans the action column`(): Unit =
+    timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+      val host = LegacyPluginUiHost(parentScope = this, operationScope = this)
+      try {
+        val pluginId = PluginId.getId("plugin.with.loading.error")
+        val plugin = PluginNodeModelBuilderFactory.createBuilder(pluginId).setName("Plugin With Loading Error").build()
+        val update = PluginNodeModelBuilderFactory.createBuilder(pluginId).setName("Plugin Update").build()
+        val item = PluginItemState(
+          pluginId,
+          plugin.name,
+          modelHandle = PluginItemModelHandle(plugin),
+          rowInput = PluginRowInput(
+            installedPlugin = plugin,
+            installationState = PluginInstallationState(true),
+            errors = listOf(HtmlChunk.text("Plugin loading failed")),
+            updateDescriptor = update,
+            enabled = true,
+            restrictedByProduct = false,
+          ),
+        )
+        val section = PluginSectionState(PluginSectionId.Installed, items = listOf(item))
+        val factory = LegacyPluginRowFactory(host, ListPluginModel(), LinkListener { _, _ -> }, onSelectionChanged = {})
+        factory.createReconciler { _, _ -> }.use { reconciler ->
+          val binding = reconciler.reconcile(listOf(factory.specification(section, item))).single()
+          val row = (binding.row as LegacyPluginRow).component
+          JPanel().add(row)
+          factory.rowsRendered(listOf(binding))
+          row.setBounds(0, 0, JBUI.scale(480), row.preferredSize.height)
+          row.doLayout()
+
+          val title = componentsOfType(row, JBLabel::class.java).single { it.text == plugin.name }
+          val errorPanel = componentsOfType(row, JEditorPane::class.java).single().parent
+          val updateButton = checkNotNull(row.myUpdateButton)
+          val toggle = componentsOfType(row, OnOffButton::class.java).single()
+
+          assertThat(errorPanel.x).isEqualTo(title.x)
+          assertThat(errorPanel.y).isGreaterThan(title.y + title.height)
+          assertThat(errorPanel.x + errorPanel.width).isEqualTo(toggle.x + toggle.width)
+          assertThat(errorPanel.x + errorPanel.width).isGreaterThan(updateButton.x + updateButton.width)
         }
       }
       finally {
@@ -604,6 +1050,7 @@ internal class LegacyPluginRowFactoryTest {
           view.render(UnifiedPluginsPageController(listOf(PluginSectionState(PluginSectionId.Installed, items = listOf(item)))).state.value)
           val row = componentsOfType(view.component, ListPluginComponent::class.java).single()
           assertThat(row.parent).isNotNull()
+          assertThat(row.parent.isFocusable).isFalse()
           assertThat(row.getUpdatePluginDescriptor()?.pluginId).isEqualTo(pluginId)
         }
       }
@@ -840,6 +1287,127 @@ internal class LegacyPluginRowFactoryTest {
     }
 
   @Test
+  fun `prepared restart remains the only details action after progress ends`(): Unit =
+    timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+      val host = LegacyPluginUiHost(parentScope = this, operationScope = this, unifiedDetailsPageLayout = true)
+      try {
+        val pluginId = PluginId.getId("prepared.restart.progress.plugin")
+        val installed = PluginNodeModelBuilderFactory.createBuilder(pluginId)
+          .setName("Prepared Restart Progress Plugin")
+          .setIsConverted(true)
+          .build()
+        val update = PluginNodeModelBuilderFactory.createBuilder(pluginId)
+          .setName("Prepared Restart Progress Plugin")
+          .setIsConverted(true)
+          .build()
+        val input = PluginRowInput(
+          installedPlugin = installed,
+          installationState = PluginInstallationState(true),
+          errors = emptyList(),
+          updateDescriptor = update,
+          enabled = true,
+          restrictedByProduct = false,
+          detailsProgress = PluginProgressState.Indeterminate,
+          preparedUpdate = PluginPreparedUpdateState(restartRequired = true),
+        )
+        val item = PluginItemState(
+          pluginId,
+          installed.name,
+          modelHandle = PluginItemModelHandle(installed),
+          rowInput = input,
+        )
+        val listener = LinkListener<Any> { _, _ -> }
+        val factory = LegacyPluginRowFactory(host, ListPluginModel(), listener, onSelectionChanged = {})
+        val presenter = LegacyPluginDetailsPresenter(host, listener)
+        UnifiedPluginsPageView({}, {}, { _, _ -> }, rowFactory = factory, detailsPresenter = presenter).use { view ->
+          val controller = UnifiedPluginsPageController(
+            listOf(PluginSectionState(PluginSectionId.Installed, items = listOf(item)))
+          )
+
+          view.render(controller.state.value)
+          yield()
+
+          val details = componentsOfType(presenter.component, PluginDetailsPageComponent::class.java).single { it.isVisible }
+          waitUntilAssertSucceeds {
+            assertThat(componentsOfType(details, JProgressBar::class.java)).hasSize(1)
+          }
+
+          val row = componentsOfType(view.component, ListPluginComponent::class.java).single()
+          details.showPlugins(listOf(row), readOnlyProgress = null, preparedUpdate = input.preparedUpdate)
+          yield()
+
+          assertOnlyPreparedDetailsAction(
+            presenter,
+            IdeBundle.message("plugins.configurable.restart.ide.button"),
+            enabled = true,
+          )
+        }
+      }
+      finally {
+        host.dispose(closeSession = false)
+      }
+    }
+
+  @Test
+  fun `completed Marketplace install has one details action after progress ends`(): Unit =
+    timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+      val host = LegacyPluginUiHost(parentScope = this, operationScope = this, unifiedDetailsPageLayout = true)
+      try {
+        val pluginId = PluginId.getId("marketplace.install.progress.plugin")
+        val plugin = PluginNodeModelBuilderFactory.createBuilder(pluginId)
+          .setName("Marketplace Install Progress Plugin")
+          .setIsConverted(true)
+          .build()
+        val input = PluginRowInput(
+          installedPlugin = null,
+          installationState = PluginInstallationState(false),
+          errors = emptyList(),
+          updateDescriptor = null,
+          enabled = true,
+          restrictedByProduct = false,
+          operationInProgress = true,
+          detailsProgress = PluginProgressState.Indeterminate,
+        )
+        val item = PluginItemState(
+          pluginId,
+          plugin.name,
+          modelHandle = PluginItemModelHandle(plugin),
+          rowInput = input,
+        )
+        val listener = LinkListener<Any> { _, _ -> }
+        val factory = LegacyPluginRowFactory(host, ListPluginModel(), listener, onSelectionChanged = {})
+        val section = PluginSectionState(PluginSectionId.Marketplace, items = listOf(item))
+        factory.createReconciler { _, _ -> }.use { reconciler ->
+          val binding = reconciler.reconcile(listOf(factory.specification(section, item))).single()
+          val row = binding.row as LegacyPluginRow
+          JPanel().add(row.component)
+          factory.rowsRendered(listOf(binding))
+          val details = host.createDetails(listener, marketplace = true)
+          details.showPlugins(listOf(row.component), input.detailsProgress, preparedUpdate = null)
+          waitUntilAssertSucceeds {
+            assertThat(componentsOfType(details, JProgressBar::class.java)).hasSize(1)
+            val actions = componentsOfType(detailsHeader(details.getValue(0, true)), BaselinePanel::class.java).single()
+            val installAction = actions.buttonComponents.filterIsInstance<InstallOptionButton>().single()
+            assertThat(actions.buttonComponents.filter(Component::isVisible)).containsExactly(installAction)
+            assertThat(installAction.isEnabled).isFalse()
+          }
+          details.showPlugins(listOf(row.component), readOnlyProgress = null, preparedUpdate = null)
+          yield()
+          details.finishInstall(success = true, restartRequired = false, installedPlugin = null)
+
+          assertOnlyPreparedDetailsAction(
+            details,
+            IdeBundle.message("plugin.status.installed"),
+            enabled = false,
+          )
+        }
+      }
+      finally {
+        host.dispose(closeSession = false)
+      }
+    }
+
+  @Test
   fun `a completed dynamic update does not request restart in recreated unified details`(): Unit =
     timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
       val host = LegacyPluginUiHost(parentScope = this, operationScope = this, unifiedDetailsPageLayout = true)
@@ -1011,6 +1579,29 @@ internal class LegacyPluginRowFactoryTest {
     }
   }
 
+  private suspend fun assertOnlyPreparedDetailsAction(
+    presenter: LegacyPluginDetailsPresenter,
+    expectedText: String,
+    enabled: Boolean,
+  ) {
+    val details = componentsOfType(presenter.component, PluginDetailsPageComponent::class.java).single { it.isVisible }
+    assertOnlyPreparedDetailsAction(details, expectedText, enabled)
+  }
+
+  private suspend fun assertOnlyPreparedDetailsAction(
+    details: PluginDetailsPageComponent,
+    expectedText: String,
+    enabled: Boolean,
+  ) {
+    waitUntilAssertSucceeds {
+      val actions = componentsOfType(detailsHeader(details.getValue(0, true)), BaselinePanel::class.java).single()
+      val buttons = actions.buttonComponents.filterIsInstance<JButton>()
+      val visibleButtons = buttons.filter(Component::isVisible)
+      assertThat(visibleButtons.map(JButton::getText)).containsExactly(expectedText)
+      assertThat(visibleButtons.single().isEnabled).isEqualTo(enabled)
+    }
+  }
+
   private fun verticalCenterTwice(component: Component): Int = component.y * 2 + component.height
 
   private fun detailsHeader(root: JComponent): JComponent {
@@ -1020,6 +1611,9 @@ internal class LegacyPluginRowFactoryTest {
 
   private fun scrollTabContent(pane: JBTabbedPane, index: Int): JComponent =
     (pane.getComponentAt(index) as JBScrollPane).viewport.view as JComponent
+
+  private fun scrollTabContent(component: JComponent): JComponent =
+    (component as JBScrollPane).viewport.view as JComponent
 
   private fun layoutHeaderAction(header: JComponent, actions: BaselinePanel, target: Component) {
     actions.buttonComponents.forEach { it.isVisible = it === target }

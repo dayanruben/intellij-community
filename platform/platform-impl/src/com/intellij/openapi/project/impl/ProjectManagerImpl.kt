@@ -79,8 +79,8 @@ import com.intellij.openapi.project.ProjectCoreUtil
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.project.ProjectManagerListener
 import com.intellij.openapi.project.VetoableProjectManagerListener
-import com.intellij.openapi.project.ex.ProjectEx
 import com.intellij.openapi.project.ex.PreparedProjectCloseBatch
+import com.intellij.openapi.project.ex.ProjectEx
 import com.intellij.openapi.project.ex.ProjectManagerEx
 import com.intellij.openapi.project.getProjectDataPathRoot
 import com.intellij.openapi.project.impl.ProjectImpl.Companion.LIGHT_PROJECT_NAME
@@ -379,19 +379,22 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
   }
 
   final override fun closeAndDisposeAllProjects(checkCanClose: Boolean): Boolean {
-    val batch = prepareProjectsForExit(checkCanClose) ?: return false
-    serviceIfCreated<FileDocumentManager>()?.saveAllDocuments()
-    val saveFailure = runCatching { SaveAndSyncHandler.getInstance().saveSettingsUnderModalProgress(batch.projects) }.exceptionOrNull()
-    if (saveFailure != null) {
-      // the caller's own cancellation is not a save failure
-      Cancellation.checkCancelled()
-      LOG.warn("Failed to save the projects before closing", loggable(saveFailure))
+    val saveHandler = SaveAndSyncHandler.getInstance()
+    return saveHandler.withDisabledAutoSaveBlocking {
+      val batch = prepareProjectsForExit(checkCanClose) ?: return@withDisabledAutoSaveBlocking false
+      serviceIfCreated<FileDocumentManager>()?.saveAllDocuments()
+      val saveFailure = runCatching { saveHandler.saveSettingsUnderModalProgress(batch.projects) }.exceptionOrNull()
+      if (saveFailure != null) {
+        // the caller's own cancellation is not a save failure
+        Cancellation.checkCancelled()
+        LOG.warn("Failed to save the projects before closing", loggable(saveFailure))
+      }
+      if (checkCanClose && !batch.confirmCloseAfterSave()) {
+        return@withDisabledAutoSaveBlocking false
+      }
+      batch.close()
+      true
     }
-    if (checkCanClose && !batch.confirmCloseAfterSave()) {
-      return false
-    }
-    batch.close()
-    return true
   }
 
   @Suppress("TestOnlyProblems")
@@ -491,23 +494,26 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
       return false
     }
 
-    prepareProjectClose(project)
+    val saveHandler = SaveAndSyncHandler.getInstance()
+    return saveHandler.withDisabledAutoSaveBlocking {
+      prepareProjectClose(project)
 
-    val projectSaveSettingsDurationMs = measureTimeMillis {
-      tracer.spanBuilder("save project settings on close").use {
-        if (saveProject) {
-          serviceIfCreated<FileDocumentManager>()?.saveAllDocuments()
-          SaveAndSyncHandler.getInstance().saveSettingsUnderModalProgress(project)
+      val projectSaveSettingsDurationMs = measureTimeMillis {
+        tracer.spanBuilder("save project settings on close").use {
+          if (saveProject) {
+            serviceIfCreated<FileDocumentManager>()?.saveAllDocuments()
+            saveHandler.saveSettingsUnderModalProgress(project)
+          }
         }
       }
-    }
 
-    if (checkCanClose && !ensureCouldCloseIfUnableToSave(project)) {
-      return false
-    }
+      if (checkCanClose && !ensureCouldCloseIfUnableToSave(project)) {
+        return@withDisabledAutoSaveBlocking false
+      }
 
-    closePreparedProject(project, dispose, projectCloseStartedMs, projectSaveSettingsDurationMs)
-    return true
+      closePreparedProject(project, dispose, projectCloseStartedMs, projectSaveSettingsDurationMs)
+      true
+    }
   }
 
   private fun prepareProjectClose(project: Project) {
@@ -1208,7 +1214,7 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
    */
   private suspend fun attachToExistingOrOpenInTheSameFrame(projectToClose: Project, options: OpenProjectTask, projectDir: Path): Boolean {
     if (options.forceReuseFrame || WelcomeUtils.noCheckOpenConfirmation(projectToClose)) {
-      return !closeAndDisposeKeepingFrame(projectToClose)
+      return !closeAndDisposeKeepingFrame(projectToClose, options.forceReuseFrame)
     }
 
     val processor = ProjectAttachProcessor.getProcessor(projectToClose, projectDir, options.project)
@@ -1256,12 +1262,17 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
     }
   }
 
-  private suspend fun closeAndDisposeKeepingFrame(project: Project): Boolean {
+  private suspend fun closeAndDisposeKeepingFrame(project: Project, enableReuse: Boolean = true): Boolean {
     return withContext(Dispatchers.EDT) {
       try {
         val windowManager = serviceAsync<WindowManager>() as WindowManagerEx
         writeIntentReadAction {
-          windowManager.withFrameReuseEnabled().use {
+          if (enableReuse) {
+            windowManager.withFrameReuseEnabled().use {
+              closeProjectWithConfirmation(project)
+            }
+          }
+          else {
             closeProjectWithConfirmation(project)
           }
         }

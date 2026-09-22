@@ -2,21 +2,6 @@
 package com.intellij.ide.plugins
 
 import com.intellij.ide.plugins.api.PluginDto
-import com.intellij.ide.plugins.unified.UnifiedPluginInventory
-import com.intellij.ide.plugins.unified.UnifiedPluginInventoryItem
-import com.intellij.ide.plugins.unified.UnifiedPluginInternalGroup
-import com.intellij.ide.plugins.unified.UnifiedPluginLocalDataProvider
-import com.intellij.ide.plugins.unified.UnifiedPluginLocalSnapshot
-import com.intellij.ide.plugins.unified.UnifiedPluginMarketplaceDataProvider
-import com.intellij.ide.plugins.unified.UnifiedPluginMarketplaceFetchResult
-import com.intellij.ide.plugins.unified.UnifiedPluginMarketplaceSnapshot
-import com.intellij.ide.plugins.unified.UnifiedPluginRepositoryCatalogResult
-import com.intellij.ide.plugins.unified.UnifiedPluginRepositoryDataProvider
-import com.intellij.ide.plugins.unified.UnifiedPluginUpdateAllCallback
-import com.intellij.ide.plugins.unified.UnifiedPluginUpdateAllExecutor
-import com.intellij.ide.plugins.unified.UnifiedPluginUpdateAllRequest
-import com.intellij.ide.plugins.unified.buildLocalSnapshot
-import com.intellij.ide.plugins.unified.buildMarketplaceSnapshot
 import com.intellij.ide.plugins.marketplace.statistics.UnifiedPluginSearchStatistics
 import com.intellij.ide.plugins.marketplace.statistics.enums.PluginManagerOpenSourceEnum
 import com.intellij.ide.plugins.marketplace.statistics.enums.UnifiedPluginSearchFilterKind
@@ -31,10 +16,26 @@ import com.intellij.ide.plugins.newui.ListPluginComponent
 import com.intellij.ide.plugins.newui.PluginSource
 import com.intellij.ide.plugins.newui.PluginUiModel
 import com.intellij.ide.plugins.newui.PluginUpdatesEvent
+import com.intellij.ide.plugins.unified.UnifiedPluginInternalGroup
+import com.intellij.ide.plugins.unified.UnifiedPluginInventory
+import com.intellij.ide.plugins.unified.UnifiedPluginInventoryItem
+import com.intellij.ide.plugins.unified.UnifiedPluginLocalDataProvider
+import com.intellij.ide.plugins.unified.UnifiedPluginLocalSnapshot
+import com.intellij.ide.plugins.unified.UnifiedPluginMarketplaceDataProvider
+import com.intellij.ide.plugins.unified.UnifiedPluginMarketplaceFetchResult
+import com.intellij.ide.plugins.unified.UnifiedPluginMarketplaceSnapshot
+import com.intellij.ide.plugins.unified.UnifiedPluginRepositoryCatalogResult
+import com.intellij.ide.plugins.unified.UnifiedPluginRepositoryDataProvider
+import com.intellij.ide.plugins.unified.UnifiedPluginUpdateAllCallback
+import com.intellij.ide.plugins.unified.UnifiedPluginUpdateAllExecutor
+import com.intellij.ide.plugins.unified.UnifiedPluginUpdateAllRequest
+import com.intellij.ide.plugins.unified.buildLocalSnapshot
+import com.intellij.ide.plugins.unified.buildMarketplaceSnapshot
 import com.intellij.ide.ui.LafManager
 import com.intellij.internal.statistic.FUCollectorTestCase
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.ActionGroup
+import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.actionSystem.DataKey
 import com.intellij.openapi.actionSystem.DataMap
 import com.intellij.openapi.actionSystem.DataProvider
@@ -43,15 +44,23 @@ import com.intellij.openapi.actionSystem.DataSnapshotProvider
 import com.intellij.openapi.actionSystem.PlatformDataKeys
 import com.intellij.openapi.actionSystem.UiDataProvider
 import com.intellij.openapi.actionSystem.impl.ActionButton
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.UiWithModelAccess
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.options.Configurable
+import com.intellij.openapi.options.newEditor.SpotlightPainter
+import com.intellij.openapi.util.ActionCallback
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.util.ExpirableRunnable
 import com.intellij.openapi.util.text.HtmlChunk
+import com.intellij.openapi.wm.IdeFocusManager
+import com.intellij.openapi.wm.IdeFrame
 import com.intellij.testFramework.TestActionEvent
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.junit5.TestDisposable
+import com.intellij.testFramework.replaceService
 import com.intellij.ui.AnimatedIcon
 import com.intellij.ui.ComponentUtil
 import com.intellij.ui.SearchTextField
@@ -64,9 +73,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
 import org.assertj.core.api.Assertions.assertThat
@@ -75,14 +84,13 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
 import java.awt.Component
 import java.awt.Container
+import java.awt.Dimension
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
-import java.util.ArrayList
-import java.util.HashMap
-import java.util.HashSet
+import java.awt.Window
 import java.util.concurrent.atomic.AtomicInteger
-import javax.swing.JComponent
 import javax.swing.JButton
+import javax.swing.JComponent
 import javax.swing.JPanel
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
@@ -112,6 +120,8 @@ internal class UnifiedPluginsPageSessionTest {
         assertThat(session.getCenterComponent(Configurable.TopComponentController.EMPTY)).isSameAs(center)
         assertThat(componentsOfType(content, SearchTextField::class.java)).isEmpty()
         assertThat(searchField.text).isEqualTo("initial query")
+        assertThat(session.getPreferredFocusedComponent()).isSameAs(searchField.textEditor)
+        assertThat(searchField.textEditor.actionListeners).isNotEmpty()
         assertThat(session.isMarketplaceTabShowing()).isTrue()
         assertThat(session.isInstalledTabShowing()).isTrue()
 
@@ -220,6 +230,27 @@ internal class UnifiedPluginsPageSessionTest {
         session.enableSearch("")!!.run()
 
         assertThat(searchField(session).text).isEmpty()
+      }
+      finally {
+        Disposer.dispose(session)
+      }
+    }
+
+  @Test
+  fun `Spotlight search applies its query without requesting focus`(@TestDisposable disposable: Disposable): Unit =
+    uiTest {
+      val focusManager = RecordingIdeFocusManager(IdeFocusManager.getGlobalInstance())
+      ApplicationManager.getApplication().replaceService(IdeFocusManager::class.java, focusManager, disposable)
+      val session = createSession(null)
+      try {
+        SpotlightSearchCaller().applySearch(session, "Spotlight query")
+
+        assertThat(searchField(session).text).isEqualTo("Spotlight query")
+        assertThat(focusManager.requestedComponents).isEmpty()
+
+        session.enableSearch("Direct query")!!.run()
+
+        assertThat(focusManager.requestedComponents).containsExactly(searchField(session))
       }
       finally {
         Disposer.dispose(session)
@@ -343,11 +374,15 @@ internal class UnifiedPluginsPageSessionTest {
         val searchConstraints = layout.getConstraints(searchComponent)
         val updateAllConstraints = layout.getConstraints(updateAllButton)
         val settingsConstraints = layout.getConstraints(settingsToolbar)
+        val searchContent = searchComponent.components.single() as JComponent
         header.setSize(header.preferredSize.width, header.preferredSize.height + 12)
 
         header.doLayout()
 
+        assertThat(searchContent.border.getBorderInsets(searchContent).top).isZero()
+        assertThat(searchContent.border.getBorderInsets(searchContent).bottom).isZero()
         assertThat(searchComponent.height).isEqualTo(searchComponent.preferredSize.height)
+        assertThat(updateAllButton.height).isEqualTo(updateAllButton.preferredSize.height)
         assertThat(searchComponent.y).isEqualTo((header.height - searchComponent.height) / 2)
         assertThat(updateAllButton.y).isEqualTo((header.height - updateAllButton.height) / 2)
         assertThat(searchConstraints.gridy).isEqualTo(settingsConstraints.gridy)
@@ -897,6 +932,47 @@ internal class UnifiedPluginsPageSessionTest {
     withShowingChanged { container.add(component) }
   }
 
+  private class SpotlightSearchCaller : SpotlightPainter(JPanel(), {}) {
+    fun applySearch(session: UnifiedPluginsPageSession, query: String) {
+      session.enableSearch(query)?.run()
+    }
+  }
+
+  @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
+  private class RecordingIdeFocusManager(private val delegate: IdeFocusManager) : IdeFocusManager() {
+    val requestedComponents = mutableListOf<Component>()
+
+    override fun requestFocus(component: Component, forced: Boolean): ActionCallback {
+      requestedComponents.add(component)
+      return ActionCallback.DONE
+    }
+
+    override fun getFocusTargetFor(component: JComponent): JComponent? = delegate.getFocusTargetFor(component)
+
+    override fun doWhenFocusSettlesDown(runnable: Runnable) = delegate.doWhenFocusSettlesDown(runnable)
+
+    override fun doWhenFocusSettlesDown(runnable: Runnable, modality: ModalityState) =
+      delegate.doWhenFocusSettlesDown(runnable, modality)
+
+    override fun doWhenFocusSettlesDown(runnable: ExpirableRunnable) = delegate.doWhenFocusSettlesDown(runnable)
+
+    override fun getFocusedDescendantFor(component: Component): Component? = delegate.getFocusedDescendantFor(component)
+
+    override fun isFocusTransferEnabled(): Boolean = delegate.isFocusTransferEnabled
+
+    override fun getFocusOwner(): Component? = delegate.focusOwner
+
+    override fun runOnOwnContext(context: DataContext, runnable: Runnable) = delegate.runOnOwnContext(context, runnable)
+
+    override fun getLastFocusedFor(frame: Window?): Component? = delegate.getLastFocusedFor(frame)
+
+    override fun getLastFocusedFrame(): IdeFrame? = delegate.lastFocusedFrame
+
+    override fun getLastFocusedIdeWindow(): Window? = delegate.lastFocusedIdeWindow
+
+    override fun toFront(component: JComponent) = delegate.toFront(component)
+  }
+
   private suspend fun waitForPluginIds(content: Component, expected: Set<String>) {
     withTimeout(5.seconds) {
       while (true) {
@@ -944,7 +1020,7 @@ internal class UnifiedPluginsPageSessionTest {
   }
 
   private fun assertAdaptiveSearchWidth(header: JComponent, searchComponent: JComponent) {
-    val updateAllButton = updateAllButton(header)
+    val updateAllButton = updateAllButton(header).apply { isVisible = true }
     val settingsToolbar = header.components.single { it !== searchComponent && it !is JButton }
     val layout = header.layout as GridBagLayout
     val searchConstraints = layout.getConstraints(searchComponent)
@@ -969,6 +1045,33 @@ internal class UnifiedPluginsPageSessionTest {
     header.doLayout()
 
     assertThat(searchComponent.width).isLessThan(maximumWidth)
+    assertThat(settingsToolbar.bounds.x + settingsToolbar.width).isLessThanOrEqualTo(header.width)
+
+    val historyToolbar = JPanel().apply {
+      preferredSize = Dimension(JBUI.scale(88), header.preferredSize.height)
+      minimumSize = preferredSize
+    }
+    val settingsHeader = JPanel(GridBagLayout()).apply {
+      add(header, GridBagConstraints().apply {
+        gridx = 0
+        fill = GridBagConstraints.HORIZONTAL
+        weightx = 1.0
+      })
+      add(historyToolbar, GridBagConstraints().apply {
+        gridx = 1
+      })
+    }
+    val expectedNarrowSearchWidth = JBUI.scale(80)
+    settingsHeader.setSize(
+      header.minimumSize.width + expectedNarrowSearchWidth + historyToolbar.preferredSize.width,
+      header.preferredSize.height,
+    )
+    settingsHeader.doLayout()
+    header.doLayout()
+
+    assertThat(searchComponent.width).isEqualTo(expectedNarrowSearchWidth)
+    assertThat(updateAllButton.x - searchComponent.run { x + width }).isEqualTo(JBUI.scale(4))
+    assertThat(settingsToolbar.x - updateAllButton.run { x + width }).isEqualTo(JBUI.scale(4))
     assertThat(settingsToolbar.bounds.x + settingsToolbar.width).isLessThanOrEqualTo(header.width)
   }
 

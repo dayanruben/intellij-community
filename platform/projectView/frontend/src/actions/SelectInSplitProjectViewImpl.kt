@@ -14,11 +14,13 @@ import com.intellij.openapi.fileEditor.TextEditor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindowId
 import com.intellij.platform.projectView.actions.EditorChoice
+import com.intellij.platform.projectView.actions.ProjectViewActionSupport
 import com.intellij.platform.projectView.actions.SelectInSplitProjectView
 import com.intellij.platform.projectView.frontend.pane.FrontendProjectViewPaneAggregator
 import com.intellij.platform.projectView.pane.ProjectViewNodePath
 import com.intellij.platform.projectView.pane.SelectInContextDTO
 import com.intellij.platform.projectView.pane.SelectInRequestDTO
+import com.intellij.platform.projectView.settings.ProjectViewPaneOptionDTO
 import com.intellij.platform.projectView.window.ProjectViewToolWindowService
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
@@ -46,8 +48,9 @@ internal class SelectInSplitProjectViewImpl(private val project: Project, corout
   }
 
   override fun isSelectOpenedFileEnabled(): Boolean {
-    // TODO when Always Select Opened File is ready
-    return true
+    val actionState = ProjectViewActionSupport.getInstance(project).getActionState() ?: return true
+    return actionState.optionStates[ProjectViewPaneOptionDTO.AUTOSCROLL_FROM_SOURCE]?.isSelected != true ||
+           actionState.forceSelectOpenedFileEnabled
   }
 
   override fun selectOpenedFile(editorChoice: EditorChoice, invokedManually: Boolean) {

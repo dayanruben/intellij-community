@@ -1118,6 +1118,11 @@ public class HighlightInfo implements Segment {
       return obj instanceof IntentionActionDescriptor descriptor && myAction.equals(descriptor.myAction);
     }
 
+    @Override
+    public int hashCode() {
+      return myAction.hashCode();
+    }
+
     public @Nullable String getToolId() {
       return myKey != null ? myKey.getID() : null;
     }
@@ -1257,7 +1262,35 @@ public class HighlightInfo implements Segment {
   }
 
   public final void unregisterQuickFix(@NotNull Condition<? super IntentionAction> condition) {
-    updateOffsetStore(oldStore -> oldStore.withIntentionDescriptorsAndFixMarker(List.copyOf(ContainerUtil.filter(oldStore.intentionActionDescriptors(), descriptor -> !condition.value(descriptor.getAction()))), oldStore.fixMarker()));
+    updateOffsetStore(oldStore -> {
+      List<IntentionActionDescriptor> descriptors =
+        List.copyOf(ContainerUtil.filter(oldStore.intentionActionDescriptors(), descriptor -> !condition.value(descriptor.getAction())));
+      List<LazyFixDescription> lazyFixes = ContainerUtil.mapNotNull(oldStore.lazyQuickFixes(), description -> {
+        Future<@NotNull List<IntentionActionDescriptor>> future = description.future();
+        if (future == null || !future.isDone()) {
+          return description;
+        }
+        try {
+          List<IntentionActionDescriptor> fixes = future.get();
+          List<IntentionActionDescriptor> filteredFixes = ContainerUtil.filter(fixes, descriptor -> !condition.value(descriptor.getAction()));
+          if (filteredFixes.isEmpty()) {
+            return null;
+          }
+          return fixes.size() == filteredFixes.size()
+                 ? description
+                 : new LazyFixDescription(description.fixesComputer(), description.psiModificationStamp(),
+                                          CompletableFuture.completedFuture(List.copyOf(filteredFixes)));
+        }
+        catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+          return description;
+        }
+        catch (ExecutionException e) {
+          return description;
+        }
+      });
+      return oldStore.withIntentionDescriptorsAndFixMarker(descriptors, oldStore.fixMarker()).withLazyQuickFixes(lazyFixes);
+    });
   }
 
   public final IntentionAction getSameFamilyFix(@NotNull IntentionActionWithFixAllOption action) {
@@ -1392,7 +1425,10 @@ public class HighlightInfo implements Segment {
       OffsetStore oldStore = newInfo.offsetStore;
       List<? extends IntentionActionDescriptor> newDescriptors =
         ContainerUtil.concat(ContainerUtil.map(infos, i -> ((HighlightInfo)i).offsetStore.intentionActionDescriptors()));
-      OffsetStore newStore = oldStore.withIntentionDescriptorsAndFixMarker(newDescriptors, oldStore.fixMarker());
+      List<? extends LazyFixDescription> newLazyFixes =
+        ContainerUtil.concat(ContainerUtil.map(infos, i -> ((HighlightInfo)i).offsetStore.lazyQuickFixes()));
+      OffsetStore newStore = oldStore.withIntentionDescriptorsAndFixMarker(newDescriptors, oldStore.fixMarker())
+        .withLazyQuickFixes(newLazyFixes);
       if (anchorInfo.getHighlighter() != null) {
         newStore = newStore.withHighlighter(anchorInfo.getHighlighter());
       }

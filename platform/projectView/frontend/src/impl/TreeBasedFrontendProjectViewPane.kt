@@ -31,6 +31,7 @@ import com.intellij.platform.projectView.pane.ProjectViewNodeModelImpl
 import com.intellij.platform.projectView.pane.ProjectViewNodePath
 import com.intellij.platform.projectView.pane.ProjectViewPaneDescriptorImpl
 import com.intellij.platform.projectView.pane.ProjectViewPaneId
+import com.intellij.platform.projectView.pane.ProjectViewPaneKind
 import com.intellij.platform.projectView.pane.ProjectViewPaneRequest
 import com.intellij.platform.projectView.pane.ProjectViewPaneStateEvent
 import com.intellij.platform.projectView.settings.ProjectViewPaneOptionDTO
@@ -40,6 +41,7 @@ import com.intellij.ui.ScrollPaneFactory
 import com.intellij.ui.stripe.ErrorStripe
 import com.intellij.ui.stripe.ErrorStripePainter
 import com.intellij.ui.stripe.TreeUpdater
+import com.intellij.ui.tree.RestoreSelectionListener
 import com.intellij.ui.treeStructure.CachingTreePath
 import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.EditSourceOnDoubleClickHandler
@@ -52,10 +54,9 @@ import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.channels.BufferOverflow
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
-import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
@@ -92,7 +93,7 @@ internal class TreeBasedFrontendProjectViewPane(
   private val paneTreeModel = FrontendProjectViewPaneTreeModel(project, descriptor)
   private val tree = FrontendProjectViewTree(paneTreeModel.treeModel)
   private val scrollPane = ScrollPaneFactory.createScrollPane(tree, true)
-  private val expandRequests = Channel<ExpandRequest>(capacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+  private val expandRequests = MutableSharedFlow<ExpandRequest>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
   private val treeExpander = ProjectViewTreeExpander(tree, expandRequests)
   private val autoscrollToSourceHandler = MyAutoscrollToSourceHandler(project)
   private val cutCopyPasteDeleteProvider = FrontendProjectViewCutCopyPasteDeleteProvider(paneTreeModel)
@@ -154,7 +155,7 @@ internal class TreeBasedFrontendProjectViewPane(
     EditSourceOnEnterKeyHandler.install(tree)
     autoscrollToSourceHandler.install(tree)
     tree.launchOnShow("expand requests") {
-      expandRequests.consumeAsFlow().collectLatest { expandRequest ->
+      expandRequests.collectLatest { expandRequest ->
         expand(expandRequest)
       }
     }
@@ -196,7 +197,12 @@ internal class TreeBasedFrontendProjectViewPane(
       else {
         LOG.debug { "The pane $id doesn't need to expand the first top node (already expanded something)" }
       }
+      if (tree.selectionPath == null && tree.rowCount > 0) {
+        LOG.debug { "The pane $id has no initial selection, selecting the first row" }
+        tree.selectionPath = tree.getPathForRow(0)
+      }
     }
+    tree.addTreeSelectionListener(RestoreSelectionListener())
     enableDnD(tree, paneTreeModel)
   }
 
@@ -405,6 +411,7 @@ internal class TreeBasedFrontendProjectViewPane(
 
   override fun uiDataSnapshot(sink: DataSink) {
     sink[ProjectViewPaneId.DATA_KEY] = paneTreeModel.descriptor.id
+    sink[ProjectViewPaneKind.DATA_KEY] = paneTreeModel.descriptor.kind
     sink[PROJECT_VIEW_SELECTED_NODE_IDS_KEY] = tree.selectionPaths?.mapNotNull { path ->
       (path?.lastPathComponent as? Node)?.projectViewNode?.id
     }
@@ -434,7 +441,7 @@ internal class TreeBasedFrontendProjectViewPane(
   }
 }
 
-private class ProjectViewTreeExpander(tree: Tree, private val expandRequests: SendChannel<ExpandRequest>) : DefaultTreeExpander(tree) {
+private class ProjectViewTreeExpander(tree: Tree, private val expandRequests: MutableSharedFlow<ExpandRequest>) : DefaultTreeExpander(tree) {
   override fun isExpandAllVisible(): Boolean {
     return Registry.`is`("ide.project.view.expand.all.action.visible") && !Registry.`is`("ide.project.view.replace.expand.all.with.expand.recursively")
   }
@@ -445,14 +452,14 @@ private class ProjectViewTreeExpander(tree: Tree, private val expandRequests: Se
 
   override fun expandSelected(tree: JTree) {
     val selection = tree.selectionPaths?.toList() ?: return
-    val result = expandRequests.trySend(ExpandRequest(selection))
-    check(!result.isFailure)
+    val result = expandRequests.tryEmit(ExpandRequest(selection))
+    check(result)
   }
 
   override fun expandAll(tree: JTree) {
     val root = tree.model?.root ?: return
-    val result = expandRequests.trySend(ExpandRequest(listOf(CachingTreePath(root))))
-    check(!result.isFailure)
+    val result = expandRequests.tryEmit(ExpandRequest(listOf(CachingTreePath(root))))
+    check(result)
   }
 
   override fun collapseAll(tree: JTree, strict: Boolean, keepSelectionLevel: Int) {

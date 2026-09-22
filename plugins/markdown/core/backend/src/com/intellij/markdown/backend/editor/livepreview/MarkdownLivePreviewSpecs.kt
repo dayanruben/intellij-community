@@ -14,10 +14,13 @@ import org.intellij.plugins.markdown.MarkdownBundle
 import org.intellij.plugins.markdown.editor.livepreview.MarkdownLivePreviewDocumentVersion
 import org.intellij.plugins.markdown.editor.livepreview.MarkdownLivePreviewSpec
 import org.intellij.plugins.markdown.editor.livepreview.MarkdownLivePreviewSpecSet
+import org.intellij.plugins.markdown.editor.livepreview.MarkdownLivePreviewUtils
 import org.intellij.plugins.markdown.editor.livepreview.toMarkdownLivePreviewRange
 import org.intellij.plugins.markdown.lang.MarkdownElementTypes
 import org.intellij.plugins.markdown.lang.MarkdownTokenTypes
 import org.intellij.plugins.markdown.lang.psi.impl.MarkdownImage
+import org.intellij.plugins.markdown.lang.psi.impl.MarkdownListItem
+import org.intellij.plugins.markdown.lang.psi.impl.MarkdownTable
 import org.jetbrains.annotations.ApiStatus
 
 /**
@@ -29,7 +32,6 @@ private val NoDescendTypes: Set<IElementType> = setOf(
   MarkdownElementTypes.CODE_SPAN,
   MarkdownElementTypes.HTML_BLOCK,
   MarkdownElementTypes.IMAGE,
-  MarkdownElementTypes.TABLE,
   MarkdownElementTypes.LINK_DESTINATION,
   MarkdownElementTypes.AUTOLINK,
 )
@@ -75,18 +77,21 @@ private fun PsiElement.toDecorationSpecs(editor: Editor): MarkdownLivePreviewSpe
     MarkdownElementTypes.STRIKETHROUGH -> delimiterConceals(MarkdownTokenTypes.TILDE)
     MarkdownElementTypes.CODE_SPAN -> delimiterConceals(MarkdownTokenTypes.BACKTICK)
     MarkdownElementTypes.INLINE_LINK -> toInlineLinkSpecs()
-    MarkdownElementTypes.IMAGE -> toImageSpec(editor)
+    MarkdownElementTypes.IMAGE -> if (isInsideTable()) null else toImageSpec(editor)
     // `<https://example.org>` becomes a composite holding the brackets, while `<name@example.org>` stays
     // flat and keeps them as siblings, so the two forms need different lookups.
     MarkdownElementTypes.AUTOLINK -> toAutolinkSpecs()
     in LeafAutolinkTypes -> toAutolinkSpecs()
-    MarkdownTokenTypes.LIST_BULLET -> toBulletSpec()
+    MarkdownTokenTypes.LIST_BULLET -> toBulletSpec(editor)
+    MarkdownTokenTypes.CHECK_BOX -> toTaskCheckboxSpec(editor)
     MarkdownTokenTypes.HORIZONTAL_RULE -> toHorizontalRuleSpec()
     MarkdownElementTypes.FRONT_MATTER_HEADER_DELIMITER -> toFrontMatterDelimiterSpec()
     MarkdownTokenTypes.SETEXT_2 -> toSetextCodeSpanUnderlineSpec()
     else -> null
   }
 }
+
+private fun PsiElement.isInsideTable(): Boolean = PsiTreeUtil.getParentOfType(this, MarkdownTable::class.java) != null
 
 private fun PsiElement.toImageSpec(editor: Editor): MarkdownLivePreviewSpec.Image? {
   val image = this as? MarkdownImage ?: return null
@@ -149,7 +154,7 @@ private fun PsiElement.wholeLineRange(): TextRange? {
   return TextRange(start, end)
 }
 
-private fun PsiElement.toBulletSpec(): MarkdownLivePreviewSpec.Bullet? {
+private fun PsiElement.toBulletSpec(editor: Editor): MarkdownLivePreviewSpec.Bullet? {
   val listItem = parent ?: return null
   if (PsiUtilCore.getElementType(listItem) != MarkdownElementTypes.LIST_ITEM) return null
   if (PsiUtilCore.getElementType(listItem.parent) != MarkdownElementTypes.UNORDERED_LIST ||
@@ -162,9 +167,35 @@ private fun PsiElement.toBulletSpec(): MarkdownLivePreviewSpec.Bullet? {
     .count { PsiUtilCore.getElementType(it) == MarkdownElementTypes.LIST_ITEM }
   val markerStart = textRange.startOffset + markerOffset
   return MarkdownLivePreviewSpec.Bullet(
-    range = textRange.toMarkdownLivePreviewRange(),
+    range = logicalLineRange(editor).toMarkdownLivePreviewRange(),
     concealRange = TextRange(markerStart, markerStart + 1).toMarkdownLivePreviewRange(),
     placeholderText = BULLET_PLACEHOLDERS[(depth - 1) % BULLET_PLACEHOLDERS.length].toString(),
+  )
+}
+
+private fun PsiElement.logicalLineRange(editor: Editor): TextRange {
+  val document = editor.document
+  val line = document.getLineNumber(textRange.startOffset)
+  return TextRange(document.getLineStartOffset(line), document.getLineEndOffset(line))
+}
+
+private fun PsiElement.toTaskCheckboxSpec(editor: Editor): MarkdownLivePreviewSpec.TaskCheckbox? {
+  val item = parent as? MarkdownListItem ?: return null
+  if (item.checkBox != this) return null
+  val text = text
+  if (text.length < 3 || !MarkdownLivePreviewUtils.isCheckbox(text, 0)) return null
+  val checkboxRange = TextRange(textRange.startOffset, textRange.startOffset + 3)
+  val marker = item.markerElement ?: return null
+  val concealStart = if (PsiUtilCore.getElementType(item.parent) == MarkdownElementTypes.UNORDERED_LIST) {
+    val markerOffset = marker.text.indexOfFirst { it in "-*+" }
+    if (markerOffset < 0) return null
+    marker.textRange.startOffset + markerOffset
+  }
+  else checkboxRange.startOffset
+  return MarkdownLivePreviewSpec.TaskCheckbox(
+    range = logicalLineRange(editor).toMarkdownLivePreviewRange(),
+    concealRange = TextRange(concealStart, checkboxRange.endOffset).toMarkdownLivePreviewRange(),
+    checked = text[1] != ' ',
   )
 }
 

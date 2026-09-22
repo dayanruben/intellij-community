@@ -5,7 +5,6 @@ import com.intellij.codeHighlighting.BackgroundEditorHighlighter;
 import com.intellij.codeHighlighting.HighlightingPass;
 import com.intellij.codeHighlighting.Pass;
 import com.intellij.codeHighlighting.TextEditorHighlightingPass;
-import com.intellij.codeHighlighting.TextEditorHighlightingPassRegistrar;
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzerSettings;
 import com.intellij.codeInsight.daemon.LineMarkerInfo;
 import com.intellij.codeInsight.daemon.ReferenceImporter;
@@ -1221,6 +1220,7 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
     }
 
     boolean submitted = false;
+    int sessionCreationAttempts = 0;
     boolean shouldRestart = true;
     ProcessCanceledException pce = null;
     // have to store created indicators because myUpdateProgress removes the canceled indicator immediately
@@ -1261,7 +1261,16 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
             progressIndicator = null;
           }
           else {
-            progressIndicator = queuePassesCreation(fileEditor, virtualFile, ArrayUtil.EMPTY_INT_ARRAY, mainDocumentPasses);
+            checkPassesCreationAllowed();
+            BackgroundEditorHighlighter backgroundHighlighter = getBackgroundHighlighter(fileEditor);
+            if (backgroundHighlighter == null) {
+              progressIndicator = null;
+            }
+            else {
+              sessionCreationAttempts++;
+              progressIndicator = queuePassesCreation(fileEditor, virtualFile, ArrayUtil.EMPTY_INT_ARRAY, mainDocumentPasses,
+                                                       backgroundHighlighter);
+            }
           }
           submitted |= progressIndicator != null;
           if (progressIndicator != null) {
@@ -1280,7 +1289,7 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
     }
     finally {
       boolean wasCanceledDuringSubmit = ContainerUtil.exists(createdIndicators, p -> p.isCanceled());
-      if ((!submitted || wasCanceledDuringSubmit) && shouldRestart) {
+      if (((!submitted && sessionCreationAttempts != 0) || wasCanceledDuringSubmit) && shouldRestart) {
         // happens e.g., when we are trying to open a directory and there's a FileEditor supporting this
         // invokeLater is required because we can't stop daemon from inside UpdateRunnable, since its future hasn't been scheduled yet
         // or when PCE happened in queuePassesCreation
@@ -1303,6 +1312,23 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
     return replacedVirtualFile == null ? virtualFile : replacedVirtualFile;
   }
 
+  private void checkPassesCreationAllowed() {
+    ThreadingAssertions.assertEventDispatchThread();
+
+    // since we are running on EDT under write-intent lock, write action can be either absent or pending (if it was invoked on a background thread)
+    // in this case, the progress indicator needs to be canceled.
+    if (ApplicationManagerEx.getApplicationEx().isWriteActionPending()) {
+      stopProcess(false, "Background write action is pending");
+      throw new ProcessCanceledException();
+    }
+  }
+
+  private static @Nullable BackgroundEditorHighlighter getBackgroundHighlighter(@NotNull FileEditor fileEditor) {
+    try (AccessToken ignored = ClientId.withExplicitClientId(ClientFileEditorManager.getClientId(fileEditor))) {
+      return fileEditor.getBackgroundHighlighter();
+    }
+  }
+
   /**
    * @return HighlightingSession when everything's OK or
    * return null if the session wasn't created because highlighter/document/psiFile wasn't found or
@@ -1312,20 +1338,9 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
   ProgressIndicator queuePassesCreation(@NotNull FileEditor fileEditor,
                                         @NotNull VirtualFile virtualFile,
                                         int @NotNull [] passesToIgnore,
-                                        @NotNull Map<? super Pair<Document, Class<? extends ProgressableTextEditorHighlightingPass>>, ProgressableTextEditorHighlightingPass> mainDocumentPasses) {
-    ThreadingAssertions.assertEventDispatchThread();
-    BackgroundEditorHighlighter backgroundHighlighter;
-
-    // since we are running on EDT under write-intent lock, write action can be either absent or pending (if it was invoked on a background thread)
-    // in this case, the progress indicator needs to be canceled.
-    if (ApplicationManagerEx.getApplicationEx().isWriteActionPending()) {
-      stopProcess(false, "Background write action is pending");
-      throw new ProcessCanceledException();
-    }
-
-    try (AccessToken ignored = ClientId.withExplicitClientId(ClientFileEditorManager.getClientId(fileEditor))) {
-      backgroundHighlighter = fileEditor.getBackgroundHighlighter();
-    }
+                                        @NotNull Map<? super Pair<Document, Class<? extends ProgressableTextEditorHighlightingPass>>, ProgressableTextEditorHighlightingPass> mainDocumentPasses,
+                                        @Nullable BackgroundEditorHighlighter backgroundHighlighter) {
+    checkPassesCreationAllowed();
     TextEditor textEditor = fileEditor instanceof TextEditor t ? t : null;
     Editor editor = textEditor == null ? null : textEditor.getEditor();
     if (backgroundHighlighter == null) {
@@ -1476,10 +1491,7 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
           stopAndRestartMyProcess(progress, null, " no passes created");
           return;
         }
-        // synchronize on TextEditorHighlightingPassRegistrarImpl instance to avoid concurrent modification of TextEditorHighlightingPassRegistrarImpl.nextAvailableId
-        synchronized (TextEditorHighlightingPassRegistrar.getInstance(myProject)) {
-          myPassExecutorService.submitPasses(document, context[0], virtualFile, psiFile, fileEditor, passes, progress);
-        }
+        myPassExecutorService.submitPasses(document, context[0], virtualFile, psiFile, fileEditor, passes, progress);
         //clearObsoleteRangeHighlightersManagedToSneakInAllTheSame(document, myProject);
         ProgressManager.checkCanceled();
       }), progress);

@@ -539,6 +539,7 @@ private fun createAndroidPluginLayout(
     //spec.withModule("intellij.android.app-quality-insights.play-vitals.model", "android.jar")
     //spec.withModule("intellij.android.app-quality-insights.play-vitals.ide", "android.jar")
     //spec.withModule("intellij.android.app-quality-insights.play-vitals.view", "android.jar")
+    spec.withModule("intellij.android.app-publishing", "android.jar")
     spec.withModule("intellij.android.build-attribution", "android.jar")
     spec.withModule("intellij.android.compose-common", "android.jar")
     spec.withModule("intellij.android.device", "android.jar")
@@ -584,6 +585,7 @@ private fun createAndroidPluginLayout(
       spec.withModule("intellij.android.plugin.descriptor", "android.jar")
     }
     spec.withModule("intellij.android.preview-elements", "android.jar")
+    spec.withModule("intellij.android.play-publishing", "android.jar")
     spec.withModule("intellij.android.profilersAndroid", "android.jar")
     spec.withModule("intellij.android.profilersAndroid.gradle", "android.jar")
     spec.withModule("intellij.android.projectSystem.apk", "android.jar")

@@ -119,7 +119,7 @@ import com.intellij.openapi.editor.ex.util.EmptyEditorHighlighter;
 import com.intellij.openapi.editor.highlighter.EditorHighlighter;
 import com.intellij.openapi.editor.highlighter.HighlighterClient;
 import com.intellij.openapi.editor.impl.caret.EditorCaretMutator;
-import com.intellij.openapi.editor.impl.caret.model.CaretCursorSnapshot;
+import com.intellij.openapi.editor.impl.caret.model.CaretCursor;
 import com.intellij.openapi.editor.impl.caret.model.CaretRectangle;
 import com.intellij.openapi.editor.impl.event.MarkupModelListener;
 import com.intellij.openapi.editor.impl.stickyLines.StickyLinesManager;
@@ -132,7 +132,7 @@ import com.intellij.openapi.editor.impl.stickyLines.ui.StickyLinesPanel;
 import com.intellij.openapi.editor.impl.view.CharacterGrid;
 import com.intellij.openapi.editor.impl.view.CharacterGridImpl;
 import com.intellij.openapi.editor.impl.view.EditorView;
-import com.intellij.openapi.editor.impl.view.animation.EditorAnimationCache;
+import com.intellij.openapi.editor.impl.view.animation.EditorPainterCache;
 import com.intellij.openapi.editor.markup.GutterDraggableObject;
 import com.intellij.openapi.editor.markup.GutterIconRenderer;
 import com.intellij.openapi.editor.markup.RangeHighlighter;
@@ -175,7 +175,6 @@ import com.intellij.psi.codeStyle.CodeStyleSettingsListener;
 import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
 import com.intellij.ui.ColorUtil;
 import com.intellij.ui.DirtyUI;
-import com.intellij.ui.DrawUtil;
 import com.intellij.ui.EditorNotifications;
 import com.intellij.ui.ExperimentalUI;
 import com.intellij.ui.IslandsState;
@@ -300,7 +299,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.TooManyListenersException;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
@@ -359,7 +357,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   boolean myCursorSetExternally;
 
   private boolean myIsCurrentlyBuildingCache = false;
-  private final @Nullable EditorAnimationCache myContentAnimationCache;
+  private final @Nullable EditorPainterCache myContentAnimationCache;
   private final @NotNull EditorCaretMutator caretMutator;
 
   private static final Integer SCROLL_PANE_LAYER = 0;
@@ -451,7 +449,6 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   private boolean myKeepSelectionOnMousePress;
   private boolean myFocusKeepSelectionOnMousePress;
 
-  private boolean myUpdateCursor;
   private final EditorScrollingPositionKeeper myScrollingPositionKeeper;
   private boolean myRestoreScrollingPosition;
   private int myRangeToRepaintStart;
@@ -519,10 +516,8 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   // Reset on mouse press event.
   private boolean myCurrentDragIsSubstantial;
   private boolean myForcePushHappened;
-  private boolean myMouseIsInDrag;
   private boolean myIsCurrentlyInFocus = true;
   private volatile boolean myIsInputFocusOwner;
-  private final AtomicBoolean gainedFocus = new AtomicBoolean(false);
   private final MyFocusListener myFocusListener = new MyFocusListener();
 
   private @Nullable VisualPosition mySuppressedByBreakpointsLastPressPosition;
@@ -701,7 +696,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
 
     myView = new EditorView(this, myEditorModel);
     myContentAnimationCache = Registry.is("editor.animation.cache.enabled")
-                              ? new EditorAnimationCache(this)
+                              ? new EditorPainterCache(this)
                               : null;
     if (myContentAnimationCache != null) {
       Disposer.register(myDisposable, myContentAnimationCache);
@@ -908,7 +903,6 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
                               " opposite=" + (e.getOppositeComponent() == null ? "null" : e.getOppositeComponent().getClass().getSimpleName()));
       }
       caretMutator.setVisible(true);
-      gainedFocus.set(true);
       for (Caret caret : myCaretModel.getAllCarets()) {
         int caretLine = caret.getLogicalPosition().line;
         repaintLines(caretLine, caretLine);
@@ -1712,7 +1706,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
         myMarkupModel.repaint();
         if (!isRightAligned()) return;
         updateCaretCursor();
-        repaintCaretCursorSnapshot();
+        repaintCaretCursor();
       }
     });
   }
@@ -1981,7 +1975,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     Object oldValue = extractOldValueOrLog(event, false);
     myPropertyChangeSupport.firePropertyChange(PROP_INSERT_MODE, oldValue, event.getNewValue());
 
-    repaintCaretCursorSnapshot();
+    repaintCaretCursor();
   }
 
   @Override
@@ -2652,16 +2646,9 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
       return;
     }
 
-    if (myUpdateCursor && !myPurePaintingMode) {
-      if (shouldSetCursorPositionImmediately()) {
-        caretMutator.caretMovedImmediately();
-      } else {
-        caretMutator.caretMoved();
-      }
-      myUpdateCursor = false;
-    }
+    caretMutator.caretMoved();
 
-    EditorAnimationCache cache = canPaintFromContentAnimationCache() ? myContentAnimationCache : null;
+    EditorPainterCache cache = canPaintFromContentAnimationCache() ? myContentAnimationCache : null;
     myView.paint(g, cache);
 
     boolean isBackgroundImageSet = IdeBackgroundUtil.isEditorBackgroundImageSet(myProject);
@@ -2863,15 +2850,15 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   }
 
   @ApiStatus.Internal
-  public CaretRectangle @Nullable [] getCaretLocations(boolean onlyIfShown) {
-    CaretCursorSnapshot snapshot = getCaretCursorSnapshot(onlyIfShown);
-    return snapshot == null ? null : snapshot.locations;
+  public @Nullable List<CaretRectangle> getCaretLocations(boolean onlyIfShown) {
+    CaretCursor caretCursor = getCaretCursor(onlyIfShown);
+    return caretCursor == null ? null : caretCursor.locations();
   }
 
   @ApiStatus.Internal
-  public @Nullable CaretCursorSnapshot getCaretCursorSnapshot(boolean onlyIfShown) {
-    CaretCursorSnapshot snapshot = caretMutator.snapshot();
-    return onlyIfShown && !isCaretShown(snapshot) ? null : snapshot;
+  public @Nullable CaretCursor getCaretCursor(boolean onlyIfShown) {
+    CaretCursor caretCursor = caretMutator.caretCursor();
+    return onlyIfShown && !isCaretShown(caretCursor) ? null : caretCursor;
   }
 
   @Override
@@ -3233,7 +3220,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
                            || !myLastPressedOnGutter // Small drags aren't a problem in the editor, only on the gutter.
                            || Math.abs(myLastMousePressedPoint.x - point.x) >= sensitivity
                            || Math.abs(myLastMousePressedPoint.y - point.y) >= sensitivity;
-      myMouseIsInDrag = myMouseDragStarted;
+      setMouseIsInDrag(myMouseDragStarted);
       if (!myMouseDragStarted) {
         return;
       }
@@ -3598,30 +3585,15 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   }
 
   void updateCaretCursor() {
-    myUpdateCursor = true;
-    if (caretMutator.snapshot().isShown) {
-      caretMutator.recordActivity();
-    }
-    else {
-      caretMutator.showFullyOpaque();
-      repaintCaretCursorSnapshot();
-    }
+    caretMutator.updateCaretCursor();
   }
 
-  private void repaintCaretCursorSnapshot() {
-    myView.repaintCarets(caretMutator.snapshot());
+  private void repaintCaretCursor() {
+    myView.repaintCarets(caretMutator.caretCursor());
   }
 
-  @ApiStatus.Internal
-  public boolean shouldDisableAnimations() {
-    return DrawUtil.isSimplifiedUI();
-  }
-
-  private boolean shouldSetCursorPositionImmediately() {
-    return gainedFocus.getAndSet(false) ||
-           myMouseIsInDrag ||
-           !getSettings().isSmoothCaretMovement() ||
-           shouldDisableAnimations();
+  private void setMouseIsInDrag(boolean value) {
+    caretMutator.setMouseIsInDrag(value);
   }
 
   @Override
@@ -3708,8 +3680,10 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   }
 
   @ApiStatus.Internal
-  public boolean isCaretShown(@NotNull CaretCursorSnapshot snapshot) {
-    return snapshot.getWantsToBeShown() && !isRendererMode() && isEditorInputFocusOwner();
+  public boolean isCaretShown(@NotNull CaretCursor caretCursor) {
+    return caretCursor.wantsToBeShown() &&
+           !isRendererMode() &&
+           isEditorInputFocusOwner();
   }
 
   private final class ScrollingTimer {
@@ -4632,7 +4606,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
       myMousePressArea = null;
       if (MOUSE_PRESS_LOG.isTraceEnabled()) {
         MOUSE_PRESS_LOG.trace("[press #" + myMousePressSeq + "] CLEAR by mouseReleased, prev=" + myLastMousePressedLocation +
-                              " source=" + e.getSource().getClass().getSimpleName() + " inDrag=" + myMouseIsInDrag);
+                              " source=" + e.getSource().getClass().getSimpleName());
       }
       myLastMousePressedLocation = null;
       Runnable processMouseReleased = () -> {
@@ -4668,7 +4642,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
       }
       if (MOUSE_PRESS_LOG.isTraceEnabled() && myLastMousePressedLocation != null) {
         MOUSE_PRESS_LOG.trace("[press #" + myMousePressSeq + "] mouseExited while pressed, pressedLoc=" + myLastMousePressedLocation +
-                              " inDrag=" + myMouseIsInDrag + " source=" + e.getSource().getClass().getSimpleName());
+                              " source=" + e.getSource().getClass().getSimpleName());
       }
       runMouseExitedCommand(e);
       myGutterComponent.mouseExited(e);
@@ -4697,7 +4671,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
       myMouseDragStarted = false;
       myDragStarted = false;
       myDragSelectionStarted = false;
-      myMouseIsInDrag = false;
+      setMouseIsInDrag(false);
       myForcePushHappened = false;
       clearDnDContext();
 
@@ -4756,7 +4730,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     }
 
     private void runMouseReleasedCommand(@NotNull MouseEvent e) {
-      myMouseIsInDrag = false;
+      setMouseIsInDrag(false);
       myMultiSelectionInProgress = false;
       myDragOnGutterSelectionStartLine = -1;
       myScrollingTimer.stop();

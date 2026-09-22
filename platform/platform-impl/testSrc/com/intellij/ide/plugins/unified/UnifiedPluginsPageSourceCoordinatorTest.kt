@@ -6,6 +6,8 @@ import com.intellij.ide.plugins.newui.CustomPluginRepository
 import com.intellij.ide.plugins.newui.CustomPluginRepositoryLoadResult
 import com.intellij.ide.plugins.newui.PluginInstallationState
 import com.intellij.ide.plugins.newui.PluginModelEvent
+import com.intellij.ide.plugins.newui.PluginOperationKind
+import com.intellij.ide.plugins.newui.PluginOperationTerminalResult
 import com.intellij.ide.plugins.newui.PluginPreparedUpdateState
 import com.intellij.ide.plugins.newui.PluginProgressState
 import com.intellij.ide.plugins.newui.PluginRowInput
@@ -18,6 +20,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
@@ -117,6 +120,120 @@ internal class UnifiedPluginsPageSourceCoordinatorTest {
   }
 
   @Test
+  fun `local plugins are excluded from Marketplace and repository sections`() {
+    val installed = item(plugin("installed.plugin", "Installed"))
+    val bundled = item(plugin("bundled.plugin", "Bundled"))
+    val marketplaceOnly = item(plugin("marketplace.plugin", "Remote Marketplace"))
+    val repositoryOnly = item(plugin("repository.plugin", "Remote Repository"))
+    val query = PluginsQueryState("remote", "remote", revision = 1)
+
+    val state = composeUnifiedPluginsPageSourceState(
+      query = query,
+      localState = localState(
+        listOf(
+          PluginSectionState(PluginSectionId.Installed, items = listOf(installed)),
+          PluginSectionState(PluginSectionId.Bundled, items = listOf(bundled)),
+        )
+      ),
+      marketplaceState = UnifiedPluginMarketplaceSourceState(
+        queryRevision = query.revision,
+        section = PluginSectionState(
+          PluginSectionId.Marketplace,
+          items = listOf(
+            item(plugin(installed.pluginId.idString, "Remote Installed")),
+            item(plugin(bundled.pluginId.idString, "Remote Bundled")),
+            marketplaceOnly,
+          ),
+        ),
+        listModelData = PluginListModelData.EMPTY,
+      ),
+      repositoryState = UnifiedPluginRepositorySourceState(
+        sections = listOf(
+          PluginSectionState(
+            PluginSectionId.CustomRepository("repository"),
+            items = listOf(
+              item(plugin(installed.pluginId.idString, "Remote Installed")),
+              item(plugin(bundled.pluginId.idString, "Remote Bundled")),
+              repositoryOnly,
+            ),
+          )
+        ),
+        listModelData = PluginListModelData.EMPTY,
+        repositoryPlugins = emptyList(),
+        suggestionsRefreshRevision = 0,
+      ),
+    )
+
+    assertThat(state.sections.single { it.id == PluginSectionId.Marketplace }.items.map(PluginItemState::pluginId))
+      .containsExactly(marketplaceOnly.pluginId)
+    assertThat(repositorySections(state).single().items.map(PluginItemState::pluginId))
+      .containsExactly(repositoryOnly.pluginId)
+  }
+
+  @Test
+  fun `local plugins are excluded from Suggested`() {
+    val installed = item(plugin("installed.plugin", "Installed"))
+    val bundled = item(plugin("bundled.plugin", "Bundled"))
+    val suggestedOnly = item(plugin("suggested.plugin", "Suggested"))
+
+    val state = composeUnifiedPluginsPageSourceState(
+      query = PluginsQueryState(),
+      localState = localState(
+        listOf(
+          PluginSectionState(PluginSectionId.Installed, items = listOf(installed)),
+          PluginSectionState(PluginSectionId.Bundled, items = listOf(bundled)),
+        )
+      ),
+      marketplaceState = UnifiedPluginMarketplaceSourceState(
+        queryRevision = 0,
+        section = PluginSectionState(
+          PluginSectionId.Suggested,
+          items = listOf(
+            item(plugin(installed.pluginId.idString, "Suggested Installed")),
+            item(plugin(bundled.pluginId.idString, "Suggested Bundled")),
+            suggestedOnly,
+          ),
+        ),
+        listModelData = PluginListModelData.EMPTY,
+      ),
+    )
+
+    assertThat(state.sections.single { it.id == PluginSectionId.Suggested }.items.map(PluginItemState::pluginId))
+      .containsExactly(suggestedOnly.pluginId)
+  }
+
+  @Test
+  fun `repository filter shows local plugins when local sections are hidden`() {
+    val installed = item(plugin("installed.plugin", "Installed"))
+    val repositoryItem = item(plugin(installed.pluginId.idString, "Repository Item"))
+    val query = PluginsQueryState("/repository:repository", "/repository:repository")
+
+    val state = composeUnifiedPluginsPageSourceState(
+      query = query,
+      localState = localState(
+        listOf(
+          PluginSectionState(PluginSectionId.Installed, items = listOf(installed)),
+          PluginSectionState(PluginSectionId.Bundled),
+        )
+      ),
+      repositoryState = UnifiedPluginRepositorySourceState(
+        sections = listOf(
+          PluginSectionState(
+            PluginSectionId.CustomRepository("repository"),
+            items = listOf(repositoryItem),
+          )
+        ),
+        listModelData = PluginListModelData.EMPTY,
+        repositoryPlugins = emptyList(),
+        suggestionsRefreshRevision = 0,
+      ),
+    )
+
+    assertThat(installedIds(state)).isEmpty()
+    assertThat(repositorySections(state).single().items).containsExactly(repositoryItem)
+  }
+
+  @Test
   fun `downloading manual update shows progress in every occurrence`() {
     val plugin = plugin("updated.plugin", "Updated Plugin")
     val update = plugin("updated.plugin", "Updated Plugin Update")
@@ -175,6 +292,53 @@ internal class UnifiedPluginsPageSourceCoordinatorTest {
       assertThat(occurrence.rowInput?.preparedUpdate).isEqualTo(PluginPreparedUpdateState(restartRequired = true))
       assertThat(occurrence.rowInput?.updateDescriptor).isSameAs(cachedUpdate)
     }
+  }
+
+  @Test
+  fun `prepared Marketplace install stays installed after the query is repeated`() = runTest {
+    val events = MutableSharedFlow<PluginModelEvent>(extraBufferCapacity = 2)
+    val plugin = plugin("academy.plugin", "Academy Plugin")
+    val coordinator = coordinator(
+      provider = FakeLocalDataProvider(UnifiedPluginInventory(emptyList(), emptyList())),
+      initialQuery = "academy",
+      hostEvents = events,
+      marketplaceDataProvider = FixedMarketplaceDataProvider(plugin),
+    )
+    coordinator.start()
+    advanceTimeBy(500.milliseconds)
+    runCurrent()
+
+    val operationId = UUID.randomUUID()
+    assertThat(events.tryEmit(PluginModelEvent.OperationStarted(
+      sessionId = "session",
+      operationId = operationId,
+      displayPluginId = plugin.pluginId,
+      presentationModel = plugin,
+      target = PluginSource.LOCAL,
+      kind = PluginOperationKind.INSTALL,
+    ))).isTrue()
+    assertThat(events.tryEmit(PluginModelEvent.OperationFinished(
+      sessionId = "session",
+      operationId = operationId,
+      displayPluginId = plugin.pluginId,
+      target = PluginSource.LOCAL,
+      kind = PluginOperationKind.INSTALL,
+      result = PluginOperationTerminalResult.SUCCEEDED,
+    ))).isTrue()
+    runCurrent()
+
+    assertMarketplacePluginPrepared(coordinator.state.value, plugin.pluginId)
+    assertThat(coordinator.state.value.sections.single { it.id == PluginSectionId.Installing }.items.map { it.pluginId })
+      .containsExactly(plugin.pluginId)
+
+    coordinator.setQuery("")
+    runCurrent()
+    coordinator.setQuery("academy")
+    advanceTimeBy(500.milliseconds)
+    runCurrent()
+
+    assertMarketplacePluginPrepared(coordinator.state.value, plugin.pluginId)
+    coordinator.close()
   }
 
   @Test
@@ -602,6 +766,8 @@ internal class UnifiedPluginsPageSourceCoordinatorTest {
   fun `sort controls primary Marketplace without suppressing cached filtering`() {
     val alpha = item(plugin("alpha.plugin", "Alpha"))
     val beta = item(plugin("beta.plugin", "Beta"))
+    val repositoryAlpha = item(plugin("repository.alpha.plugin", "Alpha"))
+    val repositoryBeta = item(plugin("repository.beta.plugin", "Beta"))
     val query = PluginsQueryState("Beta /sortBy:downloads", "Beta /sortBy:downloads")
     val state = composeUnifiedPluginsPageSourceState(
       query,
@@ -610,7 +776,12 @@ internal class UnifiedPluginsPageSourceCoordinatorTest {
         PluginSectionState(PluginSectionId.Bundled),
       )),
       repositoryState = UnifiedPluginRepositorySourceState(
-        sections = listOf(PluginSectionState(PluginSectionId.CustomRepository("repository"), items = listOf(alpha, beta))),
+        sections = listOf(
+          PluginSectionState(
+            PluginSectionId.CustomRepository("repository"),
+            items = listOf(repositoryAlpha, repositoryBeta),
+          )
+        ),
         listModelData = PluginListModelData.EMPTY,
         repositoryPlugins = emptyList(),
         suggestionsRefreshRevision = 0,
@@ -618,7 +789,7 @@ internal class UnifiedPluginsPageSourceCoordinatorTest {
     )
 
     assertThat(installedIds(state)).containsExactly("beta.plugin")
-    assertThat(repositorySections(state).single().items.map { it.pluginId.idString }).containsExactly("beta.plugin")
+    assertThat(repositorySections(state).single().items.map { it.pluginId.idString }).containsExactly("repository.beta.plugin")
     assertThat(state.searchControls.sortVisible).isTrue()
   }
 
@@ -1064,6 +1235,31 @@ internal class UnifiedPluginsPageSourceCoordinatorTest {
     }
   }
 
+  private class FixedMarketplaceDataProvider(
+    private val plugin: PluginUiModel,
+  ) : UnifiedPluginMarketplaceDataProvider by EmptyMarketplaceDataProvider {
+    override suspend fun searchMarketplace(query: String): UnifiedPluginMarketplaceFetchResult {
+      return UnifiedPluginMarketplaceFetchResult(listOf(plugin))
+    }
+
+    override suspend fun enrich(
+      models: List<PluginUiModel>,
+      updates: PluginUpdatesEvent?,
+      contentRevision: Long,
+    ): UnifiedPluginMarketplaceSnapshot {
+      return buildMarketplaceSnapshot(
+        models = models,
+        updates = updates,
+        contentRevision = contentRevision,
+        installedModels = emptyMap(),
+        enabledStates = emptyMap(),
+        errors = emptyMap(),
+        installationStates = emptyMap(),
+        restrictions = emptyMap(),
+      )
+    }
+  }
+
   private fun localState(
     sections: List<PluginSectionState> = listOf(
       PluginSectionState(PluginSectionId.Installed),
@@ -1110,6 +1306,11 @@ internal class UnifiedPluginsPageSourceCoordinatorTest {
 
   private fun installedIds(state: UnifiedPluginsPageSourceState): List<String> {
     return state.sections.single { it.id == PluginSectionId.Installed }.items.map { it.pluginId.idString }
+  }
+
+  private fun assertMarketplacePluginPrepared(state: UnifiedPluginsPageSourceState, pluginId: PluginId) {
+    val item = state.sections.single { it.id == PluginSectionId.Marketplace }.items.single { it.pluginId == pluginId }
+    assertThat(item.rowInput?.preparedUpdate).isEqualTo(PluginPreparedUpdateState(restartRequired = false))
   }
 
   private fun repositorySections(state: UnifiedPluginsPageSourceState): List<PluginSectionState> {

@@ -77,6 +77,7 @@ android/app-inspection/inspectors/network/ide
 android/app-inspection/inspectors/network/model
 android/app-inspection/inspectors/network/view
 android/app-inspection/integration
+android/app-publishing
 android/artwork
 android/artwork-compose
 android/as-driver/integration
@@ -88,6 +89,8 @@ android/bleak
 android/bleak-config
 android/build-attribution
 android/build-common
+android/cli-server/command-handler
+android/cli-server/server
 android/codenavigation
 android/completion
 android/compose-designer
@@ -164,6 +167,7 @@ android/observable
 android/observable-ui
 android/old-agp-tests
 android/platform-performance-testing
+android/play-publishing
 android/preview-designer
 android/preview-elements
 android/preview-fast-compile
@@ -739,6 +743,7 @@ platform/code-style-impl
 platform/collaboration-tools
 platform/collaboration-tools/auth
 platform/collaboration-tools/auth-base
+platform/collaboration-tools/shared
 platform/completion/backend
 platform/completion/common
 platform/completion/frontend
@@ -908,6 +913,7 @@ platform/new-users-onboarding
 platform/non-modal-welcome-screen
 platform/non-modal-welcome-screen/backend
 platform/non-modal-welcome-screen/frontend
+platform/non-modal-welcome-screen/terminal
 platform/object-serializer
 platform/observable
 platform/platform-api
@@ -951,6 +957,7 @@ platform/pluginManager/backend
 platform/pluginManager/frontend
 platform/pluginManager/shared
 platform/pluginManager/shared.base
+platform/pluginManager/testFramework
 platform/pluginSystem/parser/impl
 platform/pluginSystem/testFramework
 platform/polySymbols
@@ -1163,8 +1170,8 @@ plugins/completion-ml-ranking
 plugins/completion-ml-ranking-models
 plugins/completion-ml-ranking-models/libraries
 plugins/compose
+plugins/compose/intellij.compose.ide.plugin.codeInsight
 plugins/compose/intellij.compose.ide.plugin.gradleTooling
-plugins/compose/intellij.compose.ide.plugin.k2
 plugins/compose/intellij.compose.ide.plugin.projectStructureTests
 plugins/compose/intellij.compose.ide.plugin.resources
 plugins/compose/intellij.compose.ide.plugin.resources.android
@@ -1324,6 +1331,7 @@ plugins/grazie/markdown
 plugins/grazie/properties
 plugins/grazie/src
 plugins/grazie/src/test
+plugins/grazie/todo
 plugins/grazie/xml
 plugins/grazie/yaml
 plugins/groovy

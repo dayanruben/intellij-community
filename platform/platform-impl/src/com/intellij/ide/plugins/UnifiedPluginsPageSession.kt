@@ -94,6 +94,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import java.awt.BorderLayout
+import java.awt.Container
+import java.awt.Dimension
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
 import java.util.concurrent.CancellationException
@@ -105,6 +107,15 @@ import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.TimeMark
 import kotlin.time.TimeSource
 
+// @spec platform/platform-impl/spec/plugin-manager/unified-plugin-manager-ui.spec.md
+// @spec platform/platform-impl/spec/plugin-manager/plugin-operations.spec.md
+/**
+ * Owns one unified Plugins page and coordinates its sources, state, view, and plugin session.
+ *
+ * The page scope owns source requests and presentation work. It ends during [dispose].
+ * The application scope owns started install and update work, so that work can finish after the page closes.
+ * The plugin session owns prepared settings changes. Disposal closes that session when no apply or reset operation owns it.
+ */
 internal class UnifiedPluginsPageSession @RequiresEdt(generateAssertion = false /* IJPL-115548 */) constructor(
   initialNavigation: PluginsPageInitialNavigation?,
   openSource: PluginManagerOpenSourceEnum,
@@ -129,7 +140,8 @@ internal class UnifiedPluginsPageSession @RequiresEdt(generateAssertion = false 
   private val pageReadyStart = TimeSource.Monotonic.markNow()
   private val uiTracker = PluginManagerUiTracker()
   private val categoryPromotionProviders = activeCategoryPromotionProviders()
-  private val categoryPromotionProvidersByCategory = categoryPromotionProviders.associateBy(PluginCategoryPromotionProvider::getCategoryName)
+  private val categoryPromotionProvidersByCategory =
+    categoryPromotionProviders.associateBy(PluginCategoryPromotionProvider::getCategoryName)
   private val densityVariant = UnifiedPluginsPageFeature.densityVariant()
   private val applicationScope = application.getService(PluginManagerCoroutineScopeHolder::class.java).coroutineScope
   private val pageScope: CoroutineScope = applicationScope.childScope(javaClass.name, Dispatchers.IO, true)
@@ -138,6 +150,7 @@ internal class UnifiedPluginsPageSession @RequiresEdt(generateAssertion = false 
     operationScope = applicationScope,
     unifiedDetailsPageLayout = true,
     pluginIconScale = densityVariant.pluginIconScale,
+    compactRows = densityVariant.compactRows,
   )
   private var updateAllOperationEventSink: (PluginModelEvent) -> Unit = {}
   private val listModel = ListPluginModel()
@@ -328,6 +341,8 @@ internal class UnifiedPluginsPageSession @RequiresEdt(generateAssertion = false 
 
   override fun getComponent(): JComponent = contentComponent
 
+  override fun getPreferredFocusedComponent(): JComponent = view.preferredFocusedComponent
+
   override fun isMarketplaceTabShowing(): Boolean = true
 
   override fun isInstalledTabShowing(): Boolean = true
@@ -445,6 +460,7 @@ internal class UnifiedPluginsPageSession @RequiresEdt(generateAssertion = false 
     val calledFromSpotlight = isCalledFromSpotlightPainter()
     // SpotlightPainter calls enableSearch("") when Settings opens. Ignore this refresh before it invalidates a pending navigation request.
     // After Spotlight applies a user query, the same call clears that query normally.
+    // Spotlight query changes keep focus in the Settings search field.
     if (query.isEmpty() && calledFromSpotlight && !spotlightSearchActive) return null
 
     val requestRevision = ++settingsRequestRevision
@@ -456,7 +472,7 @@ internal class UnifiedPluginsPageSession @RequiresEdt(generateAssertion = false 
     val scope = if (ignoreTagMarketplaceTab) PluginsQueryScope.Installed else PluginsQueryScope.Unified
     return Runnable {
       if (disposed || requestRevision != settingsRequestRevision || intentRevision != queryIntentRevision) return@Runnable
-      applyQueryIntent(query, requestFocus = true, scope = scope)
+      applyQueryIntent(query, requestFocus = !calledFromSpotlight, scope = scope)
       if (calledFromSpotlight || query.isEmpty()) spotlightSearchActive = query.isNotEmpty()
     }
   }
@@ -525,7 +541,7 @@ internal class UnifiedPluginsPageSession @RequiresEdt(generateAssertion = false 
     val installCallback = Consumer<PluginInstallCallbackData> { callbackData ->
       onPluginInstalledFromDisk(callbackData, PluginSource.REMOTE)
     }
-    return object : JPanel(GridBagLayout()), UiDataProvider {
+    return object : JPanel(AdaptivePluginsHeaderLayout()), UiDataProvider {
       init {
         isOpaque = false
         add(view.searchComponent, GridBagConstraints().apply {
@@ -533,7 +549,7 @@ internal class UnifiedPluginsPageSession @RequiresEdt(generateAssertion = false 
           gridy = 0
           fill = GridBagConstraints.HORIZONTAL
           anchor = GridBagConstraints.CENTER
-          insets = JBUI.insetsRight(8)
+          insets = JBUI.insetsRight(4)
         })
         add(
           updateAllButton.component,
@@ -542,7 +558,7 @@ internal class UnifiedPluginsPageSession @RequiresEdt(generateAssertion = false 
             gridy = 0
             fill = GridBagConstraints.NONE
             anchor = GridBagConstraints.CENTER
-            insets = JBUI.insetsRight(8)
+            insets = JBUI.insetsRight(4)
           },
         )
         add(
@@ -782,6 +798,59 @@ internal class UnifiedPluginsPageSession @RequiresEdt(generateAssertion = false 
       .firstOrNull { it.id == selectedOccurrence.sectionId }
       ?.items
       ?.firstOrNull { it.pluginId == selectedOccurrence.pluginId }
+  }
+}
+
+private class AdaptivePluginsHeaderLayout : GridBagLayout() {
+  override fun preferredLayoutSize(parent: Container): Dimension = calculateSize(parent, includeSearchWidth = true)
+
+  override fun minimumLayoutSize(parent: Container): Dimension = calculateSize(parent, includeSearchWidth = false)
+
+  override fun layoutContainer(parent: Container) {
+    val visibleComponents = parent.components.filter { it.isVisible }
+    if (visibleComponents.isEmpty()) return
+
+    val parentInsets = parent.insets
+    val availableWidth = (parent.width - parentInsets.left - parentInsets.right).coerceAtLeast(0)
+    val searchComponent = visibleComponents.first()
+    val fixedWidth = visibleComponents.sumOf { component ->
+      val componentInsets = getConstraints(component).insets
+      componentInsets.left + componentInsets.right +
+      if (component === searchComponent) 0 else component.preferredSize.width
+    }
+    val searchWidth = (availableWidth - fixedWidth).coerceIn(0, searchComponent.preferredSize.width)
+
+    var x = parentInsets.left
+    for (component in visibleComponents) {
+      val constraints = getConstraints(component)
+      val componentInsets = constraints.insets
+      val preferredSize = component.preferredSize
+      val width = if (component === searchComponent) searchWidth else preferredSize.width
+      val availableHeight = (parent.height - parentInsets.top - parentInsets.bottom -
+                             componentInsets.top - componentInsets.bottom).coerceAtLeast(0)
+      val height = preferredSize.height.coerceAtMost(availableHeight)
+      val y = parentInsets.top + componentInsets.top + (availableHeight - height) / 2
+      x += componentInsets.left
+      component.setBounds(x, y, width, height)
+      x += width + componentInsets.right
+    }
+  }
+
+  private fun calculateSize(parent: Container, includeSearchWidth: Boolean): Dimension {
+    val visibleComponents = parent.components.filter { it.isVisible }
+    val parentInsets = parent.insets
+    var width = parentInsets.left + parentInsets.right
+    var height = 0
+    for ((index, component) in visibleComponents.withIndex()) {
+      val componentInsets = getConstraints(component).insets
+      val preferredSize = component.preferredSize
+      if (includeSearchWidth || index > 0) {
+        width += preferredSize.width
+      }
+      width += componentInsets.left + componentInsets.right
+      height = maxOf(height, preferredSize.height + componentInsets.top + componentInsets.bottom)
+    }
+    return Dimension(width, height + parentInsets.top + parentInsets.bottom)
   }
 }
 

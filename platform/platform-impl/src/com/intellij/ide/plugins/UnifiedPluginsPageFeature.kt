@@ -22,8 +22,9 @@ internal object UnifiedPluginsPageFeature {
 internal enum class UnifiedPluginsPageDensityVariant(
   val pluginIconScale: Float,
   val collapsedItemLimit: Int,
+  val compactRows: Boolean,
 ) {
-  Baseline(pluginIconScale = 1.0f, collapsedItemLimit = 3),
-  Icons32(pluginIconScale = 0.8f, collapsedItemLimit = 3),
-  TwoPreviewRows(pluginIconScale = 1.0f, collapsedItemLimit = 2),
+  Baseline(pluginIconScale = 1.0f, collapsedItemLimit = 3, compactRows = false),
+  Icons32(pluginIconScale = 0.8f, collapsedItemLimit = 3, compactRows = true),
+  TwoPreviewRows(pluginIconScale = 1.0f, collapsedItemLimit = 2, compactRows = false),
 }

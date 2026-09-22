@@ -9,6 +9,7 @@ import com.intellij.platform.eel.channels.EelChannelException
 import com.intellij.platform.eel.channels.sendWholeBuffer
 import com.intellij.platform.eel.provider.utils.consumeAsEelChannel
 import com.intellij.platform.eel.provider.utils.sendWholeText
+import com.intellij.platform.eel.toSafeDeferred
 import com.intellij.platform.ijent.IjentLogger
 import com.intellij.platform.ijent.IjentScope
 import com.intellij.platform.ijent.IjentSession
@@ -23,7 +24,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.InternalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
@@ -56,10 +56,10 @@ private val PROCESS_CLEANUP_TIMEOUT: Duration = 3_000.milliseconds
 
 /** See `platform/ijent/docs/internal/shell-deploy-lifetime.md` for the process ownership and the error strategy. */
 abstract class IjentDeployingOverShellProcessStrategy(
-  scope: ParentOfIjentScopes,
+  parentScope: ParentOfIjentScopes,
   currentDispatcher: CoroutineDispatcher,
+  private val ijentLabel: String
 ) : IjentControlledEnvironmentDeployingStrategy() {
-  protected abstract val ijentLabel: String
 
   /**
    * If there's some bind mount, returns the path for the remote machine/container that corresponds to [path].
@@ -69,8 +69,11 @@ abstract class IjentDeployingOverShellProcessStrategy(
 
   protected abstract suspend fun createShellProcessFacade(ijentProcessScope: IjentScope): IjentSessionProcessMediator.ProcessFacade
 
-  abstract class JavaProcessBasedStrategy(protected val scope: ParentOfIjentScopes, currentDispatcher: CoroutineDispatcher) :
-    IjentDeployingOverShellProcessStrategy(scope, currentDispatcher) {
+  abstract class JavaProcessBasedStrategy(
+    protected val scope: ParentOfIjentScopes,
+    currentDispatcher: CoroutineDispatcher,
+    ijentLabel: String,
+  ) : IjentDeployingOverShellProcessStrategy(scope, currentDispatcher, ijentLabel) {
     protected abstract suspend fun createShellProcess(): Process
 
     override suspend fun createShellProcessFacade(ijentProcessScope: IjentScope): IjentSessionProcessMediator.ProcessFacade {
@@ -79,8 +82,11 @@ abstract class IjentDeployingOverShellProcessStrategy(
   }
 
   /** Starts a deployment shell through a command when the target shell is unknown. */
-  abstract class WithShellBootstrap(scope: ParentOfIjentScopes, currentDispatcher: CoroutineDispatcher) :
-    IjentDeployingOverShellProcessStrategy(scope, currentDispatcher) {
+  abstract class WithShellBootstrap(
+    scope: ParentOfIjentScopes,
+    currentDispatcher: CoroutineDispatcher,
+    ijentLabel: String,
+  ) : IjentDeployingOverShellProcessStrategy(scope, currentDispatcher, ijentLabel) {
     private val shellBootstrap by lazy { createShellBootstrap() }
 
     /** Runs [script] as the initial command and keeps the process streams open. */
@@ -158,11 +164,12 @@ abstract class IjentDeployingOverShellProcessStrategy(
   /** Non-null while the deployer owns cleanup; cleared on close or when the session takes ownership. */
   private var createdShellProcess: ShellProcessWrapper? = null
 
-  private val myContext: Deferred<ShellSession> = scope.s.async(currentDispatcher, start = CoroutineStart.LAZY) {
-    val ijentProcessScope = IjentSessionMediatorUtils.createProcessScope(scope, ijentLabel)
+  private val ijentProcessScope = IjentSessionMediatorUtils.createProcessScope(parentScope, ijentLabel)
+
+  private val myContext: SafeDeferred<ShellSession> = parentScope.s.async(currentDispatcher, start = CoroutineStart.LAZY) {
     val processFacade = createShellProcessFacade(ijentProcessScope)
     val mediator = IjentSessionProcessMediator.create(
-      parentScope = scope,
+      parentScope = parentScope,
       ijentProcessScope = ijentProcessScope,
       process = processFacade,
       ijentLabel = ijentLabel,
@@ -202,9 +209,9 @@ abstract class IjentDeployingOverShellProcessStrategy(
         is PowerShellIo -> PowerShellSession(shellIo)
       }
     }
-  }
+  }.toSafeDeferred(IjentUnavailableException::unwrapFromCancellationExceptions)
 
-  private val myDetectedTarget = scope.s.async(currentDispatcher, start = CoroutineStart.LAZY) {
+  private val myDetectedTarget = parentScope.s.async(currentDispatcher, start = CoroutineStart.LAZY) {
     val session = getMyContext()
     session.execCommand {
       detectTarget()
@@ -226,7 +233,7 @@ abstract class IjentDeployingOverShellProcessStrategy(
     }
     catch (e: CancellationException) {
       currentCoroutineContext().ensureActive()
-      throw IjentUnavailableException.unwrapFromCancellationExceptions(e)
+      throw IjentUnavailableException.unwrapFromCancellationExceptions(e) ?: RuntimeException(e)
     }
   }
 
@@ -258,15 +265,15 @@ abstract class IjentDeployingOverShellProcessStrategy(
     try {
       myContext.await()
     }
-    catch (e: CancellationException) {
-      currentCoroutineContext().ensureActive()
-      throw IjentUnavailableException.unwrapFromCancellationExceptions(e)
+    catch (e: SafeDeferred.FailedDeferred) {
+      throw e.cause
     }
 
   final override fun close() {
+    // TODO Everything below should be replaced with deinitialization via coroutines.
+    //  Like `launch { try { awaitCancellation() } finally { ... } }`
     if (!closed.compareAndSet(false, true)) return
 
-    myContext.cancel()
     createdShellProcess?.close()
     createdShellProcess = null
   }
@@ -574,12 +581,12 @@ private suspend fun <T : Any> ShellSession.execCommand(block: suspend ShellSessi
     // A process failure may be hidden behind CancellationException. Prefer the canonical failure from the process scope in that case.
     // Other errors may be programmer bugs and must retain their original type so that they reach the error reporter.
     // A null errorFromScope means the process was killed by this cleanup itself, so the stack error is the root cause.
-    val mainError =
+    val mainError: Throwable =
       when {
-        errorFromScope == null -> errorFromStack
-        errorFromStack is IjentUnavailableException -> errorFromStack
-        errorFromStack is CancellationException -> errorFromScope
-        else -> errorFromStack
+        errorFromScope == null -> errorFromStack ?: initialErrorFromStack
+        errorFromStack != null -> errorFromStack
+        initialErrorFromStack is CancellationException -> errorFromScope
+        else -> initialErrorFromStack
       }
 
     for (secondaryError in listOfNotNull(errorFromStack, errorFromScope)) {
