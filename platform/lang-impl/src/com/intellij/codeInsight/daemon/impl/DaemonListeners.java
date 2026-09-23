@@ -94,7 +94,7 @@ import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.ModificationTracker;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileManager;
-import com.intellij.openapi.vfs.newvfs.BulkFileListener;
+import com.intellij.openapi.vfs.newvfs.BulkFileListenerBackgroundable;
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent;
 import com.intellij.openapi.vfs.newvfs.events.VFilePropertyChangeEvent;
 import com.intellij.profile.ProfileChangeAdapter;
@@ -390,7 +390,7 @@ public final class DaemonListeners implements Disposable {
     connection.subscribe(TodoConfigurationPropertyChangeListener.TOPIC, new MyTodoListener());
 
     connection.subscribe(AnActionListener.TOPIC, new MyAnActionListener());
-    connection.subscribe(VirtualFileManager.VFS_CHANGES, new BulkFileListener() {
+    connection.subscribe(VirtualFileManager.VFS_CHANGES_BG, new BulkFileListenerBackgroundable() {
       @Override
       public void after(@NotNull List<? extends @NotNull VFileEvent> events) {
         boolean isDaemonShouldBeStopped = false;
@@ -701,8 +701,8 @@ public final class DaemonListeners implements Disposable {
 
   /**
    * stores
-   *  {@code modCount} (from {@link com.intellij.openapi.roots.ProjectRootManager#getModificationCount}) if the file is excluded,
-   *  {@code -modCount} (from {@link com.intellij.openapi.roots.ProjectRootManager#getModificationCount}}) if it's not excluded,
+   *  {@code modCount} (from {@link ProjectRootManager#getModificationCount}) if the file is excluded,
+   *  {@code -modCount} (from {@link ProjectRootManager#getModificationCount}}) if it's not excluded,
    *  null if unknown
    */
   private static final Key<ExpensiveFlags> EXPENSIVE_FLAGS = Key.create("EXPENSIVE_FLAGS");
