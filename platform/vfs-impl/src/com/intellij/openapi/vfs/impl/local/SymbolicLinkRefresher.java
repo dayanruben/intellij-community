@@ -6,7 +6,7 @@ import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vfs.VFileProperty;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileManager;
-import com.intellij.openapi.vfs.newvfs.BulkFileListener;
+import com.intellij.openapi.vfs.newvfs.BulkFileListenerBackgroundable;
 import com.intellij.openapi.vfs.newvfs.RefreshQueue;
 import com.intellij.openapi.vfs.newvfs.events.VFileContentChangeEvent;
 import com.intellij.openapi.vfs.newvfs.events.VFileCopyEvent;
@@ -44,12 +44,13 @@ final class SymbolicLinkRefresher {
   }
 
   void refresh() {
-    ApplicationManager.getApplication().getMessageBus().connect(mySystem).subscribe(VirtualFileManager.VFS_CHANGES, new BulkFileListener() {
-      @Override
-      public void after(@NotNull List<? extends @NotNull VFileEvent> events) {
-        analyzeEvents(events);
-      }
-    });
+    ApplicationManager.getApplication().getMessageBus().connect(mySystem)
+      .subscribe(VirtualFileManager.VFS_CHANGES_BG, new BulkFileListenerBackgroundable() {
+        @Override
+        public void after(@NotNull List<? extends @NotNull VFileEvent> events) {
+          analyzeEvents(events);
+        }
+      });
   }
 
   private void analyzeEvents(@NotNull List<? extends VFileEvent> events) {
@@ -61,8 +62,8 @@ final class SymbolicLinkRefresher {
 
     Consumer<String> queuePath = path -> toRefresh.addAll(fileWatcher.mapToAllSymlinks(FileUtil.toSystemDependentName(path)));
     Consumer<VirtualFile> queueFile = file -> {
-      if (file instanceof VirtualFileSystemEntry) {
-        if (((VirtualFileSystemEntry)file).thisOrParentHaveSymlink() && !isUnderRecursiveOrCircularSymlink(file)) {
+      if (file instanceof VirtualFileSystemEntry entry) {
+        if (entry.thisOrParentHaveSymlink() && !isUnderRecursiveOrCircularSymlink(file)) {
           String obj = file.getCanonicalPath();
           file = obj == null ? null : mySystem.findFileByPathIfCached(obj);
           if (file != null && fileWatcher.belongsToWatchRoots(FileUtil.toSystemDependentName(file.getPath()), !file.isDirectory())) {
@@ -83,25 +84,25 @@ final class SymbolicLinkRefresher {
           || event instanceof VFileDeleteEvent) {
         queueFile.accept(event.getFile());
       }
-      else if (event instanceof VFilePropertyChangeEvent) {
-        VirtualFile file = ((VFilePropertyChangeEvent)event).getFile();
-        if (((VFilePropertyChangeEvent)event).getPropertyName().equals(VirtualFile.PROP_NAME)) {
-          queuePath.accept(((VFilePropertyChangeEvent)event).getOldPath());
+      else if (event instanceof VFilePropertyChangeEvent changeEvent) {
+        VirtualFile file = changeEvent.getFile();
+        if (changeEvent.getPropertyName().equals(VirtualFile.PROP_NAME)) {
+          queuePath.accept(changeEvent.getOldPath());
           queueFile.accept(file.getParent());
         }
         else {
           queueFile.accept(file);
         }
       }
-      else if (event instanceof VFileCreateEvent) {
-        queueFile.accept(((VFileCreateEvent)event).getParent());
+      else if (event instanceof VFileCreateEvent createEvent) {
+        queueFile.accept(createEvent.getParent());
       }
-      else if (event instanceof VFileCopyEvent) {
-        queueFile.accept(((VFileCopyEvent)event).getNewParent());
+      else if (event instanceof VFileCopyEvent copyEvent) {
+        queueFile.accept(copyEvent.getNewParent());
       }
-      else if (event instanceof VFileMoveEvent) {
+      else if (event instanceof VFileMoveEvent moveEvent) {
         queueFile.accept(event.getFile());
-        queueFile.accept(((VFileMoveEvent)event).getNewParent());
+        queueFile.accept(moveEvent.getNewParent());
       }
     }
     if (!toRefresh.isEmpty()) {
