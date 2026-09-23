@@ -10,17 +10,22 @@ import com.intellij.build.events.Failure
 import com.intellij.build.events.FileMessageEvent
 import com.intellij.build.events.MessageEvent
 import com.intellij.build.events.OutputBuildEvent
+import com.intellij.build.events.OutputReferenceEvent
 import com.intellij.execution.filters.LazyFileHyperlinkInfo
+import com.intellij.execution.impl.ConsoleViewImpl
 import com.intellij.execution.ui.ConsoleView
 import com.intellij.execution.ui.ConsoleViewContentType
 import com.intellij.execution.ui.ConsoleViewWithDelegate
 import com.intellij.execution.ui.ExecutionConsole
+import com.intellij.execution.ui.unwrapDelegate
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.NlsSafe
+import com.intellij.openapi.util.io.toCanonicalPath
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.util.IJSwingUtilities
 import com.intellij.util.text.nullize
+import org.jetbrains.annotations.TestOnly
 import java.util.StringJoiner
 import java.util.function.Consumer
 import java.util.regex.Pattern
@@ -41,15 +46,13 @@ internal class BuildConsoleViewImpl(
     Disposer.register(this, delegate)
   }
 
-  override fun dispose() {
-  }
-
   override fun onEvent(event: BuildEvent) {
     when (event) {
       is BuildIssueEvent -> onBuildIssueEvent(event)
       is FileMessageEvent -> onFileMessageEvent(event)
       is MessageEvent -> onMessageEvent(event)
       is OutputBuildEvent -> onOutputEvent(event)
+      is OutputReferenceEvent -> onOutputReferenceEvent(event)
       else -> onBuildEvent(event)
     }
   }
@@ -76,6 +79,11 @@ internal class BuildConsoleViewImpl(
     }
   }
 
+  @TestOnly
+  override fun getNodeOutputText(nodeId: Any): String {
+    return (unwrapDelegate() as ConsoleViewImpl).text
+  }
+
   private fun onMessageEvent(event: MessageEvent) {
     val details = event.result.details
     if (!details.isNullOrEmpty()) {
@@ -84,18 +92,22 @@ internal class BuildConsoleViewImpl(
   }
 
   private fun onOutputEvent(event: OutputBuildEvent) {
-    val console = delegate
-    if (console is BuildTextConsoleView) {
-      // Route through the ANSI-decoding print so that escape sequences in the build output
-      // are converted into text attributes instead of leaking into the console text.
-      console.print(event.message, event.outputType)
-    }
-    else {
-      console.print(event.message, ConsoleViewContentType.getConsoleViewType(event.outputType))
-    }
+    BuildTextConsoleView.print(delegate, event.message, event.outputType)
   }
 
-  override fun onFailure(failure: Failure) {
+  private fun onOutputReferenceEvent(@Suppress("unused") event: OutputReferenceEvent) {
+    throw UnsupportedOperationException("Output reference events are not supported in multi console mode.")
+  }
+
+  override fun scrollToNodeOutput(nodeId: Any) {
+    throw UnsupportedOperationException("Scroll by output reference events are not supported in multi console mode.")
+  }
+
+  override fun selectProgressOutput(nodeId: Any) {
+    throw UnsupportedOperationException("Select by output reference events are not supported in multi console mode.")
+  }
+
+  override fun onFailure(nodeId: Any, failure: Failure) {
     val text = (failure.description ?: failure.message ?: failure.error?.message).nullize() ?: return
     delegate.printHtml(text, ConsoleViewContentType.ERROR_OUTPUT) {
       val notification = failure.notification ?: return@printHtml
@@ -110,7 +122,7 @@ internal class BuildConsoleViewImpl(
   companion object {
 
     internal fun getHyperlinkText(filePosition: FilePosition): String? {
-      val path = filePosition.file?.toPath() ?: return null
+      val path = filePosition.path ?: return null
       val hyperlinkText = StringJoiner(":")
       hyperlinkText.add(path.name)
       if (filePosition.startLine > 0) {
@@ -123,7 +135,7 @@ internal class BuildConsoleViewImpl(
     }
 
     internal fun getHyperlinkInfo(project: Project, filePosition: FilePosition): LazyFileHyperlinkInfo? {
-      val path = filePosition.file?.path ?: return null
+      val path = filePosition.path?.toCanonicalPath() ?: return null
       return LazyFileHyperlinkInfo(project, path, filePosition.startLine, filePosition.startColumn)
     }
 

@@ -530,8 +530,12 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
         results.putAll(superSubstitutions)
       }
       // TODO Share this logic with PyTypeChecker.collectTypeSubstitutions
-      val superTypeParameters = collectTypeParameters(superClassType.pyClass, context)
-      val superTypeArguments = if (superClassType is PyClassType && superClassType.isParameterized) superClassType.typeArguments else mutableListOf<PyType?>()
+      // A TypedDict declares its own parameters; collectTypeParameters would describe those of `dict` here.
+      // Only a specialized base is read that way: an unspecialized one leaves its parameters open rather than binding them to Any.
+      val specializedTypedDictBase = (superClassType as? PyTypedDictType)?.takeIf { it.isParameterized }
+      val superTypeParameters = specializedTypedDictBase?.declaredTypeParameters
+                                ?: collectTypeParameters(superClassType.pyClass, context)
+      val superTypeArguments = superClassType.typeArguments
       val mapping =
         PyTypeParameterMapping.mapByShape(
           superTypeParameters, superTypeArguments, PyTypeParameterMapping.Option.MAP_UNMATCHED_EXPECTED_TYPES_TO_ANY,
@@ -639,7 +643,6 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
   @ApiStatus.Internal
   class Context(val typeContext: TypeEvalContext, val typeRepresentationMode: Boolean = false) {
     val typeAliasStack: Stack<PyQualifiedNameOwner?> = Stack()
-    private val myClassSet: MutableSet<PyClass?> = HashSet()
     var isComputeTypeParameterScopeEnabled: Boolean = true
       private set
 
@@ -680,14 +683,6 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
       return res
     }
 
-    fun addClassDeclaration(pyClass: PyClass): Boolean {
-      return myClassSet.add(pyClass)
-    }
-
-    fun removeClassDeclaration(pyClass: PyClass) {
-      myClassSet.remove(pyClass)
-    }
-
     fun setComputeTypeParameterScopeEnabled(value: Boolean): Boolean {
       val prev = isComputeTypeParameterScopeEnabled
       isComputeTypeParameterScopeEnabled = value
@@ -718,7 +713,6 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
         buildList {
           add(if (isComputeTypeParameterScopeEnabled) "1" else "0")
           add(typeAliasStack.map { it!!.qualifiedName })
-          add(myClassSet.map { it!!.qualifiedName })
         }.joinToString("#")
       )
     }
@@ -1309,11 +1303,6 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
         }
         context.addTypeAlias(alias)
       }
-      if (resolved is PyClass && !context.addClassDeclaration(resolved)) {
-        // Resolving to normal classes shouldn't cause recursive evaluation of type hints,
-        // but constructing recursive PyTypedDictTypes will trigger that.
-        return null
-      }
       try {
         val typeHintFromProvider = parseTypeHint(
           typeHint,
@@ -1463,9 +1452,6 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
         return null
       }
       finally {
-        if (resolved is PyClass) {
-          context.removeClassDeclaration(resolved)
-        }
         if (alias != null) {
           context.removeTypeAlias(alias)
         }

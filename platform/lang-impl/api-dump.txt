@@ -212,18 +212,19 @@ f:com.intellij.build.BuildContentDescriptor
 - setNavigateToError(com.intellij.util.ThreeState):V
 f:com.intellij.build.BuildTextConsoleView
 - com.intellij.execution.impl.ConsoleViewImpl
-- com.intellij.build.BuildConsoleView
+- com.intellij.build.BuildProgressListener
 - <init>(com.intellij.openapi.project.Project,Z,java.util.List):V
 - append(java.lang.String,Z):V
 - onEvent(java.lang.Object,com.intellij.build.events.BuildEvent):V
 - print(java.lang.String,com.intellij.openapi.util.Key):V
 f:com.intellij.build.BuildTreeConsoleView
-- com.intellij.build.BuildConsoleView
+- com.intellij.build.BuildProgressListener
 - com.intellij.build.Filterable
 - com.intellij.execution.ui.ConsoleView
 - com.intellij.ide.OccurenceNavigator
 - com.intellij.openapi.actionSystem.UiDataProvider
 - sf:EXECUTION_NODE:com.intellij.openapi.actionSystem.DataKey
+- <init>(com.intellij.openapi.project.Project,com.intellij.build.BuildDescriptor,com.intellij.execution.ui.ExecutionConsole,com.intellij.build.BuildViewSettingsProvider):V
 - attachToProcess(com.intellij.execution.process.ProcessHandler):V
 - getComponent():javax.swing.JComponent
 - getPreferredFocusableComponent():javax.swing.JComponent
@@ -257,6 +258,7 @@ c:com.intellij.build.ExecutionNode
 - getChildList():java.util.List
 - getDuration():java.lang.String
 - getHint():java.lang.String
+- getId():java.lang.Object
 - getName():java.lang.String
 - getNavigatable():com.intellij.pom.Navigatable
 - getParent():com.intellij.build.ExecutionNode
@@ -268,6 +270,7 @@ c:com.intellij.build.ExecutionNode
 - setEndTime(J):com.intellij.build.ExecutionNode
 - setHint(java.lang.String):V
 - setIconProvider(java.util.function.Supplier):V
+- setId(java.lang.Object):V
 - setName(java.lang.String):V
 - setResult(com.intellij.build.events.EventResult):com.intellij.build.ExecutionNode
 - setStartTime(J):V

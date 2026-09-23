@@ -192,7 +192,7 @@ object PyExpectedTypeJudgement {
         }
         if (typeOfParentDict is PyUnpackedTypedDictType && parent.key is PyStringLiteralExpression) {
           val argName = (parent.key as PyStringLiteralExpression).stringValue
-          return typeOfParentDict.typedDictType.getElementType(argName)
+          return typeOfParentDict.typedDictType.getElementType(argName, ctx)
         }
         return null
       }
@@ -312,7 +312,7 @@ object PyExpectedTypeJudgement {
       }
 
       // TODO For non-variadic types of **kwargs requires supporting extra_items in PyTypedDictType PY-85421
-      val baseFields = (kwargsContainerType as? PyUnpackedTypedDictType)?.typedDictType?.fields.orEmpty()
+      val baseFields = (kwargsContainerType as? PyUnpackedTypedDictType)?.typedDictType?.fields(ctx).orEmpty()
       val fields = mutableMapOf<String, PyTypedDictType.FieldTypeAndTotality>()
       fields.putAll(baseFields)
       for (parameter in extraParams) {
@@ -328,7 +328,7 @@ object PyExpectedTypeJudgement {
       val dictClass = PyBuiltinCache.getInstance(callArgument).getClass("dict") ?: return null
       val typedDictType = PyTypedDictType(
         name = "Parameters",
-        fields = fields,
+        fieldsProvider = { fields },
         dictClass = dictClass,
         isDefinition = false,
         // TODO: This is incorrect:

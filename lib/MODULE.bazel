@@ -7071,17 +7071,17 @@ http_file(
 )
 
 http_file(
-    name = "org_jetbrains_intellij_deps-gradle-api-9_7_0_http",
-    downloaded_file_path = "gradle-api-9.7.0.jar",
-    sha256 = "6fbb1aa9e83b3bd083289aa62705505d24007066c4b526f8eb1d2971eb892e16",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/intellij/deps/gradle-api/9.7.0/gradle-api-9.7.0.jar",
+    name = "org_jetbrains_intellij_deps-gradle-api-9_8_0-rc-2_http",
+    downloaded_file_path = "gradle-api-9.8.0-rc-2.jar",
+    sha256 = "7a2743a60fabefc30fd25eb3cd8c6b3d2d28e4103c7052433bf53e3c2177eb2a",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/intellij/deps/gradle-api/9.8.0-rc-2/gradle-api-9.8.0-rc-2.jar",
 )
 
 http_file(
-    name = "org_jetbrains_intellij_deps-gradle-api-9_7_0-sources_http",
-    downloaded_file_path = "gradle-api-9.7.0-sources.jar",
-    sha256 = "3e149c4f1476e280ca60021bf41c4c36596f9a49acef2cb3b8141243ac827db4",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/intellij/deps/gradle-api/9.7.0/gradle-api-9.7.0-sources.jar",
+    name = "org_jetbrains_intellij_deps-gradle-api-9_8_0-rc-2-sources_http",
+    downloaded_file_path = "gradle-api-9.8.0-rc-2-sources.jar",
+    sha256 = "b1545eee9030a40fbe048f478cede39c366863c9e46c560c598c2298c5cfa98e",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/intellij/deps/gradle-api/9.8.0-rc-2/gradle-api-9.8.0-rc-2-sources.jar",
 )
 
 http_file(
@@ -7719,34 +7719,6 @@ http_file(
     downloaded_file_path = "jackson-module-kotlin-2.22.2-sources.jar",
     sha256 = "db204895bb2f68d62c261f08e44c54aaffde85f247d2d65631786817637efbbe",
     url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/fasterxml/jackson/module/jackson-module-kotlin/2.22.2/jackson-module-kotlin-2.22.2-sources.jar",
-)
-
-http_file(
-    name = "com_worldturner_medeia-medeia-validator-jackson-1_1_1_http",
-    downloaded_file_path = "medeia-validator-jackson-1.1.1.jar",
-    sha256 = "b3cc41b37e0b5953898467f282b6a42075a2b41dd500fc49b1212829184534b2",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/worldturner/medeia/medeia-validator-jackson/1.1.1/medeia-validator-jackson-1.1.1.jar",
-)
-
-http_file(
-    name = "com_worldturner_medeia-medeia-validator-core-1_1_1_http",
-    downloaded_file_path = "medeia-validator-core-1.1.1.jar",
-    sha256 = "206a37ae4cb84c1aa4bedcf145e94e30cbab6f15b809a9602231f28793ebf793",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/worldturner/medeia/medeia-validator-core/1.1.1/medeia-validator-core-1.1.1.jar",
-)
-
-http_file(
-    name = "com_worldturner_medeia-medeia-validator-jackson-1_1_1-sources_http",
-    downloaded_file_path = "medeia-validator-jackson-1.1.1-sources.jar",
-    sha256 = "b4fca6ed8594506cd3f1e2c2c23f233c4f65d9c986779587fde52c3d69da7a4f",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/worldturner/medeia/medeia-validator-jackson/1.1.1/medeia-validator-jackson-1.1.1-sources.jar",
-)
-
-http_file(
-    name = "com_worldturner_medeia-medeia-validator-core-1_1_1-sources_http",
-    downloaded_file_path = "medeia-validator-core-1.1.1-sources.jar",
-    sha256 = "f0b314d7f113c73051f223a4024e57addf758112342ff4cbacf85d242ed26c42",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/worldturner/medeia/medeia-validator-core/1.1.1/medeia-validator-core-1.1.1-sources.jar",
 )
 
 http_file(
@@ -11845,10 +11817,10 @@ http_file(
 )
 
 http_file(
-    name = "com_jetbrains_intellij_platform-workspace-model-codegen-0_0_9_http",
-    downloaded_file_path = "workspace-model-codegen-0.0.9.jar",
-    sha256 = "78e527dfea8d79c16ea9ca875bd943d443b63bf9d0df1f253c233dc54366df35",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/com/jetbrains/intellij/platform/workspace-model-codegen/0.0.9/workspace-model-codegen-0.0.9.jar",
+    name = "com_jetbrains_intellij_platform-workspace-model-codegen-0_0_10_http",
+    downloaded_file_path = "workspace-model-codegen-0.0.10.jar",
+    sha256 = "3b91f6ac783b7b1213cdfa30edd3dab49a2a7f0d14d4b3256fc655372e81ab33",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/com/jetbrains/intellij/platform/workspace-model-codegen/0.0.10/workspace-model-codegen-0.0.10.jar",
 )
 
 http_file(

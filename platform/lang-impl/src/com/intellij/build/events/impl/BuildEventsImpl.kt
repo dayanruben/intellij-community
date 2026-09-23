@@ -11,6 +11,7 @@ import com.intellij.build.eventBuilders.impl.FinishBuildEventBuilderImpl
 import com.intellij.build.eventBuilders.impl.FinishEventBuilderImpl
 import com.intellij.build.eventBuilders.impl.MessageEventBuilderImpl
 import com.intellij.build.eventBuilders.impl.OutputBuildEventBuilderImpl
+import com.intellij.build.eventBuilders.impl.OutputReferenceEventBuilderImpl
 import com.intellij.build.eventBuilders.impl.PresentableBuildEventBuilderImpl
 import com.intellij.build.eventBuilders.impl.ProgressBuildEventBuilderImpl
 import com.intellij.build.eventBuilders.impl.StartBuildEventBuilderImpl
@@ -21,6 +22,9 @@ import com.intellij.build.events.BuildEventsNls.Message
 import com.intellij.build.events.EventResult
 import com.intellij.build.events.MessageEvent
 import com.intellij.build.issue.BuildIssue
+import com.intellij.build.events.OutputId
+import com.intellij.build.events.StartBuildId
+import com.intellij.build.events.StartId
 
 internal class BuildEventsImpl : BuildEvents {
 
@@ -30,18 +34,18 @@ internal class BuildEventsImpl : BuildEvents {
   ) = StartBuildEventBuilderImpl(message, buildDescriptor)
 
   override fun finishBuild(
-    startBuildId: Any,
+    startBuildId: StartBuildId,
     message: @Message String,
     result: EventResult,
   ) = FinishBuildEventBuilderImpl(startBuildId, message, result)
 
   override fun start(
-    id: Any,
+    id: StartId,
     message: @Message String,
   ) = StartEventBuilderImpl(id, message)
 
   override fun finish(
-    startId: Any,
+    startId: StartId,
     message: @Message String,
     result: EventResult,
   ) = FinishEventBuilderImpl(startId, message, result)
@@ -50,8 +54,13 @@ internal class BuildEventsImpl : BuildEvents {
     message: @Message String,
   ) = OutputBuildEventBuilderImpl(message)
 
+  override fun outputReference(
+    startId: StartId,
+    outputIds: List<OutputId>,
+  ) = OutputReferenceEventBuilderImpl(startId, outputIds)
+
   override fun progress(
-    startId: Any,
+    startId: StartId,
     message: @Message String,
   ) = ProgressBuildEventBuilderImpl(startId, message)
 
@@ -73,14 +82,14 @@ internal class BuildEventsImpl : BuildEvents {
   ) = BuildIssueEventBuilderImpl(issue, kind)
 
   override fun fileDownload(
-    startId: Any,
+    startId: StartId,
     message: @Message String,
     isFirstInGroup: Boolean,
     downloadPath: String,
   ) = FileDownloadEventBuilderImpl(startId, message, isFirstInGroup, downloadPath)
 
   override fun fileDownloaded(
-    startId: Any,
+    startId: StartId,
     message: @Message String,
     duration: Long,
     downloadPath: String,

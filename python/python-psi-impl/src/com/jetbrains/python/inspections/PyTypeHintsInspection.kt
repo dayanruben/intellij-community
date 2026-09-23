@@ -1393,7 +1393,7 @@ class PyTypeHintsInspection : PyInspection() {
         if (PyTypingTypeProvider.isGeneric(declaration, myTypeEvalContext) &&
             declaration.findMethodByName(PyNames.CLASS_GETITEM, false, myTypeEvalContext) == null) {
           registerProblem(node.indexExpression,
-                          PyPsiBundle.problemMessage("INSP.type.hints.type.arguments.class.is.already.parameterized",
+                          PyPsiBundle.problemMessage("INSP.type.hints.type.arguments.class.is.not.generic",
                                                      CodifiedParam.ofReference(declaration)))
         }
         return

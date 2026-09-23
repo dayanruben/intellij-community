@@ -4,8 +4,8 @@ package com.intellij.build.eventBuilders.impl
 import com.intellij.build.FilePosition
 import com.intellij.build.eventBuilders.BuildIssueEventBuilder
 import com.intellij.build.events.BuildEventsNls.Hint
-import com.intellij.build.events.BuildIssueEvent
 import com.intellij.build.events.MessageEvent
+import com.intellij.build.events.OutputId
 import com.intellij.build.events.impl.BuildIssueEventImpl
 import com.intellij.build.events.impl.FileBuildIssueEventImpl
 import com.intellij.build.issue.BuildIssue
@@ -19,6 +19,8 @@ internal class BuildIssueEventBuilderImpl(
   private var parentId: Any? = null
   private var time: Long? = null
   private var hint: @Hint String? = null
+
+  private var outputIds: List<OutputId> = emptyList()
 
   private var filePosition: FilePosition? = null
 
@@ -34,12 +36,15 @@ internal class BuildIssueEventBuilderImpl(
   override fun withHint(hint: @Hint String?): BuildIssueEventBuilderImpl =
     apply { this.hint = hint }
 
+  override fun withOutputIds(outputIds: List<OutputId>): BuildIssueEventBuilderImpl =
+    apply { this.outputIds = outputIds }
+
   override fun withFilePosition(filePosition: FilePosition?): BuildIssueEventBuilderImpl =
     apply { this.filePosition = filePosition }
 
   override fun build(): BuildIssueEventImpl =
     when (val filePosition = filePosition) {
-      null -> BuildIssueEventImpl(id, parentId, time, hint, issue, kind)
-      else -> FileBuildIssueEventImpl(id, parentId, time, hint, issue, kind, filePosition)
+      null -> BuildIssueEventImpl(id, parentId, time, hint, outputIds, issue, kind)
+      else -> FileBuildIssueEventImpl(id, parentId, time, hint, outputIds, issue, kind, filePosition)
     }
 }

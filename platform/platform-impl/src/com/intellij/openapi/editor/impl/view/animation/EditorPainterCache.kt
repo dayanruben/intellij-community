@@ -10,9 +10,10 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.impl.EditorImageUtil.createEditorImage
 import com.intellij.openapi.editor.impl.EditorImageUtil.createImageGraphics
 import com.intellij.openapi.editor.impl.EditorImpl
-import com.intellij.openapi.editor.impl.caret.model.CaretRectangle
 import com.intellij.openapi.editor.impl.view.animation.EditorAnimationCacheStatistics.recordHit
 import com.intellij.openapi.editor.impl.view.animation.EditorAnimationCacheStatistics.recordMiss
+import com.intellij.openapi.editor.impl.view.animation.EditorPainterCache.Companion.THRASH_COOLDOWN
+import com.intellij.openapi.editor.impl.view.animation.EditorPainterCache.Companion.THRASH_WINDOW
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.ui.paint.use
 import com.intellij.util.concurrency.annotations.RequiresEdt
@@ -36,6 +37,7 @@ internal class EditorPainterCache(
 ) : Disposable {
   private val coroutineScope: CoroutineScope = editor.coroutineScope
   private val lastCacheKey = AtomicReference<EditorAnimationCacheKey?>(null)
+  private val isCacheEnabled: Boolean = Registry.`is`("editor.animation.cache.enabled", true)
   private val debugWindow: EditorAnimationCacheDebugWindow?
 
   /**
@@ -52,52 +54,61 @@ internal class EditorPainterCache(
   private val entries = CacheEntryList()
   private var lastBuildAt: AnimationTimeMark? = null
   private var cooldownUntil: AnimationTimeMark? = null
+  private var isCurrentlyBuildingCache: Boolean = false
 
   init {
-    serveRequests()
-    debugWindow = if (Registry.`is`("editor.animation.cache.debug.enabled", false)) {
-      EditorAnimationCacheDebugWindow.createIfSupported(editor, entries)
-    } else {
-      null
+    if (isCacheEnabled) {
+      serveRequests()
     }
+    debugWindow = EditorAnimationCacheDebugWindow.createIfSupported(editor, entries)
+  }
+
+  fun canCacheKey(key: EditorAnimationCacheKey): Boolean {
+    if (!isCacheEnabled) {
+      return false
+    }
+    val cachedKey = lastCacheKey.get()
+    if (key == cachedKey) {
+      // Also drop whatever waits here, because the carets have moved past it.
+      requests.value = null
+      return false
+    }
+    return true
   }
 
   /**
-   * Caches the editor content behind [locations], so that [paintFromCache] can restore it instead of repainting the
+   * Caches the editor content behind [rectangles], so that [paintFromCache] can restore it instead of repainting the
    * content. A request for content the cache already holds costs nothing beyond the key, which is the steady state of
    * a move: every frame of one move asks for the same zone.
    *
-   * A single zone covering the bounding box of [locations] is cached, not one zone per caret. Swing coalesces all
+   * A single zone covering the bounding box of [rectangles] is cached, not one zone per caret. Swing coalesces all
    * pending repaint requests for a component into their bounding box, so that box is the smallest clip
    * [paintFromCache] can ever be asked for. Caching the carets individually would leave the gaps between them
    * uncached, and no single zone would contain the clip, so every multi-caret repaint would miss.
    */
-  fun cacheCaretFrames(locations: List<CaretRectangle>) {
-    val requestKey = EditorAnimationCacheKey.of(locations)
-    val cachedKey = lastCacheKey.get()
-    if (requestKey == cachedKey) {
-      // Also drop whatever waits here, because the carets have moved past it.
-      requests.value = null
+  fun cacheFrames(key: EditorAnimationCacheKey, rectangles: List<Rectangle2D>) {
+    if (!isCacheEnabled) {
       return
     }
     requests.update { pending: CacheRequest? ->
-      if (pending?.isDuplicate(requestKey) == true) {
+      if (pending?.isDuplicate(key) == true) {
         pending
       } else {
-        CacheRequest(requestKey) {
-          caretCacheRectangles(locations)
-        }
+        CacheRequest(key, rectangles)
       }
     }
   }
 
   /**
-   * Paints the cached content behind [rect], instead of repainting the editor. The caller paints the caret on top.
+   * Paints the cached content behind [graphics.getClipBounds()], instead of repainting the editor. The caller paints the caret on top.
    * Returns `false` when nothing usable is cached, so the caller has to repaint after all.
    */
   @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
-  fun paintFromCache(graphics: Graphics2D, rect: Rectangle2D): Boolean {
-    if (editor.isDisposed || !ensureOpaqueContent()) {
+  fun paintFromCache(graphics: Graphics2D): Boolean {
+    if (!isCacheEnabled || editor.isDisposed) {
+      return false
+    }
+    if (!canPaintFromCache() || !ensureOpaqueContent()) {
       return false
     }
     val currentPixelGrid = EditorPixelGrid.forGraphics(graphics)
@@ -105,6 +116,7 @@ internal class EditorPainterCache(
       clear()
       return false
     }
+    val rect = graphics.clipBounds
     val visiblePart = rect.visibleRectangle() ?: return false
     val visibleRect = currentPixelGrid.align(visiblePart)
     val entry = entries.findContaining(visibleRect)
@@ -130,6 +142,9 @@ internal class EditorPainterCache(
 
   @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   fun invalidate(clip: Rectangle?) {
+    if (!isCacheEnabled) {
+      return
+    }
     if (clip == null) {
       clear()
       return
@@ -137,7 +152,7 @@ internal class EditorPainterCache(
     lastCacheKey.set(null)
     // Nothing was ever built, so there is no entry to drop and no thrashing to detect.
     val lastBuildAt = lastBuildAt ?: return
-    val now = AnimationClock.markAnimationNow()
+    val now = AnimationClock.now()
     val removedEntries = entries.removeIntersecting(clip)
     if (removedEntries) {
       debugWindow?.zonesChanged()
@@ -152,6 +167,10 @@ internal class EditorPainterCache(
   override fun dispose() {
     requests.value = null
     clear()
+  }
+
+  fun isCurrentlyBuildingCache(): Boolean {
+    return isCurrentlyBuildingCache
   }
 
   private fun serveRequests() {
@@ -192,19 +211,9 @@ internal class EditorPainterCache(
     }
   }
 
-  /**
-   * The areas that [locations] need cached. Measured when the request reaches the EDT, so that the geometry belongs to
-   * the frame the cache is actually built for.
-   */
-  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
-  private fun caretCacheRectangles(locations: List<CaretRectangle>): List<Rectangle2D> {
-    val caretRectangles = editor.view.caretRectanglesForLocations(locations)
-    return caretRectangles.map { rectangle -> rectangle.coerceAtLeastEmpty() }
-  }
-
   private fun isWithinCooldown(): Boolean {
     val cooldownUntil = cooldownUntil ?: return false
-    return AnimationClock.markAnimationNow() < cooldownUntil
+    return AnimationClock.now() < cooldownUntil
   }
 
   @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
@@ -244,22 +253,28 @@ internal class EditorPainterCache(
     entries.add(CacheEntry(repaintedArea, image), budget)
     debugWindow?.zonesChanged()
     pixelGrid = grid
-    lastBuildAt = AnimationClock.markAnimationNow()
+    lastBuildAt = AnimationClock.now()
     return true
   }
 
   private fun renderToImage(rectangle: Rectangle2D): BufferedImage {
     val image = createEditorImage(editor, rectangle.width, rectangle.height)
-    editor.isCurrentlyBuildingCache = true
+    isCurrentlyBuildingCache = true
     try {
       createImageGraphics(editor, image, rectangle).use { graphics ->
         editor.paint(graphics)
       }
-    }
-    finally {
-      editor.isCurrentlyBuildingCache = false
+    } finally {
+      isCurrentlyBuildingCache = false
     }
     return image
+  }
+
+  private fun canPaintFromCache(): Boolean {
+    return !isCurrentlyBuildingCache() &&
+           !editor.isStickyLinePainting &&
+           !editor.isPaintingDumbBuffer &&
+           !editor.isPurePaintingMode
   }
 
   private fun ensureOpaqueContent(): Boolean {

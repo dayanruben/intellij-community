@@ -796,7 +796,7 @@
                      implementationClass="org.jetbrains.idea.devkit.inspections.eel.UseOptimizedEelFunctions"
                      groupPathKey="inspections.group.path"
                      groupKey="inspections.group.code"
-                     key="inspection.use.optimized.eel.functions.display.name"/>"
+                     key="inspection.use.optimized.eel.functions.display.name"/>
 
     <localInspection language="UAST"
                      projectType="INTELLIJ_PLUGIN"
@@ -1085,6 +1085,12 @@
                     beanClass="com.intellij.lang.LanguageExtensionPoint"
                     dynamic="true">
       <with attribute="implementationClass" implements="org.jetbrains.idea.devkit.inspections.CancellationCheckProvider"/>
+    </extensionPoint>
+    <extensionPoint qualifiedName="DevKit.lang.optimizedEelFunctionCallNameProvider"
+                    beanClass="com.intellij.lang.LanguageExtensionPoint"
+                    dynamic="true">
+      <with attribute="implementationClass"
+            implements="org.jetbrains.idea.devkit.inspections.eel.OptimizedEelFunctionCallNameProvider"/>
     </extensionPoint>
     <extensionPoint qualifiedName="DevKit.lang.cancellationCheckInLoopsFixProvider"
                     beanClass="com.intellij.lang.LanguageExtensionPoint"

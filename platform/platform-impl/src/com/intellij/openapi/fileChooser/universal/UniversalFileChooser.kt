@@ -86,6 +86,8 @@ import java.awt.Component
 import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.Toolkit
+import java.awt.event.FocusAdapter
+import java.awt.event.FocusEvent
 import java.awt.event.KeyAdapter
 import java.awt.event.KeyEvent
 import java.awt.event.MouseAdapter
@@ -278,7 +280,8 @@ object UniversalFileChooser {
       }
       for (contributor in effectiveContributors) {
         val restrictRoots = contributor in restrictedContributors
-        val fileView = FileView(contributor, descriptor, disposable, project, okAction, scope, topToolbar, popupActionGroup, ::updateOkEnabled, restrictRoots)
+        val fileView = FileView(contributor, descriptor, disposable, project, okAction, scope, topToolbar, popupActionGroup, ::updateOkEnabled, restrictRoots,
+                                foreignPathNavigator = { text -> navigateToForeignPath(contributor, text) })
         fileView.fileTree.onFilesDropped = { dropTarget, paths -> handleFilesDropped(fileView, dropTarget, paths) }
         fileViews.add(fileView)
       }
@@ -570,6 +573,26 @@ object UniversalFileChooser {
       activeView.confirmSelection(proceed)
     }
 
+    /**
+     * Finds the tab that owns [text] and navigates that tab to the path. [source] is the contributor
+     * of the tab that holds the text, and it is skipped. Returns the path, or null when no other tab
+     * owns the text.
+     *
+     * Call it on a background thread, because a contributor parses the text. The navigation itself
+     * runs on the EDT.
+     */
+    private fun navigateToForeignPath(source: UniversalFileChooserContributor, text: String): Path? {
+      for (fileView in fileViews) {
+        val contributor = fileView.contributor
+        if (contributor === source) continue
+        val path = runCatching { contributor.parsePresentablePath(text) }.getOrNull() ?: continue
+        if (!runCatching { contributor.ownsPath(path) }.getOrDefault(false)) continue
+        runOnEdt { navigateToFile(path) }
+        return path
+      }
+      return null
+    }
+
     fun navigateToFile(file: Path, preselectPathText: Boolean = false) {
       val index = fileViews.indexOfFirst { it.contributor.ownsPath(file) }
       if (index < 0) return
@@ -778,6 +801,11 @@ object UniversalFileChooser {
       popupActionGroup: ActionGroup,
       private val okEnabledUpdater: () -> Unit = {},
       restrictRootsToProjectEnvironment: Boolean = descriptor.isEnvironmentRestricted,
+      /**
+       * Hands a path that this tab does not own over to the tab that owns it. Returns the path when
+       * another tab took it. Called on a background thread.
+       */
+      private val foreignPathNavigator: (String) -> Path? = { null },
     ) {
       val topComponent: JComponent
       val fileTree: NioFileSystemTree
@@ -807,6 +835,16 @@ object UniversalFileChooser {
 
       @Volatile
       private var pathTextFieldInvalid: Boolean = false
+
+      /** The running path resolution started from the text field. Only the last one is kept. */
+      @Volatile
+      private var pathNavigationJob: Job? = null
+
+      /**
+       * EDT only: set while [updatePathField] writes the tree selection into the path field, so that
+       * such a write does not start a new navigation (see IJPL-247114).
+       */
+      private var updatingPathFieldFromTree: Boolean = false
 
       companion object {
         private const val LOADING_CARD = "loading"
@@ -885,7 +923,15 @@ object UniversalFileChooser {
           })
           .installOn(pathTextField)
         pathTextField.document.addDocumentListener(object : DocumentListener {
-          override fun insertUpdate(e: DocumentEvent) { setPathTextFieldError(false) }
+          override fun insertUpdate(e: DocumentEvent) {
+            setPathTextFieldError(false)
+            // A paste (or a text drop) inserts more than one character at once. Resolve it at once and
+            // navigate the tree to it, without waiting for Enter (see IJPL-247114).
+            if (e.length > 1) {
+              navigateToPastedPath()
+            }
+          }
+
           override fun removeUpdate(e: DocumentEvent) { setPathTextFieldError(false) }
           override fun changedUpdate(e: DocumentEvent) {}
         })
@@ -897,6 +943,16 @@ object UniversalFileChooser {
             if (e.keyCode == KeyEvent.VK_ENTER) {
               navigateToTextFieldPath(); e.consume()
             }
+          }
+        })
+        pathTextField.addFocusListener(object : FocusAdapter() {
+          override fun focusLost(e: FocusEvent) {
+            if (e.isTemporary) return
+            if (pathTextField.isCompletionPopupVisible) return
+            // Only a move to the tree reverts the edited text. A move to a button, such as OK,
+            // must keep the text, because the button acts on it.
+            if (e.oppositeComponent !== fileTree.getTree()) return
+            syncPathFieldWithTreeSelection()
           }
         })
 
@@ -1170,7 +1226,7 @@ object UniversalFileChooser {
        * Confirms the current selection when the user clicks OK.
        */
       fun confirmSelection(proceed: () -> Unit) {
-        val text = pathTextField.text.trim()
+        val text = getPathFieldText()
         val selectedPresentable = fileTree.getSelectedFile()?.let { contributor.getPresentablePath(it) }
         if (text.isEmpty() || text == selectedPresentable) {
           proceed()
@@ -1178,8 +1234,17 @@ object UniversalFileChooser {
         }
         scope.launch {
           withContext(Dispatchers.IO) {
-            val path = contributor.parsePresentablePath(text)
+            val path = contributor.parsePresentablePath(text)?.takeIf { parsed ->
+              runCatching { contributor.ownsPath(parsed) }.getOrDefault(false)
+            }
             val exists = path != null && runCatching { Files.exists(path) }.getOrDefault(false)
+            if (path == null || !exists) {
+              // Another tab can own the path. Switch to that tab and let the user confirm there.
+              if (foreignPathNavigator(text) != null) {
+                runOnEdt { setPathTextFieldError(false) }
+                return@withContext
+              }
+            }
             runOnEdt {
               if (path == null || !exists) {
                 setPathTextFieldError(true)
@@ -1200,21 +1265,68 @@ object UniversalFileChooser {
       }
 
       private fun navigateToTextFieldPath() {
-        val text = pathTextField.text.trim()
+        val text = getPathFieldText()
         if (text.isEmpty()) {
           setPathTextFieldError(false)
           updatePathField(fileTree.getSelectedFile()?.let { listOf(it) } ?: emptyList())
           focusTree()
           return
         }
-        scope.launch {
+        startPathNavigation(text, moveFocusToTree = true)
+      }
+
+      /**
+       * Resolves the pasted text and navigates the tree to it. The focus stays in the path field, so
+       * that the user can go on editing the pasted path.
+       */
+      private fun navigateToPastedPath() {
+        if (updatingPathFieldFromTree) return
+        val text = getPathFieldText()
+        if (text.isEmpty()) return
+        if (pathTextField.text != text) {
+          // The document is locked while it notifies the listeners, so replace the text later.
+          runOnEdt {
+            if (getPathFieldText() == text) pathTextField.text = text
+          }
+        }
+        startPathNavigation(text, moveFocusToTree = false)
+      }
+
+      /**
+       * Returns the path field text without the leading and trailing spaces and double quotes. A
+       * file manager, such as Windows Explorer, copies a path with double quotes around it.
+       */
+      private fun getPathFieldText(): String {
+        val text = pathTextField.text.trim()
+        if (text.length >= 2 && text.first() == '"' && text.last() == '"') {
+          return text.substring(1, text.length - 1).trim()
+        }
+        return text
+      }
+
+      /**
+       * Resolves [text] on [Dispatchers.IO] and selects the resulting path in the tree. An earlier
+       * resolution is cancelled, because only the last text matters.
+       */
+      private fun startPathNavigation(text: String, moveFocusToTree: Boolean) {
+        pathNavigationJob?.cancel()
+        pathNavigationJob = scope.launch {
           withContext(Dispatchers.IO) {
-            val path = contributor.parsePresentablePath(text)
+            val path = contributor.parsePresentablePath(text)?.takeIf { parsed ->
+              runCatching { contributor.ownsPath(parsed) }.getOrDefault(false)
+            }
             val exists = path != null && runCatching { Files.exists(path) }.getOrDefault(false)
             if (path == null || !exists) {
+              // Another tab can own the path, for example a WSL path pasted into the Local tab.
+              // Switch to that tab instead of reporting an invalid path.
+              if (foreignPathNavigator(text) != null) {
+                runOnEdt { setPathTextFieldError(false) }
+                return@withContext
+              }
               runOnEdt {
+                if (getPathFieldText() != text) return@runOnEdt
                 setPathTextFieldError(true)
-                if (pathTextField.isShowing) {
+                if (moveFocusToTree && pathTextField.isShowing) {
                   pathTextField.requestFocusInWindow()
                 }
               }
@@ -1222,8 +1334,11 @@ object UniversalFileChooser {
             }
             val forceShowHidden = !fileTree.areHiddensShown() && hasHiddenSegment(path)
             runOnEdt {
+              if (getPathFieldText() != text) return@runOnEdt
               setPathTextFieldError(false)
-              focusTree()
+              if (moveFocusToTree) {
+                focusTree()
+              }
               if (forceShowHidden) {
                 fileTree.showHiddens(true)
                 PropertiesComponent.getInstance().setValue(SHOW_HIDDEN_FILES_KEY, true)
@@ -1255,10 +1370,31 @@ object UniversalFileChooser {
         return false
       }
 
+      /**
+       * Restores the path field text from the tree selection when the user leaves the field without
+       * applying the edited text. A click on the node that is already selected fires no selection
+       * change, so the field keeps the stale text (see IJPL-248859).
+       */
+      private fun syncPathFieldWithTreeSelection() {
+        if (updatingPathFieldFromTree) return
+        if (pathNavigationJob?.isActive == true) return
+        val selection = fileTree.getSelectedFiles()
+        val selected = selection.firstOrNull() ?: return
+        if (getPathFieldText() == contributor.getPresentablePath(selected)) return
+        setPathTextFieldError(false)
+        updatePathField(selection)
+      }
+
       private fun updatePathField(selection: List<Path?>) {
         val file = selection.firstOrNull()
         val text = file?.let { contributor.getPresentablePath(it) } ?: ""
-        pathTextField.text = text
+        updatingPathFieldFromTree = true
+        try {
+          pathTextField.text = text
+        }
+        finally {
+          updatingPathFieldFromTree = false
+        }
         // On the initial preselection, select the whole text so the user can immediately type over
         // it (the field also receives the focus on dialog open, see IJPL-247112). The text is filled
         // asynchronously after navigation, so the selection is applied here, once, on the first

@@ -2219,12 +2219,49 @@ object PyTypeChecker {
         }
         val clonedClassType = PyCollectionTypeImpl(
           classType.pyClass, classType.isDefinition,
-          classType.typeArguments.flatMap { typeArg ->
-            val clonedTypeArg = clone<PyType>(typeArg)
-            flattenUnpackedTuple(clonedTypeArg)
-          }
+          substituteTypeArguments(classType.typeArguments)
         )
         return if (classType is PyClassTypeImpl) classType.withUserDataCopy(clonedClassType) else clonedClassType
+      }
+
+      fun substituteTypeArguments(typeArguments: List<PyType?>): List<PyType?> {
+        return typeArguments.flatMap { typeArg ->
+          flattenUnpackedTuple(clone<PyType>(typeArg))
+        }
+      }
+
+      /**
+       * The items are substituted through [substitute] rather than through this visitor, so that the
+       * parameterized TypedDict holds the substitutions it needs rather than the traversal that produced it, and each
+       * item is substituted on a traversal of its own once something asks for it.
+       */
+      override fun visitPyTypedDictType(typedDictType: PyTypedDictType): PyType {
+        return PyTypedDictType(
+          typedDictType.name,
+          { evalContext ->
+            typedDictType.fields(evalContext).mapValues { (_, field) ->
+              PyTypedDictType.FieldTypeAndTotality(
+                field.value,
+                substitute(field.type, substitutions, evalContext),
+                field.qualifiers,
+              )
+            }
+          },
+          typedDictType.pyClass,
+          typedDictType.isDefinition,
+          typedDictType.declarationElement,
+          typedDictType.isClosed,
+          { evalContext ->
+            val extraItems = typedDictType.extraItems(evalContext)
+            PyTypedDictType.FieldTypeAndTotality(
+              extraItems.value,
+              substitute(extraItems.type, substitutions, evalContext),
+              extraItems.qualifiers,
+            )
+          },
+          typedDictType.declaredTypeParameters,
+          substituteTypeArguments(typedDictType.typeArgumentsOrDeclaredParameters.orEmpty()),
+        )
       }
 
       override fun visitPyTupleType(tupleType: PyTupleType): PyType {

@@ -89,6 +89,7 @@ a:com.intellij.psi.impl.PsiDocumentManagerBase
 - com.intellij.openapi.Disposable
 - com.intellij.openapi.editor.event.DocumentListener
 - com.intellij.psi.PsiDocumentManager
+- *:allowIsolatedCommits(com.intellij.openapi.editor.Document,java.util.function.Supplier):java.lang.Object
 - *:getPsiFile(com.intellij.openapi.editor.Document,com.intellij.codeInsight.multiverse.CodeInsightContext):com.intellij.psi.PsiFile
 *:com.intellij.psi.impl.PsiDocumentTransactionListenerBackgroundable
 - com.intellij.psi.impl.PsiDocumentTransactionListener
@@ -136,5 +137,5 @@ a:com.intellij.psi.impl.source.tree.RecursiveTreeElementWalkingVisitor
 - com.intellij.openapi.util.UserDataHolderBase
 - <init>():V
 - p:changeUserMap(com.intellij.util.keyFMap.KeyFMap,com.intellij.util.keyFMap.KeyFMap):Z
-- liveVersionChanged(J,java.util.Set):V
+- liveVersionChanged(J):V
 - p:setUserMap(com.intellij.util.keyFMap.KeyFMap):V

@@ -97,16 +97,16 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
   private final TabFragment myTabFragment;
   private final SelectionVisualModel mySelectionVisualModel;
 
-  public EditorView(@NotNull EditorImpl editor) {
-    this(editor, editor.getEditorModel());
-  }
-
-  public EditorView(@NotNull EditorImpl editor, @NotNull EditorModel editorModel) {
+  public EditorView(
+    @NotNull EditorImpl editor,
+    @NotNull EditorModel editorModel,
+    @NotNull EditorPainterCache painterCache
+  ) {
     myEditor = editor;
     mySnapshot = new EditorViewSnapshot(normalizeFontRenderContext(readFontRenderContext(), true));
     myEditorModel = editorModel;
     myDocument = myEditorModel.getDocument();
-    myPainter = new EditorPainter(this);
+    myPainter = new EditorPainter(this, new EditorCaretPainter(this), painterCache);
     myMapper = new EditorCoordinateMapper(this);
     mySizeManager = new EditorSizeManager(this);
     myTextLayoutCache = new TextLayoutCache(this, new ComponentVisibilityTracker(myEditor.getContentComponent()));
@@ -221,15 +221,9 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
     return layout == null ? 0 : layout.getWidth();
   }
 
-  public void paint(@NotNull Graphics2D g, @Nullable EditorPainterCache cache) {
+  public void paint(@NotNull Graphics2D g) {
     getSoftWrapModel().prepareToMapping();
     checkFontRenderContext(g.getFontRenderContext());
-    Rectangle clip = g.getClipBounds();
-    if (cache != null && clip != null && cache.paintFromCache(g, clip)) {
-      paintCaretFrame(g);
-      runPaintCallback();
-      return;
-    }
     myPainter.paint(g);
     runPaintCallback();
   }
@@ -238,15 +232,6 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
   public @NotNull CaretRepaintMetrics getCaretRepaintMetrics() {
     EditorViewSnapshot snapshot = getSnapshotWithMetrics();
     return new CaretRepaintMetrics(snapshot.caretHeight(), snapshot.caretTopOverhang());
-  }
-
-  @RequiresEdt
-  public @NotNull List<Rectangle> caretRectanglesForLocations(@NotNull List<CaretRectangle> locations) {
-    return myPainter.caretRectanglesForLocations(locations);
-  }
-
-  private void clearContentAnimationCache() {
-    myEditor.invalidateAnimationCaches(null);
   }
 
   public void repaintCarets(@NotNull CaretCursor caretCursor) {
@@ -412,9 +397,17 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
     SNAPSHOT_UPDATER.updateAndGet(this, snapshot -> snapshot.withPaintCallback(paintCallback));
   }
 
+  public void invalidateAnimationCaches(@Nullable Rectangle clip) {
+    myPainter.invalidateCache(clip);
+  }
+
+  public void prefetchCaretFrames(@NotNull List<CaretRectangle> locations, @NotNull CaretRepaintMetrics repaintMetrics) {
+    myPainter.prefetchCaretFrames(locations, repaintMetrics);
+  }
+
   @RequiresEdt
   public void reinitSettings() {
-    clearContentAnimationCache();
+    invalidateAnimationCaches(null);
     SNAPSHOT_UPDATER.updateAndGet(this, snapshot -> {
       FontRenderContext newFontRenderContext = readFontRenderContext(snapshot);
       int newBidiFlags = readBidiFlags();
@@ -435,7 +428,7 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
 
   @RequiresEdt
   public void invalidateRange(int startOffset, int endOffset, boolean invalidateSize) {
-    clearContentAnimationCache();
+    invalidateAnimationCaches(null);
     int textLength = myDocument.getTextLength();
     if (startOffset > endOffset || startOffset >= textLength || endOffset < 0) {
       return;
@@ -453,7 +446,7 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
    */
   @RequiresEdt
   public void reset() {
-    clearContentAnimationCache();
+    invalidateAnimationCaches(null);
     myLogicalPositionCache.reset(true, getTabSize());
     myTextLayoutCache.resetToDocumentSize(true);
     mySizeManager.reset();
@@ -478,7 +471,7 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
 
   @Override
   public void visibleAreaChanged(@NotNull VisibleAreaEvent e) {
-    clearContentAnimationCache();
+    invalidateAnimationCaches(null);
     checkFontRenderContext(null);
   }
 
@@ -644,22 +637,7 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
     return myEditor.getContentComponent().getInsets();
   }
 
-  private void paintCaretFrame(Graphics2D graphics) {
-    CaretCursor caretCursor = myEditor.getCaretCursor(true);
-    if (caretCursor == null) {
-      return;
-    }
-    Rectangle clip = graphics.getClipBounds();
-    if (clip == null) {
-      return;
-    }
-    myPainter.paintCaret(graphics, caretCursor, clip.y);
-  }
-
   private void runPaintCallback() {
-    if (myEditor.isCurrentlyBuildingCache()) {
-      return;
-    }
     Runnable callback = mySnapshot.paintCallback();
     if (callback != null) {
       callback.run();
@@ -829,6 +807,16 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
     }
   }
 
+  /**
+   * Measures the font-derived metrics of the editor.
+   * <p>
+   * Runs on whatever thread first finds the metrics uninitialized, and a background reader can be that thread.
+   * The AWT side tolerates that: the font render context comes from {@code snapshot}, no component is touched,
+   * and the JDK font APIs measure concurrently. The editor state read here does not. The colors scheme is held in
+   * a plain field, and {@code EditorColorSchemeDelegate} publishes its font map by assigning it before filling it,
+   * so a reader racing a font change can miss the editor's own font and measure the global scheme's instead. That
+   * costs wrong metrics, not a corrupt state, and they last only until the reinit that changed the font resets them.
+   */
   private @NotNull EditorViewMetrics createNewMetrics(@NotNull EditorViewSnapshot snapshot) {
     FontRenderContext fontRenderContext = snapshot.fontRenderContext();
 
@@ -946,7 +934,7 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
     if (!updateFontRenderContext(context)) {
       return;
     }
-    clearContentAnimationCache();
+    invalidateAnimationCaches(null);
     myTextLayoutCache.resetToDocumentSize(false);
     invalidateFoldRegionLayouts();
     myCharWidthCache.clear();

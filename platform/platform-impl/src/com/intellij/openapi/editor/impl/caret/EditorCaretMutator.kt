@@ -4,14 +4,18 @@ package com.intellij.openapi.editor.impl.caret
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.diagnostic.getOrHandleException
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.editor.Caret
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.EditorSettings
+import com.intellij.openapi.editor.VisualPosition
 import com.intellij.openapi.editor.event.DocumentListener
 import com.intellij.openapi.editor.impl.EditorImpl
 import com.intellij.openapi.editor.impl.caret.model.CaretAnimationSettings
 import com.intellij.openapi.editor.impl.caret.model.CaretCursor
 import com.intellij.openapi.editor.impl.caret.model.CaretEasing
 import com.intellij.openapi.editor.impl.caret.model.CaretFrameInterval
+import com.intellij.openapi.editor.impl.caret.model.CaretPlacement
+import com.intellij.openapi.editor.impl.caret.model.CaretRepaintMetrics
 import com.intellij.openapi.editor.impl.caret.model.CaretTick
 import com.intellij.openapi.editor.impl.view.animation.AnimationClock
 import com.intellij.openapi.editor.impl.view.animation.AnimationTimeMark
@@ -32,6 +36,10 @@ import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.CoroutineContext
+import kotlin.math.abs
+import kotlin.math.ceil
+import kotlin.math.max
+import kotlin.math.min
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -45,7 +53,7 @@ import kotlin.time.Duration.Companion.milliseconds
 //   A settled move has no motion left. It skips the loop:
 //   caretMoved() |> state.updateAndGet { retarget } |> advanceNow(tick) |> advanceStep(prefetching = false)
 //                                                                       |> propagateStep() |> repaintCarets()
-internal class EditorCaretMutator internal constructor(
+internal class EditorCaretMutator(
   private val editor: EditorImpl,
 ) : Disposable {
   private val coroutineScope: CoroutineScope = editor.coroutineScope
@@ -74,10 +82,6 @@ internal class EditorCaretMutator internal constructor(
     ensureLoop()
   }
 
-  fun caretCursor(): CaretCursor {
-    return state.value.caretCursor()
-  }
-
   fun setEnabled(enabled: Boolean): Boolean {
     val previous: CaretCursor = state.getAndUpdate {
       it.withEnabled(enabled)
@@ -93,7 +97,7 @@ internal class EditorCaretMutator internal constructor(
       gainedFocus.set(true)
     }
     val previousState = state.getAndUpdate {
-      it.withShown(visible, AnimationClock.markAnimationNow())
+      it.withShown(visible, AnimationClock.now())
     }
     val previous = previousState.caretCursor()
     val visibilityChanged = previous.isShown() != visible
@@ -120,13 +124,13 @@ internal class EditorCaretMutator internal constructor(
     mouseIsInDrag.set(value)
   }
 
-  fun updateCaretCursor() {
+  fun updateCaretCursor(): CaretCursor {
     updateCursor.set(true)
     var repaintNeeded = false
     val newState = state.updateAndGet {
       if (it.caretCursor().isShown()) {
         // marks the caret as active now, which holds the blink off for one quiet period
-        it.withActivityAt(AnimationClock.markAnimationNow())
+        it.withActivityAt(AnimationClock.now())
       } else {
         // shows the caret at full opacity, without restarting the quiet period
         repaintNeeded = true
@@ -136,6 +140,11 @@ internal class EditorCaretMutator internal constructor(
     if (repaintNeeded) {
       repaint(newState.caretCursor())
     }
+    return newState.caretCursor()
+  }
+
+  fun caretCursor(): CaretCursor {
+    return state.value.caretCursor()
   }
 
   override fun dispose() {
@@ -148,18 +157,18 @@ internal class EditorCaretMutator internal constructor(
   @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   fun caretMoved() {
     if (!editor.isPurePaintingMode && updateCursor.getAndSet(false)) {
+      val placements = editor.caretPlacements()
+      val repaintMetrics = editor.view.caretRepaintMetrics
       if (shouldSetCursorPositionImmediately()) {
-        caretMovedImmediately()
+        caretMovedImmediately(placements, repaintMetrics)
       } else {
-        caretMovedAnimated()
+        caretMovedAnimated(placements, repaintMetrics)
       }
     }
   }
 
-  private fun caretMovedAnimated() {
-    val placements = editor.caretPlacements()
+  private fun caretMovedAnimated(placements: List<CaretPlacement>, repaintMetrics: CaretRepaintMetrics) {
     val isCaretShown = editor.isCaretShown(caretCursor())
-    val repaintMetrics = editor.view.caretRepaintMetrics
     val tick = tick(CaretFrameInterval.MOVEMENT)
     val next = state.updateAndGet {
       it.retarget(placements, tick, isCaretShown, repaintMetrics)
@@ -171,9 +180,7 @@ internal class EditorCaretMutator internal constructor(
     }
   }
 
-  private fun caretMovedImmediately() {
-    val placements = editor.caretPlacements()
-    val repaintMetrics = editor.view.caretRepaintMetrics
+  private fun caretMovedImmediately(placements: List<CaretPlacement>, repaintMetrics: CaretRepaintMetrics) {
     val tick = tick(CaretFrameInterval.MOVEMENT)
     state.update {
       it.snapTo(placements, tick, repaintMetrics)
@@ -280,10 +287,6 @@ internal class EditorCaretMutator internal constructor(
     if (disposed.get()) {
       return
     }
-    val prefetch = step.prefetch
-    if (prefetch != null) {
-      editor.prefetchCaretFrames(prefetch)
-    }
     // Erasing the previous locations also erases the carets that were removed, because the caretCursor still holds them.
     if (step.moved) {
       repaint(previousState.caretCursor())
@@ -292,26 +295,30 @@ internal class EditorCaretMutator internal constructor(
     if (needsRedraw) {
       repaint(nextState.caretCursor())
     }
+    // Both repaints only queue a dirty region, and the prefetch reaches the EDT through a background collector, so it
+    // lands after them wherever it sits here. It goes last so that a failure to prefetch cannot erase the caret and
+    // then skip the redraw that would bring it back.
+    val prefetch = step.prefetch
+    if (prefetch != null) {
+      editor.prefetchCaretFrames(prefetch, nextState.repaintMetrics())
+    }
   }
 
   private fun repaint(caretCursor: CaretCursor) {
-    if (disposed.get()) {
-      return
-    }
-    editor.view.repaintCarets(caretCursor)
+    editor.repaintCarets(caretCursor)
   }
 
   /**
    * The tick of a loop frame, whose duration is however long the previous frame actually took.
    */
   private fun CaretAnimationState.loopTick(): CaretTick {
-    val now = AnimationClock.markAnimationNow()
+    val now = AnimationClock.now()
     return tick(frameDurationAt(now), now)
   }
 
   private fun tick(
     frameDuration: Duration,
-    now: AnimationTimeMark = AnimationClock.markAnimationNow(),
+    now: AnimationTimeMark = AnimationClock.now(),
   ): CaretTick {
     return CaretTick(
       now = now,
@@ -352,6 +359,73 @@ internal class EditorCaretMutator internal constructor(
 
   private fun shouldDisableAnimations(): Boolean {
     return isSimplifiedUI()
+  }
+
+  /**
+   * Measures where every caret has to be painted right now.
+   */
+  private fun EditorImpl.caretPlacements(): List<CaretPlacement> {
+    return caretModel.allCarets.map { caret -> caretPlacement(caret) }
+  }
+
+  private fun EditorImpl.caretPlacement(caret: Caret): CaretPlacement {
+    val isRtl = caret.isAtRtlLocation
+    val visualPosition = caret.visualPosition
+    val origin = visualPositionToPoint2D(visualPosition.leanRight(!isRtl))
+    val isAtBoundary = !isRtl && inlayModel.hasInlineElementAt(visualPosition)
+    return CaretPlacement(
+      caret = caret,
+      x = origin.x,
+      y = origin.y,
+      logicalPosition = caret.logicalPosition,
+      visualColumnAdjustment = visualColumnAdjustment(caret),
+      isAtBoundary = isAtBoundary,
+      width = caretWidth(visualPosition, origin.x, isRtl, isAtBoundary),
+      isRtl = isRtl,
+    )
+  }
+
+  /**
+   * How wide the caret is: the distance to the neighbouring column, capped at one space where an inline inlay makes
+   * that distance arbitrarily wide.
+   */
+  private fun EditorImpl.caretWidth(
+    visualPosition: VisualPosition,
+    originX: Double,
+    isRtl: Boolean,
+    isAtBoundary: Boolean,
+  ): Float {
+    val neighbour = visualPositionToPoint2D(visualPosition.nextColumn(isRtl))
+    val spanWidth = abs(neighbour.x - originX).toFloat()
+    if (!isAtBoundary) {
+      return spanWidth
+    }
+    val oneSpaceWidth = ceil(view.plainSpaceWidth.toDouble()).toFloat()
+    return min(spanWidth, oneSpaceWidth)
+  }
+
+  /**
+   * The column the caret spans towards, which is the previous one in right-to-left text.
+   */
+  private fun VisualPosition.nextColumn(isRtl: Boolean): VisualPosition {
+    val step = if (isRtl) -1 else 1
+    val neighbourColumn = max(0, column + step)
+    return VisualPosition(line, neighbourColumn, isRtl)
+  }
+
+  /**
+   * How far the caret sits from the start of the visual line its logical position maps to.
+   */
+  private fun visualColumnAdjustment(caret: Caret): Int {
+    val visualPosition = caret.visualPosition
+    val anchor = caret.editor.logicalToVisualPosition(caret.logicalPosition)
+    val onAnchorLine = anchor.line == visualPosition.line
+    val afterAnchor = visualPosition.column > anchor.column
+    return if (onAnchorLine && afterAnchor) {
+      visualPosition.column - anchor.column
+    } else {
+      0
+    }
   }
 
   private inner class BulkUpdateListener : DocumentListener {

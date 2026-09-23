@@ -4,18 +4,25 @@ package com.intellij.build.eventBuilders
 import com.intellij.build.events.BuildEventsNls.Description
 import com.intellij.build.events.BuildEventsNls.Hint
 import com.intellij.build.events.OutputBuildEvent
+import com.intellij.build.events.OutputId
+import com.intellij.build.events.StartId
 import com.intellij.execution.process.ProcessOutputType
 import org.jetbrains.annotations.ApiStatus.NonExtendable
 import org.jetbrains.annotations.CheckReturnValue
 
+/**
+ * A builder of the [OutputBuildEvent].
+ *
+ * @see OutputBuildEvent.builder
+ */
 @NonExtendable
 interface OutputBuildEventBuilder {
 
   @CheckReturnValue
-  fun withId(id: Any?): OutputBuildEventBuilder
+  fun withId(id: OutputId?): OutputBuildEventBuilder
 
   @CheckReturnValue
-  fun withParentId(parentId: Any?): OutputBuildEventBuilder
+  fun withParentId(parentId: StartId?): OutputBuildEventBuilder
 
   @CheckReturnValue
   fun withTime(time: Long?): OutputBuildEventBuilder
