@@ -102,7 +102,7 @@ class CspBuilder(val context: TypeEvalContext) {
       }
 
       override fun visitPyUnionType(unionType: PyUnionType): PyType? {
-        return rebuildCompositeType(unionType.members, PyUnionType::union)
+        return rebuildCompositeType(unionType.members, PyUnionType::unionOrUnknown)
       }
 
       override fun visitPyUnsafeUnionType(unsafeUnionType: PyUnsafeUnionType): PyType? {
@@ -110,7 +110,7 @@ class CspBuilder(val context: TypeEvalContext) {
       }
 
       override fun visitPyIntersectionType(intersectionType: PyIntersectionType): PyType? {
-        return rebuildCompositeType(intersectionType.members, PyIntersectionType::intersection)
+        return rebuildCompositeType(intersectionType.members, PyIntersectionType::intersectionOrTop)
       }
     })
   }
@@ -658,7 +658,7 @@ private object ConstraintReducer {
           reduce(TypeConstraint(leftMemberType, rightMemberType, variance), cp)
         }
         else -> {
-          val leftMemberType = PyIntersectionType.intersection(leftMemberTypes)
+          val leftMemberType = PyIntersectionType.intersectionOrTop(leftMemberTypes)
           val combinedConstraint = TypeConstraint(leftMemberType, rightMemberType, variance)
           reduce(combinedConstraint, cp)
         }
@@ -1573,7 +1573,7 @@ private object TypeBoundResolver {
     }
     else if (lowerBounds.isNotEmpty() && upperBounds.isEmpty()) {
       val lowerBoundsWidened = widenOrKeepBounds(infVar.typeVariable, lowerBounds, cp.context)
-      return PyUnionType.union(lowerBoundsWidened)
+      return PyUnionType.unionOrUnknown(lowerBoundsWidened)
     }
     else if (lowerBounds.isEmpty() && upperBounds.isNotEmpty()) {
       if (upperBounds.size == 1 && infVar.typeVariable.bound == null && upperBounds[0] == infVar.typeVariable.bound) {
@@ -1582,7 +1582,7 @@ private object TypeBoundResolver {
         return infVar.typeVariable
       }
 
-      // It is debatable whether we should just return PyIntersectionType.intersection(*upperBounds)
+      // It is debatable whether we should just return PyIntersectionType.intersectionOrTop(*upperBounds)
       // Note, however, that intersection types are not part of Python (as of 2026).
       // Hence, the following logic makes it mandatory that the user declares a common subtype at some point.
       val commonSubtype = findCommonSubtype(context, *upperBounds)
@@ -1599,9 +1599,9 @@ private object TypeBoundResolver {
         val lowerBoundsWidened = widenOrKeepBounds(infVar.typeVariable, lowerBounds, cp.context)
         val mergedBounds = lowerBoundsWidened.filter { lowerBound -> isSubtypeOfAll(context, lowerBound, *upperBounds) }
         if (mergedBounds.isEmpty() && upperBounds.isNotEmpty()) {
-          return PyUnionType.union(upperBounds.toList())
+          return PyUnionType.unionOrUnknown(upperBounds.toList())
         }
-        return PyUnionType.union(mergedBounds)
+        return PyUnionType.unionOrUnknown(mergedBounds)
       }
       else {
         val validConstraintMembers = infVar.typeVariable.constraints.filter { tvConstraint ->
@@ -1620,10 +1620,10 @@ private object TypeBoundResolver {
           val membersIndicatedByUBs = validConstraintMembers intersect upperBounds.toSet()
           val membersIndicatedByABs = membersIndicatedByLBs + membersIndicatedByUBs
           if (membersIndicatedByABs.isNotEmpty()) {
-            return PyUnionType.union(membersIndicatedByABs)
+            return PyUnionType.unionOrUnknown(membersIndicatedByABs)
           }
         }
-        return PyUnionType.union(validConstraintMembers)
+        return PyUnionType.unionOrUnknown(validConstraintMembers)
       }
     }
   }

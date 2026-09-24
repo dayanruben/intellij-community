@@ -641,7 +641,9 @@ c:com.intellij.codeInsight.daemon.impl.GotoNextErrorHandler
 - com.intellij.codeInsight.CodeInsightActionHandler
 - <init>(Z):V
 f:com.intellij.codeInsight.daemon.impl.IdentifierHighlighterPassFactory
+- s:doWithIdentifierHighlightingEnabled(com.intellij.openapi.project.Project,java.lang.Runnable):V
 - s:isEnabled():Z
+- s:waitForIdentifierHighlighting(com.intellij.openapi.editor.Editor):V
 f:com.intellij.codeInsight.daemon.impl.InlayHintsPassFactoryInternal
 - com.intellij.codeHighlighting.TextEditorHighlightingPassFactory
 - com.intellij.codeHighlighting.TextEditorHighlightingPassFactoryRegistrar
@@ -4886,10 +4888,12 @@ e:com.intellij.refactoring.SkipOverwriteChoice
 a:com.intellij.refactoring.actions.BasePlatformRefactoringAction
 - com.intellij.refactoring.actions.BaseRefactoringAction
 - <init>():V
+- p:isAvailableForAnyLanguage(com.intellij.psi.PsiFile):Z
 a:com.intellij.refactoring.actions.BaseRefactoringAction
 - com.intellij.openapi.actionSystem.AnAction
 - <init>():V
 - s:getPsiElementArray(com.intellij.openapi.actionSystem.DataContext):com.intellij.psi.PsiElement[]
+- p:isAvailableForAnyLanguage(com.intellij.psi.PsiFile):Z
 - p:isAvailableForFile(com.intellij.psi.PsiFile):Z
 - update(com.intellij.openapi.actionSystem.AnActionEvent):V
 f:com.intellij.refactoring.actions.ExtractClassAction

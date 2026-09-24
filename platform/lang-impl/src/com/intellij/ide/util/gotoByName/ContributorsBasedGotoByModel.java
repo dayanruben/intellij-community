@@ -14,6 +14,7 @@ import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.util.ProgressIndicatorBase;
+import com.intellij.openapi.progress.util.ProgressIndicatorUtilsCore;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.IndexNotReadyException;
 import com.intellij.openapi.project.PossiblyDumbAware;
@@ -109,7 +110,7 @@ public abstract class ContributorsBasedGotoByModel implements ChooseByNameModelE
         return true;
       }
     };
-    if (!JobLauncher.getInstance().invokeConcurrentlyUnderContextProgress(contributors, processor)) {
+    if (!ProgressIndicatorUtilsCore.runUnderEmptyProgressIfNone(()->JobLauncher.getInstance().invokeConcurrentlyUnderContextProgress(contributors, processor))) {
       throw new ProcessCanceledException();
     }
     if (indicator != null) {
@@ -184,8 +185,11 @@ public abstract class ContributorsBasedGotoByModel implements ChooseByNameModelE
     List<NavigationItem> items = Collections.synchronizedList(new ArrayList<>());
 
     Processor<ChooseByNameContributor> processor = contributor ->
+    {
       processContributorForName(contributor, applicable.get(contributor), parameters, canceled, items);
-    if (!JobLauncher.getInstance().invokeConcurrentlyUnderContextProgress(new ArrayList<>(applicable.keySet()), processor)) {
+      return true;
+    };
+    if (!ProgressIndicatorUtilsCore.runUnderEmptyProgressIfNone(()->JobLauncher.getInstance().invokeConcurrentlyUnderContextProgress(new ArrayList<>(applicable.keySet()), processor))) {
       canceled.cancel();
     }
     canceled.checkCanceled(); // if parallel job execution was canceled because of PCE, rethrow it from here
@@ -195,13 +199,13 @@ public abstract class ContributorsBasedGotoByModel implements ChooseByNameModelE
     return ArrayUtil.toObjectArray(items);
   }
 
-  private boolean processContributorForName(@NotNull ChooseByNameContributor contributor,
+  private void processContributorForName(@NotNull ChooseByNameContributor contributor,
                                             @NotNull String name,
                                             @NotNull FindSymbolParameters parameters,
                                             @NotNull ProgressIndicator canceled,
                                             @NotNull List<? super NavigationItem> items) {
     if (myProject.isDisposed()) {
-      return true;
+      return;
     }
     try {
       boolean searchInLibraries = parameters.isSearchInLibraries();
@@ -222,7 +226,6 @@ public abstract class ContributorsBasedGotoByModel implements ChooseByNameModelE
     catch (Throwable ex) {
       LOG.error(ex);
     }
-    return true;
   }
 
   @ApiStatus.Internal
@@ -237,7 +240,9 @@ public abstract class ContributorsBasedGotoByModel implements ChooseByNameModelE
       ((ChooseByNameContributorEx)contributor).processElementsWithName(name, item -> {
         canceled.checkCanceled();
         count[0]++;
-        if (acceptItem(item)) items.add(item);
+        if (acceptItem(item)) {
+          items.add(item);
+        }
         return true;
       }, parameters);
     }

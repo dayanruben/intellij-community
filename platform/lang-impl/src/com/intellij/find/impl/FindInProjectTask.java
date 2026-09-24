@@ -360,7 +360,7 @@ final class FindInProjectTask {
   /**
    * Looks up for the search pattern (=myFindModel) in the single virtualFile, and delivers all the usages found
    * (if any) to the usageProcessor.
-   * Also does all the counting (occurrences found, etc) and the progress presentation updates (processPresentation)
+   * Also does all the counting (occurrences found, etc.) and the progress presentation updates (processPresentation)
    *
    * @return false if usageConsumer returns false for any of the occurrences found, true otherwise
    */
@@ -483,7 +483,7 @@ final class FindInProjectTask {
     boolean locateClassSources = directoryToSearchIn != null
                                  && ReadAction.computeBlocking(() -> projectFileIndex.getClassRootForFile(directoryToSearchIn)) != null;
 
-    //wrap into concurrent deque for multi-threaded processing
+    //wrap into concurrent deque for multithreaded processing
     ConcurrentLinkedDeque<Object> searchItemsDeque = new ConcurrentLinkedDeque<>(searchItems);
     var directorySearchEngines = ContainerUtil.filter(DirectorySearchEngine.EP_NAME.getExtensionList(),
                                                       engine -> engine.canSearch(findModel));
@@ -553,7 +553,7 @@ final class FindInProjectTask {
               // will be checked against the WSM and requested scope later when this search task deals with individual files.
               // MAYBE-ANK: While it is searcher's responsibility to work at least faster than the default implementation if it
               // claims positive weight, it is also a good idea to not pass directories with excludes and indexed files into them.
-              selectDirectorySearchEngine(file, directorySearchEngines).searchDirectory(file, findModel, searchItemsDeque::addAll);
+              DirectorySearchEngine.selectDirectorySearchEngine(file, directorySearchEngines).searchDirectory(file, findModel, searchItemsDeque::addAll);
             }
             return true;
           }
@@ -602,21 +602,6 @@ final class FindInProjectTask {
       }
     );
   }
-
-  private @NotNull DirectorySearchEngine selectDirectorySearchEngine(@NotNull VirtualFile directory,
-                                                                     @NotNull List<? extends DirectorySearchEngine> engines) {
-    DirectorySearchEngine bestEngine = null;
-    var bestWeight = -1;
-    for (var engine : engines) {
-      var weight = engine.getWeight(directory, findModel);
-      if (weight > bestWeight) {
-        bestEngine = engine;
-        bestWeight = weight;
-      }
-    }
-    return Objects.requireNonNull(bestEngine, "No directory search engine for " + directory);
-  }
-
 
   /**
    * @return list of search 'items'. Item contains 1 or more files:
@@ -731,7 +716,7 @@ final class FindInProjectTask {
     PsiFile psiFile = psiManager.findFile(virtualFile);
     if (psiFile != null) {
       PsiElement sourceFile = psiFile.getNavigationElement();
-      if (sourceFile instanceof PsiFile) psiFile = (PsiFile)sourceFile;
+      if (sourceFile instanceof PsiFile file) psiFile = file;
       if (psiFile.getFileType().isBinary()) {
         psiFile = null;
       }
@@ -750,7 +735,7 @@ final class FindInProjectTask {
    * won't trash VFS cache with new entries
    *
    * @see NewVirtualFile#asCacheAvoiding()
-   * @see com.intellij.openapi.vfs.newvfs.CacheAvoidingVirtualFile
+   * @see CacheAvoidingVirtualFile
    */
   private static void addAllWrappingAsCacheAvoiding(@NotNull List<Object> collection,
                                                     @NotNull Iterable<VirtualFile> files) {

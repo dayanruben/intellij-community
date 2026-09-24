@@ -209,6 +209,8 @@ jvm_library(
         "//platform/testFramework/extensions:testExtensions_test_lib",
         "//platform/testFramework",
         "//platform/testFramework:testFramework_test_lib",
+        "//platform/backend/observation",
+        "//platform/backend/observation:observation_test_lib",
         "//platform/object-serializer",
         "//platform/object-serializer:object-serializer_test_lib",
         "//platform/service-container",
@@ -257,6 +259,14 @@ jvm_library(
         "//libraries/junit4:junit4_test_lib",
         "//libraries/junit5",
         "//libraries/junit5:junit5_test_lib",
+        "//platform/structure-view-impl/plugin",
+        "//platform/structure-view-impl/plugin:plugin_test_lib",
+        "//xml/plugin",
+        "//xml/plugin:plugin_test_lib",
+        "//aether-dependency-resolver/plugin",
+        "//aether-dependency-resolver/plugin:plugin_test_lib",
+        "//platform/testRunner/plugin",
+        "//platform/testRunner/plugin:plugin_test_lib",
     ],
 )
 ### auto-generated section `build intellij.platform.configurationStore.tests` end

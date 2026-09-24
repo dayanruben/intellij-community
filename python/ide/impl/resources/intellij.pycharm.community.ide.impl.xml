@@ -76,10 +76,7 @@
     <welcomeScreenProjectProvider implementation="com.intellij.pycharm.community.ide.impl.welcomeScreen.PyCharmWelcomeScreenProjectProvider" order="first"/>
     <editorNotificationProvider implementation="com.intellij.pycharm.community.ide.impl.welcomeScreen.PyCharmWelcomeScreenOpenFileNotificationProvider"/>
     <platform.ide.welcomeScreenFeatureBackend implementation="com.intellij.pycharm.community.ide.impl.newProjectWizard.welcome.PyNewScriptWelcomeScreenFeature"/>
-    <platform.ide.welcomeScreenFeatureBackend implementation="com.intellij.pycharm.community.ide.impl.newProjectWizard.welcome.PyNewNotebookWelcomeScreenFeature"/>
-    <platform.ide.welcomeScreenFeatureBackend implementation="com.intellij.pycharm.community.ide.impl.newProjectWizard.welcome.PyLearnWelcomeScreenFeature"/>
     <platform.ide.welcomeScreenFeatureBackend implementation="com.intellij.pycharm.community.ide.impl.newProjectWizard.welcome.PyImportFileWelcomeScreenFeature"/>
-    <platform.ide.welcomeScreenFeatureBackend implementation="com.intellij.pycharm.community.ide.impl.newProjectWizard.welcome.PyPluginsWelcomeScreenFeature"/>
     <registryKey defaultValue="true" description="Open non-project files in welcome screen" key="welcome.screen.open.files"/>
 
     <statistics.validation.customValidationRule
@@ -181,6 +178,8 @@
     <applicationSettings service="com.intellij.pycharm.community.ide.impl.newProjectWizard.welcome.PyWelcomeSettings"/>
 
     <postStartupActivity implementation="com.intellij.pycharm.community.ide.impl.whatsnew.PyCharmJcefWhatsNewPatcher" order="first"/>
+
+    <scratch.creationHelper language="Python" implementationClass="com.intellij.pycharm.community.ide.impl.miscProject.impl.WelcomePythonFilesSupport"/>
   </extensions>
 
   <applicationListeners>

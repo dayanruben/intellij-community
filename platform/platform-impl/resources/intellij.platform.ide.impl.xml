@@ -43,7 +43,6 @@
     <module name="intellij.libraries.oro.matcher"/>
     <module name="intellij.libraries.protobuf"/>
     <module name="intellij.libraries.rd.core"/>
-    <module name="intellij.libraries.stream"/>
     <module name="intellij.libraries.swingx"/>
     <module name="intellij.libraries.winp"/>
     <module name="intellij.platform.analysis"/>
@@ -519,6 +518,9 @@
     <registryKey
       key="ea.auto.report.forced.tag" defaultValue=""
       description="Additional tag for error reports"/>
+    <registryKey
+      key="actionSystem.update.actions.share.dataRules.computation" defaultValue="true"
+      description="Whether BG action updates share computation instead of trying to compete"/>
 
     <statistics.counterUsagesCollector implementationClass="com.intellij.platform.ide.menu.MainMenuCollector"/>
     <editorEmptyStateComponentProvider implementation="com.intellij.openapi.fileEditor.impl.EditorEmptyTextComponentProvider" order="last"/>
@@ -1315,6 +1317,10 @@
                          nonDefaultProject="false"/>
     <search.optionContributor implementation="com.intellij.ide.actionsOnSave.ActionsOnSaveSearchableOptionsContributor"/>
     <!--troubleshooting-->
+    <registryKey key="ide.logs.troubleshoot.collector.timeout.seconds"
+                 defaultValue="-1"
+                 description="Timeout in seconds for troubleshooting collectors. A negative value disables the timeout."
+                 restartRequired="false"/>
     <generalTroubleInfoCollector implementation="com.intellij.ide.troubleshooting.AboutTroubleInfoCollector"/>
     <generalTroubleInfoCollector implementation="com.intellij.ide.troubleshooting.SystemTroubleInfoCollector"/>
     <generalTroubleInfoCollector implementation="com.intellij.ide.troubleshooting.DisplayTroubleInfoCollector"/>
@@ -1530,6 +1536,8 @@
     <applicationService serviceImplementation="com.intellij.openapi.options.NonModalSettingsAdvancedSettingService"/>
     <advancedSetting id="ide.ui.non.modal.settings.window" default="true" groupKey="group.advanced.settings.ui"
                      service="com.intellij.openapi.options.NonModalSettingsAdvancedSettingService" property="nonModalSettingsWindow"/>
+    <advancedSetting id="ide.ui.simplified.splash.image" default="false" groupKey="group.advanced.settings.ui"
+                     service="com.intellij.ide.ui.SimplifiedSplashSettingProvider" property="useSimplifiedSplashImage"/>
     <backgroundPostStartupActivity implementation="com.intellij.ide.plugins.DependencyFeatureCollector"/>
     <projectService serviceInterface="com.intellij.presentation.FilePresentationService"
                     serviceImplementation="com.intellij.presentation.impl.FilePresentationServiceImpl"/>

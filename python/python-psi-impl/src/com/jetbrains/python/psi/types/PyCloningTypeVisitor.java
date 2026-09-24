@@ -157,7 +157,7 @@ public abstract class PyCloningTypeVisitor extends PyTypeVisitorExt<PyType> {
 
   @Override
   public PyType visitPyUnionType(@NotNull PyUnionType unionType) {
-    return PyUnionType.union(ContainerUtil.map(unionType.getMembers(), type -> clone(type)));
+    return PyUnionType.unionOrUnknown(ContainerUtil.map(unionType.getMembers(), type -> clone(type)));
   }
 
   @Override
@@ -167,7 +167,7 @@ public abstract class PyCloningTypeVisitor extends PyTypeVisitorExt<PyType> {
 
   @Override
   public PyType visitPyIntersectionType(@NotNull PyIntersectionType intersectionType) {
-    return PyIntersectionType.intersection(ContainerUtil.map(intersectionType.getMembers(), type -> clone(type)));
+    return PyIntersectionType.intersectionOrTop(ContainerUtil.map(intersectionType.getMembers(), type -> clone(type)));
   }
 
   @Override

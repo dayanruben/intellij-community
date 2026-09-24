@@ -110,7 +110,7 @@ import com.jetbrains.python.psi.types.PyClassTypeImpl
 import com.jetbrains.python.psi.types.PyCollectionTypeImpl
 import com.jetbrains.python.psi.types.PyConcatenateType
 import com.jetbrains.python.psi.types.PyInstantiableType
-import com.jetbrains.python.psi.types.PyIntersectionType.Companion.intersection
+import com.jetbrains.python.psi.types.PyIntersectionType.Companion.intersectionOrTop
 import com.jetbrains.python.psi.types.PyLiteralStringType.Companion.create
 import com.jetbrains.python.psi.types.PyLiteralType
 import com.jetbrains.python.psi.types.PyModuleType
@@ -221,14 +221,14 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
       return Ref(param.toKeywordContainerType(type))
     }
     if (PyNames.NONE == param.defaultValueText) {
-      return Ref(PyUnionType.union(type, PyBuiltinCache.getInstance(param).noneType))
+      return Ref(PyUnionType.unionOrUnknown(type, PyBuiltinCache.getInstance(param).noneType))
     }
     if (context.typeContext.maySwitchToAST(param)) {
       val defaultValue = param.defaultValue
       if (defaultValue != null) {
         val defaultType = context.typeContext.getType(defaultValue)
         if (defaultType is PySentinelType) {
-          return Ref(PyUnionType.union(type, defaultType))
+          return Ref(PyUnionType.unionOrUnknown(type, defaultType))
         }
       }
     }
@@ -472,7 +472,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
             //    if (defaultValue != null) {
             //      val defaultType = context.typeContext.getType(defaultValue)
             //      if (defaultType is PySentinelType) {
-            //        return Ref.create(PyUnionType.union(type.get(), defaultType))
+            //        return Ref.create(PyUnionType.unionOrUnknown(type.get(), defaultType))
             //      }
             //    }
             //    return type
@@ -777,6 +777,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
     const val PARAM_SPEC_EXT: String = "typing_extensions.ParamSpec"
     private const val CHAIN_MAP = "typing.ChainMap"
     const val UNION: String = "typing.Union"
+    const val INTERSECTION_TY_EXT: String = "ty_extensions.Intersection"
     const val CONCATENATE: String = "typing.Concatenate"
     const val CONCATENATE_EXT: String = "typing_extensions.Concatenate"
     const val OPTIONAL: String = "typing.Optional"
@@ -899,6 +900,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
       .add(PARAM_SPEC_EXT)
       .add(CONCATENATE)
       .add(CONCATENATE_EXT)
+      .add(INTERSECTION_TY_EXT)
       .add(TUPLE)
       .add(CALLABLE)
       .add(CALLABLE_EXT)
@@ -1540,6 +1542,13 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
     }
 
     private fun getIntersectionType(resolved: PsiElement, context: Context): Ref<PyType?>? {
+      if (resolved is PySubscriptionExpression) {
+        if (!resolved.operand.resolvesToQualifiedNames(context.typeContext, INTERSECTION_TY_EXT)) return null
+        val memberTypes = getIndexTypes(resolved, context)
+        // An empty intersection (`Intersection[()]`) is the greatest lower bound of no types, i.e. the top type `object`.
+        if (memberTypes.isEmpty()) return Ref(PyBuiltinCache.getInstance(resolved).objectType)
+        return intersectionOrTop(memberTypes)?.let { Ref(it) }
+      }
       if (resolved !is PyBinaryExpression || resolved.operator !== PyTokenTypes.AND) return null
       val left = resolved.leftExpression ?: return null
       val right = resolved.rightExpression ?: return null
@@ -1548,7 +1557,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
       val rightTypeRef = getType(right, context)
       if (leftTypeRef == null && rightTypeRef == null) return null
 
-      val intersection = intersection(leftTypeRef?.get(), rightTypeRef?.get())
+      val intersection = intersectionOrTop(leftTypeRef?.get(), rightTypeRef?.get())
       return intersection?.let { Ref(it) }
     }
 
@@ -1790,7 +1799,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
           if (argExpr != null) {
             argType = getType(argExpr, context).derefOrUnknown()
           }
-          return Ref(PyUnionType.union(argType, PyBuiltinCache.getInstance(element).noneType))
+          return Ref(PyUnionType.unionOrUnknown(argType, PyBuiltinCache.getInstance(element).noneType))
         }
       }
       return null
@@ -2207,7 +2216,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
         val rightTypeRef = getType(right, context)
         if (leftTypeRef == null && rightTypeRef == null) return null
 
-        val union = PyUnionType.union(leftTypeRef.derefOrUnknown(), rightTypeRef.derefOrUnknown())
+        val union = PyUnionType.unionOrUnknown(leftTypeRef.derefOrUnknown(), rightTypeRef.derefOrUnknown())
         return if (union != null) Ref(union) else null
       }
       return null

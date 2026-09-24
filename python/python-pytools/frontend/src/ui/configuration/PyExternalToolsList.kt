@@ -7,6 +7,7 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.Version
 import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.platform.project.projectId
+import com.intellij.python.pytools.common.ProjectLevelPyToolApi
 import com.intellij.python.pytools.common.PyToolApi
 import com.intellij.python.pytools.common.PyToolSdkDto
 import com.intellij.python.pytools.common.PyToolSetEnabledRequest
@@ -15,7 +16,7 @@ import com.intellij.python.pytools.common.PyToolRequest
 import com.intellij.python.pytools.common.PyToolsRequest
 import com.intellij.python.pytools.frontend.PyToolFrontend as PyTool
 import com.intellij.python.pytools.frontend.PyToolsFrontendState
-import com.intellij.python.pytools.frontend.ExternalPyToolFrontend as ExternalPyTool
+import com.intellij.python.pytools.frontend.ProjectLevelPyToolFrontend
 import com.intellij.python.pytools.common.PyToolActionSource
 import com.intellij.python.pytools.common.PyToolEventKind
 import com.intellij.python.pytools.common.PyToolEnabledStateDto
@@ -59,7 +60,7 @@ internal interface RowHost : PathActionHost {
 
 /**
  * The External Tools page body: a scrollable vertical stack of [PyExternalToolRowPanel]s (one per
- * [ExternalPyTool]) that replaces the former table. Owns the row list, the probe orchestration, and
+ * [ProjectLevelPyToolFrontend]) that replaces the former table. Owns the row list, the probe orchestration, and
  * the page lifecycle hooks ([onShown] / [isModified] / [apply] / [reset] / [disposeUIResources])
  * that the configurable delegates to, plus the settings-search select/scroll behaviour.
  *
@@ -74,11 +75,23 @@ internal class PyExternalToolsList(
 
   private val persistedPaths = mutableMapOf<PyToolId, String?>()
 
-  /** Source-of-truth row list, materialised once from the [PyTool] extension point. */
+  private val enabledStates = PyToolsFrontendState.getInstance(project)
+
+  /**
+   * Source-of-truth row list, materialised once from the [PyTool] extension point.
+   *
+   * The enable flag is seeded from [PyToolsFrontendState], a synchronous mirror of the backend state, so a
+   * row paints its real toggle on the first frame. A hardcoded `false` showed every enabled tool as off
+   * until the seconds-long [loadState] answered. The seed goes into the staged state *and* the persisted
+   * baseline, so a seeded row is not modified and Apply sends no `setEnabled` for it.
+   */
   private val rows: List<ToolRow> = PyTool.extensionList
-    .filterIsInstance<ExternalPyTool<*>>()
+    .filterIsInstance<ProjectLevelPyToolFrontend<*>>()
     .sortedBy { it.presentableName.lowercase() }
-    .map { ToolRow(it, RowState(enabled = false, customPath = null)) }
+    .map { tool ->
+      val enabled = enabledStates.isEnabled(tool.toolId)
+      ToolRow(tool, RowState(enabled = enabled, customPath = null), persistedEnabled = enabled)
+    }
 
   private val rowPanels: Map<ToolRow, PyExternalToolRowPanel> =
     rows.associateWith { PyExternalToolRowPanel(it, this) }
@@ -213,7 +226,9 @@ internal class PyExternalToolsList(
     // needs the tool listing and, for a path the listing does not cover, a `--version` run.
     rows.forEach { row ->
       scope.launch { loadPath(row) }
+      scope.launch { loadConfiguration(row) }
       scope.launch { loadState(row) }
+      scope.launch { loadConfiguration(row) }
     }
     scope.launch { probeAllSdks() }
   }
@@ -228,13 +243,35 @@ internal class PyExternalToolsList(
     refreshRow(row)
   }
 
+  /**
+   * Fill the row's feature configuration, which the header summary reads.
+   *
+   * Asked for on its own because it is cheap — a settings read on the backend — while a full state also
+   * needs the tool listing and the executable detection. Without it an enabled tool's features stayed
+   * unnamed, and the header claimed none were selected, for as long as the state took.
+   */
+  private suspend fun loadConfiguration(row: ToolRow) {
+    // A tool that reports no configuration leaves the row uninformed on purpose: the state settles it, and
+    // until then the header says nothing rather than claiming the tool has no features selected.
+    row.configuration = ProjectLevelPyToolApi.getInstance().getConfiguration(
+      PyToolRequest(project.projectId(), row.tool.toolId),
+    ) ?: return
+    row.configurationLoaded = true
+    refreshRow(row)
+  }
+
   private suspend fun loadState(row: ToolRow) {
     val state = PyToolApi.getInstance().getStates(
       PyToolsRequest(project.projectId(), listOf(row.tool.toolId)),
     ).singleOrNull()
     if (state != null) {
+      // Read the baseline before applying the state, which moves it. Staging the type engine's tool on is a
+      // default, not a correction, so it may only speak for a toggle the user has left alone.
+      val enabledUntouched = row.staged.enabled == snapshotOf(row).enabled
       row.applyBackendState(state, updateStagedPath = true, updateStagedEnabled = true)
-      if (!row.staged.enabled && isEngineFor(row.tool)) row.staged = row.staged.copy(enabled = true)
+      if (enabledUntouched && !row.staged.enabled && isEngineFor(row.tool)) {
+        row.staged = row.staged.copy(enabled = true)
+      }
       persistedPaths[row.tool.toolId] = row.persistedCustomPath
     }
     refreshRow(row)
@@ -314,14 +351,12 @@ internal class PyExternalToolsList(
       project,
       PyToolsUiBundle.message("settings.external.tools.apply.progress"),
     ) {
-      PyToolApi.getInstance().setEnabled(
+      ProjectLevelPyToolApi.getInstance().setEnabled(
         PyToolSetEnabledRequest(PyToolRequest(project.projectId(), row.tool.toolId), row.staged.enabled),
       )
     }
     row.applyBackendState(backendState)
-    PyToolsFrontendState.getInstance(project).apply(
-      PyToolEnabledStateDto(backendState.toolId, backendState.enabled),
-    )
+    enabledStates.apply(PyToolEnabledStateDto(backendState.toolId, backendState.enabled))
   }
 
   /** Revert all rows' staged state to the persisted snapshot and reset any open detail configurables. */

@@ -219,7 +219,7 @@ object PyTypeUtil {
    */
   @JvmStatic
   fun toUnionFromRef(): Collector<Ref<PyType?>?, *, Ref<PyType?>?> {
-    return toUnionFromRef { type1, type2 -> PyUnionType.union(type1, type2) }
+    return toUnionFromRef { type1, type2 -> PyUnionType.unionOrUnknown(type1, type2) }
   }
 
   fun toUnsafeUnionFromRef(): Collector<Ref<PyType?>?, *, Ref<PyType?>?> {
@@ -235,7 +235,7 @@ object PyTypeUtil {
         PyUnsafeUnionType.unsafeUnion(types)
       }
     else {
-      toUnionFromRef { type1, type2 -> PyUnionType.union(type1, type2) }
+      toUnionFromRef { type1, type2 -> PyUnionType.unionOrUnknown(type1, type2) }
     }
   }
 
@@ -254,7 +254,7 @@ object PyTypeUtil {
    * using [PyUnionType.union].
    * 
    * 
-   * Note that it's different from using `foldLeft(PyUnionType::union)` because the latter returns `Optional<PyType>`,
+   * Note that it's different from using `foldLeft(PyUnionType::unionOrUnknown)` because the latter returns `Optional<PyType>`,
    * and it doesn't support `null` values throwing `NullPointerException` if the final result of
    * [PyUnionType.union] was `null`.
    * 
@@ -267,21 +267,21 @@ object PyTypeUtil {
   fun toUnion(): Collector<PyType?, *, PyType?> {
     return Collectors.collectingAndThen(
       Collectors.toList()
-    ) { members -> PyUnionType.union(members) }
+    ) { members -> PyUnionType.unionOrUnknown(members) }
   }
 
   @ApiStatus.Experimental
   fun toUnsafeUnion(): Collector<PyType?, *, PyType?> {
     return Collectors.collectingAndThen(
       Collectors.toList()
-    ) { PyUnsafeUnionType.unsafeUnion() }
+    ) { members -> PyUnsafeUnionType.unsafeUnion(members) }
   }
 
   @ApiStatus.Experimental
   fun toIntersection(): Collector<PyType?, *, PyType?> {
     return Collectors.collectingAndThen(
       Collectors.toList()
-    ) { PyIntersectionType.intersection() }
+    ) { members -> PyIntersectionType.intersectionOrTop(members) }
   }
 
   @JvmStatic
@@ -289,7 +289,7 @@ object PyTypeUtil {
     return if (streamSource is PyUnsafeUnionType)
       toUnion { PyUnsafeUnionType.unsafeUnion(it) }
     else toUnion { members ->
-      PyUnionType.union(members)
+      PyUnionType.unionOrUnknown(members)
     }
   }
 
@@ -389,7 +389,7 @@ object PyTypeUtil {
    */
   private fun PyType?.rebuildLike(members: List<PyType?>): PyType? =
     when (this) {
-      is PyIntersectionType -> PyIntersectionType.intersection(members)
+      is PyIntersectionType -> PyIntersectionType.intersectionOrTop(members)
       is PyUnsafeUnionType -> if (members.isEmpty()) PyNeverType.NEVER else PyUnsafeUnionType.unsafeUnion(members)
       else -> PyUnionType.unionOrNever(members)
     }

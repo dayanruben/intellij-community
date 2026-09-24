@@ -256,14 +256,15 @@ This specification covers the page structure, section model, search, source load
   )
 
 - The first result for a query revision must set the plugin order in each section.
-- Relevance must initially place local plugin errors before healthy plugins, then use the existing match scores.
+- Relevance must initially place local plugins with errors before healthy plugins.
+- Within each error group, relevance must place enabled plugins before disabled plugins, then use the existing match scores.
 - Later results in the same query revision must retain the relative order of plugins that remain in a section.
 - A new plugin must append after existing plugins. A plugin that leaves and returns must resume its retained position.
 - In expanded Bundled, a new plugin must append in its category. A new category must append after existing categories.
 - The first collapsed and expanded Bundled results may set separate orders to keep categories together.
-- An explicit sort must override local error priority and control Marketplace ordering. Custom repositories must retain their source order.
+- An explicit sort must override both local priorities and control Marketplace ordering. Custom repositories must retain their source order.
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageSourceCoordinatorTest.kt (
-    `local relevance prioritizes errors while explicit sorts override that priority`;
+    `local relevance prioritizes errors and enabled plugins while explicit sorts override priorities`;
     `installed relevance uses legacy name and description match scores`;
     `sort controls primary Marketplace without suppressing cached filtering`
   )
@@ -417,6 +418,11 @@ Untested: Community tests verify the Enter handler, but they do not verify the S
 - A plugin enablement toggle must retain its component and focus during a compatible row refresh.
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/LegacyPluginRowFactoryTest.kt (
     `unified rows use toggle for plugin enablement`
+  )
+- An enablement change must update local rows and refresh derived row data without reloading local inventory.
+  [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginLocalSourceCoordinatorTest.kt (
+    `enablement change updates rows without reloading inventory`;
+    `enablement change survives an in-flight refresh`
   )
 
 - Activating row content must select the plugin without invoking its primary action.
@@ -649,6 +655,11 @@ Untested: No focused test verifies that Internal ignores the legacy Show All que
   )
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginRepositorySourceCoordinatorTest.kt (
     `plugin updates re-enrich cached models without repository refetch`
+  )
+
+- A page refresh must request a new plugin update calculation. This includes a refresh after a custom repository change.
+  [@test] ../../testSrc/com/intellij/ide/plugins/UnifiedPluginsPageSessionTest.kt (
+    `page refresh recalculates plugin updates`
   )
 
 ## Failure and Recovery

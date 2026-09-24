@@ -97,20 +97,20 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
 
 import java.io.IOException;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Deque;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Queue;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.CancellationException;
@@ -266,7 +266,8 @@ public class PsiSearchHelperImpl implements PsiSearchHelper {
                                          @NotNull SearchSession session,
                                          @NotNull TextOccurenceProcessor processor) {
     return bulkProcessElementsWithWord(searchScope, text, searchContext, options, containerName, session, (scope, offsetsInScope, searcher) ->
-      LowLevelSearchUtil.processElementsAtOffsets(scope, searcher, options.contains(Options.PROCESS_INJECTED_PSI), getOrCreateIndicator(),
+      LowLevelSearchUtil.processElementsAtOffsets(scope, searcher, options.contains(Options.PROCESS_INJECTED_PSI),
+                                                  Objects.requireNonNull(ProgressIndicatorProvider.getGlobalProgressIndicator()), // bulkProcessElementsWithWord makes sure it's run under progress
                                                   offsetsInScope, processor));
   }
 
@@ -284,8 +285,7 @@ public class PsiSearchHelperImpl implements PsiSearchHelper {
       throw new IllegalArgumentException("Cannot search for elements with empty text");
     }
     if (searchScope instanceof GlobalSearchScope) {
-      return ConcurrencyUtils.runWithIndicatorOrContextCancellation((_) -> {
-        ProgressIndicator progress = getOrCreateIndicator();
+      return ConcurrencyUtils.runWithIndicatorOrContextCancellation(progress -> {
         StringSearcher searcher = new StringSearcher(text, options.contains(Options.CASE_SENSITIVE_SEARCH), true,
                                                      searchContext == UsageSearchContext.IN_STRINGS,
                                                      options.contains(Options.PROCESS_ONLY_JAVA_IDENTIFIERS_IF_POSSIBLE));
@@ -893,8 +893,7 @@ public class PsiSearchHelperImpl implements PsiSearchHelper {
     Map<SearchRequestCollector, Processor<? super PsiReference>> collectors = new HashMap<>();
     collectors.put(collector, processor);
 
-    return ConcurrencyUtils.runWithIndicatorOrContextCancellation((_) -> {
-      ProgressIndicator progress = getOrCreateIndicator();
+    return ConcurrencyUtils.runWithIndicatorOrContextCancellation(progress -> {
       if (appendCollectorsFromQueryRequests(progress, collectors) == QueryRequestsRunResult.STOPPED) {
         return false;
       }
@@ -929,13 +928,6 @@ public class PsiSearchHelperImpl implements PsiSearchHelper {
       }
       while (true);
     });
-  }
-
-  private static @NotNull ProgressIndicator getOrCreateIndicator() {
-    ProgressIndicator progress = ProgressIndicatorProvider.getGlobalProgressIndicator();
-    if (progress == null) progress = new EmptyProgressIndicator();
-    progress.setIndeterminate(false);
-    return progress;
   }
 
   private enum QueryRequestsRunResult {
@@ -1054,7 +1046,7 @@ public class PsiSearchHelperImpl implements PsiSearchHelper {
                                                                         @NotNull Map<VirtualFile, Collection<T>> nearDirectoryFiles,
                                                                         @NotNull Map<VirtualFile, Collection<T>> intersectionCandidateFiles,
                                                                         @NotNull Map<VirtualFile, Collection<T>> restCandidateFiles,
-                                                                        @NotNull List<VirtualFile> queryFiles) {
+                                                                        @NotNull List<? extends VirtualFile> queryFiles) {
     Project project = myManager.getProject();
     for (Map<VirtualFile, Collection<T>> chunk : List.of(targetFiles, nearDirectoryFiles, intersectionCandidateFiles, restCandidateFiles)) {
       CandidateFilesBatchesIterator batches = batchCandidateFiles(project, queryFiles, new ArrayList<>(chunk.keySet()));
@@ -1083,8 +1075,8 @@ public class PsiSearchHelperImpl implements PsiSearchHelper {
   }
 
   private static @Nullable CandidateFilesBatchesIterator batchCandidateFiles(@NotNull Project project,
-                                                                              @NotNull List<VirtualFile> queryFiles,
-                                                                              @NotNull List<VirtualFile> candidateFiles) {
+                                                                             @NotNull List<? extends VirtualFile> queryFiles,
+                                                                             @NotNull List<? extends VirtualFile> candidateFiles) {
     for (SearchCandidateBatcher organizer : SearchCandidateBatcher.EP_NAME.getExtensionList()) {
       CandidateFilesBatchesIterator result = organizer.batchCandidateFiles(project, queryFiles, candidateFiles);
       if (result != null) return result;
@@ -1117,10 +1109,10 @@ public class PsiSearchHelperImpl implements PsiSearchHelper {
   private static @NotNull QueryRequestsRunResult appendCollectorsFromQueryRequests(@NotNull ProgressIndicator progress,
                                                                                    @NotNull Map<SearchRequestCollector, Processor<? super PsiReference>> collectors) {
     boolean changed = false;
-    Deque<SearchRequestCollector> queue = new LinkedList<>(collectors.keySet());
+    Queue<SearchRequestCollector> queue = new ArrayDeque<>(collectors.keySet());
     while (!queue.isEmpty()) {
       progress.checkCanceled();
-      SearchRequestCollector each = queue.removeFirst();
+      SearchRequestCollector each = queue.remove();
       for (QuerySearchRequest request : each.takeQueryRequests()) {
         progress.checkCanceled();
         if (!request.runQuery()) {
@@ -1128,7 +1120,7 @@ public class PsiSearchHelperImpl implements PsiSearchHelper {
         }
         assert !collectors.containsKey(request.collector) || collectors.get(request.collector) == request.processor;
         collectors.put(request.collector, request.processor);
-        queue.addLast(request.collector);
+        queue.add(request.collector);
         changed = true;
       }
     }
@@ -1229,9 +1221,9 @@ public class PsiSearchHelperImpl implements PsiSearchHelper {
       @Override
       public boolean execute(@NotNull PsiElement scope, int @NotNull [] offsetsInScope, @NotNull StringSearcher searcher) {
         ProgressManager.checkCanceled();
-
         return LowLevelSearchUtil.processElementsAtOffsets(scope, searcher, !ignoreInjectedPsi,
-                                                           getOrCreateIndicator(), offsetsInScope,
+                                                           Objects.requireNonNull(ProgressIndicatorProvider.getGlobalProgressIndicator()), // runs under progress always
+                                                           offsetsInScope,
                                                            (element, offsetInElement) -> {
             if (ignoreInjectedPsi && element instanceof PsiLanguageInjectionHost) return true;
             return wrapped.processTextOccurrence(element, offsetInElement, consumer);
@@ -1245,9 +1237,8 @@ public class PsiSearchHelperImpl implements PsiSearchHelper {
     };
   }
 
-  private static @NotNull Condition<Integer> matchContextCondition(
-    @MagicConstant(flagsFromClass = UsageSearchContext.class) short searchContext
-  ) {
+  private static @NotNull Condition<Integer> matchContextCondition(@MagicConstant(flagsFromClass = UsageSearchContext.class)
+                                                                   short searchContext) {
     return context -> (context & searchContext) != 0;
   }
 
@@ -1260,7 +1251,7 @@ public class PsiSearchHelperImpl implements PsiSearchHelper {
                                            @NotNull Set<RequestWithProcessor> locals,
                                            @NotNull Map<TextIndexQuery, Collection<RequestWithProcessor>> globals,
                                            @NotNull List<? super Computable<Boolean>> customs,
-                                           @NotNull Map<RequestWithProcessor, Processor<? super CandidateFileInfo>> localProcessors) {
+                                           @NotNull Map<? super RequestWithProcessor, Processor<? super CandidateFileInfo>> localProcessors) {
     for (Map.Entry<SearchRequestCollector, Processor<? super PsiReference>> entry : collectors.entrySet()) {
       ProgressManager.checkCanceled();
       Processor<? super PsiReference> processor = entry.getValue();

@@ -110,10 +110,6 @@ jvm_library(
         "//java/java-psi-api:psi_test_lib",
         "//platform/platform-impl:ide-impl_test_lib",
         "//platform/core-ui:core-ui_test_lib",
-        "//platform/testFramework",
-        "//platform/testFramework:testFramework_test_lib",
-        "//java/testFramework",
-        "//java/testFramework:testFramework_test_lib",
         "//java/openapi:java_test_lib",
         "//platform/workspace/jps:jps_test_lib",
         "//platform/workspace/storage:storage_test_lib",
@@ -240,6 +236,12 @@ jvm_library(
         "//platform/structure-view-impl/plugin:plugin_test_lib",
         "//platform/todo/plugin",
         "//platform/todo/plugin:plugin_test_lib",
+        "//platform/testRunner/plugin",
+        "//platform/testRunner/plugin:plugin_test_lib",
+        "//platform/structuralsearch/plugin",
+        "//platform/structuralsearch/plugin:plugin_test_lib",
+        "//xml/plugin",
+        "//xml/plugin:plugin_test_lib",
     ],
 )
 ### auto-generated section `build intellij.devkit.gradle.tests` end

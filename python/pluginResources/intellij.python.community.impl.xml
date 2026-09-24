@@ -91,6 +91,7 @@
     <module name="intellij.platform.welcomeScreen.impl"/>
     <module name="intellij.platform.workspace.jps"/>
     <module name="intellij.platform.workspace.storage"/>
+    <module name="intellij.platform.wsl.impl"/>
     <module name="intellij.python.community"/>
     <module name="intellij.python.community.common"/>
     <module name="intellij.python.community.core.impl"/>
@@ -470,6 +471,11 @@
                      groupPathKey="INSP.GROUP.python" groupKey="INSP.GROUP.python.test.frameworks"
                      key="INSP.NAME.mock-patch-argument-count" enabledByDefault="true" level="WARNING"
                      implementationClass="com.jetbrains.python.testing.pyMock.PyMockPatchArgumentCountInspection"/>
+    <localInspection language="Python" shortName="PyMockPatchTargetInspection" suppressId="PyMockPatchTarget"
+                     bundle="messages.PyPsiBundle" key="INSP.NAME.mock-patch-target"
+                     groupPathKey="INSP.GROUP.python" groupKey="INSP.GROUP.python.test.frameworks"
+                     enabledByDefault="true" level="WARNING"
+                     implementationClass="com.jetbrains.python.testing.pyMock.PyMockPatchTargetInspection"/>
     <localInspection shortName="PyPackageRequirementsInspection" suppressId="PyPackageRequirements"
                      bundle="messages.PyPsiBundle" key="INSP.NAME.requirements"
                      groupPathKey="INSP.GROUP.python" groupKey="INSP.GROUP.python.packaging"
@@ -1117,6 +1123,8 @@
     <typeProvider implementation="com.jetbrains.python.testing.pyTestParametrized.PyTestParametrizedTypeProvider"/>
     <typeProvider implementation="com.jetbrains.python.testing.pyTestFixtures.PyTextFixtureTypeProvider"/>
     <typeProvider implementation="com.jetbrains.python.testing.pyMock.PyMockTypeProvider"/>
+    <typeProvider implementation="com.jetbrains.python.testing.pyMock.PyMockerFixtureTypeProvider"/>
+    <typeCheckerExtension implementation="com.jetbrains.python.testing.pyMock.PyMockTypeCheckerExtension"/>
 
     <!-- typing -->
     <visitorFilter language="PythonStub" implementationClass="com.jetbrains.python.pyi.PyiVisitorFilter"/>

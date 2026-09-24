@@ -4,6 +4,7 @@ package com.intellij.find
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.vfs.VirtualFile
 import org.jetbrains.annotations.ApiStatus
+import java.util.Objects
 import java.util.function.Consumer
 
 /**
@@ -31,7 +32,7 @@ interface DirectorySearchEngine {
    * The choice among engines with equal weights is unspecified. The default engine has weight `0`.
    * This method runs inside or outside a read action.
    */
-  fun getWeight(directory: VirtualFile, findModel: FindModel): Int
+  fun getWeight(directory: VirtualFile): Int
 
   /**
    * Adds batches of descendants of [directory] to the shared search queue through [consumer].
@@ -46,6 +47,23 @@ interface DirectorySearchEngine {
 
   @ApiStatus.Internal
   companion object {
+    @JvmStatic
+    fun selectDirectorySearchEngine(
+      directory: VirtualFile,
+      engines: List<DirectorySearchEngine>,
+    ): DirectorySearchEngine {
+      var bestEngine: DirectorySearchEngine? = null
+      var bestWeight = -1
+      for (engine in engines) {
+        val weight = engine.getWeight(directory)
+        if (weight > bestWeight) {
+          bestEngine = engine
+          bestWeight = weight
+        }
+      }
+      return Objects.requireNonNull(bestEngine, "No directory search engine for $directory")!!
+    }
+
     @ApiStatus.Internal
     @JvmField
     val EP_NAME: ExtensionPointName<DirectorySearchEngine> = ExtensionPointName.create("com.intellij.directorySearchEngine")

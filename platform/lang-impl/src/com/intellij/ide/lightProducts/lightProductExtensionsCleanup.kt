@@ -20,8 +20,6 @@ import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.wm.StatusBarWidgetFactory
 import com.intellij.psi.search.FileTypeIndexImpl
 import com.intellij.psi.stubs.StubIndexExtension
-import com.intellij.usages.impl.UsageGroupingRuleProviderImpl
-import com.intellij.usages.rules.UsageGroupingRuleProvider
 import com.intellij.util.application
 import com.intellij.util.indexing.FileBasedIndexExtension
 import com.intellij.util.indexing.IndexableSetContributor
@@ -39,12 +37,6 @@ private val logger = Logger.getInstance("#com.intellij.ide.lightProducts.LightPr
  */
 @ApiStatus.Internal
 fun unregisterExtensionsForLightProduct(checkNotInstantiated: Boolean = false) {
-  UsageGroupingRuleProvider.EP_NAME.appPoint
-    .unregisterExtensions(
-      UsageGroupingRuleProviderImpl::class,
-      checkNotInstantiated = checkNotInstantiated,
-    )
-
   SearchEverywhereContributor.EP_NAME.appPoint
     .unregisterExtensions(
       FileSearchEverywhereContributorFactory::class,
@@ -81,7 +73,6 @@ fun unregisterExtensionsForLightProduct(checkNotInstantiated: Boolean = false) {
   StatusBarWidgetFactory.EP_NAME.appPoint
     .unregisterExtensionsById(
       "VfsRefresh",
-      "LanguageServiceStatusBarWidget",
       "LineSeparator",
       "Encoding",
       "PowerSaveMode",
