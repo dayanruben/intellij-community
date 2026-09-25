@@ -5,6 +5,7 @@ package org.jetbrains.intellij.build.devDist
 
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.intellij.build.ModuleOutputProvider
+import org.jetbrains.intellij.build.impl.pluginDefaultJarName
 import org.jetbrains.jps.model.JpsProject
 import org.jetbrains.jps.model.module.JpsModule
 
@@ -92,7 +93,7 @@ class DerivedPluginPacking(
  * has an empty closure, so its members are the ones [facts] state, and its main jar holds the main module.
  *
  * [frontendRoots] are the modules a frontend-compatible module must not reach; see [FrontendCompatibility]. An empty
- * list is a product without an embedded frontend.
+ * list is a product without an embedded frontend. [frontend] is the filter over them, which the plugins of one run can share.
  */
 @ApiStatus.Internal
 fun derivePluginPacking(
@@ -102,12 +103,13 @@ fun derivePluginPacking(
   outputProvider: ModuleOutputProvider,
   frontendRoots: List<String>,
   isPackedElsewhere: (String) -> Boolean = { false },
+  frontend: FrontendCompatibility = FrontendCompatibility(roots = frontendRoots.toSet(), findModule = project::findModuleByName),
 ): DerivedPluginPacking? {
+  require(frontend.roots == frontendRoots.toSet()) { "The frontend filter has other roots than $frontendRoots" }
   val module = outputProvider.findModule(mainModule) ?: return null
   val findModule: (String) -> JpsModule? = outputProvider::findModule
   val closure = derivePluginContentClosure(module = module, findModule = findModule, layoutMembers = facts.memberJars.keys)
                 ?: EMPTY_WALKED_CONTENT_MODULES
-  val frontend = FrontendCompatibility(roots = frontendRoots.toSet(), findModule = project::findModuleByName)
   val closureMembers = closure.moduleNames.mapTo(HashSet()) { it.substringBeforeLast('/') }
   var effectiveResidue = layoutResidueOf(mainModule = mainModule, facts = facts, closureMembers = closureMembers)
   if (facts.auto) {
@@ -156,6 +158,7 @@ fun derivePluginPacking(
         outputProvider = outputProvider,
         frontendRoots = frontendRoots,
         isPackedElsewhere = isPackedElsewhere,
+        frontend = frontend,
       ))
       for (jar in packing.jars) {
         if (jar.relativeOutputFile in facts.layoutJarMembers) {
@@ -209,7 +212,7 @@ private fun coPackedMembers(memberJars: Map<String, Set<String>>, closureMembers
  * frontend jar is a [PluginContentResidue.memberJars] row.
  */
 private fun autoLayoutResidue(mainModule: String, mainJarName: String, children: List<String>, frontend: FrontendCompatibility): PluginContentResidue {
-  val frontendJarName = mainJarName.removeSuffix(".jar") + "-frontend.jar"
+  val frontendJarName = pluginDefaultJarName(mainJarName, frontendSplit = true)
   val memberJars = LinkedHashMap<String, Set<String>>()
   for (child in children) {
     if (frontend.isSplit(mainModule = mainModule, member = child)) {

@@ -3,8 +3,12 @@
 
 package org.jetbrains.intellij.build.devDist
 
-import com.intellij.openapi.util.JDOMUtil
+import com.intellij.platform.pluginSystem.parser.impl.parseContentAndXIncludes
 import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.intellij.build.getProductionLibraryDependencies
+import org.jetbrains.intellij.build.impl.contentModuleJarPath
+import org.jetbrains.intellij.build.impl.hasOwnModuleLibraries
+import org.jetbrains.intellij.build.impl.isSeparateLibraryJar
 import org.jetbrains.jps.model.JpsGlobal
 import org.jetbrains.jps.model.java.JpsJavaDependencyScope
 import org.jetbrains.jps.model.java.JpsJavaExtensionService
@@ -13,8 +17,8 @@ import org.jetbrains.jps.model.library.JpsOrderRootType
 import org.jetbrains.jps.model.module.JpsLibraryDependency
 import org.jetbrains.jps.model.module.JpsModule
 import org.jetbrains.jps.model.module.JpsModuleReference
+import java.nio.file.Files
 import java.nio.file.Path
-import kotlin.io.path.readText
 
 /**
  * One hand-off a plugin offers the candidacy fold: the member, where the plugin puts its jar, and what the jar merges.
@@ -65,8 +69,8 @@ class DerivedPluginCandidacy(
 /**
  * Where each member's jar of the plugin [mainModule] goes, and which of those jars one packing target may serve.
  *
- * The loading rule comes from the plugin's own `<content>`. The `pack-content-into-plugin-jar` marker and the
- * `package` attribute come from the member's own descriptor. The merged library set comes from the member's
+ * The loading rule comes from the plugin's own `<content>`. The `package` attribute comes from the member's own
+ * descriptor. The merged library set comes from the member's
  * production-scope module libraries. [deriveMemberJarPath] holds the path rule, and [deriveMemberJar] puts the
  * eligibility gate on top of it.
  *
@@ -112,6 +116,7 @@ fun derivePluginContentCandidacy(
       mainJarName = mainJarName,
       libraries = ::librariesOf,
       frontend = frontend,
+      librariesKeptOut = member.name in residue.unmergedMembers,
     )
     if (jar != null || rawName in residue.memberJars) {
       memberLibraries.put(rawName, librariesOf(member).names)
@@ -145,6 +150,7 @@ fun derivePluginContentCandidacy(
       mainJarName = mainJarName,
       libraries = ::librariesOf,
       frontend = frontend,
+      librariesKeptOut = member.name in residue.unmergedMembers,
     )
     // A member of a jar the layout names needs its library set even with no descriptor of its own.
     if (jar != null || name in residue.memberJars) {
@@ -186,42 +192,32 @@ private fun isPackedIntoRenamedJar(member: String, residue: PluginContentResidue
 /**
  * Where a plugin whose main jar is [mainJarName] puts [moduleName]'s jar, relative to its own `lib/`.
  *
- * The convention alone. The derivation owns this copy of the convention, so that the packaging gate compares two
- * producers. Two inputs of the build's rule are `PluginLayout` state and reach this through the caller: a jar
- * `PluginLayout.withModule(name, jarName)` names wins over this answer in [composeDerivedPluginJars], and the layout's
- * excluded module libraries decide [mergesLibraries] through [mergedLibrariesOf].
+ * [contentModuleJarPath] states the rule, and this function supplies the derivation's facts. Two inputs of the rule are
+ * `PluginLayout` state and reach this through the caller: a jar `PluginLayout.withModule(name, jarName)` names wins over
+ * this answer in [composeDerivedPluginJars], and the layout's `doNotCopyModuleLibrariesAutomatically` decides
+ * [hasModuleLibraries] through [hasOwnModuleLibraries].
  *
- * An answer for every member, and never `null`. A member the convention gives no jar of its own is co-packed into
- * [mainJarName]. [composeDerivedPluginJars] reads that answer the same way.
+ * An answer for every member, and never `null`, because the derivation states no custom path here.
  */
 @ApiStatus.Internal
 fun deriveMemberJarPath(
   moduleName: String,
   loadingRule: String?,
   hasPackageAttribute: Boolean,
-  mergesLibraries: Boolean,
+  hasModuleLibraries: Boolean,
   mainJarName: String,
-  /**
-   * Whether the member is compatible with the frontend while the plugin's main module is not.
-   *
-   * Such a member gets a jar of its own, or the plugin's `<main>-frontend.jar` where the convention co-packs it.
-   */
+  /** Whether the member is compatible with the frontend while the plugin's main module is not. */
   frontendSplit: Boolean = false,
 ): String {
-  // The main jar, renamed for a frontend member of a plugin whose main module is not one.
-  val defaultJarName = if (frontendSplit) mainJarName.removeSuffix(".jar") + "-frontend.jar" else mainJarName
-  if (loadingRule == EMBEDDED_LOADING_RULE) {
-    // The marker sends the member into the plugin's main jar. Every other embedded member gets `lib/<module>.jar`,
-    // whatever libraries that jar merges.
-    return "$moduleName.jar"
-  }
-  // The marker wins outright. Then a descriptor with no `package` attribute cannot be loaded from the plugin jar, and
-  // a module declaring a module library is put in its own jar so that the library travels with it. A frontend member
-  // of a plugin that is not frontend-compatible itself gets its own jar too.
-  if (!hasPackageAttribute || mergesLibraries || frontendSplit) {
-    return "modules/$moduleName.jar"
-  }
-  return defaultJarName
+  return checkNotNull(contentModuleJarPath(
+    moduleName = moduleName,
+    loadingRule = loadingRule,
+    hasCustomPath = false,
+    mainJarName = mainJarName,
+    hasPackageAttribute = { hasPackageAttribute },
+    packedIntoSeparateJar = { hasModuleLibraries || frontendSplit },
+    frontendSplit = { frontendSplit },
+  ))
 }
 
 /** One member's jar: where the plugin puts it, and the offer a packing target may serve, where there is one. */
@@ -293,29 +289,9 @@ private fun separateLibraryJarNames(module: JpsModule): Set<String> {
 }
 
 /**
- * Whether the platform packs a library file as a jar of its own instead of merging it into the module's jar.
- *
- * The derivation owns this copy of the rule, so that the packaging gate compares two producers. An agent is attached
- * by path at runtime, and an `-rt` or `maven-` jar is loaded by an external process, so each stays a standalone file.
- */
-@ApiStatus.Internal
-fun isSeparateLibraryJar(fileName: String): Boolean {
-  return fileName.endsWith("-rt.jar") ||
-         fileName.startsWith("byte-buddy-") ||
-         (fileName.contains("-agent") && AGENT_LIBRARIES_MERGED.none { fileName.contains(it) }) ||
-         (fileName.startsWith("maven-") && MAVEN_LIBRARIES_MERGED.none { fileName.contains(it) })
-}
-
-/** The agent libraries the platform merges all the same. */
-private val AGENT_LIBRARIES_MERGED = listOf("code-agents", "code-prompt-agents")
-
-/** The `maven-` libraries the platform merges all the same. */
-private val MAVEN_LIBRARIES_MERGED = listOf("maven-artifact", "maven-central-configuration", "maven-plugin-xml-parser")
-
-/**
  * [member]'s jar under [mainJarName], or `null` when no resource root holds the member's own descriptor.
  *
- * A member with no readable descriptor has no `packIntoPluginJar` and no `package` attribute to read, so the caller
+ * A member with no readable descriptor has no `package` attribute to read, so the caller
  * vetoes it. [libraries] is a function and not a set, so that the descriptor decides whether the library walk runs.
  */
 private fun readMemberJar(
@@ -325,10 +301,12 @@ private fun readMemberJar(
   mainJarName: String,
   libraries: (JpsModule) -> MergedMemberLibraries,
   frontend: FrontendCompatibility,
+  librariesKeptOut: Boolean,
 ): DerivedMemberJar? {
   val descriptor = memberDescriptor(member) ?: return null
   val merged = libraries(member)
   return deriveMemberJar(
+    hasModuleLibraries = hasOwnModuleLibraries(getProductionLibraryDependencies(member), librariesKeptOut),
     moduleName = member.name,
     loadingRule = loadingRule,
     hasPackageAttribute = descriptor.hasPackageAttribute,
@@ -346,8 +324,8 @@ private fun readMemberJar(
  * `lib/modules/<module>.jar`, or `lib/<module>.jar` for a jar that merges no module library.
  *
  * [libraries] is `null` for a member whose module library has no single jar; see [distributionLibraryName]. Such a
- * member gets a path and no offer. The path rule still reads `true` for the merge, because an unnamed library is a
- * module library all the same.
+ * member gets a path and no offer. [hasModuleLibraries] decides the path, as the packer decides it; see
+ * [hasOwnModuleLibraries]. By default it holds when the member merges a library or has one it cannot name.
  */
 @ApiStatus.Internal
 fun deriveMemberJar(
@@ -358,12 +336,13 @@ fun deriveMemberJar(
   isStated: Boolean,
   mainJarName: String,
   frontendSplit: Boolean = false,
+  hasModuleLibraries: Boolean = libraries == null || libraries.isNotEmpty(),
 ): DerivedMemberJar {
   val relativeOutputFile = deriveMemberJarPath(
     moduleName = moduleName,
     loadingRule = loadingRule,
     hasPackageAttribute = hasPackageAttribute,
-    mergesLibraries = libraries == null || libraries.isNotEmpty(),
+    hasModuleLibraries = hasModuleLibraries,
     mainJarName = mainJarName,
     frontendSplit = frontendSplit,
   )
@@ -395,22 +374,19 @@ fun deriveMemberJar(
 @ApiStatus.Internal
 const val EMBEDDED_LOADING_RULE: String = "embedded"
 
-/** The two facts the jar path reads out of a content module's own descriptor. */
+/** The fact the jar path reads out of a content module's own descriptor. */
 @ApiStatus.Internal
 class MemberDescriptorFacts(
   @JvmField val hasPackageAttribute: Boolean,
 )
 
 /**
- * [module]'s own `<module>.xml`, read for the two facts the jar path depends on, or `null` when no resource root holds it.
+ * [module]'s own `<module>.xml`, read for the fact the jar path depends on, or `null` when no resource root holds it.
  */
 @ApiStatus.Internal
 fun memberDescriptor(module: JpsModule): MemberDescriptorFacts? {
   val file = descriptorFiles(module = module, loadPath = module.name + ".xml").firstOrNull() ?: return null
-  val text = file.readText()
-  return MemberDescriptorFacts(
-    hasPackageAttribute = JDOMUtil.load(text).getAttributeValue("package") != null,
-  )
+  return MemberDescriptorFacts(hasPackageAttribute = parseContentAndXIncludes(Files.readAllBytes(file), file.toString()).hasPackage)
 }
 
 /**

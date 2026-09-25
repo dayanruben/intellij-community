@@ -1,8 +1,6 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.sdk;
 
-import com.intellij.python.sdk.backend.PythonInterpreterExtKt;
-import com.intellij.python.sdk.backend.PythonInterpreter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer;
@@ -39,9 +37,11 @@ import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.platform.backend.observation.TrackingUtil;
+import com.intellij.python.sdk.backend.PythonInterpreter;
+import com.intellij.python.sdk.backend.PythonInterpreterExtKt;
 import com.intellij.util.ExceptionUtil;
-import com.intellij.util.SystemProperties;
 import com.intellij.util.Processor;
+import com.intellij.util.SystemProperties;
 import com.intellij.util.containers.ContainerUtil;
 import com.jetbrains.python.PyBundle;
 import com.jetbrains.python.PyPsiPackageUtil;
@@ -56,11 +56,13 @@ import com.jetbrains.python.sdk.headless.PythonActivityKey;
 import com.jetbrains.python.sdk.impl.SdkInternalUtilKt;
 import com.jetbrains.python.sdk.legacy.PythonSdkUtil;
 import com.jetbrains.python.sdk.skeletons.PySkeletonRefresher;
+import com.jetbrains.python.sdk.targetsFacade.PyTargetsIntrospectionFacade;
 import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
+import org.jetbrains.annotations.VisibleForTesting;
 
 import java.awt.Component;
 import java.io.IOException;
@@ -318,6 +320,11 @@ public final class PythonSdkUpdater {
       if (myProject.isDisposed() || isSdkDisposed()) {
         return;
       }
+      // An SDK built outside the blessed creation path carries no PythonSdkAdditionalData, and the package manager is
+      // keyed by it. Nothing here can recover that, and this task runs in the background, so skip such an SDK.
+      if (!(mySdk.getSdkAdditionalData() instanceof PythonSdkAdditionalData)) {
+        return;
+      }
       PythonPackageManager manager = PythonPackageManager.Companion.forSdk(myProject, mySdk);
       // Cancel the indicator when the SDK is disposed to terminate any running processes (e.g., skeleton generation).
       // This explicit cancellation should become unnecessary on migrating PythonSdkUpdater to coroutines and withBackgroundProgress.
@@ -336,16 +343,14 @@ public final class PythonSdkUpdater {
       }
       try {
         PythonInterpreter pythonInterpreter = pythonInterpreter(mySdk, true);
-        PyTargetsIntrospectionFacade targetsFacade = new PyTargetsIntrospectionFacade(mySdk, myProject);
+        PyTargetsIntrospectionFacade targetsFacade = PyTargetsIntrospectionFacade.create(mySdk, myProject);
         String version = targetsFacade.getInterpreterVersion(indicator);
         commitSdkVersionIfChanged(mySdk, version);
         if (targetsFacade.isLocalTarget()) {
           List<String> paths = targetsFacade.getInterpreterPaths(indicator);
           updateSdkPaths(pythonInterpreter, paths);
         }
-        else {
-          targetsFacade.synchronizeRemoteSourcesAndSetupMappings(indicator);
-        }
+        targetsFacade.synchronizeRemoteSourcesAndSetupMappingsIfNeeded(indicator);
         // This step also includes setting mapped interpreter paths
         generateSkeletons(pythonInterpreter, indicator);
         if (myRequestData.withPackagesUpdate) {
@@ -353,7 +358,7 @@ public final class PythonSdkUpdater {
         }
         addBundledPyiStubsToInterpreterPaths(manager);
       }
-      catch (ExecutionException e) {
+      catch (ExecutionException | InvalidSdkException e) {
         LOG.warn("Update for SDK " + mySdk.getName() + " failed", e);
       }
       finally {
@@ -389,14 +394,7 @@ public final class PythonSdkUpdater {
         .toList();
 
       LOG.info("Bundled .pyi stub roots for SDK " + packageManager.getSdk() + ":" + bundledStubRoots);
-      changeSdkModificator(packageManager.getSdk(), effectiveModificator -> {
-        VirtualFile[] currentRoots = effectiveModificator.getRoots(OrderRootType.CLASSES);
-        effectiveModificator.removeAllRoots();
-        for (VirtualFile sdkPath : ContainerUtil.concat(List.of(currentRoots), bundledStubRoots)) {
-          effectiveModificator.addRoot(PythonSdkType.getSdkRootVirtualFile(sdkPath), OrderRootType.CLASSES);
-        }
-        return true;
-      });
+      commitBundledStubRootsIfChanged(packageManager.getSdk(), bundledStubRoots);
     }
 
     private @NotNull Disposable getIndicatorDisposable(@NotNull ProgressIndicator indicator) {
@@ -758,14 +756,14 @@ public final class PythonSdkUpdater {
    * <p>
    * Returns all the existing paths except those manually excluded by the user.
    */
-  private static @NotNull List<String> evaluateSysPath(@NotNull Sdk sdk, @NotNull Project project) throws ExecutionException {
+  private static @NotNull List<String> evaluateSysPath(@NotNull Sdk sdk, @NotNull Project project) throws ExecutionException, InvalidSdkException {
     final long startTime = System.currentTimeMillis();
     ProgressManager.progress(PyBundle.message("sdk.updating.interpreter.paths"));
     if (ApplicationManager.getApplication().isUnitTestMode() && PythonSdkType.isMock(sdk)) {
       // Mock sdk in tests can't be executed
       return PythonSdkType.getMockPath(sdk);
     }
-    final List<String> sysPath = new PyTargetsIntrospectionFacade(sdk, project).getInterpreterPaths(new EmptyProgressIndicator());
+    final List<String> sysPath = PyTargetsIntrospectionFacade.create(sdk, project).getInterpreterPaths(new EmptyProgressIndicator());
     LOG.info("Updating sys.path took " + (System.currentTimeMillis() - startTime) + " ms");
     return sysPath;
   }
@@ -778,29 +776,76 @@ public final class PythonSdkUpdater {
   private static void commitSdkPathsIfChanged(@NotNull Sdk sdk,
                                               final @NotNull List<VirtualFile> sdkPaths,
                                               boolean forceCommit) {
-    final List<VirtualFile> currentSdkPaths = Arrays.asList(sdk.getRootProvider().getFiles(OrderRootType.CLASSES));
-    if (forceCommit || !Sets.newHashSet(sdkPaths).equals(Sets.newHashSet(currentSdkPaths))) {
-      changeSdkModificator(sdk, effectiveModificator -> {
-        effectiveModificator.removeAllRoots();
-        for (VirtualFile sdkPath : sdkPaths) {
-          effectiveModificator.addRoot(PythonSdkType.getSdkRootVirtualFile(sdkPath), OrderRootType.CLASSES);
-        }
-        return true;
-      });
+    changeSdkModificator(sdk, effectiveModificator -> {
+      final List<VirtualFile> currentRoots = Arrays.asList(effectiveModificator.getRoots(OrderRootType.CLASSES));
+      // The bundled stub roots are not on sys.path, so these paths never contain them, and commitBundledStubRootsIfChanged
+      // decides about them later in the same update. Dropping them here made every update commit the roots twice: once
+      // without the stub roots and once with them again, and each commit rescans all roots of the SDK.
+      final List<VirtualFile> newRoots = new ArrayList<>(ContainerUtil.map(sdkPaths, PythonSdkType::getSdkRootVirtualFile));
+      newRoots.addAll(ContainerUtil.filter(currentRoots, root -> isBundledStubRoot(root) && !newRoots.contains(root)));
+      return setClassesRootsIfChanged(effectiveModificator, currentRoots, newRoots, forceCommit);
+    });
+  }
+
+  /**
+   * Makes the bundled stub roots of the SDK exactly {@code bundledStubRoots} and keeps all its other roots. It is the only
+   * place that removes the stub root of a package which is no longer installed, because {@link #commitSdkPathsIfChanged}
+   * keeps the stub roots.
+   * <p>
+   * Commits only a change: an update that computes the same roots again must not commit, because each commit rescans all
+   * roots of the SDK, and a commit publishes the SDK in two steps that a concurrent reader can observe halfway through.
+   */
+  private static void commitBundledStubRootsIfChanged(@NotNull Sdk sdk, @NotNull List<VirtualFile> bundledStubRoots) {
+    changeSdkModificator(sdk, effectiveModificator -> {
+      final List<VirtualFile> currentRoots = Arrays.asList(effectiveModificator.getRoots(OrderRootType.CLASSES));
+      final List<VirtualFile> newRoots = new ArrayList<>(ContainerUtil.filter(currentRoots, root -> !isBundledStubRoot(root)));
+      for (VirtualFile stubRoot : ContainerUtil.map(bundledStubRoots, PythonSdkType::getSdkRootVirtualFile)) {
+        if (!newRoots.contains(stubRoot)) newRoots.add(stubRoot);
+      }
+      return setClassesRootsIfChanged(effectiveModificator, currentRoots, newRoots, false);
+    });
+  }
+
+  /**
+   * A root that {@link #commitBundledStubRootsIfChanged} manages: the directory of one stub package of the bundled Typeshed
+   * or of the bundled stubs.
+   */
+  private static boolean isBundledStubRoot(@NotNull VirtualFile root) {
+    final VirtualFile parent = root.getParent();
+    return parent != null && (parent.equals(PyTypeShed.INSTANCE.getThirdPartyStubRoot()) || parent.equals(PyBundledStubs.INSTANCE.getRoot()));
+  }
+
+  private static boolean setClassesRootsIfChanged(@NotNull SdkModificator modificator,
+                                                  @NotNull List<VirtualFile> currentRoots,
+                                                  @NotNull List<VirtualFile> newRoots,
+                                                  boolean forceCommit) {
+    if (!forceCommit && Sets.newHashSet(newRoots).equals(Sets.newHashSet(currentRoots))) {
+      return false;
     }
+    modificator.removeAllRoots();
+    for (VirtualFile root : newRoots) {
+      modificator.addRoot(root, OrderRootType.CLASSES);
+    }
+    return true;
   }
 
   /**
    * Applies a processor to an SDK modificator or an SDK and commits it.
    * <p>
-   * You may invoke it from any threads. Blocks until the commit is done in the AWT thread.
+   * You may invoke it from any thread. Blocks until the commit is done, in a write action on the calling thread.
+   * <p>
+   * The commit needs write access and not the EDT ({@link com.intellij.openapi.projectRoots.impl.ProjectJdkImpl#commitChanges}
+   * asserts the former only), and every caller here already runs in the background. Hopping to the EDT for it held the
+   * lock on the EDT for the whole of the workspace-model update the commit performs, which is a freeze (PY-89734).
+   * <p>
+   * The modificator is built inside the write action, so the SDK cannot change between the two.
    */
   private static void changeSdkModificator(@NotNull Sdk sdk, @NotNull Processor<? super SdkModificator> processor) {
     TransactionGuard.getInstance().assertWriteSafeContext(ModalityState.defaultModalityState());
-    ApplicationManager.getApplication().invokeAndWait(() -> {
+    ApplicationManager.getApplication().runWriteAction(() -> {
       final SdkModificator effectiveModificator = sdk.getSdkModificator();
       if (processor.process(effectiveModificator)) {
-        ApplicationManager.getApplication().runWriteAction(() -> effectiveModificator.commitChanges());
+        effectiveModificator.commitChanges();
       }
     });
   }

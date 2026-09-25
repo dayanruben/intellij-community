@@ -29,6 +29,7 @@ import com.intellij.platform.eel.provider.getEelDescriptor
 import com.intellij.platform.eel.provider.toEelApi
 import com.intellij.platform.eel.spawnProcess
 import com.intellij.platform.lsp.api.customization.LspCustomization
+import com.intellij.util.PlatformUtils
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.concurrency.annotations.RequiresReadLock
 import com.intellij.util.io.BaseDataReader
@@ -107,8 +108,8 @@ abstract class LspClientDescriptor protected constructor(
    *   override fun isSupportedFile(file: VirtualFile) = file.fileType == FooFileType.INSTANCE
    * ```
    *
-   * @param file the file is guaranteed to be valid, in a local file system, and within project content roots. However, it might be not
-   *             within the roots configured for this LSP server, which is usually fine.
+   * @param file the file is guaranteed to be valid and within project content roots. It may be located on a remote
+   *             execution host and might not be within the roots configured for this LSP server, which is usually fine.
    */
   @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
   abstract fun isSupportedFile(file: VirtualFile): Boolean
@@ -273,6 +274,7 @@ abstract class LspClientDescriptor protected constructor(
   protected open fun findLocalFileByPath(path: String): VirtualFile? {
     val descriptor = project.getEelDescriptor()
     if (descriptor !is LocalEelDescriptor) {
+      if (PlatformUtils.isJetBrainsClient()) return VirtualFileManager.getInstance().findFileByUrl("cwm://$path")
       val file = runCatching {
         StandardFileSystems.local().findFileByPath(EelPath.parse(path, descriptor).asNioPath().toString())
       }.getOrNull()

@@ -10,6 +10,7 @@ import com.intellij.platform.searchEverywhere.SeResultAddedEvent
 import com.intellij.platform.searchEverywhere.SeResultEndEvent
 import com.intellij.platform.searchEverywhere.SeResultEvent
 import com.intellij.platform.searchEverywhere.SeResultReplacedEvent
+import com.intellij.platform.searchEverywhere.SeResultSkippedEvent
 import com.intellij.platform.searchEverywhere.frontend.vm.SeSearchContext
 import com.intellij.platform.searchEverywhere.isCommand
 import com.intellij.platform.searchEverywhere.isExactMatch
@@ -46,14 +47,20 @@ interface SeResultList {
 }
 
 @ApiStatus.Internal
-fun SeResultList.handleEvent(searchContext: SeSearchContext, event: SeResultEvent, onAdd: ((SeItemData) -> Unit)? = null, onRemove: (() -> Unit)? = null) {
+fun SeResultList.handleEvent(
+  searchContext: SeSearchContext,
+  event: SeResultEvent,
+  isZeroOffset: Boolean,
+  onAdd: ((SeItemData) -> Unit)? = null,
+  onRemove: (() -> Unit)? = null,
+) {
   when (event) {
     is SeResultAddedEvent -> {
       if (pendingReplacementElementUuids.remove(event.itemData.uuid)) {
         SeLog.log(SeLog.DEFAULT) { "SeResultAddedEvent: uuid ${event.itemData.uuid} was skipped because it was supposed to be replaced by an element which came earlier" }
       }
       else {
-        val index = indexToAdd(event.itemData, searchContext.searchPattern)
+        val index = indexToAdd(event.itemData, searchContext.searchPattern, isZeroOffset)
         addRow(index, SeResultListItemRow(event.itemData))
         onAdd?.invoke(event.itemData)
 
@@ -78,7 +85,7 @@ fun SeResultList.handleEvent(searchContext: SeSearchContext, event: SeResultEven
       }.sortedDescending()
 
       if (indexes.isEmpty()) {
-        val index = indexToAdd(event.newItemData, searchContext.searchPattern)
+        val index = indexToAdd(event.newItemData, searchContext.searchPattern, isZeroOffset)
         addRow(index, SeResultListItemRow(event.newItemData))
         onAdd?.invoke(event.newItemData)
       }
@@ -94,11 +101,11 @@ fun SeResultList.handleEvent(searchContext: SeSearchContext, event: SeResultEven
         }
       }
     }
-    is SeResultEndEvent -> {} // Do nothing
+    is SeResultEndEvent, is SeResultSkippedEvent -> {} // Do nothing
   }
 }
 
-private fun SeResultList.indexToAdd(newItem: SeItemData, searchPattern: String): Int {
+private fun SeResultList.indexToAdd(newItem: SeItemData, searchPattern: String, isZeroOffset: Boolean): Int {
   if (newItem.isCommand) {
     val firstNotCommandIndex = firstIndexOrNull(true, true) { item -> !item.isCommand } ?: size
 
@@ -119,7 +126,9 @@ private fun SeResultList.indexToAdd(newItem: SeItemData, searchPattern: String):
     return firstNotCommandIndex
   }
 
-  return firstIndexOrNull(false) { item ->
+  val shouldIgnoreFrozenElements = isZeroOffset && newItem.isExactMatch
+
+  return firstIndexOrNull(shouldIgnoreFrozenElements) { item ->
     if (item.isCommand) return@firstIndexOrNull false
 
     shouldInsertAbove(

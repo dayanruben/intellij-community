@@ -18,8 +18,9 @@ load(
     "maven_coordinates_urls",
     "maven_url",
     "platform_parts",
+    "text_repo_files",
 )
-load(":test_deps_extension.bzl", "all_downloads_pinned", "find_download_conflict")
+load(":test_deps_extension.bzl", "all_downloads_pinned", "find_download_conflict", "manifest_content")
 
 _JBR = "https://cache-redirector.jetbrains.com/intellij-jbr"
 _MAVEN = "https://cache-redirector.jetbrains.com/repo.maven.apache.org/maven2"
@@ -148,6 +149,41 @@ def _download_repository_integrity_test_impl(ctx):
 
 download_repository_integrity_test = unittest.make(_download_repository_integrity_test_impl)
 
+def _manifest_content_test_impl(ctx):
+    env = unittest.begin(ctx)
+
+    # A repository that declares no file still writes a manifest, and `PreloadedDownloads.parse` rejects a
+    # blank row, so the header must stand alone rather than gain an empty line after it.
+    asserts.equals(env, "intellij-build-downloads\t1\n", manifest_content([]))
+    asserts.equals(
+        env,
+        "intellij-build-downloads\t1\none.zip\t%s\thttps://example.test/one.zip\n" % ("a" * 64),
+        manifest_content(["one.zip\t%s\thttps://example.test/one.zip" % ("a" * 64)]),
+    )
+    asserts.equals(
+        env,
+        "intellij-build-downloads\t1\nfirst\nsecond\n",
+        manifest_content(["first", "second"]),
+    )
+    return unittest.end(env)
+
+manifest_content_test = unittest.make(_manifest_content_test_impl)
+
+# The file holds the value byte for byte, with no trailing newline, as `Files.writeString` of the production generator.
+def _text_repo_files_test_impl(ctx):
+    env = unittest.begin(ctx)
+    asserts.equals(
+        env,
+        {
+            "BUILD": 'package(default_visibility = ["//visibility:public"])\n\nexports_files(["build.txt"])\n',
+            "build.txt": "3.2.0.65851",
+        },
+        text_repo_files("build.txt", "3.2.0.65851"),
+    )
+    return unittest.end(env)
+
+text_repo_files_test = unittest.make(_text_repo_files_test_impl)
+
 def dev_launch_dependencies_test_suite(name):
     """Test suite for the URL builders in dev_launch_dependencies.bzl."""
     unittest.suite(
@@ -158,5 +194,7 @@ def dev_launch_dependencies_test_suite(name):
         lib_ghostty_vt_url_test,
         maven_url_test,
         maven_coordinates_urls_test,
+        manifest_content_test,
         download_repository_integrity_test,
+        text_repo_files_test,
     )

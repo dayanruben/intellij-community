@@ -9,9 +9,12 @@
     <module name="intellij.platform.ide"/>
     <module name="intellij.platform.ide.core"/>
     <module name="intellij.platform.ide.core.impl"/>
+    <module name="intellij.platform.ide.impl"/>
     <module name="intellij.platform.ide.nonModalWelcomeScreen"/>
+    <module name="intellij.platform.ide.rpc"/>
     <module name="intellij.platform.project"/>
     <module name="intellij.platform.rpc.backend"/>
+    <module name="intellij.platform.util.ui"/>
   </dependencies>
   <!-- endregion -->
 
@@ -23,5 +26,7 @@
   <extensions defaultExtensionNs="com.intellij">
     <platform.rpc.backend.remoteApiProvider implementation="com.intellij.platform.ide.nonModalWelcomeScreen.backend.BackendWelcomeScreenFeatureApiProvider"
                                             apiInterfaces="com.intellij.platform.ide.nonModalWelcomeScreen.rightTab.WelcomeScreenFeatureApi"/>
+    <platform.rpc.backend.remoteApiProvider implementation="com.intellij.platform.ide.nonModalWelcomeScreen.backend.WelcomeScreenLeftPanelRpcProvider"
+                                            apiInterfaces="com.intellij.platform.ide.nonModalWelcomeScreen.leftPanel.WelcomeScreenLeftPanelRpc"/>
   </extensions>
 </idea-plugin>

@@ -230,10 +230,13 @@ fleet/build/bundles
 fleet/build/cli
 fleet/build/codecache
 fleet/build/fs
+fleet/build/fs/tests
 fleet/build/http
+fleet/build/http/tests
 fleet/build/kernel.plugins.processor
 fleet/build/platform
 fleet/build/s3
+fleet/build/s3/tests
 fleet/build/sign
 fleet/bundles
 fleet/codecache
@@ -318,7 +321,9 @@ java/java-analysis-api
 java/java-analysis-impl
 java/java-backend
 java/java-bookmarks
+java/java-completion-tests
 java/java-copyright
+java/java-dumb-completion-tests
 java/java-features-trainer
 java/java-frontback-impl
 java/java-frontback-psi-api
@@ -1212,6 +1217,7 @@ plugins/devkit/intellij.devkit.compose
 plugins/devkit/intellij.devkit.debugger
 plugins/devkit/intellij.devkit.experiments
 plugins/devkit/intellij.devkit.gradle
+plugins/devkit/intellij.devkit.gradle.toml
 plugins/devkit/intellij.devkit.gradle.tooling
 plugins/devkit/intellij.devkit.i18n
 plugins/devkit/intellij.devkit.intelliLang
@@ -1381,6 +1387,7 @@ plugins/junit/kotlin-tests-k2
 plugins/junit/kotlin-tests-shared
 plugins/junit/properties
 plugins/junit/testFramework
+plugins/junit/vcs
 plugins/junit5_rt
 plugins/junit5_rt_tests
 plugins/junit6_rt

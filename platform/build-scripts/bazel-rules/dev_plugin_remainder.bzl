@@ -5,7 +5,8 @@ load("@rules_java//java:defs.bzl", "JavaInfo")
 load("@rules_kotlin//kotlin/internal:defs.bzl", _KtJvmInfo = "KtJvmInfo")
 load("//build:dev_launch_dependencies.bzl", "HOST_PLATFORMS", "platform_parts")
 load(":content_module_jar.bzl", "ContentModuleJarInfo", "library_entries", "module_output_jar")
-load(":dev_dist_plugin_descriptor.bzl", "DevDistPluginDescriptorInfo", "DevDistProductInfo", "dev_dist_neutral_product_transition", "dev_dist_product_info_transition")
+load(":dev_dist_content.bzl", "DevDistContentInfo")
+load(":dev_dist_plugin_descriptor.bzl", "DevDistPluginDescriptorInfo", "DevDistProductInfo", "dev_dist_neutral_product_transition")
 load(":dev_plugin.bzl", "dev_dist_plugin_directory")
 load(":dev_plugin_source_tree.bzl", "source_tree_entries", "source_tree_prefix")
 load(":intellij_dev_dist.bzl", "IntellijDevFragmentInfo")
@@ -60,12 +61,15 @@ def _declare_source_trees(ctx):
             sorted(by_id.keys()),
             sorted(ctx.attr.source_tree_prefixes.keys()),
         ))
+    optional = {identifier: True for identifier in ctx.attr.optional_source_trees}
+    if any([identifier not in by_id for identifier in optional]):
+        fail("optional source tree IDs are not declared source trees: %s" % sorted(optional.keys()))
 
     result = {}
     for index, identifier in enumerate(sorted(by_id.keys())):
         target = by_id[identifier]
         prefix = source_tree_prefix(ctx.attr.source_tree_prefixes[identifier], identifier)
-        entries = source_tree_entries(target[DefaultInfo].files.to_list(), prefix, identifier, target.label)
+        entries = source_tree_entries(target[DefaultInfo].files.to_list(), prefix, identifier, target.label, optional = identifier in optional)
 
         archive = ctx.actions.declare_file(ctx.label.name + ".source-tree-%d.zip" % index)
         directory = ctx.actions.declare_directory(ctx.label.name + ".source-tree-%d" % index)
@@ -77,14 +81,17 @@ def _declare_source_trees(ctx):
             args.add("%s=%s" % (entry, file.path))
         args.use_param_file("@%s", use_always = True)
         args.set_param_file_format("multiline")
-        ctx.actions.run(
-            executable = ctx.executable._zipper,
-            arguments = ["c", archive.path, args],
-            inputs = inputs,
-            outputs = [archive],
-            mnemonic = "DevPluginSourceTreeArchive",
-            progress_message = "Normalizing source tree %s" % identifier,
-        )
+        if entries:
+            ctx.actions.run(
+                executable = ctx.executable._zipper,
+                arguments = ["c", archive.path, args],
+                inputs = inputs,
+                outputs = [archive],
+                mnemonic = "DevPluginSourceTreeArchive",
+                progress_message = "Normalizing source tree %s" % identifier,
+            )
+        else:
+            ctx.actions.write(archive, "PK\005\006" + ("\000" * 18))
         ctx.actions.run(
             executable = ctx.executable._zipper,
             arguments = ["x", archive.path, "-d", directory.path],
@@ -200,6 +207,7 @@ dev_jupyter_frontend = rule(
         "local_paths": attr.string_dict(),
         "source_tree_targets": attr.string_keyed_label_dict(allow_files = True),
         "source_tree_prefixes": attr.string_dict(),
+        "optional_source_trees": attr.string_list(),
         "_zipper": attr.label(default = "@bazel_tools//tools/zip:zipper", executable = True, cfg = "exec"),
     },
     doc = "Runs typed Jupyter preparation with resolved inputs. Skipping contributes an empty resource tree and no licenses.",
@@ -243,6 +251,7 @@ dev_debugger_egg = rule(
             mandatory = True,
             doc = "Repository-relative source prefixes keyed by pydev and metadata.",
         ),
+        "optional_source_trees": attr.string_list(),
         "build_number": attr.string(mandatory = True),
         "file_name": attr.string(default = "pydevd-pycharm.egg"),
         "preparer": attr.label(mandatory = True, executable = True, cfg = "exec"),
@@ -325,6 +334,9 @@ dev_plugin_file_graph = rule(
         ),
         "source_tree_prefixes": attr.string_dict(
             doc = "Repository-relative source prefix keyed by the matching source tree artifact ID.",
+        ),
+        "optional_source_trees": attr.string_list(
+            doc = "Source tree IDs that may have no files and then materialize as empty directories.",
         ),
         "_zipper": attr.label(
             default = "@bazel_tools//tools/zip:zipper",
@@ -493,10 +505,32 @@ def _dev_plugin_artifact_catalogue_impl(ctx):
             artifacts[identifier] = file
     libraries = {}
     members_by_path = {}
+    content_library_jars = []
     for target, identifier in compiled.libraries.items():
         identifier = _catalogue_id(identifier)
         libraries[identifier] = _library_members(ctx, identifier, target, artifacts, libraries, members_by_path)
+        content_library_jars.append(library_entries(ctx, [target], attr_name = "libraries")[0])
     catalogue = _write_catalogue(ctx, artifacts, libraries)
+
+    # The raw content: the compiled module jars and the library containers, in the neutral configuration, and the
+    # archives. A compiled input is a module target or the `<target>.jar` output file of one; both give the module's
+    # own jar, whose owner is the module rule. An archive is one jar of a library the plan names jar by jar, because the
+    # library shares another jar with a second library. It arrives as a resource input and is keyed by its own label,
+    # the way `dev_plugin.bzl` carries a jar file token. A descriptor or any other resource is no content, so a fragment
+    # that lays the plugin out without packing it declares neither.
+    content_module_jars = []
+    for target in compiled.inputs.keys():
+        if DevDistPluginDescriptorInfo in target:
+            continue
+        jar = _artifact_file(target)
+        if jar.extension == "jar" and not jar.is_directory:
+            content_module_jars.append(jar)
+    for target in ctx.attr.resource_inputs.keys():
+        if DevDistPluginDescriptorInfo in target or _KtJvmInfo in target:
+            continue
+        files = target[DefaultInfo].files.to_list()
+        if len(files) == 1 and files[0].extension == "jar" and not files[0].is_directory:
+            content_library_jars.append(struct(label = str(target.label), jars = (files[0],)))
     return [
         DefaultInfo(files = depset([catalogue])),
         DevPluginArtifactCatalogueInfo(
@@ -504,6 +538,7 @@ def _dev_plugin_artifact_catalogue_impl(ctx):
             artifacts = artifacts,
             libraries = libraries,
         ),
+        DevDistContentInfo(module_jars = depset(content_module_jars), library_jars = depset(content_library_jars)),
     ]
 
 _dev_plugin_artifact_catalogue = rule(
@@ -573,13 +608,14 @@ def _catalogue_binding(ctx, artifact_catalogue, reused_jars):
                 fail("catalogue artifact %s overlaps independent artifact %s" % (identifier, independent.path))
     return binding
 
-def _remainder_providers(ctx, graph, execution_version, directory, metadata, assets, classpath, independent_artifacts):
+def _remainder_providers(ctx, graph, execution_version, directory, metadata, assets, classpath, independent_artifacts, content):
     """The providers of a packed remainder. The component reads this one contract."""
     return [
         DefaultInfo(
             files = depset([directory]),
             runfiles = ctx.runfiles(files = [directory], transitive_files = independent_artifacts),
         ),
+        content,
         _new_remainder_info(
             graph = graph,
             execution_version = execution_version,
@@ -608,12 +644,26 @@ def _dev_plugin_remainder_from_plan_impl(ctx):
     graph = ctx.attr.graph[DevPluginGraphInfo]
     projection = graph.projection
     execution_version = graph.execution_version
-    artifact_catalogue = _transitioned_target(ctx.attr.artifact_catalogue, "artifact_catalogue")
-    descriptor_target = _transitioned_target(ctx.attr.descriptor, "descriptor")
+    artifact_catalogue = ctx.attr.artifact_catalogue
+    descriptor_target = ctx.attr.descriptor
     reused_jars = _reused_jars(ctx)
     binding = _catalogue_binding(ctx, artifact_catalogue, reused_jars)
     classpath_descriptor = _descriptor_classpath_file(descriptor_target)
     independent_artifacts = depset(reused_jars.values())
+
+    # The raw content of the whole plugin: the catalogue's compiled modules and libraries, plus what each reused content
+    # module jar merged.
+    catalogue_content = artifact_catalogue[DevDistContentInfo]
+    reused_member_jars = []
+    reused_library_jars = []
+    for target in ctx.attr.independent_artifacts:
+        info = target[ContentModuleJarInfo]
+        reused_member_jars.extend(info.member_jars)
+        reused_library_jars.extend(info.library_jars)
+    content = DevDistContentInfo(
+        module_jars = depset(reused_member_jars, transitive = [catalogue_content.module_jars]),
+        library_jars = depset(reused_library_jars, transitive = [catalogue_content.library_jars]),
+    )
     inputs = depset([projection, binding.catalogue, classpath_descriptor], transitive = [depset(binding.artifacts.values())])
     for source in inputs.to_list():
         for artifact in independent_artifacts.to_list():
@@ -643,7 +693,7 @@ def _dev_plugin_remainder_from_plan_impl(ctx):
         arguments = [arguments],
         progress_message = "Packing plugin remainder %{label} from its plan file",
     )
-    return _remainder_providers(ctx, ctx.attr.graph, execution_version, directory, metadata, assets, classpath, independent_artifacts)
+    return _remainder_providers(ctx, ctx.attr.graph, execution_version, directory, metadata, assets, classpath, independent_artifacts, content)
 
 dev_plugin_remainder_from_plan = rule(
     implementation = _dev_plugin_remainder_from_plan_impl,
@@ -656,18 +706,16 @@ prepared directory exist as a file.""",
         "graph": attr.label(mandatory = True, providers = [DevPluginGraphInfo]),
         "descriptor": attr.label(
             mandatory = True,
-            cfg = dev_dist_product_info_transition,
             providers = [DevDistPluginDescriptorInfo],
-            doc = "The produced descriptor target. The action reads its classpath descriptor. The primary descriptor reaches the action as a catalogue artifact.",
+            doc = """The produced descriptor target. The action reads its classpath descriptor. The primary descriptor reaches the action
+as a catalogue artifact. The product reaches it through the configuration the consumer of the component sets.""",
         ),
         "plugin_directory": attr.string(mandatory = True),
         "artifact_catalogue": attr.label(
             mandatory = True,
-            cfg = dev_dist_product_info_transition,
             providers = [DevPluginArtifactCatalogueInfo],
             doc = "The catalogue. The action reads every artifact of it.",
         ),
-        "product_info": attr.label(mandatory = True, providers = [DevDistProductInfo]),
         "independent_artifacts": attr.label_list(
             providers = [ContentModuleJarInfo],
             cfg = _module_transition,
@@ -682,6 +730,12 @@ reaches each jar's module and compiles it a second time. No input of the action 
 )
 
 def _dev_plugin_component_impl(ctx):
+    product = ctx.attr._product_info[DevDistProductInfo]
+    if not product.platform_prefix:
+        fail("dev_plugin_component requires a product configuration: %s states no platform prefix, so no product asked for %s" % (
+            ctx.attr._product_info.label,
+            ctx.label,
+        ))
     remainder = ctx.attr.remainder[DevPluginRemainderInfo]
     execution_version = _execution_version(remainder, "DevPluginRemainderInfo")
     if not remainder.directory.is_directory:
@@ -741,7 +795,7 @@ def _dev_plugin_component_impl(ctx):
     arguments.add(manifest, format = "--component-manifest=%s")
     arguments.add(classpath, format = "--plugin-classpath-part=%s")
     arguments.add(ctx.attr.component_name, format = "--kind=%s")
-    arguments.add(ctx.attr.platform_prefix, format = "--platform-prefix=%s")
+    arguments.add(product.platform_prefix, format = "--platform-prefix=%s")
     if ctx.attr.target_platform:
         platform = platform_parts(ctx.attr.target_platform)
         arguments.add("macos" if platform.os == "darwin" else platform.os, format = "--os=%s")
@@ -767,6 +821,8 @@ def _dev_plugin_component_impl(ctx):
     payload = depset(payload)
     return [
         DefaultInfo(files = depset([manifest, classpath]), runfiles = ctx.runfiles(transitive_files = payload)),
+        # The raw content of the plugin, forwarded from the remainder: `dev_dist_plugin_content` unions it per product.
+        ctx.attr.remainder[DevDistContentInfo],
         IntellijDevFragmentInfo(
             name = ctx.attr.component_name,
             home = None,
@@ -799,8 +855,12 @@ remainder use.""",
         ),
         "plugin_directory": attr.string(mandatory = True),
         "component_name": attr.string(mandatory = True),
-        "platform_prefix": attr.string(mandatory = True),
         "target_platform": attr.string(doc = "A `HOST_PLATFORMS` entry, or empty for a component that serves every platform."),
+        "_product_info": attr.label(
+            doc = "The product, read through the flag the consumer's transition sets. The default states no product, and the rule fails on it.",
+            default = Label("//build:dev_dist_product_info"),
+            providers = [DevDistProductInfo],
+        ),
         "_trace_spans": attr.label(default = "//platform/build-scripts/bazel-rules:trace_spans", providers = [BuildSettingInfo]),
         "_collector": attr.label(default = "//build/content-module-packer/dev-dist-collector", executable = True, cfg = "exec"),
         "_allowlist_function_transition": attr.label(default = Label("@bazel_tools//tools/allowlists/function_transition_allowlist")),
@@ -852,33 +912,14 @@ def platform_values_error(main_module, platforms, platform_values):
                 return "%s on %s: %s" % (main_module, platform, error)
     return None
 
-def plan_product_error(main_module, product, plan_product):
-    """Returns why `plan_product` does not fit `product`, or None when it does.
-
-    `dev_dist_complex_plugin` fails with the message at load time. A non-empty `plan_product` is the product itself: the
-    plan file of a divergent product is named by that product, and a chain never reads the plan file of another one.
-
-    Args:
-        main_module: The plugin's main module, named in the message.
-        product: The `product` argument of the call.
-        plan_product: The `plan_product` argument of the call.
-
-    Returns:
-        The message, or None.
-    """
-    if plan_product and plan_product != product:
-        return "%s names the plan product '%s', which is not its product '%s'" % (main_module, plan_product, product)
-    return None
-
 def dev_dist_complex_plugin(
         main_module,
-        product,
-        product_info,
         descriptor,
         execution_version,
         platforms = None,
         platform_values = {},
-        plan_product = "",
+        plan_class = "",
+        chain_class = "",
         plan_package = "",
         directory_name = "",
         artifact_inputs = {},
@@ -886,36 +927,40 @@ def dev_dist_complex_plugin(
         libraries = {},
         source_tree_targets = {},
         source_tree_prefixes = {},
+        optional_source_trees = [],
         independent_artifacts = [],
         tags = [],
         visibility = ["//visibility:public"]):
     """Declares the execution chains of one complex plugin: one chain per platform it is bundled on, or one for all.
 
+    One call serves every product whose rendered call is the same. The call states no product. The consumer of the
+    component sets the product through `dev_dist_product_info_transition`, and the descriptor and the collector read it
+    there.
+
     The generator states the facts that vary per plugin. The macro derives everything that follows from them: the chain
-    stem `<product>[_<platform>]_<main module>`, the component name, the plan file label
-    `<plan_package>:<main module>[.<plan_product>][.<platform>].dev-plan.json`, the plugin directory, and the
-    descriptor's catalogue entry `descriptor:<main module>`, which every product shares. A `{platform}` token in a
-    label or an ID is replaced by the chain's platform, so a plugin whose platform layouts differ only in that token is
-    one call. A plan file holds the same token and `{platform:<name>}` slots as whole string leaves. The graph of each
-    chain resolves them from `platform_values`. Each chain is one `dev_dist_complex_plugin_variant`.
+    stem `<main module>[.<chain class>][_<platform>]`, the component name, the plan file label
+    `<plan_package>:<main module>[.<plan class>][.<platform>].dev-plan.json`, the plugin directory, and the
+    descriptor's catalogue entry `descriptor:<main module>`. A `{platform}` token in a label or an ID is replaced by the
+    chain's platform, so a plugin whose platform layouts differ only in that token is one call. A plan file holds the
+    same token and `{platform:<name>}` slots as whole string leaves. The graph of each chain resolves them from
+    `platform_values`. Each chain is one `dev_dist_complex_plugin_variant`.
 
     Args:
         main_module: The plugin's main module. It is the component name and the plan file stem.
-        product: The product's platform prefix, the first element of every chain stem.
-        plan_product: The product in the plan file name, `<main module>.<plan_product>[.<platform>].dev-plan.json`,
-            for a product whose plan text differs from the baseline product's. Empty for a plan file the product shares
-            with the baseline product.
-        plan_package: The package that holds the plan file, as an absolute label such as
-            `@community//plugins/kotlin/plugin`. Empty for a plan file in the package of the call.
-        product_info: The product info target that configures the descriptor and the catalogue.
         descriptor: The produced descriptor target. It may hold the platform token.
         execution_version: The execution version derived from the projection assets.
         platforms: The `HOST_PLATFORMS` entries the plugin is bundled on, one chain each, or `None` for one chain
             that serves every platform.
         platform_values: The value of each plan file slot per platform, `{platform: {slot name: value}}`. A non-empty
             dict needs `platforms`, names every one of them, states the same slot names on each, and names the plan
-            file `<main module>[.<plan_product>].dev-plan.json`. An empty dict with `platforms` names one plan file
-            per chain, `<main module>[.<plan_product>].<platform>.dev-plan.json`.
+            file `<main module>[.<plan class>].dev-plan.json`. An empty dict with `platforms` names one plan file
+            per chain, `<main module>[.<plan class>].<platform>.dev-plan.json`.
+        plan_class: The name of a plan text that differs from the baseline text, the first product that states it.
+            Empty for the baseline text.
+        chain_class: The name of a call that differs from the baseline call, the first product that states it. Empty
+            for the baseline call. It keeps the chain stems of two calls of one plugin apart.
+        plan_package: The package that holds the plan file, as an absolute label such as
+            `@community//plugins/kotlin/plugin`. Empty for a plan file in the package of the call.
         directory_name: The layout's explicit directory name, or empty for the one derived from the main module.
         artifact_inputs: Compiled targets mapped to stable artifact IDs.
         resource_inputs: Resource targets mapped to stable artifact IDs, without the descriptor.
@@ -923,8 +968,9 @@ def dev_dist_complex_plugin(
             jars.
         source_tree_targets: Declared source targets keyed by the artifact ID of each normalized directory.
         source_tree_prefixes: Repository-relative source prefix keyed by the source tree artifact ID.
+        optional_source_trees: Source tree IDs that may have no files and then materialize as empty directories.
         independent_artifacts: The `content_module_jar` targets whose jar the plugin reuses.
-        tags: Tags for every target of every chain.
+        tags: Tags for every target of every chain. `manual` is added.
         visibility: The visibility of every component. Public by default, because the product's dist is in another
             package. The other targets of a chain keep the package default.
     """
@@ -936,11 +982,9 @@ def dev_dist_complex_plugin(
     error = platform_values_error(main_module, platforms, platform_values)
     if error:
         fail(error)
-    error = plan_product_error(main_module, product, plan_product)
-    if error:
-        fail(error)
     descriptor_id = "descriptor:" + main_module
-    plan_stem = plan_package + ":" + main_module + ("." + plan_product if plan_product else "")
+    plan_stem = plan_package + ":" + main_module + ("." + plan_class if plan_class else "")
+    chain_stem = main_module + ("." + chain_class if chain_class else "")
     for platform in platforms or [None]:
         projection = plan_stem + ("." + platform if platform and not platform_values else "") + ".dev-plan.json"
         chain_descriptor = _for_platform(descriptor, platform)
@@ -949,18 +993,17 @@ def dev_dist_complex_plugin(
             fail("%s states its descriptor %s in resource_inputs; the macro adds that entry" % (main_module, chain_descriptor))
         chain_resources[chain_descriptor] = descriptor_id
         dev_dist_complex_plugin_variant(
-            name = "_".join([product] + ([platform] if platform else []) + [main_module]),
+            name = chain_stem + ("_" + platform if platform else ""),
             projection = projection,
             execution_version = execution_version,
             descriptor = chain_descriptor,
             plugin_directory = dev_dist_plugin_directory(main_module, directory_name),
             component_name = main_module,
-            platform_prefix = product,
-            product_info = product_info,
             target_platform = platform,
             platform_values = platform_values[platform] if platform_values else {},
             source_tree_targets = _dict_for_platform(source_tree_targets, platform, "source_tree_targets"),
             source_tree_prefixes = _dict_for_platform(source_tree_prefixes, platform, "source_tree_prefixes"),
+            optional_source_trees = optional_source_trees,
             artifact_inputs = _dict_for_platform(artifact_inputs, platform, "artifact_inputs"),
             resource_inputs = chain_resources,
             libraries = _dict_for_platform(libraries, platform, "libraries"),
@@ -976,12 +1019,11 @@ def dev_dist_complex_plugin_variant(
         descriptor,
         plugin_directory,
         component_name,
-        platform_prefix,
-        product_info,
         target_platform = None,
         platform_values = {},
         source_tree_targets = {},
         source_tree_prefixes = {},
+        optional_source_trees = [],
         artifact_inputs = {},
         resource_inputs = {},
         libraries = {},
@@ -991,39 +1033,40 @@ def dev_dist_complex_plugin_variant(
     """Declares the execution chain of one complex plugin variant, every argument stated.
 
     `dev_dist_complex_plugin` derives these arguments; this form is for a test that pins one of them. A chain is four
-    targets: `<name>_graph`, `<name>_catalogue`, `<name>_remainder` and `<name>_component`. The `<name>_remainder` is a
+    `manual` targets: `<name>_graph`, `<name>_catalogue`, `<name>_remainder` and `<name>_component`. Only the consumer
+    of the component states the product, so no target of the chain builds on its own. The `<name>_remainder` is a
     `dev_plugin_remainder_from_plan`. Its Go action executes the operations from the plan file.
     `DEV_DIST_PLUGIN_COMPONENTS` names the component. The macro merges the declarations only. The actions and their
     cache policies stay separate.
 
     Args:
-        name: The chain stem, `<product>[_<platform>]_<main module>`.
+        name: The chain stem, `<main module>[.<chain class>][_<platform>]`.
         projection: The plan file label, in this package or in another one. The graph resolves it for
             `target_platform`.
         execution_version: The execution version derived from the projection assets.
         descriptor: The produced descriptor target.
         plugin_directory: The plugin directory in the distribution, `plugins/<directory name>`.
         component_name: The component kind, the plugin's main module.
-        platform_prefix: The product's platform prefix.
-        product_info: The product info target that configures the descriptor and the catalogue.
         target_platform: A `HOST_PLATFORMS` entry, or `None` for a component that serves every platform.
         platform_values: The value of each `{platform:<name>}` slot of the plan file for `target_platform`, keyed by
             name. Empty for a chain that serves every platform.
         source_tree_targets: Declared source targets keyed by the artifact ID of each normalized directory. One
             target may serve two IDs with different prefixes.
         source_tree_prefixes: Repository-relative source prefix keyed by the source tree artifact ID.
+        optional_source_trees: Source tree IDs that may have no files and then materialize as empty directories.
         artifact_inputs: Compiled targets mapped to stable artifact IDs.
         resource_inputs: Resource and descriptor targets mapped to stable artifact IDs.
         libraries: Library container targets mapped to stable library IDs.
         independent_artifacts: The `content_module_jar` targets whose jar the plugin reuses. Both rules read the jar
             and the module name from `ContentModuleJarInfo`; the module name is the artifact ID of the reused jar.
-        tags: Tags for every target of the chain.
+        tags: Tags for every target of the chain. `manual` is added.
         visibility: The visibility of `<name>_component`. The graph, the catalogue and the remainder keep the package
             default.
     """
     graph = name + "_graph"
     catalogue = name + "_catalogue"
     remainder = name + "_remainder"
+    tags = tags + ["manual"]
     dev_plugin_file_graph(
         name = graph,
         projection = projection,
@@ -1032,6 +1075,7 @@ def dev_dist_complex_plugin_variant(
         execution_version = execution_version,
         source_tree_targets = source_tree_targets,
         source_tree_prefixes = source_tree_prefixes,
+        optional_source_trees = optional_source_trees,
         tags = tags,
     )
     dev_plugin_artifact_catalogue(
@@ -1048,7 +1092,6 @@ def dev_dist_complex_plugin_variant(
         artifact_catalogue = ":" + catalogue,
         descriptor = descriptor,
         plugin_directory = plugin_directory,
-        product_info = product_info,
         independent_artifacts = independent_artifacts,
         tags = tags,
     )
@@ -1058,7 +1101,6 @@ def dev_dist_complex_plugin_variant(
         independent_artifacts = independent_artifacts,
         plugin_directory = plugin_directory,
         component_name = component_name,
-        platform_prefix = platform_prefix,
         target_platform = target_platform,
         tags = tags,
         visibility = visibility,

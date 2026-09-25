@@ -26,7 +26,7 @@ private const val GROUP_ID = "terminal"
 object ReworkedTerminalUsageCollector : CounterUsagesCollector() {
   override fun getGroup(): EventLogGroup = GROUP
 
-  private val GROUP = EventLogGroup(GROUP_ID, 22)
+  private val GROUP = EventLogGroup(GROUP_ID, 23)
 
   private val OS_VERSION_FIELD = EventFields.StringValidatedByRegexpReference("os-version", "version")
   private val SHELL_STR_FIELD = EventFields.String("shell", KNOWN_SHELLS.toList())
@@ -68,6 +68,7 @@ object ReworkedTerminalUsageCollector : CounterUsagesCollector() {
   // Latency measurement related fields
   private val DURATION_FIELD = EventFields.createDurationField(DurationUnit.MILLISECONDS, "duration_ms")
   private val TOTAL_DURATION_FIELD = EventFields.createDurationField(DurationUnit.MILLISECONDS, "total_duration_ms", "Sum of all durations")
+  private val DURATION_MEDIAN_FIELD = EventFields.createDurationField(DurationUnit.MILLISECONDS, "median_ms", "50% percentile")
   private val DURATION_90_FIELD = EventFields.createDurationField(DurationUnit.MILLISECONDS, "duration_90_ms", "90% percentile")
   private val SECOND_LARGEST_DURATION_FIELD = EventFields.createDurationField(DurationUnit.MILLISECONDS, "second_largest_duration_ms")
   private val THIRD_LARGEST_DURATION_FIELD = EventFields.createDurationField(DurationUnit.MILLISECONDS, "third_largest_duration_ms")
@@ -117,23 +118,13 @@ object ReworkedTerminalUsageCollector : CounterUsagesCollector() {
     Version.parseVersion(OS.CURRENT.version())?.toCompactString() ?: "unknown"
   }
 
-  private val frontendTypingLatencyEvent = GROUP.registerVarargEvent(
-    "frontend.typing.latency",
-    TOTAL_DURATION_FIELD, DURATION_90_FIELD, SECOND_LARGEST_DURATION_FIELD, OS_VERSION_FIELD
-  )
-
-  private val backendTypingLatencyEvent = GROUP.registerVarargEvent(
-    "backend.typing.latency",
-    TOTAL_DURATION_FIELD, DURATION_90_FIELD, SECOND_LARGEST_DURATION_FIELD, OS_VERSION_FIELD,
+  private val typingLatencyEvent = GROUP.registerVarargEvent(
+    "typing.latency",
+    DURATION_MEDIAN_FIELD, DURATION_90_FIELD, SECOND_LARGEST_DURATION_FIELD
   )
 
   private val backendOutputLatencyEvent = GROUP.registerVarargEvent(
     "backend.output.latency",
-    TOTAL_DURATION_FIELD, DURATION_90_FIELD, THIRD_LARGEST_DURATION_FIELD, OS_VERSION_FIELD,
-  )
-
-  private val frontendOutputLatencyEvent = GROUP.registerVarargEvent(
-    "frontend.output.latency",
     TOTAL_DURATION_FIELD, DURATION_90_FIELD, THIRD_LARGEST_DURATION_FIELD, OS_VERSION_FIELD,
   )
 
@@ -144,11 +135,6 @@ object ReworkedTerminalUsageCollector : CounterUsagesCollector() {
 
   private val backendDocumentUpdateLatencyEvent = GROUP.registerVarargEvent(
     "backend.document.update.latency",
-    TOTAL_DURATION_FIELD, DURATION_90_FIELD, THIRD_LARGEST_DURATION_FIELD, TEXT_LENGTH_90_FIELD, OS_VERSION_FIELD,
-  )
-
-  private val frontendDocumentUpdateLatencyEvent = GROUP.registerVarargEvent(
-    "frontend.document.update.latency",
     TOTAL_DURATION_FIELD, DURATION_90_FIELD, THIRD_LARGEST_DURATION_FIELD, TEXT_LENGTH_90_FIELD, OS_VERSION_FIELD,
   )
 
@@ -251,35 +237,16 @@ object ReworkedTerminalUsageCollector : CounterUsagesCollector() {
     sessionRestoredEvent.log(project, tabCount)
   }
 
-  fun logFrontendTypingLatency(totalDuration: Duration, duration90: Duration, secondLargestDuration: Duration) {
-    frontendTypingLatencyEvent.log(
-      TOTAL_DURATION_FIELD with totalDuration,
+  fun logTypingLatency(durationMedian: Duration, duration90: Duration, secondLargestDuration: Duration) {
+    typingLatencyEvent.log(
+      DURATION_MEDIAN_FIELD with durationMedian,
       DURATION_90_FIELD with duration90,
       SECOND_LARGEST_DURATION_FIELD with secondLargestDuration,
-      OS_VERSION_FIELD with osVersion,
-    )
-  }
-
-  fun logBackendTypingLatency(totalDuration: Duration, duration90: Duration, secondLargestDuration: Duration) {
-    backendTypingLatencyEvent.log(
-      TOTAL_DURATION_FIELD with totalDuration,
-      DURATION_90_FIELD with duration90,
-      SECOND_LARGEST_DURATION_FIELD with secondLargestDuration,
-      OS_VERSION_FIELD with osVersion,
     )
   }
 
   fun logBackendOutputLatency(totalDuration: Duration, duration90: Duration, thirdLargestDuration: Duration) {
     backendOutputLatencyEvent.log(
-      TOTAL_DURATION_FIELD with totalDuration,
-      DURATION_90_FIELD with duration90,
-      THIRD_LARGEST_DURATION_FIELD with thirdLargestDuration,
-      OS_VERSION_FIELD with osVersion,
-    )
-  }
-
-  fun logFrontendOutputLatency(totalDuration: Duration, duration90: Duration, thirdLargestDuration: Duration) {
-    frontendOutputLatencyEvent.log(
       TOTAL_DURATION_FIELD with totalDuration,
       DURATION_90_FIELD with duration90,
       THIRD_LARGEST_DURATION_FIELD with thirdLargestDuration,
@@ -299,16 +266,6 @@ object ReworkedTerminalUsageCollector : CounterUsagesCollector() {
 
   fun logBackendDocumentUpdateLatency(totalDuration: Duration, duration90: Duration, thirdLargestDuration: Duration, textLength90: Int) {
     backendDocumentUpdateLatencyEvent.log(
-      TOTAL_DURATION_FIELD with totalDuration,
-      DURATION_90_FIELD with duration90,
-      THIRD_LARGEST_DURATION_FIELD with thirdLargestDuration,
-      TEXT_LENGTH_90_FIELD with textLength90,
-      OS_VERSION_FIELD with osVersion,
-    )
-  }
-
-  fun logFrontendDocumentUpdateLatency(totalDuration: Duration, duration90: Duration, thirdLargestDuration: Duration, textLength90: Int) {
-    frontendDocumentUpdateLatencyEvent.log(
       TOTAL_DURATION_FIELD with totalDuration,
       DURATION_90_FIELD with duration90,
       THIRD_LARGEST_DURATION_FIELD with thirdLargestDuration,

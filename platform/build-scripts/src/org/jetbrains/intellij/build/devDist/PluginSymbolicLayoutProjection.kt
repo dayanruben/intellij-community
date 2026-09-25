@@ -13,10 +13,14 @@ import org.jetbrains.intellij.build.impl.BUILT_IN_HELP_MODULE_NAME
 import org.jetbrains.intellij.build.impl.LibraryPackMode
 import org.jetbrains.intellij.build.impl.ModuleIncludeReasons
 import org.jetbrains.intellij.build.impl.ModuleItem
+import org.jetbrains.intellij.build.impl.contentModuleJarPath
 import org.jetbrains.intellij.build.impl.PluginLayout
 import org.jetbrains.intellij.build.impl.getLibNameBySourceFile
+import org.jetbrains.intellij.build.impl.hasOwnModuleLibraries
+import org.jetbrains.intellij.build.impl.isAutoLayoutChild
 import org.jetbrains.intellij.build.impl.isSeparateLibraryJar
 import org.jetbrains.intellij.build.impl.nameToJarFileName
+import org.jetbrains.intellij.build.impl.pluginDefaultJarName
 import org.jetbrains.intellij.build.impl.removeVersionFromJar
 import org.jetbrains.intellij.build.productLayout.util.getProductionModuleDependencies
 import org.jetbrains.intellij.build.productLayout.util.isProductionRuntimeDependency
@@ -33,15 +37,13 @@ private fun nativeFingerprint(values: List<String>): String = devDistSignature {
   for (value in values) putString(value)
 }
 
-/** The comment a content module descriptor states to go into the main jar of the plugin. */
-private val PACK_CONTENT_INTO_PLUGIN_JAR_MARKER = Regex("""<!--\s+intellij-build:\s+pack-content-into-plugin-jar\s+-->""")
-
 /**
  * Projects one original layout without reading compiled roots or invoking layout callbacks.
  * The catalogue describes the output provider's selected roots. Descriptor facts describe the prepared descriptor.
  * The result cannot select producers until every required preparation has declared its inputs and contributions.
  * [nativePolicy] enables native derivation at each source occurrence. Its absence preserves the existing caller-supplied preparation model.
  * Native bindings require a policy; an absent policy is not evidence that native handling leaves archives untouched.
+ * [cache] holds the answers the projections of one run share. A caller without one gets a fresh cache.
  */
 @ApiStatus.Internal
 fun projectPluginSymbolicLayout(
@@ -52,14 +54,16 @@ fun projectPluginSymbolicLayout(
   preparationFacts: PluginSymbolicPreparationFacts = PluginSymbolicPreparationFacts(),
   variant: PluginSymbolicVariant,
   nativePolicy: PluginSymbolicNativePolicy? = null,
+  cache: PluginSymbolicProjectionCache = PluginSymbolicProjectionCache(project),
 ): PluginSymbolicLayout {
+  require(cache.project === project) { "The projection cache belongs to another project" }
   val original = if (nativePolicy == null) null else {
     SymbolicLayoutProjector(
-      layout, project, catalogue, descriptorFacts, preparationFacts, variant, nativePolicy, collectNativeContext = true,
+      layout, project, catalogue, descriptorFacts, preparationFacts, variant, nativePolicy, cache, collectNativeContext = true,
     ).project()
   }
   return SymbolicLayoutProjector(
-    layout, project, catalogue, descriptorFacts, preparationFacts, variant, nativePolicy,
+    layout, project, catalogue, descriptorFacts, preparationFacts, variant, nativePolicy, cache,
     nativeContexts = original?.let(::nativeAssetContexts).orEmpty(),
   ).project()
 }
@@ -94,6 +98,7 @@ private class SymbolicLayoutProjector(
   private val preparationFacts: PluginSymbolicPreparationFacts,
   private val variant: PluginSymbolicVariant,
   private val nativePolicy: PluginSymbolicNativePolicy?,
+  cache: PluginSymbolicProjectionCache,
   private val collectNativeContext: Boolean = false,
   private val nativeContexts: Map<String, String> = emptyMap(),
 ) {
@@ -104,7 +109,7 @@ private class SymbolicLayoutProjector(
 
   /** The container id of a library with one member, by that member. A native effect may read the container in place of the member. */
   private val singleMemberLibraries = catalogue.libraries.filter { it.id != null && it.files.size == 1 }.associate { it.files.single() to requireNotNull(it.id) }
-  private val frontend = FrontendCompatibility(descriptors.frontendRoots, project::findModuleByName)
+  private val frontend = cache.frontend(descriptors.frontendRoots)
   private val assembly = PluginSymbolicJarAssembly()
   private val copiedFiles = HashSet<Pair<String, String>>()
   private val effects = LinkedHashMap<String, PluginSymbolicPreparedEffect>()
@@ -249,10 +254,9 @@ private class SymbolicLayoutProjector(
     }
     if (layout.auto) {
       val mainModule = module(layout.mainModule)
-      val prefix = "${layout.mainModule.removeSuffix(".plugin")}."
       for (dependency in mainModule?.getProductionModuleDependencies(withTests = false).orEmpty()) {
         val name = dependency.moduleReference.moduleName
-        if (name.startsWith(prefix) && added.add(name) && name !in descriptors.packedElsewhere) {
+        if (isAutoLayoutChild(mainModule = layout.mainModule, moduleName = name) && added.add(name) && name !in descriptors.packedElsewhere) {
           result.add(ModuleItem(name, defaultJar(name), reason = null))
         }
       }
@@ -262,39 +266,34 @@ private class SymbolicLayoutProjector(
 
   private fun contentDestination(name: String, loading: String?, customPaths: Set<String>): String? {
     if (loading == "embedded" && name in customPaths) return null
-    if (!descriptors.moduleXml.containsKey(name)) {
-      gap("module-descriptor:$name", "Declare the descriptor text or its known absence")
+    if (!descriptors.moduleDescriptors.containsKey(name)) {
+      gap("module-descriptor:$name", "Declare the descriptor fact or its known absence")
       return null
     }
-    val xml = descriptors.moduleXml.get(name)
-    if (xml == null && loading != "embedded") {
+    val descriptor = descriptors.moduleDescriptors.get(name)
+    if (descriptor == null && loading != "embedded") {
       gap("module-descriptor:$name", "The content module descriptor is missing")
       return null
     }
-    val packIntoMain = xml != null && PACK_CONTENT_INTO_PLUGIN_JAR_MARKER.containsMatchIn(xml)
-    if (loading == "embedded") {
-      return if (packIntoMain) defaultJar(name) else "$name.jar"
-    }
-    val module = module(name) ?: return null
-    val hasModuleLibraries = name !in layout.getModulesWithExcludedModuleLibraries() &&
-                            libraryDependencies(module, withTests = false).any { it.libraryReference.parentReference is JpsModuleReference }
-    val separate = !packIntoMain &&
-                   (!hasRootXmlAttribute(requireNotNull(xml), "package") || hasModuleLibraries ||
-                    frontend.isSplit(layout.mainModule, name))
-    return when {
-      separate -> "modules/$name.jar"
-      name in customPaths -> null
-      else -> defaultJar(name)
-    }
+    val module = if (loading == "embedded") null else module(name) ?: return null
+    return contentModuleJarPath(
+      moduleName = name,
+      loadingRule = loading,
+      hasCustomPath = name in customPaths,
+      mainJarName = layout.getMainJarName(),
+      hasPackageAttribute = { requireNotNull(descriptor).hasPackage },
+      packedIntoSeparateJar = {
+        hasOwnModuleLibraries(
+          productionLibraryDependencies = libraryDependencies(requireNotNull(module), withTests = false),
+          librariesKeptOut = name in layout.getModulesWithExcludedModuleLibraries(),
+        ) || frontend.isSplit(layout.mainModule, name)
+      },
+      frontendSplit = { frontend.isSplit(layout.mainModule, name) },
+    )
   }
 
   private fun defaultJar(moduleName: String): String {
-    return if (frontend.isSplit(layout.mainModule, moduleName)) {
-      layout.getMainJarName().removeSuffix(".jar") + "-frontend.jar"
-    }
-    else {
-      layout.getMainJarName()
-    }
+    return pluginDefaultJarName(layout.getMainJarName(), frontend.isSplit(layout.mainModule, moduleName))
   }
 
   private fun addModule(item: ModuleItem) {
@@ -348,10 +347,10 @@ private class SymbolicLayoutProjector(
     }
     assembly.addOriginalModule(destination, moduleSources, testOutput = module.name in catalogue.testModules, descriptorModule = module.name == layout.mainModule)
     if (variant.searchableOptions && module.name != BUILT_IN_HELP_MODULE_NAME) {
-      if (module.name != layout.mainModule && !descriptors.moduleXml.containsKey(module.name)) {
-        gap("searchable-options-descriptor:${module.name}", "Declare the layout module's descriptor text or its known absence")
+      if (module.name != layout.mainModule && !descriptors.moduleDescriptors.containsKey(module.name)) {
+        gap("searchable-options-descriptor:${module.name}", "Declare the layout module's descriptor fact or its known absence")
       }
-      else if (module.name == layout.mainModule || descriptors.moduleXml.get(module.name) != null) {
+      else if (module.name == layout.mainModule || descriptors.moduleDescriptors.get(module.name) != null) {
         val prepared = effect("searchable-options:${module.name}", "Declare the searchable-option inputs and ordered sources")
         assembly.addSources(destination, prepared?.sources.orEmpty())
       }
@@ -459,11 +458,12 @@ private class SymbolicLayoutProjector(
     }
     // A platform slot is keyed by its index among the callbacks that serve the distribution, so the key is the same on every platform.
     val distribution = variant.distribution ?: return
-    for (index in layout.platformResourceGeneratorsBundledAndDevMode.get(distribution).orEmpty().indices) {
+    for (index in layout.platformResourceGenerators.get(distribution).orEmpty().indices) {
       resourceEffect("platform-resource-generator:$index", "The selected platform generator requires inputs and output paths")
     }
+    // A platform custom asset lands below the plugin directory, so one declared file serves it as a resource slot does.
     for (index in layout.customAssets.filter { it.platformSpecific == distribution }.indices) {
-      layoutEffect("platform-custom-asset:$index", "Platform custom assets require explicit copy, extraction, mode, and link declarations")
+      resourceEffect("platform-custom-asset:$index", "Platform custom assets require explicit copy, extraction, mode, and link declarations")
     }
   }
 

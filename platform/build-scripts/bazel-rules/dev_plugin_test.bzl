@@ -4,6 +4,7 @@ load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
 load("@rules_java//java:defs.bzl", "JavaInfo", "java_common")
 load("@rules_kotlin//kotlin/internal:defs.bzl", _KtJvmInfo = "KtJvmInfo")
 load(":content_module_jar.bzl", "ContentModuleJarInfo", "content_module_jar", "content_module_jar_target_name")
+load(":dev_dist_content.bzl", "DevDistContentInfo")
 load(":dev_dist_plugin.bzl", "dev_dist_plugin", "dev_dist_plugin_component_target_name")
 load(":dev_dist_plugin_descriptor.bzl", "dev_dist_plugin_descriptor", "dev_dist_plugin_descriptor_target_name", "dev_dist_product_info")
 load(":dev_plugin.bzl", "dev_plugin")
@@ -14,12 +15,14 @@ _PACKAGE = "//platform/build-scripts/bazel-rules/dev-plugin-tests"
 _SUITE = "dev_plugin_tests"
 _PRODUCT_INFO = str(Label(_PACKAGE + ":" + _SUITE + "_product_info"))
 _NO_PREFIX_PRODUCT_INFO = str(Label(_PACKAGE + ":" + _SUITE + "_no_prefix_product_info"))
+_FRONTEND_PRODUCT_INFO = str(Label(_PACKAGE + ":" + _SUITE + "_frontend_product_info"))
 _PRODUCT_INFO_FLAG = str(Label("//build:dev_dist_product_info"))
 _TRACE_SPANS = str(Label("//platform/build-scripts/bazel-rules:trace_spans"))
 _EMPTY_JAR = "PK\005\006" + ("\000" * 18)
 _MAIN_MODULE = "test.dev.plugin"
 _SPLIT_MODULE = "test.dev.split"
 _MEMBER_MODULE = "test.dev.member"
+_MODE_MODULE = "test.dev.mode"
 
 def _fixture_module_impl(ctx):
     jar = ctx.outputs.jar
@@ -198,6 +201,21 @@ def _dev_plugin_test_impl(ctx):
     asserts.true(env, spec["files"][1]["source"].endswith("/" + resources["first.txt"].short_path.removeprefix("../")), spec["files"][1]["source"])
     asserts.true(env, spec["files"][2]["source"].endswith("/" + resources["second.txt"].short_path.removeprefix("../")), spec["files"][2]["source"])
     asserts.equals(env, [], [action for action in actions if action.mnemonic not in ["PackDevPluginJar", "CollectDevPluginComponent", "FileWrite"]])
+
+    # The raw content: every merged module jar, the members of the reused content module jar, and every library the
+    # plugin names, the jar file token included. Neutral, like the packed inputs, so compared by short path.
+    raw_content = target[DevDistContentInfo]
+    asserts.equals(
+        env,
+        sorted([jar.short_path for jar in module_jars] + [jar.short_path for jar in content.member_jars]),
+        sorted([jar.short_path for jar in raw_content.module_jars.to_list()]),
+    )
+    raw_libraries = {entry.label: [jar.short_path for jar in entry.jars] for entry in raw_content.library_jars.to_list()}
+    asserts.equals(env, sorted([str(ctx.attr.library.label), str(ctx.attr.single_jar.label)]), sorted(raw_libraries.keys()))
+    asserts.equals(env, [jar.short_path for jar in library_jars], raw_libraries[str(ctx.attr.library.label)])
+    asserts.equals(env, [ctx.file.single_jar.short_path], raw_libraries[str(ctx.attr.single_jar.label)])
+    for file in raw_content.module_jars.to_list():
+        asserts.false(env, component_root == file.root.path, file.path)
     return analysistest.end(env)
 
 _DEV_PLUGIN_ATTRS = {
@@ -206,6 +224,7 @@ _DEV_PLUGIN_ATTRS = {
     "modules": attr.label_list(mandatory = True, providers = [_KtJvmInfo]),
     "helper": attr.label(mandatory = True, allow_single_file = True),
     "resources": attr.label(mandatory = True),
+    "single_jar": attr.label(mandatory = True, allow_single_file = [".jar"]),
     "spans": attr.bool(),
 }
 
@@ -221,6 +240,31 @@ _dev_plugin_spans_test = analysistest.make(
     _dev_plugin_test_impl,
     attrs = _DEV_PLUGIN_ATTRS,
     config_settings = {_PRODUCT_INFO_FLAG: _PRODUCT_INFO, _TRACE_SPANS: True},
+)
+
+def _mode_test_impl(ctx):
+    """Under a frontend product the leaf refuses the modules of that mode, and the shared packaging ships none of them.
+
+    A refused module leaves every jar, and a jar that merges no module any more goes. A refused reused jar goes too. A
+    packaging a product states for itself keeps everything `jars` names.
+    """
+    env = analysistest.begin(ctx)
+    actions = analysistest.target_actions(env)
+    packed = sorted([file.basename for action in actions if action.mnemonic == "PackDevPluginJar" for file in action.outputs.to_list() if file.basename.endswith(".jar")])
+    specs = [action for action in actions if [file for file in action.outputs.to_list() if file.basename.endswith(".packed.json")]]
+    asserts.equals(env, 1, len(specs))
+    destinations = sorted([jar["destination"] for jar in json.decode(specs[0].content)["jars"]])
+    asserts.equals(env, sorted(ctx.attr.expected_packed), packed)
+    asserts.equals(env, sorted(ctx.attr.expected_destinations), destinations)
+    return analysistest.end(env)
+
+_mode_test = analysistest.make(
+    _mode_test_impl,
+    attrs = {
+        "expected_packed": attr.string_list(mandatory = True),
+        "expected_destinations": attr.string_list(mandatory = True),
+    },
+    config_settings = {_PRODUCT_INFO_FLAG: _FRONTEND_PRODUCT_INFO},
 )
 
 def _expected_failure_test_impl(ctx):
@@ -331,6 +375,13 @@ def dev_plugin_test_suite(name):
         release_date = "20260101",
         release_version = "2026300",
     )
+    dev_dist_product_info(
+        name = name + "_frontend_product_info",
+        release_date = "20260101",
+        release_version = "2026300",
+        platform_prefix = "client",
+        mode = "frontend",
+    )
 
     owner = name + "_owner"
     split = name + "_split"
@@ -405,6 +456,7 @@ def dev_plugin_test_suite(name):
             modules = [":" + owner, ":" + split],
             helper = ":" + helper + ".sh",
             resources = ":" + resource_files,
+            single_jar = ":foo-1.2.3.jar",
             spans = spans,
         )
 
@@ -459,4 +511,42 @@ def dev_plugin_test_suite(name):
 
     tests.append(_stale_macro_test(name))
     tests.append(_copies_macro_test(name, helper_token, resources_token, resources_prefix))
+
+    # One leaf serves a frontend product: it refuses the split module and the member there, and the shared packaging
+    # drops both. A packaging that keeps them is one product's own.
+    mode_owner = name + "_mode_owner"
+    _fixture_module(name = mode_owner, module_name = _MODE_MODULE)
+    dev_dist_plugin_descriptor(
+        main_module = _MODE_MODULE,
+        descriptor_module = ":" + source,
+        descriptor = source,
+        mode_refused_content_modules = {"frontend": [_SPLIT_MODULE, _MEMBER_MODULE]},
+    )
+    for case, keeps, expected_packed, expected_destinations in [
+        ("shared", False, ["mode.jar"], ["lib/mode.jar"]),
+        ("own", True, ["mode.jar", "split.jar"], ["lib/mode.jar", "lib/modules/test.dev.member.jar", "lib/split.jar"]),
+    ]:
+        mode_component = name + "_mode_" + case
+        dev_plugin(
+            name = mode_component,
+            main_module = _MODE_MODULE,
+            descriptor = ":" + dev_dist_plugin_descriptor_target_name(_MODE_MODULE),
+            plugin_directory = "plugins/mode",
+            modules = {":" + mode_owner: _MODE_MODULE, ":" + split: _SPLIT_MODULE},
+            libraries = [library_token],
+            content_module_jars = [":" + content_jar],
+            jars = {
+                "lib/mode.jar": [_MODE_MODULE, _SPLIT_MODULE],
+                "lib/split.jar": [_SPLIT_MODULE, library_token],
+            },
+            keeps_mode_refused_modules = keeps,
+        )
+        tests.append(mode_component + "_test")
+        _mode_test(
+            name = tests[-1],
+            target_under_test = ":" + mode_component,
+            expected_packed = expected_packed,
+            expected_destinations = expected_destinations,
+        )
+
     native.test_suite(name = name, tests = tests)

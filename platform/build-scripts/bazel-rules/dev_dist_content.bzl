@@ -1,12 +1,14 @@
 """The content boundary of a dev distribution, expressed as a Bazel provider.
 
 `DevDistContentInfo` carries the module and library jars one slice of a distribution reads, and
-`intellij_dev_build_inputs` turns them into manifest entries. `dev_dist_platform_payload` is its producer: the payload
-of the fragment that owns `lib/`, split by which producer packs each jar.
+`intellij_dev_build_inputs` turns them into manifest entries. It has two producers. `dev_dist_platform_payload` is the
+payload of the fragment that owns `lib/`, split by which producer packs each jar. `dev_dist_plugin_content` is the raw
+content of the bundled plugins of one product, as the plugin components publish it.
 """
 
 load("@rules_kotlin//kotlin/internal:defs.bzl", _KtJvmInfo = "KtJvmInfo")
 load(":content_module_jar.bzl", "ContentModuleJarInfo", "DevDistPlatformJarInfo")
+load(":dev_dist_plugin_descriptor.bzl", "DEV_DIST_PRODUCT_INFO_ATTR", "dev_dist_product_info_transition")
 
 DevDistContentInfo = provider(
     doc = "The module and library jars one slice of a dev distribution is made of.",
@@ -163,3 +165,92 @@ dev_dist_platform_payload = rule(
         ),
     },
 )
+
+def _dev_dist_plugin_content_impl(ctx):
+    module_jars = []
+    library_jars = []
+    for target in ctx.attr.plugins + ctx.attr.deps:
+        content = target[DevDistContentInfo]
+        module_jars.append(content.module_jars)
+        library_jars.append(content.library_jars)
+    return [
+        DefaultInfo(files = depset()),
+        DevDistContentInfo(
+            module_jars = depset(transitive = module_jars),
+            library_jars = depset(transitive = library_jars),
+        ),
+    ]
+
+dev_dist_plugin_content = rule(
+    doc = """The raw module and library jars of the bundled plugins of one product, as one `DevDistContentInfo`.
+
+    The runtime module repository fragment lays every bundled plugin out without files and resolves the output and the
+    libraries of each module it reaches. Those jars used to arrive as a generated name list of ~2 000 names per
+    product. They are the same jars every plugin component already reads, so the components publish them and this
+    rule unions them. Raw jars only: no packed plugin jar and no descriptor is in here, so a plugin source edit
+    re-keys no fragment through this target.
+
+    `plugins` are the components of the product's own bundled plugins. They need the product configuration, which
+    `product_info` sets on the way down, exactly as `intellij_dev_fragments_dist` does. The module jars below them
+    still come from the neutral configuration through each component's inputs target, so no module compiles twice.
+    `deps` are other content targets, already configured: the content of the embedded frontend's own bundled plugins,
+    collected under the frontend's product.
+    """,
+    implementation = _dev_dist_plugin_content_impl,
+    attrs = {
+        "plugins": attr.label_list(
+            doc = "The plugin components this product bundles. Each one publishes `DevDistContentInfo`.",
+            cfg = dev_dist_product_info_transition,
+            providers = [DevDistContentInfo],
+        ),
+        "deps": attr.label_list(
+            doc = "Other content targets, merged as they are.",
+            providers = [DevDistContentInfo],
+        ),
+    } | DEV_DIST_PRODUCT_INFO_ATTR,
+)
+
+def _dev_dist_plugin_components_impl(ctx):
+    return [DefaultInfo(files = depset(transitive = [target[OutputGroupInfo].dev_dist_plugin_outputs for target in ctx.attr.plugins]))]
+
+dev_dist_plugin_components = rule(
+    doc = """Builds plugin components under one product, every platform variant of each.
+
+    A component is `manual`, because it builds only under a product. A distribution is `manual` too, and it reaches
+    only the variant of the host platform. This target is not `manual`, so `bazel build //...` builds each listed
+    component with its descriptor. `product_info` sets the product on the way down, as `dev_dist_plugin_content` does.
+    """,
+    implementation = _dev_dist_plugin_components_impl,
+    attrs = {
+        "plugins": attr.label_list(
+            doc = "The plugin components to build. Each one publishes the `dev_dist_plugin_outputs` output group.",
+            cfg = dev_dist_product_info_transition,
+            mandatory = True,
+        ),
+    } | DEV_DIST_PRODUCT_INFO_ATTR,
+)
+
+def dev_dist_plugin_component_builds(components, product_info):
+    """Declares one `<product>_plugin_components` target per product, so that each component builds once.
+
+    A component serves every product that states it alike, so the first product that names a component builds it.
+
+    Args:
+        components: The component map, `{product: {tier: {main module: label or {platform: label}}}}`.
+        product_info: The label pattern of a product's `dev_dist_product_info`, with `%s` for the product key.
+    """
+    claimed = {}
+    for product, tiers in components.items():
+        plugins = []
+        for entries in tiers.values():
+            for value in entries.values():
+                for label in (value.values() if type(value) == "dict" else [value]):
+                    if label not in claimed:
+                        claimed[label] = True
+                        plugins.append(label)
+        if plugins:
+            dev_dist_plugin_components(
+                name = product + "_plugin_components",
+                plugins = plugins,
+                product_info = product_info % product,
+            )

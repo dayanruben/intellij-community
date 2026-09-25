@@ -20,6 +20,7 @@ load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
 load("@rules_java//java:defs.bzl", "JavaInfo")
 load("@rules_kotlin//kotlin/internal:defs.bzl", _KtJvmInfo = "KtJvmInfo")
 load(":content_module_jar.bzl", "ContentModuleJarInfo", "declare_spans", "library_entries", "merge_order_jars", "module_output_jar", "pack_jar")
+load(":dev_dist_content.bzl", "DevDistContentInfo")
 load(":dev_dist_plugin_descriptor.bzl", "DevDistPluginDescriptorInfo", "DevDistProductInfo", "dev_dist_neutral_product_transition")
 load(":dev_plugin_source_tree.bzl", "source_tree_entries", "source_tree_prefix")
 load(":intellij_dev_dist.bzl", "IntellijDevFragmentInfo")
@@ -31,6 +32,7 @@ DevPluginInputsInfo = provider(
         "libraries": "dict of library token to `struct(label, jars)`. The token is the label string the plugin's `BUILD.bazel` writes.",
         "content_jars": "dict of JPS module name to `struct(jar, metadata)`: the jar a `content_module_jar` target packed.",
         "files": "dict of label token to the tuple of regular `File`s the label produces. The token is the label string `files` names.",
+        "content": "`DevDistContentInfo`: every raw module jar and library the plugin merges, the members of a reused content module jar included.",
     },
 )
 
@@ -58,6 +60,10 @@ def _dev_plugin_inputs_impl(ctx):
             fail("%s is neither a library container nor one jar file" % target.label, attr = "libraries")
         libraries[token] = struct(label = str(target.label), jars = tuple(files))
 
+    # The raw content, for the fragment that lays the plugin out without packing it: the plugin's own module jars and
+    # libraries, plus what each reused content module jar merged. Its recipe travels with it, see `ContentModuleJarInfo`.
+    content_module_jars = list(module_jars.values())
+    content_library_jars = list(libraries.values())
     content_jars = {}
     for target in ctx.attr.content_module_jars:
         info = target[ContentModuleJarInfo]
@@ -68,6 +74,8 @@ def _dev_plugin_inputs_impl(ctx):
         if info.module_name in content_jars:
             fail("content module '%s' is packed twice" % info.module_name, attr = "content_module_jars")
         content_jars[info.module_name] = struct(jar = jar, metadata = metadata)
+        content_module_jars.extend(info.member_jars)
+        content_library_jars.extend(info.library_jars)
 
     files = {}
     for target, token in ctx.attr.file_targets.items():
@@ -81,7 +89,13 @@ def _dev_plugin_inputs_impl(ctx):
 
     return [
         DefaultInfo(files = depset()),
-        DevPluginInputsInfo(module_jars = module_jars, libraries = libraries, content_jars = content_jars, files = files),
+        DevPluginInputsInfo(
+            module_jars = module_jars,
+            libraries = libraries,
+            content_jars = content_jars,
+            files = files,
+            content = DevDistContentInfo(module_jars = depset(content_module_jars), library_jars = depset(content_library_jars)),
+        ),
     ]
 
 _dev_plugin_inputs = rule(
@@ -240,11 +254,20 @@ def _dev_plugin_impl(ctx):
     spans = []
     module_owner = {}
     destinations = _new_destinations()
+
+    # The leaf refuses the content modules of its product's mode, and the shared packaging then ships none of them: a
+    # refused module leaves every jar, and a jar that merges no module any more goes, with the libraries it merged. A
+    # packaging a product states for itself keeps what `jars` names.
+    refused = {} if ctx.attr.keeps_mode_refused_modules else {name: True for name in descriptor_info.mode_refused_content_modules}
     for destination, tokens in ctx.attr.jars.items():
         _check_destination(destination)
-        _claim_destination(destinations, destination, _STATED_IN_JARS, "jars")
         if not tokens:
             fail("'%s' merges nothing" % destination, attr = "jars")
+        if refused:
+            tokens = [token for token in tokens if is_library_token(token) or token not in refused]
+            if all([is_library_token(token) for token in tokens]):
+                continue
+        _claim_destination(destinations, destination, _STATED_IN_JARS, "jars")
 
         module_jars = []
         module_names = []
@@ -299,7 +322,7 @@ def _dev_plugin_impl(ctx):
         if name not in inputs.content_jars:
             fail("module_jar_paths names '%s', which `content_module_jars` does not pack" % name, attr = "module_jar_paths")
     for name in inputs.content_jars:
-        if name in module_owner:
+        if name in module_owner or name in refused:
             continue
         destination = ctx.attr.module_jar_paths.get(name, "lib/modules/%s.jar" % name)
         _check_destination(destination)
@@ -311,9 +334,10 @@ def _dev_plugin_impl(ctx):
     # the order when the plan's order is not the default one.
     if ctx.attr.classpath_jars:
         by_destination = {entry.destination: entry for entry in packed}
-        if sorted(ctx.attr.classpath_jars) != sorted(by_destination.keys()):
+        classpath_jars = [destination for destination in ctx.attr.classpath_jars if destination in by_destination] if refused else ctx.attr.classpath_jars
+        if sorted(classpath_jars) != sorted(by_destination.keys()):
             fail("classpath_jars must name every jar once; the jars are %s" % sorted(by_destination.keys()), attr = "classpath_jars")
-        packed = [by_destination[destination] for destination in ctx.attr.classpath_jars]
+        packed = [by_destination[destination] for destination in classpath_jars]
 
     copies = _copies(ctx, inputs, destinations)
     copied_files = [copy.file for copy in copies]
@@ -366,6 +390,9 @@ def _dev_plugin_impl(ctx):
     payload = depset([entry.jar for entry in packed] + copied_files)
     return [
         DefaultInfo(files = depset([manifest, classpath]), runfiles = ctx.runfiles(transitive_files = payload)),
+        # The raw content, published beside the packed component: `dev_dist_plugin_content` unions it per product for
+        # the fragment that lays the plugin out without packing it.
+        inputs.content,
         IntellijDevFragmentInfo(
             name = main_module,
             home = None,
@@ -423,6 +450,12 @@ at `<prefix>/<entry>` lands at `<destination>/<entry>`.""",
         ),
         "executable_files": attr.string_list(
             doc = "The single-file destinations of `files` the distribution marks executable, as `withResource*` does with mode 493.",
+        ),
+        "keeps_mode_refused_modules": attr.bool(
+            doc = """Whether this packaging is one product's own, so it keeps the content modules the leaf refuses for the product's mode.
+
+The generator sets it on a product package whose product merges a refused module into another jar. A shared packaging leaves
+it unset, and the rule drops the refused modules.""",
         ),
         "_collector": attr.label(default = "//build/content-module-packer/dev-dist-collector", executable = True, cfg = "exec"),
         "_packer": attr.label(default = "//build/content-module-packer", executable = True, cfg = "exec"),

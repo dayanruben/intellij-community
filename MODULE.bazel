@@ -30,6 +30,8 @@ single_version_override(
 # Do not remove: without it @protobuf//java/core compiles from source.
 register_toolchains("@rules_jvm//:protoc_java_toolchain_toolchain")
 
+register_toolchains("@rules_jvm//:kotlin_multiplex_toolchain")
+
 bazel_dep(name = "buildifier_prebuilt", version = "8.5.1.4")
 
 single_version_override(
@@ -138,6 +140,7 @@ DEV_LAUNCH_HOST_PLATFORMS = [
 dev_launch_deps_community = use_extension("@community//build:dev_launch_dependencies.bzl", "dev_launch_deps_community")
 use_repo(
     dev_launch_deps_community,
+    "dev_launch_jserialcomm",
     "dev_launch_libghostty",
     "dev_launch_libwebp",
     "dev_launch_maven",

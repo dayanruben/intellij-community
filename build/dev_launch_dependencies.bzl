@@ -22,6 +22,7 @@ This file owns the community half - the machinery, and the groups whose version 
 [merge_repo_sets].
 """
 
+load("@bazel_tools//tools/build_defs/repo:cache.bzl", "DEFAULT_CANONICAL_ID_ENV", "get_default_canonical_id")
 load("@bazel_tools//tools/build_defs/repo:utils.bzl", "get_auth")
 load(":test_deps_extension.bzl", "all_downloads_pinned", "write_downloads_repo")
 
@@ -127,6 +128,13 @@ def jcef_url(platform, jcef_build):
 def lib_ghostty_vt_url(version):
     return "https://packages.jetbrains.team/files/p/ij/intellij-build-dependencies/libghostty-vt/%s/libghostty-vt.zip.zst" % version
 
+# CommunityRepositoryModules.jSerialCommDownloadUrl - the content hash is the version. Keep in lockstep with
+# `JSERIALCOMM_NATIVE_HASH` in CommunityRepositoryModules.kt.
+_JSERIALCOMM_NATIVE_HASH = "9a7813435b79aa2e23c7f2a78f1b66b48c0504c4"
+
+def jserialcomm_url():
+    return "https://packages.jetbrains.team/files/p/ij/intellij-build-dependencies/jSerialComm/%s/jSerialComm.zip" % _JSERIALCOMM_NATIVE_HASH
+
 def _file_name(url):
     name = url.rpartition("/")[2]
     if not name or "?" in name or "#" in name:
@@ -151,6 +159,7 @@ def _repo_impl(repository_ctx):
 
 dev_launch_deps_repo = repository_rule(
     implementation = _repo_impl,
+    environ = [DEFAULT_CANONICAL_ID_ENV],
     attrs = {
         # optional, and only where the checkout already owns a trustworthy hash - see write_downloads_repo
         "sha256s": attr.string_list(),
@@ -159,17 +168,19 @@ dev_launch_deps_repo = repository_rule(
 )
 
 def _extracted_repo_impl(repository_ctx):
+    urls = [repository_ctx.attr.url]
     result = repository_ctx.download_and_extract(
-        url = repository_ctx.attr.url,
+        url = urls,
         sha256 = repository_ctx.attr.sha256,
-        stripPrefix = repository_ctx.attr.strip_prefix,
-        auth = get_auth(repository_ctx, [repository_ctx.attr.url]),
+        strip_prefix = repository_ctx.attr.strip_prefix,
+        canonical_id = get_default_canonical_id(repository_ctx, urls),
+        auth = get_auth(repository_ctx, urls),
     )
     repository_ctx.file(
         "BUILD",
         """
 package(default_visibility = ["//visibility:public"])
-files = glob(["**"], exclude = ["BUILD"], allow_empty = False)
+files = glob(["**"], exclude = ["BUILD", "BUILD.bazel"], allow_empty = False)
 exports_files(files)
 filegroup(
     name = "files",
@@ -189,12 +200,39 @@ dev_launch_extracted_repo = repository_rule(
     and the consumer is handed files rather than a directory it has to populate.
     """,
     implementation = _extracted_repo_impl,
+    environ = [DEFAULT_CANONICAL_ID_ENV],
     attrs = {
         # optional, exactly as in dev_launch_deps_repo: these URLs carry their version, so the same URL is the same
         # artifact and an unpinned fetch costs a re-download only when the version moves
         "sha256": attr.string(),
         "strip_prefix": attr.string(),
         "url": attr.string(mandatory = True),
+    },
+)
+
+def text_repo_files(file_name, content):
+    """The files of a [dev_launch_text_repo], by path: `file_name` with `content`, and a BUILD that exports it."""
+    return {
+        "BUILD": 'package(default_visibility = ["//visibility:public"])\n\nexports_files(["%s"])\n' % file_name,
+        file_name: content,
+    }
+
+def _text_repo_impl(repository_ctx):
+    for path, content in text_repo_files(repository_ctx.attr.file_name, repository_ctx.attr.content).items():
+        repository_ctx.file(path, content, executable = False)
+    return repository_ctx.repo_metadata(reproducible = True)
+
+dev_launch_text_repo = repository_rule(
+    doc = """One file that holds a pinned value as text, byte for byte, such as a version a plugin ships.
+
+    Not a download: it joins no dev-launch set and has no preloaded-downloads manifest. A plugin component reads it as a
+    declared input, so the dev layout of the plugin copies a file instead of running the production generator. The
+    extension passes the value as `content`, so a bump of it refetches this repository and no other.
+    """,
+    implementation = _text_repo_impl,
+    attrs = {
+        "content": attr.string(mandatory = True),
+        "file_name": attr.string(mandatory = True),
     },
 )
 
@@ -314,7 +352,7 @@ def _only_select(platforms, value, default):
 
 # What a dev-mode assembly downloads, of the groups community owns.
 COMMUNITY_DEV_LAUNCH_REPOS = merge_repo_sets(
-    _shared_repos(["libghostty", "libwebp", "maven", "restarter"]),
+    _shared_repos(["libghostty", "libwebp", "maven", "restarter", "jserialcomm"]),
     _per_platform_repos("jcef"),
 )
 
@@ -333,6 +371,12 @@ def _dev_launch_deps_community_impl(module_ctx):
     dev_launch_deps_repo(
         name = "dev_launch_libghostty",
         urls = [lib_ghostty_vt_url(pinned(community, _COMMUNITY_DEPENDENCIES, "libGhosttyVtVersion"))],
+    )
+
+    # CommunityRepositoryModules serial-monitor native library. One zip for every platform.
+    dev_launch_deps_repo(
+        name = "dev_launch_jserialcomm",
+        urls = [jserialcomm_url()],
     )
     dev_launch_deps_repo(
         name = "dev_launch_libwebp",

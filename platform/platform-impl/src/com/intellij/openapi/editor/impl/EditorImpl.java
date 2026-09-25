@@ -524,8 +524,6 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
 
   private CaretImpl myPrimaryCaret;
 
-  public final boolean myDisableRtl = Registry.is("editor.disable.rtl");
-
   private final EditorModel myEditorModel;
   final EditorView myView;
 
@@ -583,13 +581,11 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     myVirtualFile = file;
     myState = new EditorState();
     myState.refreshAll();
-    final EditorColorsScheme boundColorScheme = createBoundColorSchemeDelegate(null);
+    EditorColorsScheme boundColorScheme = createBoundColorSchemeDelegate(null);
     if (boundColorScheme instanceof EditorColorSchemeDelegate delegate) {
       myScheme = delegate;
-    }
-    else {
-      LOG.warn("createBoundColorSchemeDelegate created delegate of type '%s'. Will wrap it with MyColorSchemeDelegate".formatted(boundColorScheme.getClass()),
-                new Throwable());
+    } else {
+      LOG.warn("createBoundColorSchemeDelegate created delegate of type '%s'. Will wrap it with MyColorSchemeDelegate".formatted(boundColorScheme.getClass()), new Throwable());
       myScheme = new EditorColorSchemeDelegate(this, boundColorScheme);
     }
     myScrollPane = new MyScrollPane(); // create UI after scheme initialization

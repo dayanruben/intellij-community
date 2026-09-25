@@ -11,6 +11,7 @@ import kotlinx.collections.immutable.PersistentMap
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.plus
+import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.ApiStatus.Obsolete
 import org.jetbrains.intellij.build.BuildContext
@@ -18,9 +19,10 @@ import org.jetbrains.intellij.build.BuildOptions
 import org.jetbrains.intellij.build.CustomAssetDescriptor
 import org.jetbrains.intellij.build.JvmArchitecture
 import org.jetbrains.intellij.build.LazySource
-import org.jetbrains.intellij.build.LibcImpl
 import org.jetbrains.intellij.build.OsFamily
 import org.jetbrains.intellij.build.PluginBundlingRestrictions
+import org.jetbrains.intellij.build.CompatibleBuildRange
+import org.jetbrains.intellij.build.dev.DevPluginLayoutAssetOwner
 import org.jetbrains.intellij.build.dev.DevPluginLayoutAssetSpec
 import org.jetbrains.intellij.build.impl.BuildUtils.checkedReplace
 import java.nio.file.Files
@@ -96,6 +98,9 @@ class PluginLayout(val mainModule: String, @Internal @JvmField val auto: Boolean
       !hasCustomVersion -> ""
       else -> (versionEvaluator as? DataPluginVersionEvaluator)?.versionSuffix
     }
+
+  val compatibleBuildRange: CompatibleBuildRange?
+    get() = (versionEvaluator as? DataPluginVersionEvaluator)?.compatibleBuildRange
 
   var directoryNameSetExplicitly: Boolean = false
   var bundlingRestrictions: PluginBundlingRestrictions = PluginBundlingRestrictions.NONE
@@ -195,7 +200,8 @@ class PluginLayout(val mainModule: String, @Internal @JvmField val auto: Boolean
   @Internal
   fun getExcludedModuleLibraries(): Map<String, List<String>> = excludedModuleLibraries
 
-  internal var resourceGenerators: PersistentList<ResourceGenerator> = persistentListOf()
+  @ApiStatus.Internal
+  var resourceGenerators: PersistentList<ResourceGenerator> = persistentListOf()
     private set
 
   /** Project libraries that [PluginLayoutBuilder.withLibraryResources] unpacks into the plugin directory. */
@@ -204,30 +210,33 @@ class PluginLayout(val mainModule: String, @Internal @JvmField val auto: Boolean
     return resourceGenerators.mapNotNullTo(LinkedHashSet()) { (it as? LibraryResourceGenerator)?.libraryName }
   }
 
-  internal var customAssets: PersistentList<CustomAssetDescriptor> = persistentListOf()
+  @ApiStatus.Internal
+  var customAssets: PersistentList<CustomAssetDescriptor> = persistentListOf()
     private set
 
   /**
-   * Platform resource generators that run only for a bundled plugin. They do not run in dev mode, and the
-   * dev-distribution generator does not plan them. See also [platformResourceGeneratorsBundledAndDevMode].
+   * The platform resource generators. The dev-distribution generator plans each one from its [DevPluginLayoutAssetSpec].
+   * [DeclaredPluginLayoutResourceGenerator.run] states where each one runs. See [PluginLayoutBuilder.withGeneratedPlatformResources].
    */
-  internal var platformResourceGenerators: PersistentMap<SupportedDistribution, PersistentList<ResourceGenerator>> = persistentMapOf()
+  @ApiStatus.Internal
+  var platformResourceGenerators: PersistentMap<SupportedDistribution, PersistentList<DeclaredPluginLayoutResourceGenerator>> = persistentMapOf()
+    private set
+
+  @ApiStatus.Internal
+  var executablePatterns: PersistentMap<SupportedDistribution, PersistentList<String>> = persistentMapOf()
     private set
 
   /**
-   * Declared platform resource generators. They run for a bundled plugin and in dev mode, and the dev-distribution
-   * generator plans them from their [DevPluginLayoutAssetSpec]. See [PluginLayoutBuilder.withGeneratedPlatformResources].
+   * The patterns [PluginLayoutBuilder.withPlatformExecutable] registered, one list per distribution it named.
+   *
+   * A plain map, unlike [executablePatterns]: a caller outside the layout builders is not expected to know
+   * `kotlinx.collections.immutable`.
    */
-  internal var platformResourceGeneratorsBundledAndDevMode: PersistentMap<SupportedDistribution, PersistentList<ResourceGenerator>> = persistentMapOf()
-    private set
-
-  internal var executablePatterns: PersistentMap<SupportedDistribution, PersistentList<String>> = persistentMapOf()
-    private set
+  @Internal
+  fun getExecutablePatterns(): Map<SupportedDistribution, List<String>> = executablePatterns
 
   val hasPlatformSpecificResources: Boolean
-    get() = platformResourceGenerators.isNotEmpty() ||
-            platformResourceGeneratorsBundledAndDevMode.isNotEmpty() ||
-            customAssets.any { it.platformSpecific != null }
+    get() = platformResourceGenerators.isNotEmpty() || customAssets.any { it.platformSpecific != null }
 
   fun getMainJarName(): String = mainJarName
 
@@ -381,12 +390,25 @@ class PluginLayout(val mainModule: String, @Internal @JvmField val auto: Boolean
       layout.withResourceFromModule(moduleName = layout.mainModule, resourcePath = resourcePath, relativeOutputPath = relativeOutputPath)
     }
 
-    fun withGeneratedResources(generator: ResourceGenerator) {
-      layout.resourceGenerators += generator
+    /**
+     * A resource generator that states its own development layout, such as `CidrDependencyResource`.
+     * A generator that is code only takes the overload with a [DevPluginLayoutAssetSpec].
+     */
+    fun <T> withGeneratedResources(resource: T) where T : ResourceGenerator, T : DevPluginLayoutAssetOwner {
+      layout.resourceGenerators += resource
     }
 
-    fun withGeneratedResources(layoutAssetSpec: DevPluginLayoutAssetSpec, generator: ResourceGenerator) {
-      layout.resourceGenerators += DeclaredPluginLayoutResourceGenerator(layoutAssetSpec, generator)
+    /**
+     * A resource generator. The dev-distribution generator plans it from [layoutAssetSpec], and
+     * [DevPluginLayoutAssetSpec.OMITTED] states that the dev distribution leaves its files out.
+     * [run] states whether classic dev mode also runs [generator].
+     */
+    fun withGeneratedResources(
+      layoutAssetSpec: DevPluginLayoutAssetSpec,
+      run: DeclaredResourceGeneratorRun = DeclaredResourceGeneratorRun.BUNDLED_AND_DEV,
+      generator: ResourceGenerator,
+    ) {
+      layout.resourceGenerators += DeclaredPluginLayoutResourceGenerator(layoutAssetSpec, generator, run)
     }
 
     /** Copies a module resource tree through the same declaration in production and development. */
@@ -406,10 +428,6 @@ class PluginLayout(val mainModule: String, @Internal @JvmField val auto: Boolean
      */
     fun withLibraryResources(libraryName: String, relativeOutputPath: String) {
       layout.resourceGenerators += LibraryResourceGenerator(libraryName = libraryName, targetPath = relativeOutputPath)
-    }
-
-    fun withCustomAsset(platform: SupportedDistribution, lazySourceSupplier: (context: BuildContext) -> LazySource?) {
-      layout.customAssets += customAsset(platform, lazySourceSupplier)
     }
 
     fun withCustomAsset(layoutAssetSpec: DevPluginLayoutAssetSpec, lazySourceSupplier: (context: BuildContext) -> LazySource?) {
@@ -435,36 +453,28 @@ class PluginLayout(val mainModule: String, @Internal @JvmField val auto: Boolean
       }
     }
 
-    /** A platform resource generator for a bundled plugin only; see [platformResourceGenerators]. */
-    fun withGeneratedPlatformResources(os: OsFamily, arch: JvmArchitecture, libc: LibcImpl, generator: ResourceGenerator) {
-      val key = SupportedDistribution(os, arch, libc)
-      layout.platformResourceGenerators += key to (layout.platformResourceGenerators.get(key) ?: persistentListOf()) + generator
-    }
-
     /**
-     * A declared platform resource generator. It also runs in dev mode, and the dev-distribution generator plans it
-     * from [layoutAssetSpec]; see [platformResourceGeneratorsBundledAndDevMode].
+     * A platform resource generator. The dev-distribution generator plans it from [layoutAssetSpec], and
+     * [DevPluginLayoutAssetSpec.OMITTED] states that the dev distribution leaves its files out.
+     * [run] states whether classic dev mode also runs [generator]. See [platformResourceGenerators].
      */
     fun withGeneratedPlatformResources(
-      os: OsFamily,
-      arch: JvmArchitecture,
-      libc: LibcImpl,
+      platform: SupportedDistribution,
       layoutAssetSpec: DevPluginLayoutAssetSpec,
+      run: DeclaredResourceGeneratorRun = DeclaredResourceGeneratorRun.BUNDLED_AND_DEV,
       generator: ResourceGenerator,
     ) {
-      val key = SupportedDistribution(os, arch, libc)
-      val declared = DeclaredPluginLayoutResourceGenerator(layoutAssetSpec, generator)
-      layout.platformResourceGeneratorsBundledAndDevMode += key to (layout.platformResourceGeneratorsBundledAndDevMode.get(key) ?: persistentListOf()) + declared
+      val declared = DeclaredPluginLayoutResourceGenerator(layoutAssetSpec, generator, run)
+      layout.platformResourceGenerators += platform to (layout.platformResourceGenerators.get(platform) ?: persistentListOf()) + declared
     }
 
     /**
      * Add platform-specific executable file pattern.
      * Pattern is relative to plugin root directory.
      */
-    fun withPlatformExecutable(os: OsFamily, arch: JvmArchitecture, libc: LibcImpl, pattern: String) {
-      val key = SupportedDistribution(os, arch, libc)
-      val existing = layout.executablePatterns.get(key) ?: persistentListOf()
-      layout.executablePatterns = layout.executablePatterns.putting(key, existing.adding(pattern))
+    fun withPlatformExecutable(platform: SupportedDistribution, pattern: String) {
+      val existing = layout.executablePatterns.get(platform) ?: persistentListOf()
+      layout.executablePatterns = layout.executablePatterns.putting(platform, existing.adding(pattern))
     }
 
     /**
@@ -541,17 +551,6 @@ class PluginLayout(val mainModule: String, @Internal @JvmField val auto: Boolean
       set(value) {
         layout.mainJarName = value
       }
-
-    /**
-     * @param binPathRelativeToCommunity path to a resource file or directory relative to the intellij-community repo root
-     * @param outputPath target path relative to the plugin root directory
-     *
-     * The dev-distribution generator cannot plan this declaration, so a plugin that keeps it is unplannable. Declare a
-     * checkout directory with [withResourceFromModule] against the module whose Bazel package holds it.
-     */
-    fun withBin(binPathRelativeToCommunity: String, outputPath: String) {
-      withGeneratedResources(BinaryResourceGenerator(binPathRelativeToCommunity, outputPath))
-    }
 
     /**
      * @param resourcePath path to a resource file or directory relative to `moduleName` module content root
@@ -686,9 +685,12 @@ class PluginLayout(val mainModule: String, @Internal @JvmField val auto: Boolean
     /**
      * Concatenates `META-INF/services` files with the same name from different modules together.
      * By default, the first service file silently wins.
+     *
+     * The dev distribution omits the merge. Its jar writer keeps the first service file of a name and reports the
+     * collision, which is the default this method replaces.
      */
     fun mergeServiceFiles() {
-      withPatch { patcher, context ->
+      layout.withPatch(DeclaredPluginLayoutPatcher(DevPluginLayoutAssetSpec.OMITTED) { patcher, _, context ->
         val discoveredServiceFiles = LinkedHashMap<String, LinkedHashSet<Pair<String, Path>>>()
 
         for (moduleName in layout.includedModules.asSequence().filter { it.relativeOutputFile == layout.mainJarName }.map { it.moduleName }.distinct()) {
@@ -720,7 +722,7 @@ class PluginLayout(val mainModule: String, @Internal @JvmField val auto: Boolean
             content = content,
           )
         }
-      }
+      })
     }
 
     /**
@@ -817,15 +819,24 @@ fun interface PluginVersionEvaluator {
 interface DataPluginVersionEvaluator : PluginVersionEvaluator {
   /** What this evaluator appends to the IDE build version. */
   val versionSuffix: String
+  val compatibleBuildRange: CompatibleBuildRange? get() = null
 }
 
-/** [DataPluginVersionEvaluator] with nothing beyond the suffix. */
-class SuffixedPluginVersion(override val versionSuffix: String) : DataPluginVersionEvaluator {
+/** [DataPluginVersionEvaluator] with nothing beyond the suffix and an optional range override. */
+class SuffixedPluginVersion(
+  override val versionSuffix: String,
+  override val compatibleBuildRange: CompatibleBuildRange? = null,
+) : DataPluginVersionEvaluator {
   override fun evaluate(
     pluginXmlSupplier: () -> String,
     ideBuildVersion: String,
     context: BuildContext,
-  ): PluginVersionEvaluatorResult = PluginVersionEvaluatorResult(pluginVersion = ideBuildVersion + versionSuffix)
+  ): PluginVersionEvaluatorResult = PluginVersionEvaluatorResult(
+    pluginVersion = ideBuildVersion + versionSuffix,
+    sinceUntil = compatibleBuildRange?.let {
+      getCompatiblePlatformVersionRange(it, context.buildNumber)
+    }
+  )
 }
 
 internal fun convertModuleNameToFileName(moduleName: String): String = moduleName.removePrefix("intellij.").replace('.', '-')

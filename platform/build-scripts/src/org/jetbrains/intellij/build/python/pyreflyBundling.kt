@@ -8,6 +8,8 @@ import org.jetbrains.intellij.build.dependencies.BuildDependenciesConstants.INTE
 import org.jetbrains.intellij.build.dependencies.BuildDependenciesDownloader
 import org.jetbrains.intellij.build.dependencies.archiveCacheKey
 import org.jetbrains.intellij.build.dependencies.extractToCacheLocation
+import org.jetbrains.intellij.build.dev.DevPluginLayoutAssetSpec
+import org.jetbrains.intellij.build.impl.DeclaredResourceGeneratorRun
 import org.jetbrains.intellij.build.impl.PluginLayout
 import org.jetbrains.intellij.build.impl.SUPPORTED_DISTRIBUTIONS
 import org.jetbrains.intellij.build.impl.SupportedDistribution
@@ -31,21 +33,32 @@ private const val PYREFLY_DIR_NAME: String = "pyrefly"
 
 private const val PYREFLY_BINARY_NAME: String = "pyrefly"
 
-fun PluginLayout.PluginLayoutSpec.withBundledPyrefly() {
-  withGeneratedResources { targetDir, context -> copyPyreflyLicenseReport(targetDir, context) }
+/**
+ * The dev distribution omits the bundled pyrefly binary and its license report. No dev-launch repository declares the
+ * pyrefly archives.
+ */
+private val PYREFLY_DEV_SPEC: DevPluginLayoutAssetSpec = DevPluginLayoutAssetSpec.OMITTED
 
-  for ((os, arch, libc) in SUPPORTED_DISTRIBUTIONS) {
-    withGeneratedPlatformResources(os, arch, libc) { targetDir, context -> copyPyreflyBinary(targetDir, context, os, arch) }
+fun PluginLayout.PluginLayoutSpec.withBundledPyrefly() {
+  withGeneratedResources(PYREFLY_DEV_SPEC, run = DeclaredResourceGeneratorRun.BUNDLED_ONLY) { targetDir, context ->
+    copyPyreflyLicenseReport(targetDir, context)
+  }
+
+  for (platform in SUPPORTED_DISTRIBUTIONS) {
+    val (os, arch) = platform
+    withGeneratedPlatformResources(platform, layoutAssetSpec = PYREFLY_DEV_SPEC, run = DeclaredResourceGeneratorRun.BUNDLED_ONLY) { targetDir, context ->
+      copyPyreflyBinary(targetDir, context, os, arch)
+    }
 
     if (os != OsFamily.WINDOWS) {
-      withPlatformExecutable(os, arch, libc, "$PYREFLY_DIR_NAME/${pyreflyPlatformDirName(os, arch)}/${os.binaryName(PYREFLY_BINARY_NAME)}")
+      withPlatformExecutable(platform, "$PYREFLY_DIR_NAME/${pyreflyPlatformDirName(os, arch)}/${os.binaryName(PYREFLY_BINARY_NAME)}")
     }
   }
 }
 
 fun PluginLayout.PluginLayoutSpec.withPublishedPyrefly(dist: SupportedDistribution) {
   val (os, arch, _) = dist
-  withGeneratedResources { targetDir, context ->
+  withGeneratedResources(PYREFLY_DEV_SPEC) { targetDir, context ->
     copyPyreflyLicenseReport(targetDir, context)
     copyPyreflyBinary(targetDir, context, os, arch)
   }

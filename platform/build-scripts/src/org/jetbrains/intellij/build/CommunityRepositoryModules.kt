@@ -14,7 +14,6 @@ import org.jetbrains.intellij.build.dev.DevPluginLayoutAssetSource
 import org.jetbrains.intellij.build.dev.DevPluginLayoutAssetSpec
 import org.jetbrains.intellij.build.dev.DevPluginLayoutAssetTransform
 import org.jetbrains.intellij.build.impl.BundledMavenDownloader
-import org.jetbrains.intellij.build.impl.DescriptorPluginVersion
 import org.jetbrains.intellij.build.impl.LibraryPackMode
 import org.jetbrains.intellij.build.impl.ModuleItem
 import org.jetbrains.intellij.build.impl.PluginLayout
@@ -55,7 +54,7 @@ fun getCommunityRepositoryPlugins(): PersistentList<PluginLayout> {
       spec.mainJarName = "antIntegration.jar"
       spec.withModule("intellij.ant.jps", "ant-jps.jar")
 
-      spec.withGeneratedResources { dir, buildContext ->
+      spec.withGeneratedResources(ANT_DISTRIBUTION_DEV_SPEC) { dir, buildContext ->
         copyAnt(mainModule = spec.mainModule, pluginDir = dir, context = buildContext)
       }
     },
@@ -63,8 +62,9 @@ fun getCommunityRepositoryPlugins(): PersistentList<PluginLayout> {
       spec.bundlingRestrictions.supportedOs = persistentListOf(OsFamily.MACOS)
     },
     plugin("intellij.webp") { spec ->
-      for ((os, arch, libc) in SUPPORTED_DISTRIBUTIONS) {
-        spec.withGeneratedPlatformResources(os, arch, libc, webpLayoutAssetSpec(os, arch)) { targetDir, context ->
+      for (platform in SUPPORTED_DISTRIBUTIONS) {
+        val (os, arch) = platform
+        spec.withGeneratedPlatformResources(platform, webpLayoutAssetSpec(os, arch)) { targetDir, context ->
           copyFileToDir(NativeBinaryDownloader.getLibWebp(context, os, arch), targetDir.resolve("lib/libwebp/${os.dirName}/${arch.dirName}"))
         }
       }
@@ -101,9 +101,10 @@ fun getCommunityRepositoryPlugins(): PersistentList<PluginLayout> {
     // The relative paths below (`lib/maven3`, `lib/intellij.maven.server3`, ...) are a runtime contract, not an
     // internal packaging detail: the Maven plugin reads them back at runtime through
     // `MavenClasspathBuilder.addMavenServerLibraries` and `MavenDistributionsCache.resolveEmbeddedMavenHome`.
-    // This layout is produced identically for a release build and a dev build (resource generators run in both -
-    // only `BuildOptions.skipCustomResourceGenerators`, used by build tests, suppresses them), which is why the
-    // runtime has no dev-build-specific branch. Renaming a path here breaks the IDE, not just the distribution.
+    // This layout is produced identically for a release build and a dev build (its resource generators keep the
+    // default run policy, so they run in both - only `BuildOptions.skipCustomResourceGenerators`, used by build tests,
+    // suppresses them), which is why the runtime has no dev-build-specific branch. Renaming a path here breaks the
+    // IDE, not just the distribution.
     plugin("intellij.maven.plugin") { spec ->
       spec.doNotCopyModuleLibrariesAutomatically(
         listOf(
@@ -237,10 +238,11 @@ fun getCommunityRepositoryPlugins(): PersistentList<PluginLayout> {
       spec.withModule("intellij.terminal.completion")
       spec.withResource("resources/shell-integrations", "shell-integrations")
       // bundle the libghostty-vt native library
-      for ((os, arch, libc) in SUPPORTED_DISTRIBUTIONS) {
+      for (platform in SUPPORTED_DISTRIBUTIONS) {
+        val (os, arch) = platform
         val dirName = os.osName.lowercase() + "-" + arch.archName.lowercase()
         // a declared generator also runs from a dev build, which loads libghostty-vt there
-        spec.withGeneratedPlatformResources(os, arch, libc, terminalLayoutAssetSpec(os, arch)) { targetDir, context ->
+        spec.withGeneratedPlatformResources(platform, terminalLayoutAssetSpec(os, arch)) { targetDir, context ->
           copyFileToDir(NativeBinaryDownloader.getLibGhosttyVt(context, os, arch), targetDir.resolve("libghostty-vt/$dirName"))
         }
       }
@@ -322,9 +324,10 @@ fun getContribRepositoryPlugins(): List<PluginLayout> = java.util.List.of(
     // jSerialComm java JAR - Remember to update the binary dependency when updating to a new version!
     spec.withProjectLibrary("jetbrains.intellij.deps.jSerialComm", LibraryPackMode.STANDALONE_SEPARATE)
 
-    // jSerialComm native library
-    spec.withGeneratedResources { targetDir, context ->
-      val uri = URI.create("https://packages.jetbrains.team/files/p/ij/intellij-build-dependencies/jSerialComm/9a7813435b79aa2e23c7f2a78f1b66b48c0504c4/jSerialComm.zip")
+    // jSerialComm native library. Keep the content hash in lockstep with `jserialcomm_url` in
+    // `community/build/dev_launch_dependencies.bzl`.
+    spec.withGeneratedResources(jSerialCommLayoutAssetSpec()) { targetDir, context ->
+      val uri = URI.create(jSerialCommDownloadUrl())
       val downloaded = BuildDependenciesDownloader.downloadFileToCacheLocation(context.paths.communityHomeDirRoot, uri, context.httpSession)
       BuildDependenciesDownloader.extractFile(downloaded, targetDir.resolve("bin"), context.paths.communityHomeDirRoot)
     }
@@ -471,7 +474,7 @@ private fun createAndroidPluginLayout(
 
       patchOsSpecificPluginXml(spec, os, arch)
 
-      spec.withCustomVersion(DescriptorPluginVersion("-${os.osId}-${arch.marketplaceName}"))
+      spec.withCustomVersion(osArchPluginVersion(os = os, arch = arch))
     }
     else {
       spec.bundlingRestrictions.includeInDistribution = PluginDistribution.CROSS_PLATFORM_DIST_ONLY
@@ -722,7 +725,7 @@ private fun createAndroidPluginLayout(
     //  "//tools/adt/idea/artwork:device-art-resources-bundle",  # duplicated in android.jar
     spec.withResourceFromModule("intellij.android.artwork", "resources/device-art-resources", "resources/device-art-resources")
     //  "//tools/adt/idea/android/annotations:androidAnnotations",
-    spec.withResourceArchiveFromModule("intellij.android.plugin", "../android/annotations", "resources/androidAnnotations.jar")
+    spec.withResourceArchiveFromModule("intellij.android.core", "annotations", "resources/androidAnnotations.jar")
     //  "//tools/adt/idea/emulator/native:native_lib",
     spec.withResourceFromModule("intellij.android.streaming", "native/linux", "resources/native/linux")
     spec.withResourceFromModule("intellij.android.streaming", "native/mac", "resources/native/mac")
@@ -909,6 +912,25 @@ private fun downloadArchive(label: String, fileName: String): DevPluginLayoutAss
   return DevPluginLayoutAssetSource.BazelTarget(label = label, kind = "archive", fileName = fileName)
 }
 
+/** The content hash of the jSerialComm native zip. Keep in lockstep with `jserialcomm_url` in the launch deps. */
+private const val JSERIALCOMM_NATIVE_HASH: String = "9a7813435b79aa2e23c7f2a78f1b66b48c0504c4"
+
+/** The URL of the jSerialComm native zip the serial-monitor plugin unpacks into `bin/`. */
+private fun jSerialCommDownloadUrl(): String =
+  "https://packages.jetbrains.team/files/p/ij/intellij-build-dependencies/jSerialComm/$JSERIALCOMM_NATIVE_HASH/jSerialComm.zip"
+
+/** The native jSerialComm archive unpacked into the serial-monitor plugin's `bin/`. */
+private fun jSerialCommLayoutAssetSpec(): DevPluginLayoutAssetSpec {
+  return DevPluginLayoutAssetSpec(
+    sources = listOf(downloadArchive("@dev_launch_jserialcomm//:files", "jSerialComm.zip")),
+    assets = listOf(DevPluginLayoutAsset(
+      destination = "bin",
+      sources = listOf(0),
+      transform = DevPluginLayoutAssetTransform.archiveTree(),
+    )),
+  )
+}
+
 /**
  * Declares the restart helper at `bin/restarter` for every target platform. The dev distribution packs it out of
  * the `restarter` archive; production and a complete dev build copy it beside the other `bin` files, where the
@@ -948,6 +970,12 @@ private fun copyMavenLibraries(libraries: List<BundledMavenDownloader.MavenLibra
     copyFile(file = source, target = targetDir.resolve(fileName), overwrite = true)
   }
 }
+
+/**
+ * The dev distribution omits the Ant distribution of the Ant plugin. The plugin is a marketplace plugin that no
+ * dev-distribution product includes, and it finds `community/lib/ant` itself when it runs from sources.
+ */
+private val ANT_DISTRIBUTION_DEV_SPEC: DevPluginLayoutAssetSpec = DevPluginLayoutAssetSpec.OMITTED
 
 private fun copyAnt(mainModule: String, pluginDir: Path, context: BuildContext): List<DistributionFileEntry> {
   val antDir = pluginDir.resolve("dist")
