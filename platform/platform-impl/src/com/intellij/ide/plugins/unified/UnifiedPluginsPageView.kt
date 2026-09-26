@@ -6,6 +6,7 @@ import com.intellij.ide.IdeBundle
 import com.intellij.ide.plugins.PluginManagerConfigurable
 import com.intellij.ide.plugins.newui.ListPluginComponent
 import com.intellij.ide.setToolTipText
+import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.ui.Divider
 import com.intellij.openapi.ui.Splitter
@@ -35,6 +36,7 @@ import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
+import com.intellij.util.ui.table.ComponentsListFocusTraversalPolicy
 import java.awt.BorderLayout
 import java.awt.Component
 import java.awt.Container
@@ -168,21 +170,62 @@ internal class UnifiedPluginsPageView @RequiresEdt(generateAssertion = false /* 
       border = CustomLineBorder(PluginManagerConfigurable.SEARCH_FIELD_BORDER_COLOR, JBUI.insetsTop(1))
       minimumSize = Dimension(JBUI.scale(PLUGIN_LIST_MIN_WIDTH), 0)
       add(scrollContainer, BorderLayout.CENTER)
+      if (rowFactory != null) {
+        isFocusTraversalPolicyProvider = true
+        focusTraversalPolicy = object : ComponentsListFocusTraversalPolicy(true) {
+          override fun getOrderedComponents(): List<Component> = focusTraversalOrder()
+        }
+      }
     }
 
     val detailsComponent = detailsPresenter?.component ?: createStaticDetailsComponent()
+    val detailsMinimumSize = detailsComponent.minimumSize
+    if (detailsMinimumSize.width < JBUI.scale(DETAILS_MIN_WIDTH)) {
+      detailsComponent.minimumSize = Dimension(JBUI.scale(DETAILS_MIN_WIDTH), detailsMinimumSize.height)
+    }
 
-    component = object : OnePixelSplitter(false, DEFAULT_SPLIT_PROPORTION) {
+    component = object : OnePixelSplitter(false, SPLIT_STORAGE_DEFAULT_PROPORTION) {
+      // JBSplitter saves each proportion change. Preserve this flag through nested layouts so only user changes reach storage.
+      private var updatingDefaultProportion = false
+
       override fun createDivider(): Divider {
         return super.createDivider().apply {
           background = PluginManagerConfigurable.SEARCH_FIELD_BORDER_COLOR
         }
+      }
+
+      override fun loadProportion() {
+        if (PropertiesComponent.getInstance().isValueSet(SPLIT_PROPORTION_KEY)) {
+          super.loadProportion()
+        }
+      }
+
+      override fun saveProportion() {
+        if (!updatingDefaultProportion) {
+          super.saveProportion()
+        }
+      }
+
+      override fun doLayout() {
+        val availableWidth = width - insets.left - insets.right - dividerWidth
+        if (availableWidth > 0 && !PropertiesComponent.getInstance().isValueSet(SPLIT_PROPORTION_KEY)) {
+          val wasUpdatingDefaultProportion = updatingDefaultProportion
+          updatingDefaultProportion = true
+          try {
+            proportion = defaultListProportion(availableWidth)
+          }
+          finally {
+            updatingDefaultProportion = wasUpdatingDefaultProportion
+          }
+        }
+        super.doLayout()
       }
     }.apply {
       accessibleContext.accessibleName = IdeBundle.message("title.plugins")
       lackOfSpaceStrategy = Splitter.LackOfSpaceStrategy.HONOR_THE_FIRST_MIN_SIZE
       firstComponent = listPanel
       secondComponent = detailsComponent
+      setAndLoadSplitterProportionKey(SPLIT_PROPORTION_KEY)
     }
     resultsAnnouncementTimer = Timer(RESULTS_ANNOUNCEMENT_DELAY_MS) { announceRenderedResults() }.apply {
       isRepeats = false
@@ -313,6 +356,15 @@ internal class UnifiedPluginsPageView @RequiresEdt(generateAssertion = false /* 
     presenter.render(mode, selection)
   }
 
+  internal fun focusTraversalOrder(): List<Component> {
+    val sections = renderedState?.sections.orEmpty().mapNotNull { sectionViews[it.id] }
+    val selectedRow = renderedState?.selectedOccurrence?.let { rowReconciler?.row(it) }
+    val activeRow = selectedRow ?: sections.firstNotNullOfOrNull { section ->
+      section.firstRealRowOccurrence()?.let { rowReconciler?.row(it) }
+    }
+    return sections.flatMap { it.focusTraversalComponents(activeRow) }
+  }
+
   private fun createStaticDetailsComponent(): JComponent {
     val emptyDetailsLabel = JBLabel(IdeBundle.message("plugins.configurable.details.none.selected")).apply {
       foreground = UIUtil.getContextHelpForeground()
@@ -402,6 +454,11 @@ internal class UnifiedPluginsPageView @RequiresEdt(generateAssertion = false /* 
 
     pendingSelectionRevealRevision = null
     updateStickyHeader()
+  }
+
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
+  fun revealKeyboardSelection(occurrenceId: PluginOccurrenceId) {
+    if (revealOccurrence(occurrenceId)) updateStickyHeader()
   }
 
   private fun revealOccurrence(occurrenceId: PluginOccurrenceId): Boolean {
@@ -566,7 +623,7 @@ internal class UnifiedPluginsPageView @RequiresEdt(generateAssertion = false /* 
     private val errorPanel = JPanel(HorizontalLayout(JBUI.scale(ERROR_RETRY_GAP))).apply {
       isOpaque = false
       isVisible = false
-      border = JBUI.Borders.empty(ERROR_INSET)
+      border = JBUI.Borders.empty(ERROR_INSET, ERROR_LEFT_INSET, ERROR_INSET, ERROR_INSET)
       add(errorLabel)
     }
     private val list = JBList(model)
@@ -806,6 +863,8 @@ internal class UnifiedPluginsPageView @RequiresEdt(generateAssertion = false /* 
         }
       }
 
+      val focusComponent: JComponent = toggleButton
+
       init {
         layout = BorderLayout()
         isOpaque = false
@@ -1044,6 +1103,28 @@ internal class UnifiedPluginsPageView @RequiresEdt(generateAssertion = false /* 
 
     fun realizedItems(): List<PluginItemState> = items.subList(0, realizedItemCount)
 
+    fun firstRealRowOccurrence(): PluginOccurrenceId? = realRowComponents.keys.firstOrNull()
+
+    fun focusTraversalComponents(activeRow: PluginRow?): List<Component> {
+      val result = ArrayList<Component>()
+      val activeOccurrence = realRowComponents.entries.firstOrNull { it.value === activeRow?.component }?.key
+      if (activeOccurrence == null) {
+        if (retryLink.parent != null) result.add(retryLink)
+        return result.filter { it.isFocusable && it.isEnabled && it.isVisible }
+      }
+
+      result.add(fullHeaderButton.focusComponent)
+      if (retryLink.parent != null) result.add(retryLink)
+      val category = categoryGroupsByPluginId[activeOccurrence.pluginId]?.category
+      if (category != null) {
+        categoryHeaderViews[category]?.let { result.add(it.actionLink) }
+        categoryPromotionPanels[category]?.let { addFocusableDescendants(it, result) }
+      }
+      result.add(checkNotNull(activeRow).component)
+      result.addAll(activeRow.focusableComponents())
+      return result.filter { it.isFocusable && it.isEnabled && it.isVisible }
+    }
+
     fun setDividerVisible(visible: Boolean) {
       val desiredBorder = dividerBorder.takeIf { visible }
       if (component.border !== desiredBorder) {
@@ -1053,10 +1134,7 @@ internal class UnifiedPluginsPageView @RequiresEdt(generateAssertion = false /* 
 
     fun setRealRows(bindings: List<PluginRowBinding<PluginRow>>) {
       if (!realRows) return
-      val desiredOccurrences = bindings.mapTo(HashSet(), PluginRowBinding<PluginRow>::occurrenceId)
-      realRowComponents.keys.filter { it !in desiredOccurrences }.forEach { occurrenceId ->
-        realRowComponents.remove(occurrenceId)
-      }
+      realRowComponents.clear()
       val displayedCategories = HashSet<String>()
       val desiredComponents = ArrayList<JComponent>(bindings.size + categoryGroups.size)
       bindings.forEach { binding ->
@@ -1230,7 +1308,7 @@ internal class UnifiedPluginsPageView @RequiresEdt(generateAssertion = false /* 
     private val titleLabel = JBLabel().apply {
       font = font.deriveFont(Font.PLAIN)
     }
-    private val actionLink = ActionLink().apply {
+    val actionLink = ActionLink().apply {
       addActionListener { state?.let(onAction) }
     }
     val component: JComponent = JPanel(BorderLayout()).apply {
@@ -1340,10 +1418,21 @@ internal class UnifiedPluginsPageView @RequiresEdt(generateAssertion = false /* 
   }
 
   private companion object {
-    const val DEFAULT_SPLIT_PROPORTION: Float = 0.45f
+    fun addFocusableDescendants(component: Component, result: MutableList<Component>) {
+      if (!component.isVisible) return
+      if (component.isFocusable && component.isEnabled) result.add(component)
+      if (component is Container) component.components.forEach { addFocusableDescendants(it, result) }
+    }
+
+    const val DETAILS_MIN_WIDTH: Int = 220
     const val ERROR_INSET: Int = 10
+    const val ERROR_LEFT_INSET: Int = 16
     const val ERROR_RETRY_GAP: Int = 8
     const val PLUGIN_LIST_MIN_WIDTH: Int = 280
+    const val SPLIT_EQUAL_WIDTH: Int = 700
+    const val SPLIT_EXTRA_WIDTH_PARTS: Int = 11
+    const val SPLIT_PROPORTION_KEY: String = "UnifiedPluginsPage.SplitProportion"
+    const val SPLIT_STORAGE_DEFAULT_PROPORTION: Float = 0f
     const val REALIZATION_CHUNK_SIZE: Int = 100
     const val RESULTS_ANNOUNCEMENT_DELAY_MS: Int = 250
     const val REAL_ROW_ESTIMATED_HEIGHT: Int = 80
@@ -1365,6 +1454,13 @@ internal class UnifiedPluginsPageView @RequiresEdt(generateAssertion = false /* 
     const val STICKY_HEADER_GRADIENT_HEIGHT: Int = 8
     const val TITLE_STATUS_GAP: Int = 6
 
+  }
+
+  private fun defaultListProportion(availableWidth: Int): Float {
+    val equalWidth = JBUI.scale(SPLIT_EQUAL_WIDTH)
+    val listWidth = minOf(availableWidth, equalWidth) / 2f +
+                    (availableWidth - equalWidth).coerceAtLeast(0) / SPLIT_EXTRA_WIDTH_PARTS.toFloat()
+    return listWidth / availableWidth
   }
 
   private fun SectionView?.orEmptyRealizedItems(): List<PluginItemState> = this?.realizedItems().orEmpty()

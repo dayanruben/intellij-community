@@ -14,15 +14,18 @@ import com.intellij.ide.plugins.newui.PluginsGroup
 import com.intellij.ui.components.labels.LinkListener
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import org.jetbrains.annotations.Nls
+import javax.swing.JComponent
 
 internal class LegacyPluginRowFactory @RequiresEdt(generateAssertion = false /* IJPL-115548 */) constructor(
   private val host: LegacyPluginUiHost,
   private val listModel: ListPluginModel,
   private val searchListener: LinkListener<Any>,
   onSelectionChanged: (List<PluginOccurrenceId>) -> Unit,
+  onKeyboardNavigation: ((PluginOccurrenceId) -> Unit)? = null,
+  onSelectAllRequested: ((PluginOccurrenceId) -> Unit)? = null,
 ) : PluginRowFactory {
   private val sectionContexts = HashMap<PluginSectionId, SectionContext>()
-  private val eventHandler = UnifiedPluginRowEventHandler(onSelectionChanged)
+  private val eventHandler = UnifiedPluginRowEventHandler(onSelectionChanged, onKeyboardNavigation, onSelectAllRequested)
 
   @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   override fun specification(section: PluginSectionState, item: PluginItemState): PluginRowSpecification<Any> {
@@ -117,6 +120,8 @@ internal class LegacyPluginRow(
 
   val preparedUpdate: PluginPreparedUpdateState?
     get() = renderedInput?.preparedUpdate
+
+  override fun focusableComponents(): List<JComponent> = component.getFocusableComponents()
 
   fun renderInput(input: PluginRowInput?) {
     if (input == null || input == renderedInput) return

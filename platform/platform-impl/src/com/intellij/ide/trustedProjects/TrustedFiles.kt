@@ -121,16 +121,27 @@ object TrustedFiles {
   @ApiStatus.Internal
   @JvmStatic
   fun markExternallyOpened(file: VirtualFile) {
+    if (file.isDirectory) return
     val nioPath = file.fileSystem.getNioPath(file) ?: return
-    val evicted = ExternallyOpenedFiles.getInstance().mark(nioPath)
+    ExternallyOpenedFiles.getInstance().mark(nioPath)
     for (project in ProjectManager.getInstanceIfCreated()?.openProjects ?: return) {
-      val cache = project.serviceIfCreated<TrustedFilesCache>() ?: continue
-      cache.dropVerdict(file)
-      if (evicted) {
-        // an evicted path is unmarked now: recompute its verdict and lift the safe mode from its editor
-        cache.resetVerdicts()
-      }
+      project.serviceIfCreated<TrustedFilesCache>()?.dropVerdict(file)
     }
+  }
+
+  /**
+   * Marks [file] like [markExternallyOpened] when it lies outside the roots of [project].
+   *
+   * A navigation UI that can reach any local file, for example the navigation bar, calls this method
+   * for the file it opens. A file inside the project roots is governed by the project trust,
+   * so its mark would only take a slot in the store.
+   */
+  @ApiStatus.Internal
+  @JvmStatic
+  fun markExternallyOpenedIfOutsideProject(file: VirtualFile, project: Project) {
+    val nioPath = file.fileSystem.getNioPath(file) ?: return
+    if (TrustedProjectsLocator.locateProject(project).projectRoots.any { nioPath.startsWith(it) }) return
+    markExternallyOpened(file)
   }
 }
 

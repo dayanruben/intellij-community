@@ -30,6 +30,77 @@ internal class UnifiedPluginsPageControllerTest {
   }
 
   @Test
+  fun `Select All expands local sections and selects their displayed plugins`() {
+    val installing = PluginSectionState(PluginSectionId.Installing, items = (1..4).map { item("installing.$it") })
+    val installed = PluginSectionState(PluginSectionId.Installed, items = (1..5).map { item("installed.$it") })
+    val bundled = PluginSectionState(PluginSectionId.Bundled, items = (1..6).map { item("bundled.$it") })
+    val suggested = PluginSectionState(PluginSectionId.Suggested, items = (1..4).map { item("suggested.$it") })
+    val controller = UnifiedPluginsPageController(listOf(installing, installed, bundled, suggested))
+    controller.setSectionExpanded(PluginSectionId.Installing, false)
+
+    assertThat(controller.selectAllDisplayed(occurrence(PluginSectionId.Installed, "installed.1"))).isTrue()
+
+    val state = controller.state.value
+    assertThat(state.section(PluginSectionId.Installing).expanded).isTrue()
+    assertThat(state.section(PluginSectionId.Installed).expanded).isTrue()
+    assertThat(state.section(PluginSectionId.Bundled).expanded).isTrue()
+    assertThat(state.selectedOccurrences).containsExactlyElementsOf(
+      listOf(installing, installed, bundled).flatMap { section ->
+        section.items.map { section.occurrenceId(it.pluginId) }
+      }
+    )
+    assertThat(state.selectedOccurrences).noneMatch { it.sectionId == PluginSectionId.Suggested }
+  }
+
+  @Test
+  fun `Select All expands remote sections but stops at the display limit`() {
+    val marketplace = PluginSectionState(PluginSectionId.Marketplace, items = (1..1_001).map { item("marketplace.$it") })
+    val internal = PluginSectionState(PluginSectionId.Internal, items = (1..4).map { item("internal.$it") })
+    val catalog = PluginSectionState(PluginSectionId.CustomRepositoryCatalog, items = (1..5).map { item("catalog.$it") })
+    val installed = PluginSectionState(PluginSectionId.Installed, items = (1..4).map { item("installed.$it") })
+    val controller = UnifiedPluginsPageController(
+      initialSections = listOf(installed, marketplace, internal, catalog),
+      initialQuery = PluginsQueryState("query", "query"),
+    )
+    controller.setSectionExpanded(PluginSectionId.Marketplace, false)
+
+    assertThat(controller.selectAllDisplayed(occurrence(PluginSectionId.Marketplace, "marketplace.1"))).isTrue()
+
+    val state = controller.state.value
+    assertThat(state.section(PluginSectionId.Marketplace).expanded).isTrue()
+    assertThat(state.section(PluginSectionId.Internal).expanded).isTrue()
+    assertThat(state.section(PluginSectionId.CustomRepositoryCatalog).expanded).isTrue()
+    assertThat(state.section(PluginSectionId.Installed).expanded).isFalse()
+    assertThat(state.selectedOccurrences).hasSize(PluginSectionState.MAX_DISPLAYED_ITEM_COUNT + 9)
+    assertThat(state.selectedOccurrences).doesNotContain(occurrence(PluginSectionId.Marketplace, "marketplace.1001"))
+    assertThat(state.selectedOccurrences).noneMatch { it.sectionId == PluginSectionId.Installed }
+  }
+
+  @Test
+  fun `Select All expands selected custom repositories`() {
+    val firstId = PluginSectionId.CustomRepository("first")
+    val secondId = PluginSectionId.CustomRepository("second")
+    val first = PluginSectionState(firstId, items = (1..4).map { item("first.$it") })
+    val second = PluginSectionState(secondId, items = (1..5).map { item("second.$it") })
+    val query = "/repository:first /repository:second"
+    val controller = UnifiedPluginsPageController(
+      initialSections = listOf(first, second),
+      initialQuery = PluginsQueryState(query, query),
+    )
+    controller.setSectionExpanded(firstId, false)
+    controller.setSectionExpanded(secondId, false)
+
+    assertThat(controller.selectAllDisplayed(occurrence(firstId, "first.1"))).isTrue()
+
+    val state = controller.state.value
+    assertThat(state.section(firstId).expanded).isTrue()
+    assertThat(state.section(secondId).expanded).isTrue()
+    assertThat(state.selectedOccurrences).containsExactlyElementsOf(
+      listOf(first, second).flatMap { section -> section.items.map { section.occurrenceId(it.pluginId) } }
+    )
+  }
+
+  @Test
   fun `selection retains surviving occurrences when one local section changes`() {
     val installed = section(PluginSectionId.Installed, "installed.plugin")
     val bundled = section(PluginSectionId.Bundled, "bundled.plugin")
@@ -197,24 +268,65 @@ internal class UnifiedPluginsPageControllerTest {
   }
 
   @Test
-  fun `section expansion changes clear selection`() {
-    val controller = UnifiedPluginsPageController()
-    controller.updateSection(section(PluginSectionId.Installed, itemCount = 5))
+  fun `manual expansion keeps the selected plugin`() {
+    val installed = section(PluginSectionId.Installed, itemCount = 5)
+    val controller = UnifiedPluginsPageController(listOf(installed))
+    val selected = occurrence(PluginSectionId.Installed, "plugin.2")
+    controller.selectOccurrence(selected)
 
     controller.setSectionExpanded(PluginSectionId.Installed, true)
-    assertThat(controller.state.value.selectedOccurrences).isEmpty()
+    assertThat(controller.state.value.selectedOccurrence).isEqualTo(selected)
 
-    val lastOccurrence = occurrence(PluginSectionId.Installed, "plugin.5")
-    controller.selectOccurrence(lastOccurrence)
-    assertThat(controller.state.value.selectedOccurrence).isEqualTo(lastOccurrence)
+    controller.setSectionExpanded(PluginSectionId.Installed, false)
+    assertThat(controller.state.value.selectedOccurrence).isEqualTo(selected)
+  }
 
+  @Test
+  fun `manual collapse removes hidden selections and keeps visible selections`() {
+    val installed = section(PluginSectionId.Installed, itemCount = 5)
+    val bundled = section(PluginSectionId.Bundled, "bundled.plugin")
+    val controller = UnifiedPluginsPageController(listOf(installed, bundled))
+    val visible = occurrence(PluginSectionId.Installed, "plugin.2")
+    val hidden = occurrence(PluginSectionId.Installed, "plugin.5")
+    val otherSection = occurrence(PluginSectionId.Bundled, "bundled.plugin")
+    controller.setSectionExpanded(PluginSectionId.Installed, true)
+    controller.selectOccurrences(listOf(visible, hidden, otherSection))
+
+    controller.setSectionExpanded(PluginSectionId.Installed, false)
+    assertThat(controller.state.value.selectedOccurrences).containsExactly(visible, otherSection)
+
+    controller.setSectionExpanded(PluginSectionId.Installed, true)
+    controller.selectOccurrence(hidden)
     controller.setSectionExpanded(PluginSectionId.Installed, false)
     assertThat(controller.state.value.selectedOccurrences).isEmpty()
 
-    val firstOccurrence = occurrence(PluginSectionId.Installed, "plugin.1")
-    controller.selectOccurrence(firstOccurrence)
-    controller.setSectionExpanded(PluginSectionId.Installed, false)
-    assertThat(controller.state.value.selectedOccurrence).isEqualTo(firstOccurrence)
+    controller.updateSection(installed)
+    assertThat(controller.state.value.selectedOccurrences).isEmpty()
+  }
+
+  @Test
+  fun `Bundled collapse uses the collapsed row order for selection`() {
+    val firstTool = categoryItem("first.tool", "Tools", enabled = true)
+    val firstLanguage = categoryItem("first.language", "Languages", enabled = true)
+    val secondTool = categoryItem("second.tool", "Tools", enabled = true)
+    val secondLanguage = categoryItem("second.language", "Languages", enabled = true)
+    val controller = UnifiedPluginsPageController(
+      initialSections = listOf(PluginSectionState(
+        PluginSectionId.Bundled,
+        items = listOf(firstTool, firstLanguage, secondTool, secondLanguage),
+      )),
+      collapsedItemLimit = 2,
+    )
+    controller.setSectionExpanded(PluginSectionId.Bundled, true)
+    val selectedTool = occurrence(PluginSectionId.Bundled, "second.tool")
+    val selectedLanguage = occurrence(PluginSectionId.Bundled, "first.language")
+    controller.selectOccurrences(listOf(selectedTool, selectedLanguage))
+
+    controller.setSectionExpanded(PluginSectionId.Bundled, false)
+
+    assertThat(controller.state.value.section(PluginSectionId.Bundled).visibleItems.map(PluginItemState::pluginId))
+      .containsExactly(firstTool.pluginId, firstLanguage.pluginId)
+    assertThat(controller.state.value.selectedOccurrences).containsExactly(selectedLanguage)
   }
 
   @Test

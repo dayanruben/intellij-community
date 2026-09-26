@@ -1,11 +1,14 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.intellij.build.productLayout
 
+import com.intellij.platform.pluginGraph.ContentModuleName
 import com.intellij.platform.pluginGraph.TargetName
+import com.intellij.platform.runtime.product.impl.ProductModeLoadingRules
 import kotlinx.serialization.json.Json
 import org.jetbrains.intellij.build.ModuleOutputProvider
 import org.jetbrains.intellij.build.mapConcurrent
 import org.jetbrains.intellij.build.dev.createProductProperties
+import org.jetbrains.intellij.build.impl.getBundledPluginModules
 import org.jetbrains.intellij.build.productLayout.discovery.DiscoveredProduct
 import org.jetbrains.intellij.build.productLayout.discovery.PRODUCT_REGISTRY_PATH
 import org.jetbrains.intellij.build.productLayout.discovery.ProductConfigurationRegistry
@@ -44,6 +47,10 @@ fun discoverAllProducts(projectRoot: Path, outputProvider: ModuleOutputProvider)
         .map { TargetName(it) }
         .toList(),
       coreClassloaderModules = productProperties.productLayout.productImplementationModules.map { TargetName(it) },
+      bundledPluginModules = getBundledPluginModules(productProperties, outputProvider).map(::TargetName),
+      productModeId = productProperties.productMode.id,
+      productModeExcludedModules = ProductModeLoadingRules.getIncompatibleRootModules(productProperties.productMode)
+        .mapTo(LinkedHashSet()) { ContentModuleName(it.name) },
     )
   }
 }

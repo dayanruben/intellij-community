@@ -1,6 +1,7 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.plugins.newui
 
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.ide.IdeBundle
 import com.intellij.ide.plugins.ContentModuleDescriptor
 import com.intellij.ide.plugins.CustomPluginRepositoryService
@@ -61,7 +62,7 @@ import com.intellij.openapi.progress.coroutineToIndicator
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.updateSettings.impl.PluginAutoUpdateService
 import com.intellij.openapi.updateSettings.impl.PluginDownloader
-import com.intellij.openapi.updateSettings.impl.PluginUpdateSourceId
+import com.intellij.openapi.updateSettings.impl.PluginUpdateSource
 import com.intellij.openapi.updateSettings.impl.PluginUpdateSourceService
 import com.intellij.openapi.updateSettings.impl.UpdateCheckerFacade
 import com.intellij.openapi.updateSettings.impl.UpdateSettings
@@ -71,6 +72,7 @@ import com.intellij.openapi.util.Pair
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.concurrency.annotations.RequiresReadLockAbsence
+import com.intellij.util.io.HttpRequests
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -84,7 +86,6 @@ import java.util.EnumMap
 import java.util.LinkedHashMap
 import java.util.LinkedHashSet
 import java.util.UUID
-import java.util.concurrent.CancellationException
 import javax.swing.JComponent
 import kotlin.coroutines.CoroutineContext
 
@@ -168,11 +169,13 @@ object DefaultUiPluginManagerController : UiPluginManagerController {
     return try {
       CustomPluginRepositoryLoadResult(RepositoryHelper.loadPluginModels(repository.id, null, null).withSource())
     }
-    catch (c: CancellationException) {
-      throw c
-    }
     catch (t: Throwable) {
-      CustomPluginRepositoryLoadResult(emptyList(), t.message ?: t.javaClass.simpleName)
+      rethrowControlFlowException(t)
+      CustomPluginRepositoryLoadResult(
+        emptyList(),
+        t.message ?: t.javaClass.simpleName,
+        (t as? HttpRequests.HttpStatusException)?.statusCode,
+      )
     }
   }
 
@@ -676,7 +679,7 @@ object DefaultUiPluginManagerController : UiPluginManagerController {
           result.pluginsToDisable = pluginEnabler.pluginsToDisable
           result.pluginsToEnable = pluginEnabler.pluginsToEnable
         }
-        result.dependentPluginUpdateSourceIds = operation.dependentPluginUpdateSourceIds
+        result.dependentPluginUpdateSources = operation.dependentPluginUpdateSources
       }
       catch (@Suppress("IncorrectCancellationExceptionHandling") _: ProcessCanceledException) {
         terminalState = InstallPluginTerminalState.CANCELED
@@ -962,18 +965,18 @@ object DefaultUiPluginManagerController : UiPluginManagerController {
     return getErrors(session, pluginId)
   }
 
-  override suspend fun getPendingPluginUpdateSource(sessionId: String, pluginId: PluginId): PluginUpdateSourceId? {
+  override suspend fun getPendingPluginUpdateSource(sessionId: String, pluginId: PluginId): PluginUpdateSource? {
     val session = findSession(sessionId) ?: return null
     return getPendingUpdateSource(session, pluginId)
   }
 
-  private fun getPendingUpdateSource(session: PluginManagerSession, pluginId: PluginId): PluginUpdateSourceId? {
+  private fun getPendingUpdateSource(session: PluginManagerSession, pluginId: PluginId): PluginUpdateSource? {
     val changedValue = session.pluginUpdateSourceStatesDiff[pluginId]
     if (changedValue != null) return changedValue.newValue.value
     return session.pluginUpdateSourceStates[pluginId]?.value
   }
 
-  override suspend fun getPendingPluginUpdateSources(sessionId: String, pluginIds: List<PluginId>): Map<PluginId, PluginUpdateSourceId> {
+  override suspend fun getPendingPluginUpdateSources(sessionId: String, pluginIds: List<PluginId>): Map<PluginId, PluginUpdateSource> {
     val session = findSession(sessionId) ?: return emptyMap()
     return pluginIds.mapNotNull { pluginId ->
       val pendingUpdateSource = getPendingUpdateSource(session, pluginId)
@@ -981,7 +984,7 @@ object DefaultUiPluginManagerController : UiPluginManagerController {
     }.toMap()
   }
 
-  override suspend fun setPendingPluginUpdateSourceInSession(sessionId: String, pluginId: PluginId, pluginUpdateSource: PluginUpdateSourceId?) {
+  override suspend fun setPendingPluginUpdateSourceInSession(sessionId: String, pluginId: PluginId, pluginUpdateSource: PluginUpdateSource?) {
     val session = findSession(sessionId) ?: return
     val value = PluginUpdateSourceState(pluginUpdateSource)
     val diff = session.pluginUpdateSourceStatesDiff[pluginId]
@@ -995,7 +998,7 @@ object DefaultUiPluginManagerController : UiPluginManagerController {
     }
   }
 
-  override suspend fun persistPluginUpdateSource(sessionId: String, pluginId: PluginId, pluginUpdateSource: PluginUpdateSourceId?) {
+  override suspend fun persistPluginUpdateSource(sessionId: String, pluginId: PluginId, pluginUpdateSource: PluginUpdateSource?) {
     if (pluginUpdateSource == null) {
       PluginUpdateSourceService.getInstance().erasePluginUpdateSourceId(pluginId)
     }
@@ -1015,7 +1018,7 @@ object DefaultUiPluginManagerController : UiPluginManagerController {
     return PluginUpdateSourceService.isMissingUpdateSourceWarningEnabled()
   }
 
-  override suspend fun getAllPluginUpdateSources(): List<PluginUpdateSourceId> {
+  override suspend fun getAllPluginUpdateSources(): List<PluginUpdateSource> {
     return PluginUpdateSourceService.getInstance().getAllSources()
   }
 

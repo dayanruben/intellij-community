@@ -9,7 +9,6 @@ import com.intellij.driver.sdk.invokeAction
 import com.intellij.driver.sdk.step
 import com.intellij.driver.sdk.ui.Finder
 import com.intellij.driver.sdk.ui.accessibleName
-import com.intellij.driver.sdk.ui.boundsOnScreen
 import com.intellij.driver.sdk.ui.components.ComponentData
 import com.intellij.driver.sdk.ui.components.UIComponentsList
 import com.intellij.driver.sdk.ui.components.UiComponent
@@ -193,7 +192,7 @@ class PluginsSettingsPageUiComponent(data: ComponentData) : LoadablePluginsUiCom
         }
       }
       else searchPluginTextField.run {
-        val bounds = boundsOnScreen
+        val bounds = getBounds()
         click(Point(bounds.width - 20, bounds.height / 2))
       }
     }
@@ -408,10 +407,8 @@ class PluginsSettingsPageUiComponent(data: ComponentData) : LoadablePluginsUiCom
     }
 
     fun checkPluginStateInUI(enabled: Boolean, timeout: Duration = 15.seconds) {
-      step("Check plugin state checkbox in the UI") {
-        enabledCheckBox.should("Plugin '$name': State checkbox should be ${if (enabled) "enabled" else "disabled"}", timeout) {
-          isSelected() == enabled
-        }
+      step("Check the plugin state in the UI") {
+        enabledControl.waitSelected(enabled, timeout)
       }
     }
 
@@ -454,9 +451,19 @@ class PluginsSettingsPageUiComponent(data: ComponentData) : LoadablePluginsUiCom
     class EnabledControlUiComponent(data: ComponentData) : UiComponent(data) {
       private val abstractButton get() = driver.cast(component, AbstractButtonRef::class)
 
+      fun isSelected(): Boolean = abstractButton.isSelected()
+
+      fun check() {
+        if (!isSelected()) click()
+      }
+
+      fun uncheck() {
+        if (isSelected()) click()
+      }
+
       fun waitSelected(selected: Boolean, timeout: Duration = 5.seconds) {
         waitFor("Plugin state control should be ${if (selected) "selected" else "not selected"}", timeout) {
-          abstractButton.isSelected() == selected
+          isSelected() == selected
         }
       }
     }

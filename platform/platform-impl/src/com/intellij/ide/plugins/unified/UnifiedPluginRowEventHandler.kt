@@ -10,6 +10,7 @@ import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.ui.ComponentUtil
+import com.intellij.ui.components.OnOffButton
 import java.awt.Component
 import java.awt.event.FocusAdapter
 import java.awt.event.FocusEvent
@@ -26,6 +27,8 @@ import javax.swing.border.Border
 
 internal class UnifiedPluginRowEventHandler(
   private val onSelectionChanged: (List<PluginOccurrenceId>) -> Unit,
+  private val revealKeyboardSelection: ((PluginOccurrenceId) -> Unit)? = null,
+  private val onSelectAllRequested: ((PluginOccurrenceId) -> Unit)? = null,
 ) : EventHandler() {
   private val occurrences = IdentityHashMap<ListPluginComponent, PluginOccurrenceId>()
   private val listenerOwners = IdentityHashMap<Component, ListPluginComponent>()
@@ -80,14 +83,24 @@ internal class UnifiedPluginRowEventHandler(
 
   private val keyListener = object : KeyAdapter() {
     override fun keyPressed(event: KeyEvent) {
-      if (isPluginRowActionControl(event.component)) return
+      val selectAllShortcut = event.keyCode == KeyEvent.VK_A && (event.isMetaDown || event.isControlDown)
+      val handleFromSwitch = event.component is OnOffButton &&
+                             (event.keyCode == KeyEvent.VK_UP || event.keyCode == KeyEvent.VK_DOWN || selectAllShortcut)
+      if (isPluginRowActionControl(event.component) && !handleFromSwitch) return
       val row = findRow(event.component) ?: return
       val index = orderedRows.indexOf(row)
       if (index < 0) return
 
-      if (event.keyCode == KeyEvent.VK_A && (event.isMetaDown || event.isControlDown)) {
+      if (selectAllShortcut) {
         event.consume()
-        selectAllCompatible(row)
+        val occurrenceId = occurrences[row] ?: return
+        if (onSelectAllRequested == null) {
+          selectAllCompatible(row)
+        }
+        else {
+          selectionAnchor = row
+          onSelectAllRequested(occurrenceId)
+        }
         return
       }
 
@@ -108,15 +121,15 @@ internal class UnifiedPluginRowEventHandler(
           selectExclusive(target, requestFocus = true, focusCause = FocusEvent.Cause.TRAVERSAL)
         }
       }
-      else if (event.component === row && (event.keyCode == KeyEvent.VK_ENTER || event.keyCode == KeyEvent.VK_SPACE)) {
-        event.consume()
-        if (row.getSelection() != SelectionType.SELECTION) {
-          selectExclusive(row, requestFocus = false)
-        }
-      }
       else if (event.keyCode == KeyEvent.VK_ENTER || event.keyCode == KeyEvent.VK_SPACE || event.keyCode == DELETE_CODE) {
         event.consume()
-        val selection = selectedRows().ifEmpty { listOf(row) }
+        val selection = if ((event.keyCode == KeyEvent.VK_ENTER || event.keyCode == KeyEvent.VK_SPACE) &&
+                            row.getSelection() != SelectionType.SELECTION) {
+          listOf(row)
+        }
+        else {
+          selectedRows().ifEmpty { listOf(row) }
+        }
         row.handleKeyAction(event, selection)
         try {
           getListPluginComponentCustomizer().processHandleKeyAction(row, event, selection)
@@ -183,6 +196,12 @@ internal class UnifiedPluginRowEventHandler(
     rowBorders.remove(row)?.let { row.border = it }
     rowFocusBorders.remove(row)
     removeListeners(row)
+    row.components.filterIsInstance<OnOffButton>().forEach { switch ->
+      switch.removeMouseListener(mouseListener)
+      switch.removeMouseMotionListener(mouseListener)
+      switch.removeKeyListener(keyListener)
+      switch.removeFocusListener(focusListener)
+    }
   }
 
   fun renderRows(bindings: List<Pair<PluginOccurrenceId, ListPluginComponent>>) {
@@ -196,13 +215,18 @@ internal class UnifiedPluginRowEventHandler(
 
   override fun add(component: Component) {
     val row = findRow(component)?.takeIf(occurrences::containsKey) ?: return
-    val previousOwner = listenerOwners[component]
-    if (previousOwner != null) {
-      check(previousOwner === row) { "Plugin row listener component changed ownership" }
-      return
+    if (component is OnOffButton) {
+      if (component.keyListeners.any { it === keyListener }) return
     }
-    listenerOwners[component] = row
-    checkNotNull(listenerComponentsByRow[row]) { "Plugin row listener owner is not registered" }.add(component)
+    else {
+      val previousOwner = listenerOwners[component]
+      if (previousOwner != null) {
+        check(previousOwner === row) { "Plugin row listener component changed ownership" }
+        return
+      }
+      listenerOwners[component] = row
+      checkNotNull(listenerComponentsByRow[row]) { "Plugin row listener owner is not registered" }.add(component)
+    }
     component.addMouseListener(mouseListener)
     component.addMouseMotionListener(mouseListener)
     component.addKeyListener(keyListener)
@@ -266,9 +290,15 @@ internal class UnifiedPluginRowEventHandler(
       updateFocusPresentation(row)
     }
     focusRow?.takeIf { it in selectedSet }?.let { row ->
-      val parent = row.parent as? JComponent
-      if (parent != null && !parent.visibleRect.contains(row.bounds)) {
-        parent.scrollRectToVisible(row.bounds)
+      val occurrenceId = occurrences[row]
+      if (focusCause == FocusEvent.Cause.TRAVERSAL && occurrenceId != null && revealKeyboardSelection != null) {
+        revealKeyboardSelection(occurrenceId)
+      }
+      else {
+        val parent = row.parent as? JComponent
+        if (parent != null && !parent.visibleRect.contains(row.bounds)) {
+          parent.scrollRectToVisible(row.bounds)
+        }
       }
       SwingUtilities.invokeLater { row.requestFocus(focusCause) }
     }

@@ -190,7 +190,7 @@ open class TypeEvalContextImpl internal constructor(
   }
 
   fun putSubstitutions(si: SubstitutionsIdentifier, substitutions: PyTypeChecker.GenericSubstitutions) {
-    mySubstitutionsCache[si] = substitutions
+    mySubstitutionsCache.putIfAbsent(si, substitutions)
   }
 
   fun removeSubstitutions(si: SubstitutionsIdentifier) {
@@ -238,7 +238,9 @@ open class TypeEvalContextImpl internal constructor(
       val type = if (engine != null && engine.isSupportedForResolve(element)) {
         PyTypeEvaluationAggregatesCollector.recordHybridTypeEngineTime(engine) {
           val isUserInitiated = constraints.myAllowStubToAST && constraints.myAllowDataFlow
-          engine.resolveType(element, this is LibraryTypeEvalContext, isUserInitiated)?.get()
+          // An engine gives no answer for an element it cannot see, for example one in an unopened file.
+          // That means an unknown type, the same as the null it used to give.
+          engine.resolveType(element, this is LibraryTypeEvalContext, isUserInitiated)?.get() ?: PyAnyType.unknown
         }
       }
       else {
@@ -249,8 +251,7 @@ open class TypeEvalContextImpl internal constructor(
 
       assertValid(type, element)
       PyAnyType.validate(type, element)
-      myEvaluated[element] = type ?: PyNullType
-      type
+      publish(myEvaluated, element, type)
     } ?: PyAnyType.unknown
   }
 
@@ -267,10 +268,18 @@ open class TypeEvalContextImpl internal constructor(
     return RecursionManager.doPreventingRecursion(callable to this, false) {
       val type = callable.getReturnType(this, KeyImpl)
       assertValid(type, callable)
-      PyAnyType.validate(type)
-      myEvaluatedReturn[callable] = type ?: PyNullType
-      type
+      PyAnyType.validate(type, callable)
+      publish(myEvaluatedReturn, callable, type)
     } ?: PyAnyType.unknown
+  }
+
+  /**
+   * Stores [type] for [key] unless another thread stored a type first, and returns the stored type.
+   * All threads that share this context then see the same type for [key].
+   */
+  private fun <K : Any> publish(cache: MutableMap<K?, PyType?>, key: K, type: PyType?): PyType? {
+    val stored = cache.putIfAbsent(key, type ?: PyNullType) ?: return type
+    return if (stored === PyNullType) null else stored
   }
 
   @get:ApiStatus.Experimental
@@ -384,7 +393,7 @@ open class TypeEvalContextImpl internal constructor(
       if (myParent is AssumptionContext) myParent.assumptionDepth + 1 else 1
 
     init {
-      PyAnyType.validate(type)
+      PyAnyType.validate(type, element)
       myEvaluated[element] = type ?: PyNullType
     }
 

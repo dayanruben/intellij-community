@@ -42,6 +42,7 @@ import org.jetbrains.plugins.gradle.connection.GradleConnectorService
 import org.jetbrains.plugins.gradle.issue.DeprecatedGradleVersionIssue
 import org.jetbrains.plugins.gradle.jvmcompat.GradleJvmSupportMatrix
 import org.jetbrains.plugins.gradle.properties.GradlePropertiesFile
+import org.jetbrains.plugins.gradle.service.GradleInstallationManager
 import org.jetbrains.plugins.gradle.service.execution.cmd.GradleCommandLineOptionsProvider
 import org.jetbrains.plugins.gradle.service.project.GradleExecutionHelperExtension
 import org.jetbrains.plugins.gradle.service.project.GradleProjectResolver
@@ -53,6 +54,7 @@ import org.jetbrains.plugins.gradle.util.cmd.node.GradleCommandLineTask
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.function.Function
+import kotlin.io.path.pathString
 
 /**
  * This is the low-level Gradle execution API that connects and interacts with the Gradle daemon using the Gradle tooling API.
@@ -92,6 +94,8 @@ object GradleExecutionHelper {
 
         modelBuilder.withCancellationToken(context.cancellationToken)
 
+        clearSystemProperties(modelBuilder)
+
         setupJavaHome(modelBuilder, context.settings, context.taskId, context.listener, null)
 
         val gradleProgressListener = GradleProgressListener(
@@ -125,9 +129,10 @@ object GradleExecutionHelper {
       // Setting the custom build file location is deprecated since Gradle 7.6, see IDEA-359161 for more details.
       setupProjectDirectory(context)
 
+      val gradleVersion = guessGradleVersion(context)
       val connectorService = GradleConnectorService.getInstance(context.project)
       return connectorService.withGradleConnection(context) { connection ->
-        SystemPropertiesAdjuster.executeAdjusted(context.projectPath) {
+        SystemPropertiesAdjuster.executeAdjusted(context.projectPath, gradleVersion) {
           buildEnvironment = getModel(connection, context, BuildEnvironment::class.java)
           context.buildEnvironment = buildEnvironment
           checkExecutionEnvironment(context)
@@ -156,10 +161,24 @@ object GradleExecutionHelper {
     }
   }
 
+  /**
+   * Returns `null` when the version is unknown before the connection, so [SystemPropertiesAdjuster] keeps all masks.
+   */
+  private fun guessGradleVersion(context: GradleExecutionContext): GradleVersion? {
+    try {
+      return GradleInstallationManager.getInstance().guessBuildLayoutParameters(context.project, context.projectPath).gradleVersion
+    }
+    catch (e: Exception) {
+      rethrowControlFlowException(e)
+      LOG.warn("Cannot guess the Gradle version of ${context.projectPath}", e)
+      return null
+    }
+  }
+
   private fun setupProjectDirectory(context: GradleExecutionContextImpl) {
     val projectFile = Path.of(context.projectPath)
     val projectDirectory = projectFile.parent
-    if (projectFile.endsWith(GradleConstants.EXTENSION) && projectDirectory != null && Files.isRegularFile(projectFile)) {
+    if (projectFile.pathString.endsWith(GradleConstants.EXTENSION) && projectDirectory != null && Files.isRegularFile(projectFile)) {
       val settings = context.settings
       val arguments = settings.arguments
       if (!arguments.contains("-b") && !arguments.contains("--build-file")) {

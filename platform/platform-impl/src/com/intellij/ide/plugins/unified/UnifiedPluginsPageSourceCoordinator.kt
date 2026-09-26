@@ -650,8 +650,8 @@ private fun filterPluginItems(
       (parser.vendors.isEmpty() || MyPluginModel.isVendor(model, parser.vendors)) &&
       item.matchesCategories(unifiedQuery.categories) &&
       (parser.tags.isEmpty() || item.searchTags.any(parser.tags::contains)) &&
-      (!parser.enabled || input != null && input.enabled && input.errors.isEmpty()) &&
-      (!parser.disabled || input != null && !input.enabled && input.errors.isEmpty()) &&
+      (!parser.enabled || model.isEnabled) &&
+      (!parser.disabled || !model.isEnabled) &&
       (!parser.bundled || model.isBundled || model.isBundledUpdate) &&
       (!parser.updatedBundled || model.isBundledUpdate) &&
       (!parser.userInstalled || !model.isBundled && !model.isBundledUpdate) &&
@@ -669,7 +669,8 @@ private fun filterPluginItems(
     }
     .toList()
   cancellationCheck()
-  return matches.sortedWith(localPluginComparator(sortBy, categoryRelevance)).map(LocalPluginSearchMatch::item)
+  return matches.sortedWith(localPluginComparator(sortBy, categoryRelevance, hasTextSearch = parser.searchQuery != null))
+    .map(LocalPluginSearchMatch::item)
 }
 
 private data class LocalPluginSearchMatch(
@@ -679,7 +680,8 @@ private data class LocalPluginSearchMatch(
 
 private fun localPluginComparator(
   sortBy: MarketplaceTabSearchSortByOptions,
-  categoryRelevance: Boolean = false,
+  categoryRelevance: Boolean,
+  hasTextSearch: Boolean,
 ): Comparator<LocalPluginSearchMatch> {
   return when (sortBy) {
     MarketplaceTabSearchSortByOptions.RELEVANCE -> Comparator { first, second ->
@@ -687,10 +689,12 @@ private fun localPluginComparator(
       val secondHasErrors = second.item.rowInput?.errors?.isNotEmpty() == true
       val firstDisabled = first.item.rowInput?.enabled == false
       val secondDisabled = second.item.rowInput?.enabled == false
+      val relevanceComparison = second.relevance.compareTo(first.relevance)
       when {
         firstHasErrors != secondHasErrors -> if (firstHasErrors) -1 else 1
+        hasTextSearch && relevanceComparison != 0 -> relevanceComparison
         firstDisabled != secondDisabled -> if (firstDisabled) 1 else -1
-        first.relevance != second.relevance -> second.relevance.compareTo(first.relevance)
+        relevanceComparison != 0 -> relevanceComparison
         categoryRelevance -> compareBundledItems(first.item, second.item)
         else -> 0
       }

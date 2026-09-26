@@ -12,6 +12,10 @@ a:com.intellij.execution.ExecutionManager
 - *a:executePreparationTasks(com.intellij.execution.runners.ExecutionEnvironment,com.intellij.execution.configurations.RunProfileState):org.jetbrains.concurrency.Promise
 a:com.intellij.execution.Executor
 - *:isSupportedOnTarget():Z
+*:com.intellij.execution.RunConfigurationProducerSuppressor
+- *sf:Companion:com.intellij.execution.RunConfigurationProducerSuppressor$Companion
+- a:shouldSuppress(com.intellij.execution.actions.RunConfigurationProducer,com.intellij.openapi.project.Project):Z
+*f:com.intellij.execution.RunConfigurationProducerSuppressor$Companion
 *f:com.intellij.execution.configurations.JavaTargetDependentParameters
 - <init>():V
 - addParameter(java.util.function.Function):V
@@ -26,6 +30,9 @@ a:com.intellij.execution.configurations.RunConfigurationBase
 - com.intellij.execution.configurations.TargetAwareRunProfile
 - com.intellij.execution.ui.FragmentedSettings
 - *:setOptionsFromConfigurationFile(com.intellij.openapi.components.BaseState):V
+c:com.intellij.execution.configurations.SimpleJavaParameters
+- com.intellij.execution.configurations.SimpleProgramParameters
+- *:getTargetDependentParameters():com.intellij.execution.configurations.JavaTargetDependentParameters
 *:com.intellij.execution.configurations.SyntheticConfigurationTypeProvider
 - sf:EP_NAME:com.intellij.openapi.extensions.ExtensionPointName
 - a:getConfigurationTypes():java.util.Collection
@@ -246,7 +253,3 @@ c:com.intellij.execution.ui.RunContentDescriptor
 - *:isHiddenContent():Z
 - *p:setDisplayName(java.lang.String):V
 - *p:setIcon(javax.swing.Icon):V
-com.intellij.execution.wsl.AbstractWslDistribution
-- *a:getUNCRootPath():java.nio.file.Path
-f:com.intellij.execution.wsl.WSLCommandLineOptions
-- *:setExecuteCommandInDefaultShell(Z):com.intellij.execution.wsl.WSLCommandLineOptions

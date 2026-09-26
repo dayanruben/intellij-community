@@ -3,6 +3,7 @@
 
 package org.jetbrains.intellij.build.productLayout.discovery
 
+import com.intellij.platform.pluginGraph.ContentModuleName
 import com.intellij.platform.pluginGraph.TargetName
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -66,6 +67,15 @@ data class DiscoveredProduct(
    * extra roots; see `UnusedEmbeddedLibraryAnalysis`.
    */
   @JvmField val coreClassloaderModules: List<TargetName> = emptyList(),
+  /** Bundled plugins from the product declaration or the modular loader. */
+  @JvmField val bundledPluginModules: List<TargetName> = emptyList(),
+  /** The ID of the product mode, from `ProductProperties.productMode`. */
+  @JvmField val productModeId: String = "monolith",
+  /**
+   * Content modules that the product mode excludes, from `ProductModeLoadingRules.getIncompatibleRootModules`.
+   * A module that depends on one of them does not load in this product.
+   */
+  @JvmField val productModeExcludedModules: Set<ContentModuleName> = emptySet(),
 )
 
 /**

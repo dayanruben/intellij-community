@@ -3,6 +3,7 @@
 
 package org.jetbrains.intellij.build.productLayout
 
+import org.jetbrains.intellij.build.productLayout.CommunityModuleSets.ideCommon
 import org.jetbrains.intellij.build.productLayout.CoreModuleSets.coreLang
 import org.jetbrains.intellij.build.productLayout.CoreModuleSets.rpcBackend
 import org.jetbrains.intellij.build.productLayout.LibraryModuleSets.librariesGrpc
@@ -141,7 +142,6 @@ object CommunityModuleSets {
     module("intellij.platform.pluginManager.backend")
     module("intellij.platform.pluginManager.frontend")
     embeddedModule("intellij.platform.ide.updateChecker")
-    module("intellij.platform.ide.updateChecker.backend")
 
     module("intellij.platform.execution.impl.frontend")
     module("intellij.platform.execution.impl.backend")
@@ -178,6 +178,7 @@ object CommunityModuleSets {
     module("intellij.platform.debugger.impl.ui")
     module("intellij.platform.debugger")
     module("intellij.platform.debugger.impl")
+    module("intellij.platform.debugger.impl.dashboard")
   }
 
   // endregion
@@ -254,6 +255,7 @@ object CommunityModuleSets {
     module("intellij.xml.analysis.impl")
     module("intellij.xml.langInjection")
     module("intellij.xml.langInjection.xpath")
+    module("intellij.xml.vcs")
   }
 
   /**
@@ -356,20 +358,28 @@ object CommunityModuleSets {
    * Included in all IDEs
    */
   fun rdCommon(): ModuleSet = moduleSet("rd.common") {
-    module("intellij.rd.ide.model.generated")
-    module("intellij.rd.platform")
-    module("intellij.rd.ui")
-    module("intellij.platform.split.protocol")
+    onDemandModule("intellij.rd.ide.model.generated")
+    onDemandModule("intellij.rd.platform")
+    onDemandModule("intellij.rd.ui")
+    onDemandModule("intellij.platform.split.protocol")
 
     // These modules are included in all IDEs.
-    // However, they are due to intellij.rd.client -> intellij.rd.client.base -> com.intellij.rd.client.capable alias,
-    // Those modules are loaded only: in JetBrains Client, Rider and an IDE if a Radler is installed.
+    // They are restricted: only a product or a plugin with [rdClientActivation] can load them.
     // Packaging of those modules to the all IDEs is required to load a JetBrains Client from the big IDE distribution.
-    module("intellij.rd.client")
-    module("intellij.rd.client.debugger")
-    module("intellij.rd.client.base")
-    module("intellij.rd.client.internal")
+    onDemandModule("intellij.rd.client", restricted = true)
+    onDemandModule("intellij.rd.client.debugger", restricted = true)
+    onDemandModule("intellij.rd.client.base", restricted = true)
+    onDemandModule("intellij.rd.client.internal", restricted = true)
   }
+
+  /**
+   * The activation of the restricted RD client modules from [rdCommon].
+   * JetBrains Client, Rider, and the Radler plugin grant it.
+   */
+  fun rdClientActivation(): ModuleActivation = ModuleActivation.create(
+    required = listOf("intellij.rd.client", "intellij.rd.client.base"),
+    allowed = listOf("intellij.rd.client.debugger", "intellij.rd.client.internal", "intellij.rd.client.testFramework"),
+  )
 
   /**
    * The spellchecker core module and its Lucene dictionary index.

@@ -16,6 +16,7 @@ targets:
   - ../../src/com/intellij/ide/plugins/newui/PluginImagesComponent.kt
   - ../../src/com/intellij/ide/plugins/unified/LegacyPluginDetailsPresenter.kt
   - ../../src/com/intellij/ide/plugins/unified/PluginRowReconciler.kt
+  - ../../src/com/intellij/ide/plugins/unified/PluginRowView.kt
   - ../../src/com/intellij/ide/plugins/unified/UnifiedPluginInternalSourceCoordinator.kt
   - ../../src/com/intellij/ide/plugins/unified/UnifiedPluginInventory.kt
   - ../../src/com/intellij/ide/plugins/unified/UnifiedPluginLocalDataProvider.kt
@@ -66,7 +67,7 @@ targets:
 # Unified Plugin Manager UI
 
 Status: Active
-Date: 2026-09-22
+Date: 2026-09-24
 
 ## Purpose
 
@@ -101,6 +102,36 @@ This specification covers the page structure, section model, search, source load
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageRealRowsTest.kt (
     `compatible multi selection renders every row and details occurrence`
   )
+
+- The default split must assign equal widths when the available width is at most 700 scaled pixels.
+- Above 700 scaled pixels, the list must receive one eleventh of each extra pixel.
+- Pane minimum widths must take priority when the page is too narrow for the default split.
+- The default split must follow page resizing until the user moves the divider.
+- The page must save the user's split proportion and restore it when the page reopens.
+- The details pane must have a minimum width of 220 scaled pixels.
+  [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageViewTest.kt (
+    `default split gives the list half of narrow widths and one eleventh of extra width`;
+    `nested layout does not save the default split`;
+    `user split proportion persists across views and resizes`
+  )
+
+- With the standalone dialog switch enabled, the toolbar, File menu, action search, and local welcome buttons must open the unified Plugins page without the Settings tree.
+- The Settings tree must keep Plugins. The legacy page must keep its current entry-point route.
+- The standalone entry-point dialog must prefer a content width of 900 scaled pixels and use its own saved window size.
+- The standalone entry-point dialog must show Apply so users can save plugin changes without closing it.
+  [@test] ../../testSrc/com/intellij/ide/plugins/UnifiedPluginsPageFeatureTest.kt (
+    `standalone dialog is available when both switches are enabled`;
+    `standalone dialog switch restores the Settings route`;
+    `legacy page does not use the standalone entry point`
+  )
+  [@test] ../../testSrc/com/intellij/ide/plugins/PluginManagerConfigurableRoutingTest.kt (
+    `standalone entry point prefers a wider unified page`;
+    `standalone entry point does not widen the legacy page`;
+    `entry point opens a standalone dialog with Apply and its own size key`;
+    `welcome entry point keeps the Settings route when the switch is off`
+  )
+
+Untested: Product welcome buttons on a remote backend keep the Settings route because the standalone dialog does not forward to the frontend.
 
 - Visible sections must use this order: Installing, Installed, Bundled, Suggested or Marketplace, Internal, then custom repositories.
 - A ready section with no items must not leave a placeholder.
@@ -192,6 +223,7 @@ This specification covers the page structure, section model, search, source load
 - An installed filter or update-source constraint must exclude Marketplace, Internal, and custom repository results.
 - A repository filter must show only the selected custom repositories.
 - Text, Vendor, Category, and Tag constraints must apply to each eligible source under that source's rules.
+- Enabled and Disabled filters must use the applied plugin state. Pending session changes and errors must not change their results.
 - A query with installed-status and Repository constraints must leave every filtered source ready and empty.
 - Suggested, Staff Picks, and Internal commands must route only to their applicable sources.
 - The last installed filter in a query must take effect.
@@ -200,6 +232,7 @@ This specification covers the page structure, section model, search, source load
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsQueryTest.kt
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageSourceCoordinatorTest.kt (
     `category filter applies to each locally projected source`;
+    `installed state filters use applied state across session changes`;
     `repository filter targets one cached section and keeps local sections unfiltered`;
     `installed and repository constraints leave every filtered source ready and empty`
   )
@@ -257,7 +290,9 @@ This specification covers the page structure, section model, search, source load
 
 - The first result for a query revision must set the plugin order in each section.
 - Relevance must initially place local plugins with errors before healthy plugins.
-- Within each error group, relevance must place enabled plugins before disabled plugins, then use the existing match scores.
+- Without text terms, relevance must place enabled plugins before disabled plugins within each error group.
+- With text terms, relevance must use the existing match scores before enabled state within each error group.
+- Enabled plugins must win a match score tie.
 - Later results in the same query revision must retain the relative order of plugins that remain in a section.
 - A new plugin must append after existing plugins. A plugin that leaves and returns must resume its retained position.
 - In expanded Bundled, a new plugin must append in its category. A new category must append after existing categories.
@@ -265,6 +300,7 @@ This specification covers the page structure, section model, search, source load
 - An explicit sort must override both local priorities and control Marketplace ordering. Custom repositories must retain their source order.
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageSourceCoordinatorTest.kt (
     `local relevance prioritizes errors and enabled plugins while explicit sorts override priorities`;
+    `text search ranks match scores before enabled state`;
     `installed relevance uses legacy name and description match scores`;
     `sort controls primary Marketplace without suppressing cached filtering`
   )
@@ -354,11 +390,18 @@ Untested: Community tests verify the Enter handler, but they do not verify the S
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageControllerTest.kt
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageViewTest.kt
 
-- Expansion and collapse must clear row selection and plugin details.
+- Manual expansion must keep selected plugins and their details.
+- Manual collapse must keep selected plugins that remain visible and remove selections it hides.
+- Plugin details must follow the retained selection.
 - A section must keep its expansion state if it temporarily leaves the page during the same session.
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageControllerTest.kt (
-    `section expansion changes clear selection`;
+    `manual expansion keeps the selected plugin`;
+    `manual collapse removes hidden selections and keeps visible selections`;
+    `Bundled collapse uses the collapsed row order for selection`;
     `expansion persists while a section is absent`
+  )
+  [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageRealRowsTest.kt (
+    `section expansion keeps details for retained selection`
   )
 
 - With the default density, a collapsed section must show at most three plugins.
@@ -407,6 +450,20 @@ Untested: Community tests verify the Enter handler, but they do not verify the S
     `expandable section header supports mouse keyboard hover and focus`
   )
 
+- Up and Down must navigate between rendered plugin rows across sections.
+- Up and Down on a focused enablement switch must change the row selection without toggling the switch.
+  [@test] ../../testSrc/com/intellij/ide/plugins/unified/LegacyPluginRowFactoryTest.kt (
+    `Space dispatches the row action and switch arrows navigate rows`
+  )
+  [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageRealRowsTest.kt (
+    `Select All renders plugins from expanded related sections`
+  )
+- Tab must visit the active section and category actions, one plugin row, and that row's controls before it leaves the list for details.
+- The last selected row must be the list's row stop. Without a selection, the first rendered row must be that stop.
+  [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageRealRowsTest.kt (
+    `Tab order includes one plugin row and its controls`
+  )
+
 - Plugin rows and section headers must show an outline for keyboard focus.
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/LegacyPluginRowFactoryTest.kt (
     `unified rows use stable island selection geometry`
@@ -426,10 +483,14 @@ Untested: Community tests verify the Enter handler, but they do not verify the S
   )
 
 - Activating row content must select the plugin without invoking its primary action.
-- Enter and Space on a focused row must select the plugin without invoking its primary action.
+- Enter on a focused row must invoke its primary action without changing the selection.
+- Space on a focused, eligible installed plugin row must invoke its enablement action when no update or restart is available.
+- Space must use the current selection when it contains the focused plugin. Otherwise, it must use only the focused plugin
+  without changing the selection.
 - Row action controls must run their action without activating the row.
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/LegacyPluginRowFactoryTest.kt (
-    `card activation selects plugin without invoking its primary action`
+    `Enter invokes the primary action without selecting the plugin`;
+    `Space dispatches the row action and switch arrows navigate rows`
   )
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginRowEventHandlerTest.kt (
     `buttons and their children are action controls`;
@@ -462,16 +523,35 @@ Untested: Community tests verify the Enter handler, but they do not verify the S
     `installing publication preserves empty selection across later source updates`
   )
 
+- The details panel closes without an error while a request runs.
+  [@test] ../../testSrc/com/intellij/ide/plugins/newui/PluginDetailsPageComponentTest.kt (
+    `the detached details panel ignores an update source result`
+  )
+
 - When a new search query sets a default selection, the selected row must be visible below the sticky header.
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageRealRowsTest.kt (
     `new query reveals its default selection after the previous anchor disappears`;
     `new query moves its selected anchor below the sticky header`
   )
 
-- Shift-selection may cross section headers but must skip plugins from the other selection group.
-- Select All must select all compatible rendered rows.
+- Keyboard navigation must reveal the focused row below the sticky header.
+  [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageRealRowsTest.kt (
+    `keyboard navigation reveals a row below the sticky header`
+  )
 
-Untested: No focused test verifies Shift-selection or Select All across sections.
+- Shift-selection may cross section headers but must skip plugins from the other selection group.
+- Select All must expand visible sections in the focused plugin's selection group.
+- It must select all displayed plugins in those sections, up to each section's 1,000-plugin limit.
+  [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageControllerTest.kt (
+    `Select All expands local sections and selects their displayed plugins`;
+    `Select All expands remote sections but stops at the display limit`;
+    `Select All expands selected custom repositories`
+  )
+  [@test] ../../testSrc/com/intellij/ide/plugins/unified/LegacyPluginRowFactoryTest.kt (
+    `Space dispatches the row action and switch arrows navigate rows`
+  )
+
+Untested: No focused test verifies Shift-selection across sections.
 
 - The page must show the standard empty status when no section is visible.
 - Accessible result announcements must distinguish loading, completion, and failure.
@@ -558,6 +638,11 @@ Untested: No focused test verifies Shift-selection or Select All across sections
 - A plugin error must extend below the action column and use the available row width.
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/LegacyPluginRowFactoryTest.kt (
     `unified error spans the action column`
+  )
+
+- A section error must start at the same left position as a plugin icon.
+  [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageViewTest.kt (
+    `section failure renders a scoped retry action`
   )
 
 - Plugin details must use single-row tabs and offer an overflow menu when the tabs do not fit.
@@ -682,6 +767,14 @@ Untested: No focused test verifies that Internal ignores the legacy Show All que
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginRepositorySourceCoordinatorTest.kt
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginRepositoryCacheTest.kt (
     `failed refresh does not evict the last page-cached success`
+  )
+
+- A custom repository failure with an HTTP response must show its status code.
+- A failure without an HTTP response must show the general repository error.
+  [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginRepositorySourceCoordinatorTest.kt (
+    `HTTP status appears for a failed repository request`;
+    `partial repository retains HTTP status after enrichment`;
+    `empty failed and partial repositories remain distinct visible sections`
   )
 
 - Popular tag loading and failure must not delay or fail Marketplace content.

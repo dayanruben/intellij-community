@@ -247,7 +247,14 @@ internal class UnifiedPluginsPageSession @RequiresEdt(generateAssertion = false 
       }
       applyQueryIntent(query, requestFocus = true)
     }
-    val rowFactory = LegacyPluginRowFactory(host, listModel, searchListener, ::selectOccurrences)
+    val rowFactory = LegacyPluginRowFactory(
+      host,
+      listModel,
+      searchListener,
+      ::selectOccurrences,
+      onKeyboardNavigation = { occurrenceId -> view.revealKeyboardSelection(occurrenceId) },
+      onSelectAllRequested = ::selectAllDisplayed,
+    )
     val detailsPresenter = LegacyPluginDetailsPresenter(host, searchListener)
     view = UnifiedPluginsPageView(
       onSearchChanged = { query -> applyQueryIntent(query, requestFocus = false) },
@@ -686,6 +693,13 @@ internal class UnifiedPluginsPageSession @RequiresEdt(generateAssertion = false 
     if (disposed) return
     pendingSelectedPluginIds = emptyList()
     controller.selectOccurrences(occurrenceIds)
+    renderControllerState()
+  }
+
+  private fun selectAllDisplayed(occurrenceId: PluginOccurrenceId) {
+    if (disposed) return
+    if (!controller.selectAllDisplayed(occurrenceId)) return
+    pendingSelectedPluginIds = emptyList()
     renderControllerState()
   }
 

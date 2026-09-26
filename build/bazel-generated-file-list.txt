@@ -9,6 +9,7 @@ android/adt-testutils
 android/adt-ui
 android/adt-ui-compose
 android/adt-ui-model
+android/adt-ui/src/test
 android/analytics
 android/android
 android/android-adb
@@ -279,6 +280,7 @@ grid/impl
 grid/impl-ide
 grid/json
 grid/plugin
+grid/structureview
 grid/types
 idea/customization/backend
 idea/customization/base
@@ -309,6 +311,7 @@ java/debugger/shared
 java/execution/backend
 java/execution/frontend
 java/execution/impl
+java/execution/impl/dashboard
 java/execution/openapi
 java/execution/shared
 java/ide-customization
@@ -943,7 +946,6 @@ platform/platform-impl/rpc
 platform/platform-impl/ui
 platform/platform-impl/ui-inspector
 platform/platform-impl/update-checker
-platform/platform-impl/update-checker/backend
 platform/platform-resources
 platform/platform-resources-application-info
 platform/platform-resources-en
@@ -1027,6 +1029,7 @@ platform/settings
 platform/settings-local
 platform/settings-sync-core
 platform/smRunner
+platform/smRunner/dashboard
 platform/smRunner/vcs
 platform/smart-update
 platform/sqlite
@@ -1122,6 +1125,7 @@ platform/vcs-impl/frontend
 platform/vcs-impl/lang
 platform/vcs-impl/lang/actions
 platform/vcs-impl/lang/todo
+platform/vcs-impl/lang/todo/frontend
 platform/vcs-impl/shared
 platform/vcs-log/api
 platform/vcs-log/graph
@@ -1145,6 +1149,7 @@ platform/xdebugger-api
 platform/xdebugger-impl
 platform/xdebugger-impl/backend
 platform/xdebugger-impl/bookmarks
+platform/xdebugger-impl/dashboard
 platform/xdebugger-impl/frontend
 platform/xdebugger-impl/rpc
 platform/xdebugger-impl/shared
@@ -1381,6 +1386,7 @@ plugins/jshell/frontend
 plugins/jshell/protocol
 plugins/jsonpath
 plugins/junit
+plugins/junit/dashboard
 plugins/junit/groovy-tests
 plugins/junit/java-tests
 plugins/junit/kotlin-tests-k2
@@ -1713,6 +1719,7 @@ plugins/properties/properties-psi-api
 plugins/properties/properties-psi-impl
 plugins/properties/property-tests
 plugins/properties/tests
+plugins/pty4j/plugin
 plugins/rareJavaRefactorings
 plugins/remote-control
 plugins/repository-search/common
@@ -1992,6 +1999,7 @@ xml/plugin
 xml/relaxng
 xml/testFramework
 xml/tests
+xml/vcs
 xml/xml-analysis-api
 xml/xml-analysis-impl
 xml/xml-parser

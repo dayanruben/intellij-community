@@ -827,7 +827,8 @@ object PyCallExpressionHelper {
         }
       }
     }
-    return null
+    // The arguments do not describe a class in the MRO, so `super` gives no class here.
+    return PyAnyType.unknown
   }
 
   private fun getSuperClassUnionType(klass: PyClass, context: TypeEvalContext?): PyType? {

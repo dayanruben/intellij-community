@@ -75,6 +75,7 @@ import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileManager;
+import com.intellij.openapi.wm.ex.WelcomeScreenProjectProvider;
 import com.intellij.packageDependencies.DependencyValidationManager;
 import com.intellij.psi.PsiCompiledElement;
 import com.intellij.psi.PsiDocumentManager;
@@ -171,6 +172,7 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
    * When it happens that the future has started sooner than this stamp, it will re-schedule itself for later.
    */
   private long myScheduledUpdateTimestamp; // guarded by this
+  private volatile boolean myFirstPassFinished; // the only possible transition: false -> true; the first pass runs without the autoreparse delay
   private volatile boolean completeEssentialHighlightingRequested;
   private final AtomicInteger daemonCancelEventCount = new AtomicInteger();
   private final DaemonListener myDaemonListenerPublisher;
@@ -802,12 +804,12 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
    * reset {@link #myScheduledUpdateTimestamp} always, but re-schedule {@link #myUpdateRunnable} only rarely because of thread scheduling overhead
    */
   private synchronized void scheduleIfNotRunning() {
-    long autoReparseDelayNanos = TimeUnit.MILLISECONDS.toNanos(mySettings.getEffectiveAutoReparseDelay());
-    myScheduledUpdateTimestamp = System.nanoTime() + autoReparseDelayNanos;
+    long delayMs = myFirstPassFinished ? mySettings.getEffectiveAutoReparseDelay() : 0;
+    myScheduledUpdateTimestamp = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(delayMs);
     // optimization: this check is to avoid too many re-schedules in case of thousands of event spikes
     boolean isDone = myUpdateRunnableFuture.isDone();
     if (LOG.isDebugEnabled()) {
-      LOG.debug("Rescheduling highlighting: isDone: ", isDone+"; delta="+Long.toHexString(getDelta()));
+      LOG.debug("Rescheduling highlighting: isDone: ", isDone+"; delta="+Long.toHexString(getDelta())+"; delayMs="+delayMs);
     }
     if (incrementQueuedRequests() || isDone) {
       scheduleUpdateRunnable();
@@ -1152,7 +1154,8 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
       // take a number of queued requests to update and pretend we execute them all (they are all the same, so one is enough)
       long requestDelta = analyzer.getDelta();
       try {
-        if (!project.isDefault() && project.isInitialized() && !isBackgroundActivitiesSuppressedSync(project)) {
+        if (!project.isDefault() && project.isInitialized() &&
+            (!isBackgroundActivitiesSuppressedSync(project) || WelcomeScreenProjectProvider.isWelcomeScreenProject(project))) {
           String result = analyzer.runUpdate();
           if (LOG.isDebugEnabled()) {
             LOG.debug("runUpdate result: " + result+"; requestDelta:"+requestDelta);
@@ -1577,6 +1580,7 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
 
     @Override
     public void onStop() {
+      myFirstPassFinished = true;
       removeIndicatorFromMap(myFileEditor, this);
       myDaemonListenerPublisher.daemonFinished(List.of(myFileEditor));
       HighlightingSessionImpl.clearAllHighlightingSessions(this);

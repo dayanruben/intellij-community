@@ -216,7 +216,7 @@
     <extensionPoint qualifiedName="com.intellij.projectTemplate"
                     beanClass="com.intellij.platform.ProjectTemplateEP" dynamic="true"/>
     <!--suppress PluginXmlValidity -->
-    <extensionPoint qualifiedName="com.intellij.ApplicationLoadListener" interface="com.intellij.ide.ApplicationLoadListener" dynamic="false"/>
+    <extensionPoint qualifiedName="com.intellij.applicationLoadHandler" interface="com.intellij.ide.ApplicationLoadHandler" dynamic="false"/>
     <!-- Please do not use this extension point. Consider using `nonLockedIdeEventQueueDispatcher` instead.-->
     <extensionPoint qualifiedName="com.intellij.ideEventQueueDispatcher" interface="com.intellij.ide.IdeEventQueue$EventDispatcher" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.nonLockedIdeEventQueueDispatcher" interface="com.intellij.ide.IdeEventQueue$NonLockedEventDispatcher"
@@ -287,7 +287,6 @@
                     beanClass="com.intellij.ide.browsers.BrowserSettingsConfigurableEP" dynamic="true">
       <with attribute="instance" implements="com.intellij.openapi.options.UnnamedConfigurable"/>
     </extensionPoint>
-    <extensionPoint qualifiedName="org.jetbrains.javaScriptDebuggerStarter" interface="com.intellij.ide.browsers.JavaScriptDebuggerStarter" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.tipAndTrick" beanClass="com.intellij.ide.util.TipAndTrickBean" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.remote.customDataContextSerializer"
                     interface="com.intellij.ide.CustomDataContextSerializer"
@@ -304,6 +303,7 @@
                     dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.jbProtocolCommand" interface="com.intellij.openapi.application.JBProtocolCommand" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.notification.group" beanClass="com.intellij.notification.impl.NotificationGroupBean" dynamic="false"/>
+    <extensionPoint qualifiedName="com.intellij.notificationSound" beanClass="com.intellij.notification.impl.NotificationSoundEP" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.troubleInfoCollector" interface="com.intellij.troubleshooting.TroubleInfoCollector" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.generalTroubleInfoCollector" interface="com.intellij.troubleshooting.GeneralTroubleInfoCollector" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.updateSettingsProvider" interface="com.intellij.openapi.updateSettings.impl.UpdateSettingsProvider" dynamic="true"/>
@@ -409,11 +409,17 @@
     <extensionPoint qualifiedName="com.intellij.uiPluginManagerController"
                     interface="com.intellij.ide.plugins.newui.UiPluginManagerController"
                     dynamic="true"/>
+    <extensionPoint qualifiedName="com.intellij.pluginUpdateHandlerProvider"
+                    interface="com.intellij.openapi.updateSettings.impl.PluginUpdateHandlerProvider"
+                    dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.pluginUpdatesProvider"
                     interface="com.intellij.ide.plugins.newui.PluginUpdatesProvider"
                     dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.pluginManagerCustomizer"
                     interface="com.intellij.ide.plugins.newui.PluginManagerCustomizer"
+                    dynamic="true"/>
+    <extensionPoint qualifiedName="com.intellij.customRepositoryProductModeMetadataProvider"
+                    interface="com.intellij.ide.plugins.newui.CustomRepositoryProductModeMetadataProvider"
                     dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.managedCacheFactory" interface="com.intellij.util.io.cache.ManagedCacheFactory" dynamic="true" />
     <extensionPoint qualifiedName="com.intellij.editorSkeletonPolicy" interface="com.intellij.openapi.fileEditor.impl.EditorSkeletonPolicy" dynamic="true"/>
@@ -454,7 +460,7 @@
     <applicationService serviceImplementation="com.intellij.application.options.colors.FontPreviewService" open="true"/>
     <applicationService serviceInterface="com.intellij.openapi.ui.DialogBackgroundImageProvider" open="true"
                         serviceImplementation="com.intellij.openapi.wm.impl.DialogBackgroundImageProviderImpl"/>
-    <ApplicationLoadListener implementation="com.intellij.util.imageio.ImageReaderWriterSpiRegistrar"/>
+    <applicationLoadHandler implementation="com.intellij.util.imageio.ImageReaderWriterSpiRegistrar"/>
     <applicationActivity implementation="com.intellij.ide.debug.ImageDebugUtilLoader"/>
     <applicationService serviceImplementation="com.intellij.ui.WaylandAppIconPatcher"
                         preload="notHeadless"
@@ -473,6 +479,11 @@
       key="ide.settings.header.centered"
       defaultValue="true"
       description="Center the Settings title and header actions vertically"
+    />
+    <registryKey
+      key="ide.merge.external.changes"
+      defaultValue="true"
+      description="Merge an external file change into the unsaved changes, for a client that asks for it. Turning this off makes such a client keep the unsaved changes, and it takes effect at once. Turning it on reaches a document once the document loads or saves again."
     />
     <registryKey
       key="ide.hide.default.project.directory.for.isolated.workspace"
@@ -528,6 +539,9 @@
     <editorEmptyTextProvider implementation="com.intellij.openapi.fileEditor.impl.DefaultEditorEmptyTextProvider" order="last"/>
     <registryKey key="plugin.manager.unified.page" defaultValue="true"
                  description="Enable the unified Plugins settings page"/>
+    <registryKey key="plugin.manager.unified.page.standalone.dialog" defaultValue="true"
+                 description="Open the unified Plugins page in its own dialog from the toolbar, menu, search, and welcome screen"
+                 restartRequired="false"/>
     <registryKey key="plugin.manager.unified.page.density.options"
                  defaultValue="[Baseline|32 px icons*|2 preview rows]"
                  description="Select a temporary density variant for the unified Plugins settings page"/>
@@ -646,7 +660,7 @@
     <applicationService serviceInterface="com.intellij.openapi.keymap.KeymapManager"
                         serviceImplementation="com.intellij.openapi.keymap.impl.KeymapManagerImpl"/>
     <applicationService serviceImplementation="com.intellij.openapi.project.impl.shared.P3DynamicPluginSynchronizer"/>
-    <ApplicationLoadListener implementation="com.intellij.openapi.project.impl.shared.P3SharedConfigFolderApplicationLoadListener"/>
+    <applicationLoadHandler implementation="com.intellij.openapi.project.impl.shared.P3SharedConfigFolderApplicationLoadListener"/>
     <applicationActivity implementation="com.intellij.openapi.project.impl.shared.ProcessPerProjectSharedConfigFolderApplicationInitializedListener"/>
     <!-- listen VFS_CHANGES - it is a core service, so, don't want to use a lazy message bus listener without a reason -->
     <applicationService serviceInterface="com.intellij.openapi.command.undo.DocumentReferenceManager"
@@ -1305,7 +1319,6 @@
     <applicationConfigurable groupId="tools" instance="com.intellij.ide.browsers.BrowserSettings"
                              id="reference.settings.ide.settings.web.browsers"
                              key="browsers.settings" bundle="messages.IdeBundle"/>
-    <stepsBeforeRunProvider implementation="com.intellij.ide.browsers.LaunchBrowserBeforeRunTaskProvider"/>
     <selectInTarget implementation="com.intellij.ide.browsers.actions.SelectInDefaultBrowserTarget"/>
     <applicationService serviceInterface="com.intellij.ide.browsers.WebBrowserService"
                         serviceImplementation="com.intellij.ide.browsers.impl.WebBrowserServiceImpl"/>
@@ -2023,6 +2036,8 @@
               topic="com.intellij.ide.AppLifecycleListener"
               activeInHeadlessMode="true"
               activeInTestMode="false" />
+    <listener class="com.intellij.openapi.fileEditor.impl.FileDocumentCommonText"
+              topic="com.intellij.openapi.fileEditor.FileDocumentManagerListenerBackgroundable"/>
   </applicationListeners>
   <projectListeners>
     <listener class="com.intellij.openapi.fileEditor.impl.EditorHistoryManager$MyEditorManagerListener"

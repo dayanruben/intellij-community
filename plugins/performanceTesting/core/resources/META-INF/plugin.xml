@@ -27,7 +27,6 @@
     <module name="intellij.libraries.jackson3.databind"/>
     <module name="intellij.libraries.jackson3.module.kotlin"/>
     <module name="intellij.libraries.jbr"/>
-    <module name="intellij.libraries.jna"/>
     <module name="intellij.libraries.kotlinx.coroutines.core"/>
     <module name="intellij.libraries.netty.buffer"/>
     <module name="intellij.libraries.netty.codec.http"/>
@@ -151,7 +150,7 @@
       implementation="com.jetbrains.performancePlugin.ProjectInitializationDiagnosticHandlerImpl"/>
 
     <ide.dynamicPluginVetoer implementation="com.jetbrains.performancePlugin.PlaybackRunnerExtended$PlaybackRunnerExtendedPluginUnloadVetoer"/>
-    <ApplicationLoadListener implementation="com.jetbrains.performancePlugin.IntegrationTestApplicationLoadListener" id="testApplicationLoadListener"/>
+    <applicationLoadHandler implementation="com.jetbrains.performancePlugin.IntegrationTestApplicationLoadListener" id="testApplicationLoadListener"/>
 
     <appStarter id="stopTelemetry" implementation="com.jetbrains.performancePlugin.StopTelemetryStarter" internal="true"/>
 

@@ -91,7 +91,6 @@
     <module name="intellij.libraries.jaxen" loading="embedded"/>
     <module name="intellij.libraries.jbr" loading="embedded"/>
     <module name="intellij.libraries.jcip" loading="embedded"/>
-    <module name="intellij.libraries.jna"/>
     <module name="intellij.libraries.jsoup" loading="embedded"/>
     <module name="intellij.libraries.jsonpath"/>
     <module name="intellij.libraries.jsvg" loading="embedded"/>
@@ -229,7 +228,6 @@
     <module name="intellij.libraries.jgoodies.forms" loading="embedded"/>
     <module name="intellij.libraries.jsch.agent.proxy"/>
     <module name="intellij.libraries.miglayout.swing" loading="embedded"/>
-    <module name="intellij.libraries.pty4j"/>
     <module name="intellij.libraries.sshj"/>
     <module name="intellij.libraries.swingx" loading="embedded"/>
     <module name="intellij.libraries.winp" loading="embedded"/>
@@ -301,7 +299,7 @@
     <module name="intellij.platform.pasta" loading="embedded"/>
     <module name="intellij.platform.diagnostic.startUpPerformanceReporter" loading="embedded"/>
     <module name="intellij.platform.ide.util.io.native"/>
-    <module name="intellij.platform.ide.osCertificates"/>
+    <module name="intellij.platform.ide.osCertificates" loading="required"/>
     <module name="intellij.platform.ide.pluginSignatureVerifier"/>
     <module name="intellij.libraries.zip.signer"/>
     <module name="intellij.platform.rd.community" loading="embedded"/>
@@ -384,7 +382,6 @@
     <module name="intellij.platform.pluginManager.backend"/>
     <module name="intellij.platform.pluginManager.frontend"/>
     <module name="intellij.platform.ide.updateChecker" loading="embedded"/>
-    <module name="intellij.platform.ide.updateChecker.backend"/>
     <module name="intellij.platform.execution.impl.frontend"/>
     <module name="intellij.platform.execution.impl.backend"/>
     <module name="intellij.platform.eel.tcp"/>
@@ -409,6 +406,7 @@
     <module name="intellij.platform.debugger.impl.ui"/>
     <module name="intellij.platform.debugger"/>
     <module name="intellij.platform.debugger.impl"/>
+    <module name="intellij.platform.debugger.impl.dashboard"/>
     <!-- endregion -->
 
     <!-- region nested: libraries.ide.common -->

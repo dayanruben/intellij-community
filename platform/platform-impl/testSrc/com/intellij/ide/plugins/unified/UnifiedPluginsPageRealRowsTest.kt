@@ -6,6 +6,7 @@ import com.intellij.ide.plugins.newui.PluginNodeModelBuilderFactory
 import com.intellij.ide.ui.LafManager
 import com.intellij.openapi.application.UI
 import com.intellij.openapi.extensions.PluginId
+import com.intellij.openapi.ui.Splitter
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.ui.components.ActionLink
@@ -23,8 +24,10 @@ import java.awt.Dimension
 import java.awt.Font
 import java.awt.Point
 import java.awt.Rectangle
+import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JPanel
+import javax.swing.JToggleButton
 import javax.swing.SwingUtilities
 
 @TestApplication
@@ -96,6 +99,32 @@ internal class UnifiedPluginsPageRealRowsTest {
     view.close()
     assertThat(replacement.closeCount).isEqualTo(1)
     assertThat(factory.renderedOccurrences).isEmpty()
+  }
+
+  @Test
+  fun `section expansion keeps details for retained selection`(): Unit = timeoutRunBlocking(context = Dispatchers.UI) {
+    val items = (1..5).map { item("plugin.$it") }
+    val controller = UnifiedPluginsPageController(listOf(section(PluginSectionId.Installed, *items.toTypedArray())))
+    val details = RecordingDetailsPresenter()
+    val view = createView(RecordingRowFactory(), details)
+    val visibleOccurrence = PluginOccurrenceId(PluginSectionId.Installed, items[1].pluginId)
+    controller.selectOccurrence(visibleOccurrence)
+    view.render(controller.state.value)
+    val retainedRow = details.selection.single().row
+
+    controller.setSectionExpanded(PluginSectionId.Installed, true)
+    view.render(controller.state.value)
+    assertThat(details.selection.single().occurrenceId).isEqualTo(visibleOccurrence)
+    assertThat(details.selection.single().row).isSameAs(retainedRow)
+
+    val hiddenOccurrence = PluginOccurrenceId(PluginSectionId.Installed, items.last().pluginId)
+    controller.selectOccurrence(hiddenOccurrence)
+    view.render(controller.state.value)
+    controller.setSectionExpanded(PluginSectionId.Installed, false)
+    view.render(controller.state.value)
+    assertThat(controller.state.value.selectedOccurrences).isEmpty()
+    assertThat(details.selection).isEmpty()
+    view.close()
   }
 
   @Test
@@ -371,6 +400,88 @@ internal class UnifiedPluginsPageRealRowsTest {
     }
 
   @Test
+  fun `Select All renders plugins from expanded related sections`(): Unit =
+    timeoutRunBlocking(context = Dispatchers.UI) {
+      val factory = RecordingRowFactory()
+      val details = RecordingDetailsPresenter()
+      val installedItems = (1..4).map { item("installed.$it") }
+      val bundledItems = (1..5).map { item("bundled.$it") }
+      val controller = UnifiedPluginsPageController(listOf(
+        section(PluginSectionId.Installed, *installedItems.toTypedArray()),
+        section(PluginSectionId.Bundled, *bundledItems.toTypedArray()),
+      ))
+      val view = createView(factory, details)
+      view.render(controller.state.value)
+      assertThat(factory.activeRows).hasSize(PluginSectionState.COLLAPSED_ITEM_LIMIT * 2)
+
+      val activeOccurrence = PluginOccurrenceId(PluginSectionId.Installed, installedItems.first().pluginId)
+      assertThat(controller.selectAllDisplayed(activeOccurrence)).isTrue()
+      view.render(controller.state.value)
+
+      assertThat(factory.activeRows).hasSize(installedItems.size + bundledItems.size)
+      assertThat(factory.activeRows.values).allMatch(RecordingRow::selected)
+      assertThat(details.selection.map(PluginDetailsSelection::occurrenceId))
+        .containsExactlyElementsOf(controller.state.value.selectedOccurrences)
+      view.close()
+    }
+
+  @Test
+  fun `Tab order includes one plugin row and its controls`(): Unit = timeoutRunBlocking(context = Dispatchers.UI) {
+    val factory = RecordingRowFactory()
+    val installedItems = (1..4).map { item("installed.$it") }
+    val bundledItems = (1..4).map { item("bundled.$it", "Languages") }
+    val controller = UnifiedPluginsPageController(
+      listOf(
+        section(PluginSectionId.Installed, *installedItems.toTypedArray()),
+        section(PluginSectionId.Bundled, *bundledItems.toTypedArray()),
+      ),
+      priorityBundledCategories = setOf("Languages"),
+    )
+    controller.setSectionExpanded(PluginSectionId.Installed, true)
+    controller.setSectionExpanded(PluginSectionId.Bundled, true)
+    val promotionButton = JButton("Promotion")
+    val view = createView(
+      factory,
+      createBundledCategoryPromotion = { JPanel().apply { add(promotionButton) } },
+    )
+    val selectedOccurrence = PluginOccurrenceId(PluginSectionId.Installed, installedItems[1].pluginId)
+    controller.selectOccurrence(selectedOccurrence)
+    view.render(controller.state.value)
+
+    val selectedRow = factory.row(PluginSectionId.Installed, installedItems[1])
+    val order = view.focusTraversalOrder()
+    assertThat((view.component as Splitter).firstComponent.isFocusTraversalPolicyProvider).isTrue()
+    assertThat(order.filterIsInstance<JToggleButton>()).hasSize(1)
+    assertThat(order.filter { it in factory.activeRows.values.map(RecordingRow::component) })
+      .containsExactly(selectedRow.component)
+    assertThat(order).contains(selectedRow.actionButton)
+    assertThat(order.indexOf(selectedRow.actionButton)).isEqualTo(order.indexOf(selectedRow.component) + 1)
+    val categoryAction = componentsOfType(categoryHeaders(view).single(), ActionLink::class.java).single()
+    assertThat(order).doesNotContain(categoryAction, promotionButton)
+
+    controller.selectOccurrence(PluginOccurrenceId(PluginSectionId.Bundled, bundledItems.first().pluginId))
+    view.render(controller.state.value)
+    val bundledRow = factory.row(PluginSectionId.Bundled, bundledItems.first())
+    val bundledOrder = view.focusTraversalOrder()
+    assertThat(bundledOrder.filterIsInstance<JToggleButton>()).hasSize(1)
+    assertThat(bundledOrder).contains(categoryAction, promotionButton, bundledRow.component, bundledRow.actionButton)
+    assertThat(bundledOrder.indexOf(categoryAction)).isLessThan(bundledOrder.indexOf(promotionButton))
+    assertThat(bundledOrder.indexOf(promotionButton)).isLessThan(bundledOrder.indexOf(bundledRow.component))
+
+    controller.selectOccurrences(installedItems.take(2).map { PluginOccurrenceId(PluginSectionId.Installed, it.pluginId) })
+    view.render(controller.state.value)
+    assertThat(view.focusTraversalOrder().filter { it in factory.activeRows.values.map(RecordingRow::component) })
+      .containsExactly(selectedRow.component)
+
+    controller.selectOccurrence(null)
+    view.render(controller.state.value)
+    val firstRow = factory.row(PluginSectionId.Installed, installedItems.first())
+    assertThat(view.focusTraversalOrder().filter { it in factory.activeRows.values.map(RecordingRow::component) })
+      .containsExactly(firstRow.component)
+    view.close()
+  }
+
+  @Test
   fun `inserting a real-row section preserves visible occurrence offset`(): Unit = timeoutRunBlocking(context = Dispatchers.UI) {
     val factory = RecordingRowFactory()
     val installedItems = (1..20).map { item("installed.$it") }
@@ -599,6 +710,28 @@ internal class UnifiedPluginsPageRealRowsTest {
   }
 
   @Test
+  fun `keyboard navigation reveals a row below the sticky header`(): Unit = timeoutRunBlocking(context = Dispatchers.UI) {
+    val factory = RecordingRowFactory()
+    val items = (1..20).map { item("plugin.$it") }
+    val controller = UnifiedPluginsPageController(listOf(section(PluginSectionId.Installed, *items.toTypedArray())))
+    controller.setSectionExpanded(PluginSectionId.Installed, true)
+    val view = createView(factory)
+    view.render(controller.state.value)
+    prepareForScrolling(view)
+
+    val scrollPane = componentsOfType(view.component, JBScrollPane::class.java).single()
+    val firstRow = factory.row(PluginSectionId.Installed, items.first()).component
+    val bounds = SwingUtilities.convertRectangle(firstRow, Rectangle(firstRow.size), scrollPane.viewport.view)
+    scrollPane.viewport.viewPosition = Point(0, bounds.y - JBUI.scale(20))
+    assertThat(bounds.y - scrollPane.viewport.viewPosition.y).isLessThan(JBUI.scale(40))
+
+    view.revealKeyboardSelection(PluginOccurrenceId(PluginSectionId.Installed, items.first().pluginId))
+
+    assertRowVisibleBelowStickyHeader(scrollPane, firstRow)
+    view.close()
+  }
+
+  @Test
   fun `filtered one-row sections do not shrink real rows below preferred height`(): Unit = timeoutRunBlocking(context = Dispatchers.UI) {
     val factory = RecordingRowFactory()
     val firstItem = item("first.plugin")
@@ -799,9 +932,12 @@ internal class UnifiedPluginsPageRealRowsTest {
   }
 
   private class RecordingRow : PluginRow {
+    val actionButton = JButton("Action")
     override val component: JComponent = JPanel().apply {
       preferredSize = Dimension(200, ROW_HEIGHT)
       minimumSize = Dimension(0, 0)
+      isFocusable = true
+      add(actionButton)
     }
     var selected = false
       private set
@@ -812,6 +948,8 @@ internal class UnifiedPluginsPageRealRowsTest {
       component.preferredSize = Dimension(200, height)
       component.minimumSize = component.preferredSize
     }
+
+    override fun focusableComponents(): List<JComponent> = listOf(actionButton)
 
     override fun renderSelection(selected: Boolean) {
       this.selected = selected
