@@ -22,6 +22,8 @@ type options struct {
 	metadataCatalogue string
 	pluginComponent   string
 	pluginClasspath   string
+	// mainClass is the IDE main class the manifest declares, or empty for a component that declares none.
+	mainClass string
 	// platformNeutral leaves the manifest's os and arch empty: the component fits every target platform.
 	platformNeutral bool
 }
@@ -91,6 +93,7 @@ func parseOptions(args []string) (opts options, err error) {
 		"--metadata-catalogue":    &opts.metadataCatalogue,
 		"--plugin-component":      &opts.pluginComponent,
 		"--plugin-classpath-part": &opts.pluginClasspath,
+		"--main-class":            &opts.mainClass,
 	}
 	seen := make(map[string]bool)
 	for _, arg := range args {
@@ -130,6 +133,9 @@ func parseOptions(args []string) (opts options, err error) {
 	}
 	if opts.pluginComponent != "" && opts.metadataCatalogue != "" {
 		return opts, fmt.Errorf("--plugin-component cannot use --metadata-catalogue")
+	}
+	if opts.pluginComponent != "" && opts.mainClass != "" {
+		return opts, fmt.Errorf("--plugin-component cannot declare --main-class")
 	}
 	switch platformNeutral {
 	case "", "false":

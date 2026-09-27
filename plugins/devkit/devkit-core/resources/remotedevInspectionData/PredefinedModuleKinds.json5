@@ -89,6 +89,7 @@
   {kind: "moduleId", id: "intellij.platform.bootstrap", moduleKind: "shared"},
   {kind: "moduleId", id: "intellij.platform.bootstrap.coroutine", moduleKind: "shared"},
   {kind: "moduleId", id: "intellij.platform.bootstrap.dev", moduleKind: "shared"},
+  {kind: "moduleId", id: "intellij.platform.bootstrap.dev.legacy", moduleKind: "shared"},
   {kind: "moduleId", id: "intellij.platform.buildScripts", moduleKind: "shared"},
   {kind: "moduleId", id: "intellij.platform.buildScripts.api", moduleKind: "shared"},
   {kind: "moduleId", id: "intellij.platform.buildScripts.bazel", moduleKind: "shared"},

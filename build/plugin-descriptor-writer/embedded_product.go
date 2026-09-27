@@ -40,13 +40,32 @@ func runEmbeddedProduct(lines []string) int {
 }
 
 func resolveEmbeddedProduct(parsed embeddedProductRequest) (string, error) {
+	content, err := resolveProductContent(parsed, structural.ContentRequest{
+		MainModule:  parsed.source,
+		SeparateJar: parsed.separateJar,
+		Embeds:      true,
+	})
+	return content.text, err
+}
+
+// productContent is a resolved product descriptor and the descriptor cache that resolved it.
+type productContent struct {
+	text     string
+	cache    *structural.Cache
+	resolver *structural.Resolver
+}
+
+// resolveProductContent resolves the includes of a product descriptor and embeds its content modules.
+//
+// The embedded product descriptor and the product descriptor share this body. They differ only in the content request.
+func resolveProductContent(parsed embeddedProductRequest, request structural.ContentRequest) (productContent, error) {
 	files, err := readSeed(parsed.descriptors)
 	if err != nil {
-		return "", err
+		return productContent{}, err
 	}
 	cache := structural.NewCache(nil)
 	if err := seedFromJars(cache, parsed.descriptorsInJar); err != nil {
-		return "", err
+		return productContent{}, err
 	}
 	// Kotlin merges the jar seed over the file seed when a direct request declares both.
 	for _, loadPath := range files.LoadPaths() {
@@ -56,68 +75,93 @@ func resolveEmbeddedProduct(parsed embeddedProductRequest) (string, error) {
 	resolver := structural.NewResolver([]structural.Scope{{Modules: parsed.modules, Cache: cache}})
 	source, err := os.ReadFile(parsed.source)
 	if err != nil {
-		return "", err
+		return productContent{}, err
 	}
 	element, err := descriptorxml.Read(string(source))
 	if err != nil {
-		return "", err
+		return productContent{}, err
 	}
 	if err := structural.ResolveIncludes(element, resolver); err != nil {
-		return "", err
+		return productContent{}, err
 	}
-	if err := structural.EmbedContentModules(element, structural.ContentRequest{
-		MainModule:  parsed.source,
-		SeparateJar: parsed.separateJar,
-		Embeds:      true,
-	}, cache, resolver); err != nil {
-		return "", err
+	if err := structural.EmbedContentModules(element, request, cache, resolver); err != nil {
+		return productContent{}, err
 	}
-	return descriptorxml.Write(element), nil
+	return productContent{text: descriptorxml.Write(element), cache: cache, resolver: resolver}, nil
 }
 
 func parseEmbeddedProductRequest(lines []string) (embeddedProductRequest, error) {
-	parsed := embeddedProductRequest{
-		descriptors:      map[string]string{},
-		descriptorsInJar: map[string][]string{},
-		separateJar:      map[string]bool{},
-	}
-	mode, err := selectOperation(lines)
-	if err != nil {
+	parsed := newProductContentRequest()
+	parsed.separateJar = map[string]bool{}
+	if err := requireMode(lines, embeddedProductMode); err != nil {
 		return parsed, err
-	}
-	if mode != embeddedProductMode {
-		return parsed, fmt.Errorf("%s is required", embeddedProductMode)
 	}
 	for _, line := range lines {
 		if line == "" || line == embeddedProductMode {
 			continue
 		}
 		option, value, _ := strings.Cut(line, "=")
-		switch option {
-		case "--out":
-			parsed.output = value
-		case "--source":
-			parsed.source = value
-		case "--descriptor":
-			err = putDescriptor(parsed.descriptors, value)
-		case "--descriptor-in-jar":
-			err = appendDescriptorJar(parsed.descriptorsInJar, value)
-		case "--module":
-			parsed.modules = append(parsed.modules, value)
-		case "--separate-jar":
-			parsed.separateJar[value] = true
-		default:
-			err = fmt.Errorf("unknown embedded product descriptor option '%s'", option)
+		handled, err := parseProductContentOption(&parsed, option, value)
+		if !handled {
+			switch option {
+			case "--separate-jar":
+				parsed.separateJar[value] = true
+			default:
+				err = fmt.Errorf("unknown embedded product descriptor option '%s'", option)
+			}
 		}
 		if err != nil {
 			return parsed, err
 		}
 	}
+	return parsed, checkProductContentRequest(parsed)
+}
+
+func newProductContentRequest() embeddedProductRequest {
+	return embeddedProductRequest{
+		descriptors:      map[string]string{},
+		descriptorsInJar: map[string][]string{},
+	}
+}
+
+// requireMode fails unless the request selects exactly this mode.
+func requireMode(lines []string, want string) error {
+	mode, err := selectOperation(lines)
+	if err != nil {
+		return err
+	}
+	if mode != want {
+		return fmt.Errorf("%s is required", want)
+	}
+	return nil
+}
+
+// parseProductContentOption reads an option that both product descriptor modes accept. It returns false for another
+// option.
+func parseProductContentOption(parsed *embeddedProductRequest, option string, value string) (bool, error) {
+	switch option {
+	case "--out":
+		parsed.output = value
+	case "--source":
+		parsed.source = value
+	case "--descriptor":
+		return true, putDescriptor(parsed.descriptors, value)
+	case "--descriptor-in-jar":
+		return true, appendDescriptorJar(parsed.descriptorsInJar, value)
+	case "--module":
+		parsed.modules = append(parsed.modules, value)
+	default:
+		return false, nil
+	}
+	return true, nil
+}
+
+func checkProductContentRequest(parsed embeddedProductRequest) error {
 	if parsed.output == "" {
-		return parsed, fmt.Errorf("--out is required")
+		return fmt.Errorf("--out is required")
 	}
 	if parsed.source == "" {
-		return parsed, fmt.Errorf("--source is required")
+		return fmt.Errorf("--source is required")
 	}
-	return parsed, nil
+	return nil
 }

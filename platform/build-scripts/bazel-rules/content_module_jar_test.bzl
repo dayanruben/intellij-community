@@ -192,12 +192,21 @@ def _platform_jar_test_impl(ctx):
     asserts.true(env, info.jar.path.endswith("/" + target.label.name + "/" + ctx.attr.destination), info.jar.path)
     asserts.equals(env, ctx.attr.member_modules, list(info.member_modules))
 
-    # The flag file in grammar order. The fixture merges one meaningful source, so the manifest is kept. A residual jar
-    # rejects a native entry, because a presigned library packs as a `content_module_jar`.
-    expected = ["output=" + info.jar.path, "metadata-file=" + info.metadata.path, "keep-manifest=true", "merge-entities=true", "reject-native-entries=true"]
+    # The flag file in grammar order. A fixture with one meaningful source keeps the manifest. A jar with a module member
+    # rejects a native entry, because a presigned library packs as a `content_module_jar`. A library-only jar keeps them.
+    expected = ["output=" + info.jar.path, "metadata-file=" + info.metadata.path]
+    expected += ["keep-manifest=true"] if len(ctx.files.library_jars) + len(ctx.attr.member_modules) == 1 else []
+    expected += ["merge-entities=true"] + (["reject-native-entries=true"] if ctx.attr.member_modules else [])
+
+    # A patch precedes the `module=` line of the patched module, so the packer takes the patch instead of the entry of
+    # the module output.
+    expected += ["patch=%s=%s" % (path, file.path) for file, path in zip(ctx.files.patch_files, ctx.attr.patch_paths)]
     expected += ["module=" + jar.path for jar in info.member_jars]
+    expected += ["library=" + jar.path for jar in ctx.files.library_jars]
     asserts.equals(env, expected, action.argv[1:])
     asserts.equals(env, [info.jar, info.metadata], action.outputs.to_list())
+    for file in ctx.files.patch_files:
+        asserts.true(env, file in action.inputs.to_list(), "the patch %s is not an input" % file.path)
     asserts.equals(env, [info.jar], target[DefaultInfo].files.to_list())
     return analysistest.end(env)
 
@@ -206,6 +215,9 @@ _platform_jar_test = analysistest.make(
     attrs = {
         "destination": attr.string(mandatory = True),
         "member_modules": attr.string_list(),
+        "library_jars": attr.label_list(allow_files = [".jar"]),
+        "patch_files": attr.label_list(allow_files = True),
+        "patch_paths": attr.string_list(),
     },
     config_settings = {_TRACE_SPANS: False},
 )
@@ -304,6 +316,80 @@ def content_module_jar_test_suite(name):
             member_modules = ["test." + first],
         )
         tests.append(platform_jar + "_test")
+
+    # The application-info module jar replaces two entries of the module output: the product descriptor and the
+    # stamped application info.
+    patched_jar = name + "_platform_patched"
+    patch_files = [name + "_patched_descriptor.xml", name + "_patched_application_info.xml"]
+    patch_paths = ["META-INF/plugin.xml", "idea/ApplicationInfo.xml"]
+    for file in patch_files:
+        native.genrule(name = file + "_file", outs = [file], cmd = "echo '<idea-plugin/>' > $@", tags = ["manual"])
+    dev_dist_platform_jar(
+        name = patched_jar,
+        relative_output_file = "platform-patched.jar",
+        modules = [":" + first],
+        patches = {":" + file: path for file, path in zip(patch_files, patch_paths)},
+        patched_module = "test." + first,
+        tags = ["manual"],
+    )
+    _platform_jar_test(
+        name = patched_jar + "_test",
+        target_under_test = ":" + patched_jar,
+        destination = "platform-patched.jar",
+        member_modules = ["test." + first],
+        patch_files = [":" + file for file in patch_files],
+        patch_paths = patch_paths,
+    )
+    tests.append(patched_jar + "_test")
+
+    # A patched module that is not a member is refused at analysis.
+    foreign_patch = name + "_platform_foreign_patch"
+    dev_dist_platform_jar(
+        name = foreign_patch,
+        relative_output_file = "platform-foreign.jar",
+        modules = [":" + first],
+        patches = {":" + patch_files[0]: patch_paths[0]},
+        patched_module = "test.absent",
+        tags = ["manual"],
+    )
+    _natives_failure_test(
+        name = foreign_patch + "_test",
+        target_under_test = ":" + foreign_patch,
+        expected_message = "the patched module 'test.absent' is not a member of the jar",
+    )
+    tests.append(foreign_patch + "_test")
+
+    # A library-only jar merges no module and keeps the native files of its libraries, as `JarPackager` does for a
+    # library that the layout places. Its manifest follows the same rule as for any other jar.
+    for case, library, library_jars in [("single", "_single_library", [first]), ("multi", "_library", [second, first])]:
+        library_jar = name + "_platform_library_" + case
+        dev_dist_platform_jar(
+            name = library_jar,
+            relative_output_file = "platform-library-%s.jar" % case,
+            libraries = [":" + name + library],
+            tags = ["manual"],
+        )
+        _platform_jar_test(
+            name = library_jar + "_test",
+            target_under_test = ":" + library_jar,
+            destination = "platform-library-%s.jar" % case,
+            library_jars = [":" + jar for jar in library_jars],
+        )
+        tests.append(library_jar + "_test")
+
+    # A jar with neither a module nor a library is refused at analysis.
+    refused = name + "_platform_refused_empty"
+    dev_dist_platform_jar(
+        name = refused,
+        relative_output_file = "platform-refused.jar",
+        tags = ["manual"],
+    )
+    _natives_failure_test(
+        name = refused + "_test",
+        target_under_test = ":" + refused,
+        expected_message = "a platform jar merges at least one module or library",
+    )
+    tests.append(refused + "_test")
 
     # A content module jar with a presigned library reserves its natives, and one action per platform writes the tree.
     natives_owner = name + "_natives"

@@ -146,7 +146,8 @@ class JarPackager private constructor(
         packager.assets.values
       }
       else {
-        packager.assets.values.filter { assetFilter.accept(it.relativePath) }
+        // By the path of the jar and not by `relativePath`, which is empty for a module library jar directly under `lib/`.
+        packager.assets.values.filter { assetFilter.accept(outputDir.relativize(it.file).invariantSeparatorsPathString) }
       }
 
       val cacheManager = if (context is BuildContextImpl) context.jarCacheManager else NonCachingJarCacheManager
@@ -497,7 +498,9 @@ class JarPackager private constructor(
         }
       }
 
-      if (assetFilter != null && !assetFilter.accept(relativePath)) continue
+      // The filter names a jar by its `lib/`-relative path. `relativePath` is empty for a jar directly under `lib/`, so
+      // the filter reads the path of the target file instead.
+      if (assetFilter != null && !assetFilter.accept(outDir.relativize(targetFile).invariantSeparatorsPathString)) continue
       val library = context.outputProvider.findRequiredModule(item.moduleName).libraryCollection.libraries.find { getLibraryFileName(it) == item.libraryName }
                     ?: throw IllegalArgumentException("Cannot find library ${item.libraryName} in '${item.moduleName}' module")
       val asset = getJarAsset(targetFile, relativePath)

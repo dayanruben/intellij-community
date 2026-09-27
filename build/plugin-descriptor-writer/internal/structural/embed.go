@@ -25,13 +25,18 @@ type ContentRequest struct {
 	// Embeds is false for a layout that embeds no content-module descriptor. Such a descriptor keeps its `<module/>`
 	// elements empty, and the filter still runs.
 	Embeds bool
+	// Scrambled are the product content modules the product scrambles. Their `<module/>` elements stay empty, and their
+	// descriptors are not resolved, because scrambling can rename classes (`processProductModule` of
+	// `productModuleLayout.kt`). Only a product descriptor states them.
+	Scrambled map[string]bool
 }
 
 // EmbedContentModules is the content-module stage: the port of the assembly's `filterAndProcessContentModules` and
 // `embedContentModule` (`productModuleLayout.kt`, `contentModuleEmbedding.kt`), driven by the plan.
 //
 // Two things happen, in this order. Every `<module/>` the plan refuses is removed, wherever it stands. Then each
-// survivor receives its own module's descriptor as a CDATA body, unless the layout embeds none.
+// survivor receives its own module's descriptor as a CDATA body, unless the layout embeds none or the product scrambles
+// the survivor.
 //
 // The invariant between the two is that every refusal is found. A refusal that reaches no `<module/>` is a plan the
 // descriptor has moved away from, so the action refuses and names what it could not find.
@@ -79,11 +84,31 @@ func EmbedContentModules(
 			request.MainModule, strings.Join(missing, ", "))
 	}
 
+	// The same invariant holds for the scrambled modules: a name that reaches no kept `<module/>` is a stale plan.
+	keptNames := make(map[string]bool, len(kept))
+	for _, module := range kept {
+		keptNames[module.name] = true
+	}
+	var unmatched []string
+	for name := range request.Scrambled {
+		if !keptNames[name] {
+			unmatched = append(unmatched, name)
+		}
+	}
+	if len(unmatched) != 0 {
+		return fmt.Errorf(
+			"the plan of %s scrambles the content modules [%s]. Its descriptor keeps no <module/> of those names",
+			request.MainModule, strings.Join(sorted(unmatched), ", "))
+	}
+
 	if !request.Embeds {
 		return nil
 	}
 
 	for _, module := range kept {
+		if request.Scrambled[module.name] {
+			continue
+		}
 		if err := resolveAndEmbedContentModuleDescriptor(module.element, module.name, request, cache, resolver); err != nil {
 			return err
 		}

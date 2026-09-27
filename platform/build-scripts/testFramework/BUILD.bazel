@@ -23,6 +23,7 @@ jvm_library(
     deps = [
         # do not sort,
         "//platform/build-scripts",
+        "//platform/build-scripts/plugin-model-tool",
         "@lib//:kotlin-stdlib",
         "//libraries/opentelemetry",
         "//libraries/opentelemetry-semconv",
@@ -74,6 +75,7 @@ jvm_library(
         # do not sort,
         ":testFramework",
         "//platform/build-scripts:build-scripts_test_lib",
+        "//platform/build-scripts/plugin-model-tool:plugin-model-tool_test_lib",
         "//libraries/opentelemetry:opentelemetry_test_lib",
         "//libraries/opentelemetry-semconv:opentelemetry-semconv_test_lib",
         "//libraries/grpc:grpc_test_lib",

@@ -395,7 +395,11 @@ func TestOperationSelection(t *testing.T) {
 		{nil, ""},
 		{[]string{"--out=o", "--source=s"}, ""},
 		{[]string{"--out=o", "--embedded-product", ""}, embeddedProductMode},
+		{[]string{"--product-descriptor", "--out=o"}, productDescriptorMode},
 		{[]string{"--application-info", "--out=o"}, applicationInfoMode},
+		{[]string{"--out=o", "--stamp-application-info"}, stampApplicationInfoMode},
+		// A value option of the frontend mode is not the mode of a product.
+		{[]string{"--application-info", "--product-application-info=p.xml"}, applicationInfoMode},
 	} {
 		if got, err := selectOperation(tt.arguments); err != nil || got != tt.want {
 			t.Errorf("%v: got %q, %v; want %q", tt.arguments, got, err, tt.want)
@@ -409,6 +413,10 @@ func TestInvalidModesAreRefused(t *testing.T) {
 		{"--application-info", "--application-info"},
 		{"--embedded-product", "--application-info"},
 		{"--application-info", "--embedded-product"},
+		{"--embedded-product", "--product-descriptor"},
+		{"--application-info", "--stamp-application-info"},
+		{"--product-descriptor=true"},
+		{"--stamp-application-info="},
 		{"--embedded-product=true"},
 		{"--embedded-product="},
 		{"--application-info=true"},

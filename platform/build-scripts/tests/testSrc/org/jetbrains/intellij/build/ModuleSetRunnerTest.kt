@@ -1,12 +1,12 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.intellij.build
 
+import com.intellij.platform.buildScripts.pluginModelTool.discoverCommunityModuleSetSources
+import com.intellij.platform.buildScripts.pluginModelTool.parseGeneratorOptions
+import com.intellij.platform.buildScripts.pluginModelTool.parseJsonArgument
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
-import org.jetbrains.intellij.build.productLayout.discoverCommunityModuleSetSources
 import org.jetbrains.intellij.build.productLayout.discovery.ModuleSetSourceLabels
-import org.jetbrains.intellij.build.productLayout.parseGeneratorOptions
-import org.jetbrains.intellij.build.productLayout.parseJsonArgument
 import org.junit.jupiter.api.Test
 import java.nio.file.Path
 

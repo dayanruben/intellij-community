@@ -1,13 +1,13 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.buildScripts.testFramework.distributionContent
 
+import com.intellij.platform.buildScripts.pluginModelTool.DEV_DIST_ON_DEMAND_PLUGIN_MODULES
+import com.intellij.platform.buildScripts.pluginModelTool.DerivedPluginJars
+import com.intellij.platform.buildScripts.pluginModelTool.productDerivation
 import com.intellij.platform.distributionContent.FileEntry
 import com.intellij.platform.distributionContent.PluginContentReport
 import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.intellij.build.ModuleOutputProvider
-import org.jetbrains.intellij.build.devDist.DEV_DIST_ON_DEMAND_PLUGIN_MODULES
-import org.jetbrains.intellij.build.devDist.DerivedPluginJars
-import org.jetbrains.intellij.build.devDist.productDerivation
 import java.nio.file.Path
 import kotlin.io.path.exists
 import kotlin.io.path.readText
@@ -108,7 +108,7 @@ private fun divergenceTableFile(projectHome: Path, targetId: String): Path {
 private const val REPAIR =
   "The derivation reads the layout facts and the JPS model, never this build. A difference is a defect of the" +
   " derivation for this plugin; see `derivePluginPacking` in" +
-  " community/platform/build-scripts/src/org/jetbrains/intellij/build/devDist/PluginJarDerivation.kt."
+  " community/platform/build-scripts/plugin-model-tool/src/PluginJarDerivation.kt."
 
 private const val DIVERGENCE_TABLE_REPAIR =
   "The known-divergence table of this target no longer states what this run measured. The patch below states it: it " +

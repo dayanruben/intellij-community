@@ -101,9 +101,18 @@ private fun locateProductFrontendImageFile(filePath: String, eapFilePath: String
   return imageFile
 }
 
+/** Whether [imagesDirectoryPath] has the icon the macOS app of the embedded frontend shows, see [locateIcnsForFrontendMacApp]. */
+internal fun hasIcnsForFrontendMacApp(imagesDirectoryPath: Path?, isEap: Boolean): Boolean {
+  return locateFrontendImageFile(MAC_ICNS_FRONTEND_PATH, MAC_ICNS_FRONTEND_EAP_PATH, imagesDirectoryPath, isEap) != null
+}
+
 private fun locateFrontendImageFile(filePath: String, eapFilePath: String, context: BuildContext): Path? {
-  val imagesDirectoryPath = context.productProperties.imagesDirectoryPath ?: return null
-  if (context.applicationInfo.isEAP) {
+  return locateFrontendImageFile(filePath, eapFilePath, context.productProperties.imagesDirectoryPath, context.applicationInfo.isEAP)
+}
+
+private fun locateFrontendImageFile(filePath: String, eapFilePath: String, imagesDirectoryPath: Path?, isEap: Boolean): Path? {
+  imagesDirectoryPath ?: return null
+  if (isEap) {
     val eapImagePath = imagesDirectoryPath.resolve(eapFilePath)
     if (eapImagePath.exists()) {
       return eapImagePath

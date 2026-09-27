@@ -21,7 +21,6 @@ go_binary(
         "//build/content-module-packer/internal/filemetadata",
         "//build/content-module-packer/internal/jarpack",
         "//build/content-module-packer/internal/span",
-        "//build/content-module-packer/internal/worker",
     ],
 )
 
@@ -41,6 +40,5 @@ go_test(
         "//build/content-module-packer/internal/filemetadata",
         "//build/content-module-packer/internal/jarpack",
         "//build/content-module-packer/internal/span",
-        "//build/content-module-packer/internal/worker",
     ],
 )

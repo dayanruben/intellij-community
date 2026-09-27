@@ -171,7 +171,7 @@ data class BuildOptions(
      */
     const val OS_NONE: String = "none"
 
-    /** Build actual searchableOptions.xml file. If skipped, the (possibly outdated) source version of the file will be used. */
+    /** Build the searchable options index of the `Settings` dialog. If the step is skipped, the distribution has no index. */
     const val SEARCHABLE_OPTIONS_INDEX_STEP: String = "search_index"
     const val BROKEN_PLUGINS_LIST_STEP: String = "broken_plugins_list"
     const val PROVIDED_MODULES_LIST_STEP: String = "provided_modules_list"

@@ -965,6 +965,8 @@ jvm_library(
         "//platform/backend/observation:observation-tests_test_lib",
         "//platform/build-scripts/product-dsl:buildScripts-productDsl-tests",
         "//platform/build-scripts/product-dsl:buildScripts-productDsl-tests_test_lib",
+        "//platform/build-scripts/runtime-module-repository:buildScripts-runtimeModuleRepository-tests",
+        "//platform/build-scripts/runtime-module-repository:buildScripts-runtimeModuleRepository-tests_test_lib",
         "//platform/collaboration-tools:collaborationTools-tests",
         "//platform/collaboration-tools:collaborationTools-tests_test_lib",
         "//platform/compose/swing-ui:swing-tests",

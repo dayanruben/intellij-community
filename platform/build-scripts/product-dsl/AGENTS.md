@@ -42,7 +42,7 @@ defined there, not in a community-only checkout.
 
 ## Key Entry Points
 
-- `UltimateGenerator` (`platform/buildScripts/src/productLayout/ultimateGenerator.kt`) — the generator;
+- `UltimateGenerator` (`platform/buildScripts/plugin-model/src/ultimateGenerator.kt`) — the generator;
   it is the `main_class` of the Bazel target below.
 - `CommunityModuleSets` (`community/platform/build-scripts/src/org/jetbrains/intellij/build/productLayout/CommunityModuleSets.kt`)
   — the community-side module-set definitions the generator reads. It has no `main()`.

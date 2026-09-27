@@ -13,9 +13,19 @@ def dev_dist_embedded_product_descriptor_target_name(main_module, product = None
     name = main_module + "_dev_embedded_product_descriptor"
     return name if not product else name + "_" + product
 
-def _dev_dist_embedded_product_descriptor_impl(ctx):
-    source = ctx.file.source
-    inputs = [source]
+def declared_descriptors(ctx):
+    """The `descriptors` and `library_descriptors` attributes as action inputs and writer arguments.
+
+    One answer per load path: a load path that two declarations answer fails the analysis. The product descriptor rule
+    shares this with the embedded product descriptor rule.
+
+    Args:
+        ctx: the rule context. The rule declares `descriptors` and `library_descriptors`.
+
+    Returns:
+        `struct(inputs, descriptor_args, descriptor_jar_args)`.
+    """
+    inputs = []
     answered_by = {}
     descriptor_args = []
     descriptor_jar_args = []
@@ -37,7 +47,11 @@ def _dev_dist_embedded_product_descriptor_impl(ctx):
             for jar in jars:
                 descriptor_jar_args.append(load_path + "=" + jar.path)
         inputs.extend(jars)
+    return struct(inputs = inputs, descriptor_args = descriptor_args, descriptor_jar_args = descriptor_jar_args)
 
+def _dev_dist_embedded_product_descriptor_impl(ctx):
+    source = ctx.file.source
+    declared = declared_descriptors(ctx)
     output = ctx.actions.declare_file(ctx.label.name + ".xml")
     args = ctx.actions.args()
     args.set_param_file_format("multiline")
@@ -45,13 +59,13 @@ def _dev_dist_embedded_product_descriptor_impl(ctx):
     args.add("--embedded-product")
     args.add(output, format = "--out=%s")
     args.add(source, format = "--source=%s")
-    args.add_all(descriptor_args, format_each = "--descriptor=%s")
-    args.add_all(descriptor_jar_args, format_each = "--descriptor-in-jar=%s")
+    args.add_all(declared.descriptor_args, format_each = "--descriptor=%s")
+    args.add_all(declared.descriptor_jar_args, format_each = "--descriptor-in-jar=%s")
     args.add_all(ctx.attr.modules, format_each = "--module=%s")
     args.add_all(ctx.attr.separate_jar, format_each = "--separate-jar=%s")
     ctx.actions.run(
         mnemonic = "DevDistEmbeddedProductDescriptor",
-        inputs = depset(inputs),
+        inputs = depset([source] + declared.inputs),
         outputs = [output],
         executable = ctx.executable._resolver,
         arguments = [args],
@@ -82,7 +96,7 @@ _dev_dist_embedded_product_descriptor = rule(
             doc = "Content modules whose embedded descriptor takes separate-jar=true.",
         ),
         "_resolver": attr.label(
-            default = "//build/plugin-descriptor-writer",
+            default = "//platform/build-scripts/bazel-rules:plugin_descriptor_writer",
             executable = True,
             cfg = "exec",
         ),

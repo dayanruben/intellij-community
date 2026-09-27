@@ -305,7 +305,8 @@ class BazelModuleOutputProviderState(
   fun getModuleImlFile(module: JpsModule): Path = index.getModuleImlFile(module)
 }
 
-internal class BazelModuleOutputProvider(
+@Internal
+class BazelModuleOutputProvider(
   private val state: BazelModuleOutputProviderState,
   lifetime: BuildLifetime?,
   override val useTestCompilationOutput: Boolean,

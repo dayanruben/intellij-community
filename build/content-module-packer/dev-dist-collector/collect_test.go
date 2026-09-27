@@ -92,6 +92,22 @@ func TestPlatformJars(t *testing.T) {
 	if !reflect.DeepEqual(actual, expected) {
 		t.Fatalf("files = %#v, want %#v", actual, expected)
 	}
+	// A jar of the core classpath says so, and the manifest lists it under `coreClassPath`.
+	writeText(t, "jars.json", `[
+  {"source":"inputs/app.jar", "relativePath":"app.jar", "coreClassPath":true},
+  {"source":"inputs/content.jar", "relativePath":"content.jar"}
+]`)
+	actual, err = collectPlatformJars("jars.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected = []sourcedFile{
+		{Source: "inputs/app.jar", RelativePath: "lib/app.jar", coreClassPath: true},
+		{Source: "inputs/content.jar", RelativePath: "lib/content.jar"},
+	}
+	if !reflect.DeepEqual(actual, expected) {
+		t.Fatalf("files = %#v, want %#v", actual, expected)
+	}
 }
 
 func TestInvalidPlatformJars(t *testing.T) {
@@ -106,6 +122,7 @@ func TestInvalidPlatformJars(t *testing.T) {
 		{`[{"source":"in","relativePath":"../a.jar"}]`, "escapes the distribution"},
 		{`[{"source":"in","relativePath":"/a.jar"}]`, "escapes the distribution"},
 		{`[{"source":"in","relativePath":"a.jar","extra":1}]`, "unknown field"},
+		{`[{"source":"in","relativePath":"jna","tree":true,"coreClassPath":true}]`, "states coreClassPath for a native tree"},
 	}
 	for _, test := range cases {
 		t.Run(test.text, func(t *testing.T) {
@@ -119,7 +136,10 @@ func TestInvalidPlatformJars(t *testing.T) {
 // A repeated destination and a destination that holds another are refused by `validateDestinations`, which both
 // collection modes share, so the jar mode keeps no check of its own.
 func TestConflictingPlatformJarDestinations(t *testing.T) {
-	cases := []struct{ files []sourcedFile; message string }{
+	cases := []struct {
+		files   []sourcedFile
+		message string
+	}{
 		{[]sourcedFile{{Source: "one", RelativePath: "lib/a.jar"}, {Source: "two", RelativePath: "lib/a.jar"}}, "conflicting destination: lib/a.jar"},
 		{[]sourcedFile{{Source: "one", RelativePath: "lib/ext.jar"}, {Source: "two", RelativePath: "lib/ext.jar/a.jar"}}, "contains"},
 	}

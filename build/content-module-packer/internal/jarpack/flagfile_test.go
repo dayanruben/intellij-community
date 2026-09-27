@@ -154,8 +154,7 @@ func TestParseFlagFileRejectsWhatWouldChangeBytesSilently(t *testing.T) {
 
 func TestParseFlagFileReadsTheTraceDestination(t *testing.T) {
 	// The line the packing rule writes, in the position it writes it: immediately after `output=`, because that is
-	// where the group starts. It is a worker's only per-request channel - a `--trace-file=` on the spawn would belong to
-	// the worker process and to its WorkerKey.
+	// where the group starts. A packing action passes no other argument.
 	specs, err := parseRecipe(t, "output=out/a.jar\ntrace-file=out/a.jar.spans.json\nmodule=mod/a.jar\n")
 	if err != nil {
 		t.Fatal(err)

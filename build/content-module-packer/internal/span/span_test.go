@@ -214,8 +214,7 @@ func TestWriteFileCreatesTheParentDirectory(t *testing.T) {
 }
 
 func TestWriteFileReportsAnUnwritablePathInsteadOfPanicking(t *testing.T) {
-	// A panic in a worker loses the request that caused it, and a message on stdout corrupts the protocol, so the only
-	// way out of here is a returned error.
+	// The only way out of here is a returned error, which the caller reports against its own action.
 	blocked := filepath.Join(t.TempDir(), "a-file")
 	if err := os.WriteFile(blocked, nil, 0o644); err != nil {
 		t.Fatal(err)

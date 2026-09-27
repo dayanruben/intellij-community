@@ -716,7 +716,7 @@ port is field for field and a scope is what the platform's own resolver takes.""
 
 ADR 0006 puts the executors in Go, and a descriptor feeds every plugin main jar, so a JVM action for it sits on the
 build's critical path.""",
-            default = Label("//build/plugin-descriptor-writer:plugin-descriptor-writer"),
+            default = Label("//platform/build-scripts/bazel-rules:plugin_descriptor_writer"),
             executable = True,
             cfg = "exec",
         ),

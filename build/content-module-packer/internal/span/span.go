@@ -149,8 +149,7 @@ func (s *Span) addTag(t tag) {
 
 // WriteFile writes the trace, creating the parent directory. A nil Tracer writes nothing and reports no error.
 //
-// It never writes to stdout and never panics: in a worker, stdout is the protocol and a panic loses the request that
-// caused it, so an unwritable path has to come back as an error the caller can report against its own request.
+// It never writes to stdout and never panics, so an unwritable path comes back as an error the caller can report.
 func (t *Tracer) WriteFile(path string) error {
 	if t == nil {
 		return nil

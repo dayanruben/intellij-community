@@ -16,11 +16,14 @@ import org.jetbrains.intellij.build.impl.ModuleItem
  */
 @ApiStatus.Internal
 data class DevBuildFragment(
-  /** Identifies the fragment in its component manifest and in diagnostics; `platform_lib`, `platform_resources`, `platform_runtime_module_repository`. */
+  /** Identifies the fragment in its component manifest and in diagnostics; `platform_lib`, `platform_runtime_module_repository`. */
   @JvmField val name: String,
   /** The `lib/` jars this fragment owns, or `null` if it owns none. */
   @JvmField val platform: PlatformJarSelector?,
-  /** Whether this fragment owns `bin`, the product metadata, the launchers and the copied product files. */
+  /**
+   * Whether this fragment owns `bin`, the product metadata, the launchers and the copied product files. Only a complete
+   * assembly does. A split distribution renders them with the `platform_resources` component, from the launch model.
+   */
   @JvmField val platformResources: Boolean,
   /** The bundled plugin directories this assembly owns: [PluginFragmentSelector.All] for a complete one, `null` for a fragment. */
   @JvmField val plugins: PluginFragmentSelector?,
@@ -60,17 +63,16 @@ data class DevBuildFragment(
     get() = runtimeModuleRepository
 
   /**
-   * Whether this fragment packs the jars that the inlined product descriptor ends up in.
+   * Whether this fragment can pack the jar that the inlined product descriptor ends up in.
    *
-   * A fragment that owns `lib/` by exclusion holds the application-info module - that module is not a content module,
-   * so no other producer packs its jar - and needs the descriptors inlined into it. A fragment that owns only the jars
-   * another producer packs holds none of them and does not resolve them, see
-   * [org.jetbrains.intellij.build.BuildOptions.embedProductContentModuleDescriptors]. `layoutPlatform` re-checks this
-   * conclusion against the layout it actually got, so a product that puts its application-info module in a jar this
-   * fragment does not own fails instead of shipping a descriptor with nothing inlined into it.
+   * A fragment that owns `lib/` by exclusion holds the application-info module when no packing target takes its jar. The
+   * reference of the `jars` gate packs the handed-over jars, and the application-info module jar is one of them. So
+   * both need the descriptors inlined. A frontend is the exception: a jar of its own carries the root descriptor, see
+   * [org.jetbrains.intellij.build.BuildOptions.embedProductContentModuleDescriptors]. `layoutPlatform` fails when a
+   * fragment without the inlined descriptors packs the application-info module after all.
    */
   internal val ownsProductDescriptorJars: Boolean
-    get() = platform?.mode == PlatformJarSelector.Mode.EXCLUDE
+    get() = platform != null
 
   override fun toString(): String = name
 }
@@ -101,8 +103,8 @@ data class PlatformJarSelector(
      * a path two components both provide - and must not resolve their modules either, since a declared module output is
      * what makes a source edit re-run this action.
      *
-     * The layout still knows those jars exist, which is what keeps the core classpath complete: see
-     * `contentModuleJarCoreClasspathEntries`.
+     * The component of those jars lists the ones of the core classpath, so this fragment lists only the jars it packs.
+     * The plan generator decides them with `contentModuleJarCoreClasspathEntries`.
      */
     EXCLUDE,
 

@@ -7,8 +7,6 @@ import kotlinx.serialization.json.Json
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.intellij.build.JvmArchitecture
 import org.jetbrains.intellij.build.OsFamily
-import org.jetbrains.intellij.build.classPath.orderCoreClasspathEntries
-import org.jetbrains.intellij.build.impl.PLUGIN_CLASSPATH
 import org.jetbrains.intellij.build.telemetry.TraceManager.spanBuilder
 import org.jetbrains.intellij.build.telemetry.use
 import java.nio.charset.StandardCharsets
@@ -21,15 +19,11 @@ import java.nio.file.StandardCopyOption.COPY_ATTRIBUTES
 import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 import java.nio.file.attribute.BasicFileAttributes
 import java.nio.file.attribute.PosixFilePermission
-import java.util.LinkedHashSet
 import kotlin.io.path.invariantSeparatorsPathString
 
 private const val DEV_BUILD_COMPONENT_MANIFEST_VERSION = 9
 private const val COMPONENT_FILE_ENTRY_TYPE = "component-file"
 private const val COMPONENT_SYMLINK_ENTRY_TYPE = "symlink"
-private const val GENERATED_CORE_CLASSPATH_ENTRY_TYPE = "generated-core-classpath"
-private const val GENERATED_PLUGIN_CLASSPATH_ENTRY_TYPE = "generated-plugin-classpath"
-private const val LAUNCH_METADATA_ENTRY_TYPE = "launch-metadata"
 
 @Serializable
 @ApiStatus.Internal
@@ -84,15 +78,6 @@ data class DevBuildComponentManifest(
   @JvmField val entries: List<DevBuildComponentEntry>,
 )
 
-/**
- * Whether this component fits every target platform.
- *
- * A producer that packs plain jars from Starlark attributes knows no target platform, so it writes an empty [DevBuildComponentManifest.os]
- * and [DevBuildComponentManifest.arch]. The composer takes the distribution's platform from a component that names one.
- */
-internal val DevBuildComponentManifest.isPlatformNeutral: Boolean
-  get() = os.isEmpty() && arch.isEmpty()
-
 private val componentManifestJson = Json {
   prettyPrint = true
   prettyPrintIndent = "  "
@@ -126,96 +111,6 @@ fun writeDevBuildComponentManifest(
   )
   file.parent?.let { Files.createDirectories(it) }
   Files.writeString(file, componentManifestJson.encodeToString(DevBuildComponentManifest.serializer(), manifest))
-}
-
-@ApiStatus.Internal
-fun readDevBuildComponentManifest(file: Path): DevBuildComponentManifest {
-  val manifest = componentManifestJson.decodeFromString(DevBuildComponentManifest.serializer(), Files.readString(file))
-  check(manifest.version == DEV_BUILD_COMPONENT_MANIFEST_VERSION) {
-    "Unsupported dev-build component manifest version ${manifest.version} in $file"
-  }
-  manifest.entries.forEach(::validateDevBuildEntryMode)
-  return manifest
-}
-
-internal fun validateDevBuildEntryMode(entry: DevBuildComponentEntry) {
-  if (entry.type == "directory") {
-    check(entry.hash == null && entry.source == null && entry.symlinkTarget == null && !entry.executable && entry.mode in 0..511) {
-      "Invalid directory entry '${entry.relativePath}'"
-    }
-    return
-  }
-  check(entry.hash != null) { "Dev-build component entry '${entry.relativePath}' requires a hash" }
-  val mode = entry.mode ?: return
-  check(mode in 0..511 && entry.symlinkTarget == null && entry.type == COMPONENT_FILE_ENTRY_TYPE &&
-        entry.executable == (mode and 73 != 0)) {
-    "Dev-build component entry '${entry.relativePath}' has an invalid or conflicting file mode: $mode"
-  }
-}
-
-/**
- * @param additionalModules what the distribution declares it contains, when a caller has that declaration; the
- *                          components' own sum otherwise. It goes into the launch metadata, so a distribution whose
- *                          declaration alone changed gets a new fingerprint and is not reused as the previous one.
- */
-@ApiStatus.Internal
-fun computeIdeFingerprintFromComponents(
-  components: Collection<DevBuildComponentManifest>,
-  pluginClasspathFile: Path? = null,
-  additionalModules: Collection<String>? = null,
-): String {
-  require(components.isNotEmpty()) { "At least one dev-build component manifest is required" }
-  val first = components.first()
-  val launchMetadata = requireNotNull(components.firstOrNull { it.mainClass != null }) {
-    "No dev-build component declares an IDE main class"
-  }
-  // the platform of the distribution, not the empty one of a neutral component that happens to come first
-  val platform = components.firstOrNull { !it.isPlatformNeutral } ?: first
-  val declaredModules = additionalModules
-                        ?: components.flatMapTo(LinkedHashSet(), DevBuildComponentManifest::additionalModules)
-  val coreClasspath = orderCoreClasspathEntries(components.flatMap(DevBuildComponentManifest::coreClassPath))
-  val entries = components.flatMapTo(ArrayList()) { component ->
-    component.entries.map { entry -> IdeFingerprintEntry(entry.relativePath, entry.type, entry.hash ?: 0, entry.executable) }
-  }
-  for (component in components) {
-    for (entry in component.entries) {
-      validateDevBuildEntryMode(entry)
-      val mode = entry.mode ?: continue
-      if (entry.type == "directory" || mode != if (entry.executable) 493 else 420) {
-        entries.add(IdeFingerprintEntry(entry.relativePath, if (entry.type == "directory") "directory-mode" else "file-mode", mode.toLong()))
-      }
-    }
-  }
-  entries.add(
-    IdeFingerprintEntry(
-      relativePath = "<dev-ide-config>",
-      type = LAUNCH_METADATA_ENTRY_TYPE,
-      hash = computeDevBuildLaunchMetadataHash(
-        platformPrefix = first.platformPrefix,
-        os = platform.os,
-        arch = platform.arch,
-        mainClass = launchMetadata.mainClass!!,
-        additionalModules = declaredModules,
-      ),
-    )
-  )
-  entries.add(
-    IdeFingerprintEntry(
-      relativePath = "core-classpath.txt",
-      type = GENERATED_CORE_CLASSPATH_ENTRY_TYPE,
-      hash = computeDevBuildBytesHash(coreClasspath.joinToString(separator = "\n").toByteArray(StandardCharsets.UTF_8)),
-    )
-  )
-  pluginClasspathFile?.let {
-    entries.add(
-      IdeFingerprintEntry(
-        relativePath = PLUGIN_CLASSPATH,
-        type = GENERATED_PLUGIN_CLASSPATH_ENTRY_TYPE,
-        hash = computeDevBuildContentHash(it),
-      )
-    )
-  }
-  return computeIdeFingerprint(entries)
 }
 
 /**
@@ -333,30 +228,6 @@ private fun normalizeDevBuildSymlinkTarget(target: Path): String {
   return target.invariantSeparatorsPathString.split('/').filter { it.isNotEmpty() && it != "." }.joinToString("/").ifEmpty { "." }
 }
 
-private fun computeDevBuildLaunchMetadataHash(
-  platformPrefix: String,
-  os: String,
-  arch: String,
-  mainClass: String,
-  additionalModules: Collection<String>,
-): Long {
-  val hasher = Hashing.xxh3_64().hashStream()
-  hasher.putString("dev-launch-v1")
-  hasher.putString(platformPrefix)
-  hasher.putString(os)
-  hasher.putString(arch)
-  hasher.putString(mainClass)
-  hasher.putInt(additionalModules.size)
-  for (module in additionalModules) {
-    hasher.putString(module)
-  }
-  return hasher.asLong
-}
-
-private fun computeDevBuildBytesHash(bytes: ByteArray): Long {
-  return Hashing.xxh3_64().hashBytesToLong(bytes)
-}
-
 private fun computeDevBuildContentHash(file: Path): Long {
   val hasher = Hashing.xxh3_64().hashStream()
   val buffer = ByteArray(256 * 1024)
@@ -383,9 +254,4 @@ internal fun computeDevBuildExecutableBit(file: Path): Boolean {
   return PosixFilePermission.OWNER_EXECUTE in permissions ||
          PosixFilePermission.GROUP_EXECUTE in permissions ||
          PosixFilePermission.OTHERS_EXECUTE in permissions
-}
-
-/** Resolves the symbolic links of the composed components through the shared link validation. */
-internal fun validateDevBuildLinkGraph(entries: List<DevBuildComponentEntry>): Map<String, String> {
-  return validateDevBuildLinks(entries.mapNotNull { entry -> entry.symlinkTarget?.let { entry.relativePath to it } })
 }

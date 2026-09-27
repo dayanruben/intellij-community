@@ -8,6 +8,7 @@ import com.intellij.platform.pluginSystem.parser.impl.elements.ModuleLoadingRule
 import com.intellij.platform.pluginSystem.parser.impl.elements.xmlValue
 import io.opentelemetry.api.trace.Span
 import org.jdom.Element
+import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.intellij.build.BuildContext
 import org.jetbrains.intellij.build.CompilationContext
 import org.jetbrains.intellij.build.ContentModuleFilter
@@ -22,6 +23,7 @@ import org.jetbrains.intellij.build.classPath.resolveIncludes
 import org.jetbrains.intellij.build.productLayout.LIB_MODULE_PREFIX
 import org.jetbrains.intellij.build.productLayout.buildProductContentXml
 import org.jetbrains.jps.model.java.JavaSourceRootType
+import java.nio.file.Path
 
 // result _must be_ consistent, do not use Set.of or HashSet here
 internal fun processAndGetProductPluginContentModules(
@@ -248,6 +250,12 @@ internal fun markContentModuleToScrambleIfNeeded(moduleName: String, context: Bu
 }
 
 internal fun isModuleCloseSource(moduleName: String, context: CompilationContext): Boolean {
+  return isModuleCloseSource(moduleName = moduleName, outputProvider = context.outputProvider, communityHomeDir = context.paths.communityHomeDir)
+}
+
+/** [isModuleCloseSource] with no build context, for the dev-distribution plan generator. */
+@ApiStatus.Internal
+fun isModuleCloseSource(moduleName: String, outputProvider: ModuleOutputProvider, communityHomeDir: Path): Boolean {
   if (moduleName.endsWith(".resources") || moduleName.endsWith(".icons") || moduleName.startsWith(LIB_MODULE_PREFIX)) {
     return false
   }
@@ -257,10 +265,35 @@ internal fun isModuleCloseSource(moduleName: String, context: CompilationContext
     return false
   }
 
-  val sourceRoots = context.outputProvider.findRequiredModule(moduleName).sourceRoots.filter { it.rootType == JavaSourceRootType.SOURCE }
+  val sourceRoots = outputProvider.findRequiredModule(moduleName).sourceRoots.filter { it.rootType == JavaSourceRootType.SOURCE }
   return sourceRoots.isNotEmpty() && sourceRoots.any {
-    !it.path.startsWith(context.paths.communityHomeDir)
+    !it.path.startsWith(communityHomeDir)
   }
+}
+
+/**
+ * Whether the product descriptor embeds no descriptor for the product content module [moduleName], because the product
+ * scrambles the module.
+ *
+ * The answer of [markContentModuleToScrambleIfNeeded], without its write to `contentModulesToScramble`. That write also
+ * happens for a closed-source module of `productImplementationModules`, which `createPlatformLayout` marks before it
+ * processes the content, so such a module counts as embedded here.
+ */
+@ApiStatus.Internal
+fun isProductContentModuleScrambled(
+  moduleName: String,
+  isEmbedded: Boolean,
+  productProperties: ProductProperties,
+  outputProvider: ModuleOutputProvider,
+  communityHomeDir: Path,
+): Boolean {
+  if (productProperties.contentModulesToScramble.contains(moduleName)) {
+    return true
+  }
+  val productLayout = productProperties.productLayout
+  val marked = isEmbedded ||
+               (productLayout.productImplementationModules.contains(moduleName) && !productLayout.excludedModuleNames.contains(moduleName))
+  return marked && isModuleCloseSource(moduleName = moduleName, outputProvider = outputProvider, communityHomeDir = communityHomeDir)
 }
 
 internal fun contentModuleNameToDescriptorFileName(moduleName: String): String = "${moduleName.replace('/', '.')}.xml"

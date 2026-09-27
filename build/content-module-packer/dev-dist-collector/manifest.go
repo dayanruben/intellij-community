@@ -62,6 +62,15 @@ func writeManifest(opts options, files []sourcedFile, tracer *span.Tracer, paren
 		Kind: opts.kind, PlatformPrefix: opts.platformPrefix, OS: opts.os, Arch: opts.arch,
 		AdditionalModules: []string{}, CoreClassPath: []string{}, Entries: entries,
 	}
+	if opts.mainClass != "" {
+		manifest.MainClass = &opts.mainClass
+	}
+	// The composer orders the core classpath of every component, so the record order is enough here.
+	for _, file := range files {
+		if file.coreClassPath {
+			manifest.CoreClassPath = append(manifest.CoreClassPath, file.RelativePath)
+		}
+	}
 	if opts.pluginComponent != "" {
 		manifest.Version = 9
 		manifest.PluginCount = 1

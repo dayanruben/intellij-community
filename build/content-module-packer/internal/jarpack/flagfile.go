@@ -19,10 +19,7 @@ import (
 // uses for duplicates - every `library=` of a group comes before its `module=` lines, which is the order JarPackager
 // writes. Paths are resolved against baseDir.
 //
-// `trace-file=` is here rather than on the command line for a reason that is Bazel's, not this grammar's: Bazel splits a
-// worker spawn's arguments at the param file, so anything before it belongs to the worker *process* and to its
-// `WorkerKey`. A per-action path there would start a fresh worker for each of the ~2 500 packing actions. Inside the
-// file it is per *request*, which is what an action is.
+// `trace-file=` is here rather than on the command line because a packing action passes one argument, `--flagfile=`.
 //
 // `native-tree=`, `native-variant=` and `native-lib=` together put a group in natives mode; see NativeSpec. They come
 // as three lines rather than one because each is a different kind of value: an output path, a platform token and a

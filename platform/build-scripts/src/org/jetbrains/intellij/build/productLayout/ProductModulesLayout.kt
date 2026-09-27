@@ -208,17 +208,6 @@ class ProductModulesLayout {
     }
 
   /**
-   * Module name to list of Ant-like patterns describing entries which should be excluded from its output.
-   * <strong>This is a temporary property added to keep the layout of some products.
-   * If some directory from a module shouldn't be included in the product JAR,
-   * it's strongly recommended to move that directory outside the module source roots.</strong>
-   */
-  internal val moduleExcludes: MutableMap<String, MutableList<String>> = LinkedHashMap()
-
-  @ApiStatus.Internal
-  fun getModuleExcludesModuleNames(): Set<String> = moduleExcludes.keys
-
-  /**
    * Additional customizations of platform JARs. **This is a temporary property added to keep layout of some products.**
    */
   internal var platformLayoutSpec = persistentListOf<(PlatformLayout) -> Unit>()
@@ -226,14 +215,6 @@ class ProductModulesLayout {
 
   fun addPlatformSpec(customizer: (PlatformLayout) -> Unit) {
     platformLayoutSpec += customizer
-  }
-
-  fun excludeModuleOutput(module: String, path: String) {
-    moduleExcludes.computeIfAbsent(module) { mutableListOf() }.add(path)
-  }
-
-  fun excludeModuleOutput(module: String, path: Collection<String>) {
-    moduleExcludes.computeIfAbsent(module) { mutableListOf() }.addAll(path)
   }
 
   /**

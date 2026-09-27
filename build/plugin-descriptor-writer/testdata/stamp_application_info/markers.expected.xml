@@ -1,0 +1,6 @@
+<component xmlns="http://jetbrains.org/intellij/schema/application-info">
+  <version major="2026" minor="3" eap="true"/>
+  <build number="ILS-263.SNAPSHOT" date="__BUILD_DATE__" majorReleaseDate="__BUILD_DATE__"/>
+  <names product="kotlin-server" fullname="kotlin-server" edition="ILSKS"/>
+  <plugins url=""/>
+</component>

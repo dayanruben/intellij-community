@@ -106,7 +106,8 @@ fun collectCompatiblePluginsToPublish(pluginsToPublish: MutableSet<PluginLayout>
   )
 }
 
-internal fun collectCompatiblePluginsToPublish(
+@ApiStatus.Internal
+fun collectCompatiblePluginsToPublish(
   pluginsToPublish: MutableSet<PluginLayout>,
   platformLayout: PlatformLayout,
   productProperties: ProductProperties,

@@ -25,6 +25,9 @@ type sourcedFile struct {
 	metadata     *filemetadata.Entry
 	mode         *uint32
 	classPath    bool
+	// coreClassPath marks a packed jar of the core classpath. The generator decides it from the product layout, and
+	// the manifest lists the jar under `coreClassPath`.
+	coreClassPath bool
 	// tree marks a directory record, which attachMetadata replaces with one file per inventory entry under it. It
 	// never reaches the manifest: the composer creates the directories a file needs.
 	tree bool
@@ -88,7 +91,10 @@ func collectPlatformJars(file string) ([]sourcedFile, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s: record %d escapes the distribution: %s", file, index+1, record.RelativePath)
 		}
-		files = append(files, sourcedFile{Source: record.Source, RelativePath: "lib/" + relativePath, tree: record.Tree})
+		if record.Tree && record.CoreClassPath {
+			return nil, fmt.Errorf("%s: record %d states coreClassPath for a native tree, which is no jar", file, index+1)
+		}
+		files = append(files, sourcedFile{Source: record.Source, RelativePath: "lib/" + relativePath, tree: record.Tree, coreClassPath: record.CoreClassPath})
 	}
 	if len(files) == 0 {
 		return nil, fmt.Errorf("%s names no jar, so this component would contribute nothing", file)
@@ -99,10 +105,11 @@ func collectPlatformJars(file string) ([]sourcedFile, error) {
 // One record shape for both collection modes. A jar record leaves `executable` unstated, and a file record states it.
 // A jar record may state `tree`, and then names a native tree directory rather than a jar; see sourcedFile.
 type collectedRecord struct {
-	Source       string `json:"source"`
-	RelativePath string `json:"relativePath"`
-	Executable   *bool  `json:"executable"`
-	Tree         bool   `json:"tree"`
+	Source        string `json:"source"`
+	RelativePath  string `json:"relativePath"`
+	Executable    *bool  `json:"executable"`
+	Tree          bool   `json:"tree"`
+	CoreClassPath bool   `json:"coreClassPath"`
 }
 
 // decodeRecords reads the records of one collection mode, and refuses a file that is not exactly an array of them.
@@ -140,8 +147,8 @@ func collectFiles(file string) ([]sourcedFile, error) {
 		if isBlank(record.Source) || isBlank(record.RelativePath) || record.Executable == nil {
 			return nil, fmt.Errorf("%s: record %d requires source, relativePath and executable", file, index+1)
 		}
-		if record.Tree {
-			return nil, fmt.Errorf("%s: record %d states tree, which only a packed jar record can", file, index+1)
+		if record.Tree || record.CoreClassPath {
+			return nil, fmt.Errorf("%s: record %d states tree or coreClassPath, which only a packed jar record can", file, index+1)
 		}
 		relativePath, err := normalizedRelativePath(record.RelativePath)
 		if err != nil {

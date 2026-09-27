@@ -14,10 +14,7 @@ import org.jetbrains.intellij.build.dev.DevBuildOutput
 import org.jetbrains.intellij.build.dev.DevDistRecipe
 import org.jetbrains.intellij.build.dev.PlatformJarSelector
 import org.jetbrains.intellij.build.dev.buildProductInProcess
-import org.jetbrains.intellij.build.dev.materializeProjectModelTree
 import org.jetbrains.intellij.build.impl.BazelBuildInputs
-import org.jetbrains.intellij.build.telemetry.TraceManager.spanBuilder
-import org.jetbrains.intellij.build.telemetry.use
 import java.nio.file.DirectoryNotEmptyException
 import java.nio.file.Files
 import java.nio.file.Path
@@ -37,8 +34,8 @@ import kotlin.system.exitProcess
  *
  * This entry point is product-agnostic: the product is selected by `--platform-prefix`.
  *
- * It also runs where there is no checkout to read: `--project-manifest` builds the project model tree out of declared
- * files, `--preloaded-manifest` supplies the archives a build would otherwise download, and the jar cache is off unless
+ * It also runs where there is no checkout to read: `--project-dir` names the project model tree the action declares,
+ * `--preloaded-manifest` supplies the archives a build would otherwise download, and the jar cache is off unless
  * `--jar-cache-dir` names one. `--os` and `--arch` select the complete target platform. That is what an
  * dev-distribution fragment Bazel action passes.
  *
@@ -63,19 +60,9 @@ fun main(args: Array<String>) {
 private fun assembleDevDistribution(options: CommandLineOptions) {
   val outputDir = options.requiredPath("--output-dir")
   val scratchDir = options.optionalPath("--scratch-dir") ?: Path.of("${outputDir.invariantSeparatorsPathString}.scratch")
-  // Either the caller points at a checkout, or it hands over a manifest of the project-model files it declares and gets a
-  // checkout-shaped tree built out of them. A Bazel action cannot do the former: the checkout is not an input of anything,
-  // so reading it would make the action's result depend on files Bazel does not track.
-  val projectManifest = options.optionalPath("--project-manifest")
-  val projectDir = if (projectManifest == null) {
-    options.requiredPath("--project-dir") { System.getenv("BUILD_WORKSPACE_DIRECTORY") }
-  }
-  else {
-    require(options.optional("--project-dir") == null) { "--project-dir and --project-manifest are mutually exclusive" }
-    spanBuilder("materialize project model tree (inline)").use {
-      materializeProjectModelTree(manifest = projectManifest, target = scratchDir.resolve("project"))
-    }
-  }
+  // A Bazel action names the shared project model tree it declares. It cannot read the checkout, because the checkout is
+  // not an input of anything.
+  val projectDir = options.requiredPath("--project-dir") { System.getenv("BUILD_WORKSPACE_DIRECTORY") }
   // `BuildPaths.COMMUNITY_ROOT` and `ULTIMATE_HOME` are lazily initialized singletons that guess the repository root by walking up from
   // a set of candidate locations (see `IdeaProjectLoaderUtil.collectHomeSources`). Inside a Bazel action none of those candidates work:
   // there is no `BUILD_WORKSPACE_DIRECTORY`, the working directory is an execroot, and the jar location is in the output base -
@@ -204,24 +191,24 @@ private fun parseFragment(options: CommandLineOptions): DevBuildFragment {
       else -> error("Unknown --platform value '$value', expected except or only")
     }
   }
-  val platformResources = options.optionalBoolean("--platform-resources") ?: false
   val runtimeModuleRepository = options.optionalBoolean("--runtime-module-repository") ?: false
 
   if (name == null) {
-    require(platform == null && !platformResources && !runtimeModuleRepository) {
+    require(platform == null && !runtimeModuleRepository) {
       "--fragment is required to select a part of a distribution; without it the whole distribution is assembled"
     }
     return DevBuildFragment.COMPLETE
   }
 
-  require(platform != null || platformResources || runtimeModuleRepository) {
-    "The '$name' fragment selects nothing: pass at least one of --platform, --platform-resources, --runtime-module-repository"
+  require(platform != null || runtimeModuleRepository) {
+    "The '$name' fragment selects nothing: pass at least one of --platform, --runtime-module-repository"
   }
-  // The plugin directories come from the packed plugin components, so a fragment never owns one.
+  // The plugin directories come from the packed plugin components, so a fragment never owns one. Nor do `bin` and the
+  // product metadata: the `platform_resources` component renders them from the launch model of the product.
   return DevBuildFragment(
     name = name,
     platform = platform,
-    platformResources = platformResources,
+    platformResources = false,
     plugins = null,
     runtimeModuleRepository = runtimeModuleRepository,
   )

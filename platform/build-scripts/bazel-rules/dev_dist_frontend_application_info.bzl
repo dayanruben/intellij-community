@@ -68,7 +68,7 @@ _dev_dist_frontend_application_info = rule(
             doc = "The branch name to stamp. Empty for none.",
         ),
         "_resolver": attr.label(
-            default = "//build/plugin-descriptor-writer",
+            default = "//platform/build-scripts/bazel-rules:plugin_descriptor_writer",
             executable = True,
             cfg = "exec",
         ),

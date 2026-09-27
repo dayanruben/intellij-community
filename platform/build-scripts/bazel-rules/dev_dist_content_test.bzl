@@ -409,6 +409,22 @@ _packed_component_test = analysistest.make(
     config_settings = {_TRACE_SPANS: False},
 )
 
+def _files_component_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    actions = [action for action in analysistest.target_actions(env) if action.mnemonic == "IntellijDevFiles"]
+    asserts.equals(env, 1, len(actions))
+
+    # The `platform_resources` component declares the IDE main class of the launch model. Another component declares none.
+    main_class = [argument for argument in actions[0].argv if argument.startswith("--main-class=")] if actions else []
+    asserts.equals(env, ["--main-class=" + ctx.attr.main_class] if ctx.attr.main_class else [], main_class)
+    return analysistest.end(env)
+
+_files_component_test = analysistest.make(
+    _files_component_test_impl,
+    attrs = {"main_class": attr.string()},
+    config_settings = {_TRACE_SPANS: False},
+)
+
 def _manifest_test_impl(ctx):
     env = analysistest.begin(ctx)
     target = analysistest.target_under_test(env)
@@ -657,8 +673,8 @@ def dev_dist_content_test_suite(name):
         assembler = ":" + fixture,
         platform_prefix = "idea",
         target_platform = "linux_x64",
-        fragment_name = "platform_resources",
-        platform_resources = True,
+        fragment_name = "platform_runtime_module_repository",
+        runtime_module_repository = True,
         project_model_tree = ":" + fixture,
         bazel_targets_json = ":" + fixture + ".data",
         build_inputs = ":" + inputs,
@@ -702,6 +718,23 @@ def dev_dist_content_test_suite(name):
     )
     tests.append(packed_component + "_test")
     _packed_component_test(name = tests[-1], target_under_test = ":" + packed_component, natives = ":" + natives)
+
+    build_txt = name + "_build_txt"
+    native.genrule(name = build_txt, outs = [build_txt + ".txt"], cmd = "echo IU > $@", tags = ["manual"])
+    for case, main_class in [("resources", "com.intellij.idea.Main"), ("files", "")]:
+        files_component = name + "_" + case + "_component"
+        intellij_dev_packed_jars_component(
+            name = files_component,
+            collector = ":" + fixture,
+            component_name = "platform_" + case,
+            platform_prefix = "idea",
+            target_platform = "linux_x64",
+            files = {":" + build_txt: "build.txt"},
+            main_class = main_class,
+            tags = ["manual"],
+        )
+        tests.append(files_component + "_test")
+        _files_component_test(name = tests[-1], target_under_test = ":" + files_component, main_class = main_class)
 
     empty_inputs = name + "_empty_inputs"
     intellij_dev_build_inputs(name = empty_inputs)

@@ -150,9 +150,6 @@ private fun createPlatformLayout(
     outputProvider = outputProvider,
     bundledPluginModules = { bundledPluginModules },
   )
-  for ((module, patterns) in productLayout.moduleExcludes) {
-    layout.excludeFromModule(module, patterns)
-  }
 
   addModule(UTIL_RT_JAR, productLayout = productLayout, layout = layout)
   addModule("trove.jar", productLayout = productLayout, layout = layout)

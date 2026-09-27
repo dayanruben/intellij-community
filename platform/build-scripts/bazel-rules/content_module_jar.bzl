@@ -186,11 +186,17 @@ def declare_spans(ctx, name):
         return None
     return ctx.actions.declare_file(name + ".spans.json")
 
-def pack_jar(ctx, output, spans, module_jars, library_jars, merged_module_names, mnemonic, progress_message, extra_flags = [], extra_outputs = [], descriptor = None, descriptor_module = None, descriptor_path = "META-INF/plugin.xml", metadata = None, coverage_agent_manifest = False):
+# What the scheduler books for one packing action, in CPUs and MiB. A replay of all 3 635 recipes on 2026-09-26 peaked
+# at 76 MiB of physical footprint. On Windows the packer reads each source jar into the heap instead of mapping it.
+def _packer_resources(os, _inputs_size):
+    """One single-threaded packer process."""
+    return {"cpu": 1, "memory": 192 if os == "windows" else 96}
+
+def pack_jar(ctx, output, spans, module_jars, library_jars, merged_module_names, mnemonic, progress_message, extra_flags = [], extra_outputs = [], descriptor = None, descriptor_module = None, descriptor_path = "META-INF/plugin.xml", patches = [], metadata = None, coverage_agent_manifest = False):
     """Runs the packer over one jar, for either of this file's two rules and for `dev_plugin.bzl`.
 
     The rules differ in the jar's identity - its path, its mnemonic and its provider - and in nothing the packer
-    sees. So the flag file, the worker contract and the merge order are stated once here. The caller's rule must
+    sees. So the flag file, the execution contract and the merge order are stated once here. The caller's rule must
     declare `_packer` and `_trace_spans`.
 
     The packer takes a flag file rather than arguments: a product packs hundreds of jars from thousands of inputs, and
@@ -206,6 +212,10 @@ def pack_jar(ctx, output, spans, module_jars, library_jars, merged_module_names,
     `intellij-coverage-agent*` gets `source-manifest=coverage-agent`, which rewrites its `Boot-Class-Path` to the jar
     it ends up in. The call fails when the policy is selected and no source has that name, so a renamed agent library
     cannot ship an unrewritten manifest.
+
+    `descriptor` replaces `descriptor_path` in the output of `descriptor_module`. `patches` is a list of
+    `struct(path, file)` that replaces more entries of the same module output. Each patch is a `patch=` line before the
+    `module=` line of that module, so the packer takes the patch and not the entry of the module output.
     """
     args = ctx.actions.args()
     args.set_param_file_format("multiline")
@@ -217,13 +227,9 @@ def pack_jar(ctx, output, spans, module_jars, library_jars, merged_module_names,
 
     outputs = [output, metadata]
     if spans:
-        # Packers put `trace-file=` inside their flag file so per-action paths do not split persistent workers.
-        # Inside the flag file, as a `trace-file=` line, rather than as a `--trace-file=` argument - which is what every
-        # other producer of these span files takes. A worker has no other per-action channel: Bazel splits a worker
-        # spawn's arguments at the param file, everything before it becomes the worker *process*'s command line and part
-        # of its `WorkerKey`, and a per-action path there would start a fresh worker for each of the ~2 500 actions.
-        # Everything added to this `Args` lands in the file instead. It follows `output=`, because the grammar starts a
-        # group there.
+        # Inside the flag file, as a `trace-file=` line, because the action passes only `--flagfile=`. Every other
+        # producer of these span files takes a `--trace-file=` argument instead. It follows `output=`, because the
+        # grammar starts a group there.
         #
         # The `File`, not `spans.path`: this argument travels in a param file that output path mapping may rewrite, and
         # only the `File` form is rewritten with it. `intellij_dev_dist.bzl`'s `_declare_spans` passes the string,
@@ -248,9 +254,13 @@ def pack_jar(ctx, output, spans, module_jars, library_jars, merged_module_names,
     # Files, not `.path` strings, so path mapping can rewrite them. The module outputs come first and the libraries
     # after them, as `JarPackager` orders the same jar, so the module descriptor is the first entry.
     coverage_agent_sources = 0
+    patch_files = ([struct(path = descriptor_path, file = descriptor)] if descriptor != None else []) + patches
+    if patch_files and descriptor_module not in merged_module_names:
+        fail("%s: the patched module '%s' is not merged into the jar" % (ctx.label, descriptor_module))
     for module_name, module_jar in zip(merged_module_names, module_jars):
-        if descriptor != None and module_name == descriptor_module:
-            args.add(descriptor, format = "patch=" + descriptor_path + "=%s")
+        if module_name == descriptor_module:
+            for patch in patch_files:
+                args.add(patch.file, format = "patch=" + patch.path + "=%s")
         args.add(module_jar, format = "module=%s")
         if coverage_agent_manifest and module_jar.basename.startswith("intellij-coverage-agent"):
             args.add("source-manifest=coverage-agent")
@@ -270,36 +280,14 @@ def pack_jar(ctx, output, spans, module_jars, library_jars, merged_module_names,
         # One mnemonic per producer, so a strategy or an execution-info override reaches every jar of that producer and
         # of no other. `common.bazelrc` pins a pool size to each, and `no-cache` to the platform one alone.
         mnemonic = mnemonic,
-        inputs = depset(library_jars + module_jars + ([descriptor] if descriptor != None else [])),
+        inputs = depset(library_jars + module_jars + [patch.file for patch in patch_files]),
         outputs = outputs,
         executable = ctx.executable._packer,
-        # A worker, even though the binary starts in about two milliseconds. What a worker amortises here is not this
-        # process's startup but Bazel's per-spawn cost, and the per-jar work is ~1 ms against a spawn-and-teardown
-        # envelope an order of magnitude larger - so at this action count the envelope *is* the build. Measured on this
-        # repository at 2 524 jars, one process per action cost 38.4 s where the worker costs 26.0 s, and 6.6 s once the
-        # action stopped being cached.
-        #
-        # `requires-worker-protocol` is absent because proto is Bazel's default, and the packer speaks it: it decodes
-        # the six fields by hand in `internal/worker`, with no protobuf dependency and no generated schema, the way
-        # `@rules_jvm//worker-framework:protocol.kt` already decodes the same message on the JVM side. Every other worker
-        # in this repository is on the same default. An explicit `"proto"` would only add something that can drift from
-        # the code - and an unrecognised value here is a hard failure, so a typo in one is worse than its absence.
-        #
-        # `supports-path-mapping` is deliberately absent - path mapping is not enabled in this repository - and so is
-        # `supports-multiplex-sandboxing`, which is inert without `--worker_sandboxing`.
-        #
-        # `no-sandbox` stays, and it is parity rather than an optimisation. It is inert under the worker strategy, but it
-        # is what keeps the `local` fallback - `--strategy=PackContentModuleJar=local`, or `--noworker_multiplex` - at
-        # the cost the JVM worker this replaced paid: that worker ran *non-sandboxed*, since Bazel's worker strategy
-        # behaves like `local` unless `--worker_sandboxing` is set, and it is set nowhere here. Measured at 2 524 jars:
-        # 59.4 s sandboxed against 55.1 s not. The action reads only its declared inputs and writes only its declared
-        # output, so the sandbox was buying nothing.
-        execution_requirements = {
-            "supports-workers": "1",
-            "supports-multiplex-workers": "1",
-            "supports-worker-cancellation": "1",
-            "no-sandbox": "1",
-        },
+        # One process per action, not a persistent worker: the memory of each action is freed when it exits, and
+        # `resource_set` states it to the scheduler. See ADR 0019. The action reads only its declared inputs and writes
+        # only its declared outputs, so the sandbox adds cost and no check.
+        execution_requirements = {"no-sandbox": "1"},
+        resource_set = _packer_resources,
         arguments = [args],
         progress_message = progress_message,
     )
@@ -484,7 +472,7 @@ ends up in the jar.""",
             doc = "The `lib/` subdirectory that receives the native tree, `presignedNativeLibs[native_lib]`. One directory name, no `/`.",
         ),
         "_packer": attr.label(
-            default = "//build/content-module-packer",
+            default = "//platform/build-scripts/bazel-rules:content_module_packer",
             executable = True,
             cfg = "exec",
         ),
@@ -530,10 +518,28 @@ DevDistPlatformJarInfo = provider(
     },
 )
 
+def _patches(ctx, members):
+    """The `patches` attribute as `struct(path, file)` entries, and the member module they replace entries of."""
+    patches = []
+    for target, path in ctx.attr.patches.items():
+        files = target.files.to_list()
+        if len(files) != 1:
+            fail("%s provides %d files. A patch must provide one" % (target.label, len(files)), attr = "patches")
+        patches.append(struct(path = path, file = files[0]))
+    if not patches:
+        return struct(patches = [], module = None)
+    module = ctx.attr.patched_module or (members[0].name if members else "")
+    if module not in [member.name for member in members]:
+        fail("the patched module '%s' is not a member of the jar" % module, attr = "patched_module")
+    return struct(patches = patches, module = module)
+
 def _dev_dist_platform_jar_impl(ctx):
     members = [_module(target, "modules") for target in ctx.attr.modules]
     destination = _relative_output_file(ctx)
     libraries = _library_entries(ctx)
+    if not members and not libraries:
+        fail("a platform jar merges at least one module or library", attr = "modules")
+    patches = _patches(ctx, members)
     output = ctx.actions.declare_file(ctx.label.name + "/" + destination)
     spans = _declare_spans(ctx, ctx.label.name)
     metadata = _pack(
@@ -545,8 +551,12 @@ def _dev_dist_platform_jar_impl(ctx):
         merged_module_names = [member.name for member in members],
         mnemonic = "PackContentModuleJar",
         progress_message = "Packing the platform jar of %{label}",
-        # A residual jar carries no native file: a module with a presigned library packs as a `content_module_jar`.
-        extra_flags = ["merge-entities=true", "reject-native-entries=true"],
+        # A residual jar with a module member carries no native file: a module with a presigned library packs as a
+        # `content_module_jar`. A library-only jar keeps the native files of its libraries, as `JarPackager` does for a
+        # library that the layout places.
+        extra_flags = ["merge-entities=true"] + (["reject-native-entries=true"] if members else []),
+        descriptor_module = patches.module,
+        patches = patches.patches,
     )
     return [
         DefaultInfo(files = depset([output])),
@@ -564,14 +574,23 @@ def _dev_dist_platform_jar_impl(ctx):
 dev_dist_platform_jar = rule(
     doc = """Packs one generated residual platform jar of a dev distribution.
 
-One `PackContentModuleJar` action writes the jar at `<target>/<relative_output_file>` and its metadata. The jar holds no
-native file.""",
+One `PackContentModuleJar` action writes the jar at `<target>/<relative_output_file>` and its metadata. A jar with a
+module member holds no native file. A library-only jar merges no module and keeps the native files of its libraries. The
+application-info module jar replaces two entries of the module output with `patches`: the product descriptor and the
+stamped application info.""",
     implementation = _dev_dist_platform_jar_impl,
     attrs = {
         "relative_output_file": attr.string(mandatory = True),
-        "modules": attr.label_list(providers = [_KtJvmInfo], mandatory = True),
+        "modules": attr.label_list(providers = [_KtJvmInfo], doc = "The merged modules. Empty for a library-only jar."),
         "libraries": attr.label_list(providers = [[JavaInfo]]),
-        "_packer": attr.label(default = "//build/content-module-packer", executable = True, cfg = "exec"),
+        "patches": attr.label_keyed_string_dict(
+            allow_files = True,
+            doc = "Files that replace entries of the module output, keyed by target and valued by the entry path.",
+        ),
+        "patched_module": attr.string(
+            doc = "The JPS name of the member whose output `patches` replaces entries of. Empty for the first member.",
+        ),
+        "_packer": attr.label(default = "//platform/build-scripts/bazel-rules:content_module_packer", executable = True, cfg = "exec"),
         "_trace_spans": attr.label(default = ":trace_spans", providers = [BuildSettingInfo]),
     },
 )
@@ -588,8 +607,7 @@ def content_module_jar(module, name = None, tags = [], visibility = ["//visibili
 
     Two things the macro derives rather than have them restated 2 524 times over. `name` comes from `module`, the way
     `dev_dist_plugin_descriptor` derives its own from `main_module`; and `manual` is added, because the jar is this
-    target's `DefaultInfo` and `bazel build //...` would otherwise pack all of them - with
-    `--modify_execution_info=PackContentModuleJar=+no-cache`, on every invocation. Under the attribute form the jar sat
+    target's `DefaultInfo` and `bazel build //...` would otherwise pack all of them. Under the attribute form the jar sat
     in an output group and a wildcard build packed nothing; `manual` is what keeps that exactly true. Explicit labels and
     `bazel query` still see these targets, which is all a dev distribution needs.
 

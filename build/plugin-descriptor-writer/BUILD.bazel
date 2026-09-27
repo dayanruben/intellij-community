@@ -5,6 +5,7 @@ load("@rules_pkg//pkg:mappings.bzl", "pkg_files", "strip_prefix")
 load("@rules_pkg//pkg:pkg.bzl", "pkg_zip")
 load("//platform/build-scripts/bazel-rules:dev_dist_embedded_product_descriptor.bzl", "dev_dist_embedded_product_descriptor")
 load("//platform/build-scripts/bazel-rules:dev_dist_frontend_application_info.bzl", "dev_dist_frontend_application_info")
+load("//platform/build-scripts/bazel-rules:dev_dist_product_descriptor.bzl", "dev_dist_product_application_info", "dev_dist_product_descriptor")
 load(":descriptor_rules_test.bzl", "descriptor_action_test")
 
 # Hand-maintained: no gazelle target is wired up in this repository, so adding a `.go` file means editing `srcs` here.
@@ -21,6 +22,8 @@ go_binary(
         "main.go",
         "manifest_windows_amd64.syso",
         "manifest_windows_arm64.syso",
+        "product_descriptor.go",
+        "stamp_application_info.go",
     ],
     # Strip the symbol table and DWARF. A panic trace keeps its function names and line numbers either way, because
     # those come from the runtime's own pclntab.
@@ -172,6 +175,66 @@ descriptor_action_test(
     target_under_test = ":client_default_dev_frontend_application_info",
 )
 
+# The same fixture as `TestProductDescriptorMatchesKotlin`, so the rule and the Go test compare one expected file.
+dev_dist_product_descriptor(
+    name = "product_descriptor",
+    testonly = True,
+    descriptors = {
+        "testdata/product_descriptor/%s.xml" % module: "%s.xml" % module
+        for module in [
+            "intellij.libraries.blockmap",
+            "intellij.libraries.sqlite",
+            "intellij.platform.debugger",
+            "intellij.platform.debugger.content",
+            "intellij.platform.ide.osCertificates",
+        ]
+    },
+    main_module = "intellij.pycharm.community",
+    refused_content_modules = ["intellij.fixture.refused"],
+    source = "testdata/product_descriptor/source.xml",
+)
+
+diff_test(
+    name = "product_descriptor_rule_test",
+    file1 = ":product_descriptor",
+    file2 = "testdata/product_descriptor/expected.xml",
+)
+
+diff_test(
+    name = "product_descriptor_prefix_rule_test",
+    file1 = ":product_descriptor.plugin-classpath-prefix",
+    file2 = "testdata/product_descriptor/plugin-classpath-prefix.expected",
+)
+
+descriptor_action_test(
+    name = "product_descriptor_action_test",
+    extra_output_suffixes = [".plugin-classpath-prefix"],
+    mnemonic = "DevDistProductDescriptor",
+    mode = "--product-descriptor",
+    target_under_test = ":product_descriptor",
+)
+
+dev_dist_product_application_info(
+    name = "product_application_info",
+    testonly = True,
+    build_number = "testdata/stamp_application_info/build.txt",
+    product_code = "IC",
+    source = "testdata/stamp_application_info/idea-community.xml",
+)
+
+diff_test(
+    name = "product_application_info_rule_test",
+    file1 = ":product_application_info",
+    file2 = "testdata/stamp_application_info/idea-community.expected.xml",
+)
+
+descriptor_action_test(
+    name = "product_application_info_action_test",
+    mnemonic = "DevDistProductApplicationInfo",
+    mode = "--stamp-application-info",
+    target_under_test = ":product_application_info",
+)
+
 test_suite(
     name = "descriptor_rule_tests",
     tests = [
@@ -181,6 +244,11 @@ test_suite(
         ":application_info_overrides_rule_test",
         ":embedded_product_action_test",
         ":embedded_product_rule_test",
+        ":product_application_info_action_test",
+        ":product_application_info_rule_test",
+        ":product_descriptor_action_test",
+        ":product_descriptor_prefix_rule_test",
+        ":product_descriptor_rule_test",
     ],
     visibility = ["//visibility:public"],
 )
@@ -198,6 +266,10 @@ go_test(
         "main_test.go",
         "manifest_windows_amd64.syso",
         "manifest_windows_arm64.syso",
+        "product_descriptor.go",
+        "product_descriptor_test.go",
+        "stamp_application_info.go",
+        "stamp_application_info_test.go",
     ],
     data = glob(["testdata/**"]),
     pure = "on",

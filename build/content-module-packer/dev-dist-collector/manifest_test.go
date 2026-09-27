@@ -2,9 +2,11 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -224,5 +226,63 @@ func TestManifestOrderingAndEscaping(t *testing.T) {
 	text := string(data)
 	if !strings.Contains(text, "inputs/a&b.jar") || !strings.Contains(text, "idea<test>") || strings.Index(text, "\U0001f600") >= strings.Index(text, "\ue000") {
 		t.Fatalf("wrong escaping or order: %s", text)
+	}
+}
+
+// The manifest lists the packed jars of the core classpath in record order. The composer orders the whole core
+// classpath, so the collector keeps no order of its own.
+func TestManifestListsTheCoreClassPath(t *testing.T) {
+	t.Chdir(t.TempDir())
+	writeText(t, "inputs/app.jar", "app")
+	writeText(t, "inputs/content.jar", "content")
+	writeText(t, "inputs/util.jar", "util")
+	opts := options{manifest: "component.json", kind: "platform_packed_content_modules", platformPrefix: "idea", os: "linux", arch: "x64"}
+	files := []sourcedFile{
+		{Source: "inputs/util.jar", RelativePath: "lib/util.jar", coreClassPath: true},
+		{Source: "inputs/content.jar", RelativePath: "lib/content.jar"},
+		{Source: "inputs/app.jar", RelativePath: "lib/app.jar", coreClassPath: true},
+	}
+	if err := writeManifest(opts, files, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(opts.manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest componentManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(manifest.CoreClassPath, []string{"lib/util.jar", "lib/app.jar"}) {
+		t.Fatalf("coreClassPath = %q", manifest.CoreClassPath)
+	}
+}
+
+// A component declares the IDE main class only when the rule passes one. The composer takes it from the first
+// component that declares it and rejects a component that declares another.
+func TestManifestDeclaresTheMainClass(t *testing.T) {
+	t.Chdir(t.TempDir())
+	writeText(t, "inputs/build.txt", "IU-1.0")
+	files := []sourcedFile{{Source: "inputs/build.txt", RelativePath: "build.txt"}}
+	for _, mainClass := range []string{"com.intellij.idea.Main", ""} {
+		opts := options{manifest: "component.json", kind: "platform_resources", platformPrefix: "idea", os: "linux", arch: "x64", mainClass: mainClass}
+		if err := writeManifest(opts, files, nil, nil); err != nil {
+			t.Fatal(err)
+		}
+		data, err := os.ReadFile(opts.manifest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var manifest componentManifest
+		if err := json.Unmarshal(data, &manifest); err != nil {
+			t.Fatal(err)
+		}
+		if mainClass == "" {
+			if manifest.MainClass != nil || !strings.Contains(string(data), `"mainClass": null`) {
+				t.Fatalf("a component without a main class declares %s", data)
+			}
+		} else if manifest.MainClass == nil || *manifest.MainClass != mainClass {
+			t.Fatalf("mainClass = %v", manifest.MainClass)
+		}
 	}
 }

@@ -46,8 +46,7 @@ internal const val TRACE_FILE_OPTION: String = "--trace-file"
  *
  * What that branch preserves is *same outputs, same stdout, same exit code* - not "byte for byte what the main did
  * before". Wrapping the whole body widened the traced region of `DevDistMain` from `buildProductInProcess` to
- * everything around it, so `materializeProjectModelTree`, the `println` and `writeUnusedInputs` now run inside the
- * root span as well. Nothing there is
+ * everything around it, so the `println` and `writeUnusedInputs` now run inside the root span as well. Nothing there is
  * thread-affine, which is why it is fine; the stronger claim is not true and should not be repeated.
  *
  * The invariant is *unchanged when not measuring*, per producer, not *silent when not measuring*. Do not collapse the

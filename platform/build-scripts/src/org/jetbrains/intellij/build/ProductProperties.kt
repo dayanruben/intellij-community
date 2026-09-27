@@ -1,7 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.intellij.build
 
-import com.intellij.platform.buildData.productInfo.CustomCommandLaunchData
+import com.intellij.openapi.util.io.NioFiles
 import com.intellij.platform.buildData.productInfo.CustomProperty
 import com.intellij.platform.buildScripts.licenses.COMMUNITY_LICENSES_LIST
 import com.intellij.platform.buildScripts.licenses.LibraryLicense
@@ -24,7 +24,9 @@ import org.jetbrains.intellij.build.productLayout.ProductModulesContentSpec
 import org.jetbrains.intellij.build.productLayout.ProductModulesLayout
 import org.jetbrains.jps.model.JpsProject
 import org.jetbrains.jps.model.module.JpsModule
+import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.StandardCopyOption
 import java.util.Locale
 import java.util.function.BiPredicate
 
@@ -311,9 +313,10 @@ abstract class ProductProperties {
   var additionalDirectoriesWithLicenses: List<Path> = emptyList()
 
   /**
-   * Launcher commands customizer
+   * Whether the launch entry of `product-info.json` lists the custom commands: the embedded frontend, IJ Light, Qodana
+   * and the stdio MCP runner. A product that starts none of them sets it to `false`.
    */
-  var launcherCommandsCustomizer: ((List<CustomCommandLaunchData>, BuildContext) -> List<CustomCommandLaunchData>)? = null
+  var launcherCustomCommands: Boolean = true
 
   /**
    * Custom frontend module filter
@@ -410,9 +413,28 @@ abstract class ProductProperties {
   open fun registerDistFiles(context: BuildContext) { }
 
   /**
-   * Override this method to copy additional OS- and arch-specific files.
+   * The additional OS- and arch-specific files of the product, as data.
+   *
+   * [copyAdditionalOsSpecificFiles] copies them. A split dev distribution places the same files without build code,
+   * so a product declares its files here instead of copying them.
    */
-  open fun copyAdditionalOsSpecificFiles(runDir: Path, os: OsFamily, arch: JvmArchitecture, context: BuildContext) { }
+  open fun additionalOsSpecificFiles(os: OsFamily, arch: JvmArchitecture): List<OsSpecificDistFile> = emptyList()
+
+  /**
+   * Copies the [additionalOsSpecificFiles] into [runDir].
+   *
+   * A split dev distribution does not call this method, so the dev distribution plan generator refuses a product that
+   * overrides it.
+   */
+  open fun copyAdditionalOsSpecificFiles(runDir: Path, os: OsFamily, arch: JvmArchitecture, context: BuildContext) {
+    for (file in additionalOsSpecificFiles(os, arch)) {
+      val target = runDir.resolve(file.relativePath)
+      Files.createDirectories(target.parent)
+      Files.copy(file.resolve(), target, StandardCopyOption.REPLACE_EXISTING)
+      // a plain copy carries over the read-only mode of a Bazel output, which breaks a later cleanup or overwrite
+      NioFiles.setReadOnly(target, false)
+    }
+  }
 
   /**
    * Override this method if the product has several editions to ensure that their artifacts won't be mixed up.
@@ -429,9 +451,10 @@ abstract class ProductProperties {
 
   /**
    * Override this function to provide additional JVM command line arguments which will be added to launchers along with
-   * [additionalIdeJvmArguments].
+   * [additionalIdeJvmArguments]. [applicationInfoOf] loads the application info of another product, for arguments
+   * that name it.
    */
-  open fun getAdditionalContextDependentIdeJvmArguments(context: BuildContext): List<String> = emptyList()
+  open fun getAdditionalContextDependentIdeJvmArguments(applicationInfoOf: (ProductProperties) -> ApplicationInfoProperties): List<String> = emptyList()
 
   /**
    * Override this method to programmatically specify content modules for the product plugin.xml.
@@ -550,7 +573,7 @@ abstract class ProductProperties {
   /**
    * Returns IDs of flavors which the current product has. They will be added to the product-info.json file.
    */
-  open fun getProductFlavors(buildContext: BuildContext): List<String> = emptyList()
+  open fun getProductFlavors(): List<String> = emptyList()
 
   /**
    * Properties required for running Qodana application with this product.

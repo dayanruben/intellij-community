@@ -4,13 +4,13 @@ package org.jetbrains.intellij.build.devServer
 
 import com.intellij.openapi.application.PathManager
 import com.intellij.platform.buildData.productInfo.CustomCommandLaunchData
+import com.intellij.platform.buildScripts.devLaunch.customCommandSystemProperties
+import com.intellij.platform.buildScripts.devLaunch.getIdeSystemProperties
+import com.intellij.platform.buildScripts.devLaunch.readCustomCommand
+import com.intellij.platform.buildScripts.devLaunch.resolveAdditionalJvmArguments
 import org.jetbrains.intellij.build.VmProperties
 import org.jetbrains.intellij.build.dev.BuildRequest
 import org.jetbrains.intellij.build.dev.buildProductInProcess
-import org.jetbrains.intellij.build.dev.customCommandSystemProperties
-import org.jetbrains.intellij.build.dev.getIdeSystemProperties
-import org.jetbrains.intellij.build.dev.readCustomCommand
-import org.jetbrains.intellij.build.dev.resolveAdditionalJvmArguments
 import org.jetbrains.intellij.build.telemetry.withTracer
 import java.nio.file.Path
 import kotlin.io.path.invariantSeparatorsPathString
@@ -89,7 +89,7 @@ private fun buildDevImpl(rawArgs: Array<String>): BuildDevInfo {
     // in `PathManager.getHomeDirFor` would run past `runDir` all the way to the checkout root.
     // Pinning it is what makes a dev build indistinguishable from an installation for `PathManager` and, in turn,
     // makes `PluginManagerCore.isRunningFromSources` correctly answer `false` here (no `.idea` under `runDir`).
-    val systemProperties = getIdeSystemProperties(runDir) +
+    val systemProperties = VmProperties(getIdeSystemProperties(runDir)) +
                            VmProperties(mapOf(PathManager.PROPERTY_HOME_PATH to runDir.invariantSeparatorsPathString))
 
     if (System.getProperty("idea.dev.mode.custom.command", "false").toBoolean()) {

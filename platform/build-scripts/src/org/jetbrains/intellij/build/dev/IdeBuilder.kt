@@ -29,7 +29,6 @@ import org.jetbrains.intellij.build.ProprietaryBuildTools
 import org.jetbrains.intellij.build.ScrambleTool
 import org.jetbrains.intellij.build.SearchableOptionSetDescriptor
 import org.jetbrains.intellij.build.WindowsDistributionCustomizer
-import org.jetbrains.intellij.build.classPath.contentModuleJarCoreClasspathEntries
 import org.jetbrains.intellij.build.classPath.createCachedProductDescriptor
 import org.jetbrains.intellij.build.classPath.generateClassPathByLayoutReport
 import org.jetbrains.intellij.build.classPath.generateCoreClasspathFromPlugins
@@ -267,34 +266,20 @@ internal fun buildProduct(request: BuildRequest, createBuildContext: (buildDir: 
 
       val platformResourcesJob = if (request.fragment.platformResources) {
         fork("layout platform resources") {
-          // Product metadata, like `bin/product-info.json` below - and so owned by this fragment alone. It used to be
-          // written while laying out the platform jars, which the lib-owning fragment and the reference target both
-          // do, and each producer then claimed the same file.
-          Files.writeString(runDir.resolve("build.txt"), context.fullBuildNumber)
-
           // PathManager.getBinPath() is used as a working dir for maven
           val binDir = Files.createDirectories(runDir.resolve("bin"))
           val oldFiles = Files.newDirectoryStream(binDir).use { it.toCollection(HashSet()) }
+          oldFiles.removeAll(writePlatformResourceFiles(context, request.os, request.arch, runDir).toSet())
 
-          val libcImpl = LibcImpl.current(request.os)
-
-          val osDistributionBuilder = getOsDistributionBuilder(os = request.os, libcImpl = libcImpl, context = context)
-          if (osDistributionBuilder != null) {
-            oldFiles.remove(osDistributionBuilder.writeVmOptions(binDir))
-            // the file cannot be placed right into the distribution as it throws off home dir detection in `PathManager#getHomeDirFor`
-            val productInfoDir = context.paths.tempDir.resolve("product-info").createDirectories()
-            val productInfoFile = osDistributionBuilder.writeProductInfoFile(productInfoDir, request.arch)
-            oldFiles.remove(productInfoFile.moveTo(binDir.resolve(PRODUCT_INFO_FILE_NAME), overwrite = true))
-            NioFiles.deleteRecursively(productInfoDir)
-            // The declared OS-specific files belong to a complete build only. A split fragment has no platform layout,
-            // and the `platform_assets` component places those files in its distribution.
-            val declaredIn = if (request.fragment.isComplete) checkNotNull(platformLayout).await() else null
-            oldFiles.removeAll(layOutNativeBinFiles(osDistributionBuilder, binDir, runDir, request.arch, declaredIn, context))
+          // The natives and the declared OS-specific files belong to a complete build only. A split distribution
+          // takes them from its `platform_assets` component, which places them without build code.
+          if (request.fragment.isComplete) {
+            val osDistributionBuilder = getOsDistributionBuilder(os = request.os, libcImpl = LibcImpl.current(request.os), context = context)
+            if (osDistributionBuilder != null) {
+              val platformLayoutAwaited = checkNotNull(platformLayout).await()
+              oldFiles.removeAll(layOutNativeBinFiles(osDistributionBuilder, binDir, runDir, request.arch, platformLayoutAwaited, context))
+            }
           }
-
-          val ideaPropertyFile = binDir.resolve(PathManager.PROPERTIES_FILE_NAME)
-          Files.writeString(ideaPropertyFile, createIdeaPropertyFile(context))
-          oldFiles.remove(ideaPropertyFile)
 
           for (oldFile in oldFiles) {
             NioFiles.deleteRecursively(oldFile)
@@ -513,6 +498,9 @@ internal fun buildProduct(request: BuildRequest, createBuildContext: (buildDir: 
 
           if (request.fragment.platformResources) {
             checkNotNull(platformResourcesJob).await()
+          }
+          if (request.fragment.isComplete) {
+            // A split distribution takes these files from its `platform_assets` component.
             context.productProperties.copyAdditionalOsSpecificFiles(
               runDir = runDir,
               os = request.os,
@@ -663,14 +651,44 @@ private fun prepareDevRunDir(request: BuildRequest): Path {
 }
 
 /**
- * Copies the distribution's `bin` natives and marks executable the ones a production build would.
+ * Writes `build.txt`, `bin/idea.properties`, the vmoptions file and `bin/product-info.json` of [context] for [os] and
+ * [arch] into [runDir], and returns the files it wrote. The `platform_resources` fragment owns these files.
+ */
+internal fun writePlatformResourceFiles(context: BuildContext, os: OsFamily, arch: JvmArchitecture, runDir: Path): List<Path> {
+  val result = ArrayList<Path>()
+  // Product metadata, like `bin/product-info.json` below - and so owned by this fragment alone. It used to be written
+  // while laying out the platform jars, which the lib-owning fragment and the reference target both do, and each
+  // producer then claimed the same file.
+  val buildTxt = runDir.resolve("build.txt")
+  Files.writeString(buildTxt, context.fullBuildNumber)
+  result.add(buildTxt)
+
+  val binDir = Files.createDirectories(runDir.resolve("bin"))
+  val osDistributionBuilder = getOsDistributionBuilder(os = os, libcImpl = LibcImpl.current(os), context = context)
+  if (osDistributionBuilder != null) {
+    result.add(osDistributionBuilder.writeVmOptions(binDir))
+    // the file cannot be placed right into the distribution as it throws off home dir detection in `PathManager#getHomeDirFor`
+    val productInfoDir = context.paths.tempDir.resolve("product-info").createDirectories()
+    val productInfoFile = osDistributionBuilder.writeProductInfoFile(productInfoDir, arch)
+    result.add(productInfoFile.moveTo(binDir.resolve(PRODUCT_INFO_FILE_NAME), overwrite = true))
+    NioFiles.deleteRecursively(productInfoDir)
+  }
+
+  val ideaPropertyFile = binDir.resolve(PathManager.PROPERTIES_FILE_NAME)
+  Files.writeString(ideaPropertyFile, createIdeaPropertyFile(context))
+  result.add(ideaPropertyFile)
+  return result
+}
+
+/**
+ * Copies the `bin` natives and the declared OS-specific files of a complete distribution, and marks executable the
+ * ones a production build would.
  *
  * A production distribution gets those permissions when it is archived - `updateExecutablePermissions` over
  * [OsSpecificDistributionBuilder.generateExecutableFilesPatterns]. A dev distribution is never archived, and its
- * sources do not always carry the mode: inside a Bazel action the checkout is a tree that
- * [materializeProjectModelTree] laid out, and it copies without POSIX attributes, so a `755` file in git arrives
- * here as `rw-`. The same patterns therefore decide here, applied to the copied files alone - walking the whole
- * distribution would rewrite the permissions of every jar in it, per assembly.
+ * sources do not always carry the mode. The same patterns therefore decide here, applied to the copied files alone -
+ * walking the whole distribution would rewrite the permissions of every jar in it, per assembly. A split distribution
+ * takes these files from its `platform_assets` component instead.
  *
  * Returns the copied files, which the caller must keep out of the sweep that deletes whatever else is in `bin`.
  */
@@ -679,11 +697,11 @@ private fun layOutNativeBinFiles(
   binDir: Path,
   runDir: Path,
   arch: JvmArchitecture,
-  declaredIn: PlatformLayout?,
+  declaredIn: PlatformLayout,
   context: BuildContext,
 ): List<Path> {
   val copied = osDistributionBuilder.copyNativeBinFiles(binDir, arch) +
-               (declaredIn?.let { osDistributionBuilder.copyDeclaredOsSpecificFiles(runDir, arch, it, context) } ?: emptyList())
+               osDistributionBuilder.copyDeclaredOsSpecificFiles(runDir, arch, declaredIn, context)
   val executableMatchers = osDistributionBuilder.generateExecutableFilesMatchers(includeRuntime = false, arch = arch).keys
   for (file in copied) {
     val relativePath = runDir.relativize(file)
@@ -721,7 +739,7 @@ private fun getSearchableOptionSet(context: CompilationContext): SearchableOptio
   }
 }
 
-private fun createBuildContextFromProject(
+internal fun createBuildContextFromProject(
   productConfiguration: ProductConfiguration,
   request: BuildRequest,
   buildDir: Path,
@@ -890,7 +908,7 @@ internal fun createDevBuildContext(
   )
 }
 
-internal fun createProductProperties(
+@org.jetbrains.annotations.ApiStatus.Internal fun createProductProperties(
   productConfiguration: ProductConfiguration,
   outputProvider: ModuleOutputProvider,
   projectDir: Path,
@@ -1057,10 +1075,10 @@ private fun layoutPlatform(
     " they are not jars a selector can partition. Give them an owner before splitting this product."
   }
   val includedModules = selector.selectModules(platformLayout.includedModules)
-  // The fragment decided before the layout existed whether it would need the inlined content-module descriptors: a
-  // fragment that owns `lib/` by exclusion holds the application-info module, since no other producer packs that jar.
-  // Confirm it against the layout that was actually produced: a product that hands that module's jar to another
-  // producer would otherwise ship a product descriptor with nothing inlined into it, which fails far away at runtime.
+  // The fragment decided before the layout existed whether it would need the inlined content-module descriptors. A
+  // fragment that owns `lib/` by exclusion holds the application-info module. Confirm this against the actual layout:
+  // a fragment that packs that module without the inlined descriptors ships a product descriptor with nothing inlined
+  // into it, which fails far away at runtime. The plan generator rules out a content module jar that packs the module.
   val applicationInfoModule = context.productProperties.applicationInfoModule
   check(context.options.embedProductContentModuleDescriptors || includedModules.none { it.moduleName == applicationInfoModule }) {
     "Fragment '${request.fragment}' packs the application-info module '$applicationInfoModule'," +
@@ -1084,18 +1102,11 @@ private fun layoutPlatform(
   val libDir = runDir.resolve("lib")
   // todo - we cannot for now skip nio-fs.jar, probably `-Xbootclasspath/a` is not correctly set for dev-mode-based tests
   val skipNioFs = if (request.isBootClassPathCorrect) isMultiRoutingFileSystemEnabledForProduct(context.productProperties.platformPrefix) else false
+  // The jars this fragment handed over are absent from `entries`, because it neither resolved nor packed them. Their
+  // component lists the ones of the core classpath itself: the plan generator decides them with
+  // `contentModuleJarCoreClasspathEntries`, and the composer joins the classpaths of all components.
   val coreClassPath = generateClassPathByLayoutReport(libDir = libDir, entries = entries, skipNioFs = skipNioFs)
-  // The jars this fragment handed over are absent from `entries` - it neither resolved nor packed them - but they are
-  // in the distribution, put there by their own component, and the classpath spans the whole distribution. Deciding
-  // this here is what lets that component be produced without a product layout at all.
-  val externallyPackedClassPath = contentModuleJarCoreClasspathEntries(
-    libDir = libDir,
-    includedModules = platformLayout.includedModules,
-    externallyPackedJars = if (selector.mode == PlatformJarSelector.Mode.EXCLUDE) selector.jars else emptySet(),
-    skipNioFs = skipNioFs,
-  )
-
-  return PlatformLayoutResult(entries, coreClassPath + externallyPackedClassPath)
+  return PlatformLayoutResult(entries, coreClassPath)
 }
 
 private fun computeAdditionalModulesFingerprint(additionalModules: List<String>): String {

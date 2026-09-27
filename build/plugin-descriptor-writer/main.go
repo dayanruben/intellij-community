@@ -3,7 +3,9 @@
 // Command plugin-descriptor-writer writes the `META-INF/plugin.xml` a plugin's main jar receives.
 //
 // The --embedded-product mode resolves includes and embeds content modules without plugin stamps.
+// The --product-descriptor mode does the same for the product descriptor of the application-info module.
 // The --application-info mode produces the application info of the embedded JetBrains Client.
+// The --stamp-application-info mode stamps the application info of a product.
 //
 // It is the executor of the `dev_dist_plugin_descriptor` rule
 // (`community/platform/build-scripts/bazel-rules/dev_dist_plugin_descriptor.bzl`), and the Go counterpart of
@@ -37,6 +39,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"jetbrains.com/plugin-descriptor-writer/internal/descriptorxml"
@@ -108,8 +111,12 @@ func run(arguments []string) int {
 	switch mode {
 	case embeddedProductMode:
 		return runEmbeddedProduct(lines)
+	case productDescriptorMode:
+		return runProductDescriptor(lines)
 	case applicationInfoMode:
 		return runApplicationInfo(lines)
+	case stampApplicationInfoMode:
+		return runStampApplicationInfo(lines)
 	}
 	parsed, err := parseRequest(lines)
 	if err != nil {
@@ -140,16 +147,20 @@ func run(arguments []string) int {
 }
 
 const (
-	embeddedProductMode = "--embedded-product"
-	applicationInfoMode = "--application-info"
+	embeddedProductMode      = "--embedded-product"
+	productDescriptorMode    = "--product-descriptor"
+	applicationInfoMode      = "--application-info"
+	stampApplicationInfoMode = "--stamp-application-info"
 )
+
+var modes = []string{embeddedProductMode, productDescriptorMode, applicationInfoMode, stampApplicationInfoMode}
 
 // selectOperation leaves requests without a mode on the plugin patching path.
 func selectOperation(lines []string) (string, error) {
 	mode := ""
 	for _, line := range lines {
 		option, _, hasValue := strings.Cut(line, "=")
-		if option != embeddedProductMode && option != applicationInfoMode {
+		if !slices.Contains(modes, option) {
 			continue
 		}
 		if hasValue {

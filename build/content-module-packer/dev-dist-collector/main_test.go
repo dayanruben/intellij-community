@@ -44,6 +44,7 @@ func TestInvalidOptions(t *testing.T) {
 		{[]string{"--kind="}, "at most once"},
 		{[]string{"--unknown="}, "unknown option"},
 		{[]string{"file"}, "--key=value"},
+		{[]string{"--main-class=a", "--main-class=b"}, "at most once"},
 	}
 	for _, test := range cases {
 		_, err := parseOptions(append(baseArgs("--jars-file=jars.json"), test.extra...))

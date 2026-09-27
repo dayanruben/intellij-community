@@ -4,6 +4,7 @@ package org.jetbrains.intellij.build.impl
 import com.intellij.platform.ijent.community.buildConstants.MULTI_ROUTING_FILE_SYSTEM_VMOPTIONS
 import com.intellij.platform.ijent.community.buildConstants.isMultiRoutingFileSystemEnabledForProduct
 import org.jetbrains.intellij.build.BuildContext
+import org.jetbrains.intellij.build.OsFamily
 import org.jetbrains.intellij.build.isLanguageServer
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
@@ -96,6 +97,18 @@ private fun customPluginRepositoryOptions(context: BuildContext): List<String> {
     }
   }
   return emptyList()
+}
+
+/** The vmoptions lines the distribution of [os] adds after those of the product. */
+internal fun osVmOptions(os: OsFamily, platformPrefix: String?): List<String> = when (os) {
+  OsFamily.MACOS -> listOf("-Dapple.awt.application.appearance=system")
+  OsFamily.LINUX -> listOfNotNull(
+    "-Dsun.tools.attach.tmp.only=true",
+    "-Dawt.lock.fair=true",
+    // disabled for Gateway until JBR supports system tray in the Wayland toolkit (IJPL-231661/JBR-9966)
+    "-Dawt.toolkit.name=auto".takeIf { platformPrefix != "Gateway" },
+  )
+  OsFamily.WINDOWS -> emptyList()
 }
 
 internal fun writeVmOptions(file: Path, vmOptions: List<String>, separator: String) {

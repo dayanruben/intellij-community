@@ -7,11 +7,8 @@
 // archives: the recipe arrives as a flag file, nothing here reads a project model, a ProductProperties or a plugin
 // descriptor, and the output layout is a pure function of the inputs.
 //
-// It runs either as a Bazel persistent worker or as a one-shot process, and the same code packs in both. The worker is
-// not there to amortise this binary's startup - a static Go binary starts in about two milliseconds - but Bazel's own
-// per-spawn cost, which at 2 524 actions each doing about a millisecond of work is most of the build; see README.md.
-// The one-shot mode is what makes a failed action reproducible by copying its command line, and it is also how a whole
-// tranche is packed in one process for a parity or profiling run.
+// A Bazel action runs it as one process for one jar. So a failed action is reproducible from its command line. A parity
+// or profiling run packs a whole tranche in one process.
 package main
 
 import (
@@ -30,7 +27,6 @@ import (
 	"jetbrains.com/content-module-packer/internal/filemetadata"
 	"jetbrains.com/content-module-packer/internal/jarpack"
 	"jetbrains.com/content-module-packer/internal/span"
-	"jetbrains.com/content-module-packer/internal/worker"
 )
 
 func main() {
@@ -39,19 +35,6 @@ func main() {
 		fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
 		os.Exit(3)
 	}
-
-	if worker.IsWorkerStartup(os.Args[1:]) {
-		// A worker's cwd is the exec root and stays there for the process's life, so the base directory is resolved once
-		// rather than per request.
-		if err := worker.Run(func(ctx context.Context, arguments []string, out io.Writer) int {
-			return pack(ctx, arguments, baseDir, out)
-		}); err != nil {
-			fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
-			os.Exit(1)
-		}
-		return
-	}
-
 	os.Exit(pack(context.Background(), os.Args[1:], baseDir, os.Stderr))
 }
 
@@ -92,11 +75,8 @@ func parseOptions(arguments []string, out io.Writer) (options, error) {
 	return opts, nil
 }
 
-// pack runs one request - or one process, which is the same thing - and returns the exit code it should have.
-//
-// One span file per *request*, which is what the packing rule declares: each request is its own Bazel action with its
-// own declared output, and a worker that appended to one shared file would be writing a trace of itself rather than of
-// the actions. Nothing is carried between requests.
+// pack runs one recipe and returns the exit code the process should have. It writes one span file per run, which is
+// what the packing rule declares.
 func pack(ctx context.Context, arguments []string, baseDir string, out io.Writer) (exitCode int) {
 	opts, err := parseOptions(arguments, out)
 	if err != nil {
@@ -113,12 +93,8 @@ func pack(ctx context.Context, arguments []string, baseDir string, out io.Writer
 		defer stop()
 	}
 
-	// The recipe is read before the tracer exists, because in a worker the destination is *in* it: Bazel splits a worker
-	// spawn's arguments at the param file, so a `--trace-file=` on the spawn would belong to the worker process and to
-	// its WorkerKey - one process per action. So the parse is outside the root span, deliberately: it is one small file
-	// read in a handful of microseconds, and the alternative is a tracer whose destination is mutated per request, which
-	// is the kind of shared mutable state a worker serving thousands of requests should not have. It also means a recipe
-	// that does not parse writes no span file at all - it cannot, the destination was in the part that failed.
+	// The recipe is read before the tracer exists, because a build names the destination inside it. So the parse is
+	// outside the root span, and a recipe that does not parse writes no span file.
 	specs, err := jarpack.ParseFlagFile(opts.flagFile, baseDir)
 	if err != nil {
 		fmt.Fprintf(out, "ERROR: %v\n", err)
@@ -146,7 +122,7 @@ func pack(ctx context.Context, arguments []string, baseDir string, out io.Writer
 		if err := tracer.WriteFile(traceFile); err != nil {
 			// The jars are already written and correct, but the action declared this file as an output: a request that
 			// cannot produce it has to fail rather than leave Bazel looking for it. Reported to out like every other
-			// failure here - never to stdout, which in a worker is the protocol.
+			// failure here.
 			fmt.Fprintf(out, "ERROR: writing the span file: %v\n", err)
 			if exitCode == 0 {
 				exitCode = 3
@@ -164,8 +140,8 @@ func pack(ctx context.Context, arguments []string, baseDir string, out io.Writer
 
 // traceDestination is where this run writes its spans, or "" for no trace at all.
 //
-// Two channels, because the two callers cannot share one. A build reaches this binary as a Bazel worker, where the only
-// per-action bytes are the flag file, so the rule puts `trace-file=` in there. A one-shot run - a parity check, a
+// Two channels, because the two callers cannot share one. A build passes this binary one argument, the flag file, so
+// the rule puts `trace-file=` in there. A one-shot run - a parity check, a
 // whole-tranche profile - is a command line someone typed, so it keeps `--trace-file=`, which is also the flag every
 // other producer of these files takes. The command line wins where both are present, which is what makes a flag file
 // captured from `bazel aquery` re-runnable with the trace pointed somewhere harmless.

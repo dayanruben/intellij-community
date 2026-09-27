@@ -186,7 +186,7 @@ func putSystemProperty(properties *orderedProperties, argument string) bool {
 
 // distributionProperties are the system properties of the distribution at [home]: bin/idea.properties, the `-D`
 // lines of the single bin/*.vmoptions file with `jb.vmOptionsFile`, and the `-D` arguments of the first launch of
-// bin/product-info.json. This is `getIdeSystemProperties` of BuildServer.kt.
+// bin/product-info.json. This is `getIdeSystemProperties` of DevLaunchProperties.kt.
 func distributionProperties(home string, info productInfo) (*orderedProperties, error) {
 	text, err := os.ReadFile(filepath.Join(home, "bin", "idea.properties"))
 	if err != nil {
@@ -220,7 +220,7 @@ func distributionProperties(home string, info productInfo) (*orderedProperties, 
 }
 
 // customCommand returns the main class and the system properties of the custom command of the distribution that
-// handles [command]. This is `readCustomCommandLaunch` of BuildServer.kt.
+// handles [command]. This is `readCustomCommandLaunch` of DevLaunchProperties.kt.
 func customCommand(home string, info productInfo, command string) (string, *orderedProperties, error) {
 	if len(info.Launch) != 1 {
 		return "", nil, fmt.Errorf("product-info.json of %s states %d launches, and a dev distribution has one", home, len(info.Launch))

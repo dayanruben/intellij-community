@@ -76,6 +76,7 @@ intellij.performanceTesting.tests
 intellij.performanceTesting.ui.tests
 intellij.platform.backend.observation.tests
 intellij.platform.buildScripts.productDsl.tests
+intellij.platform.buildScripts.runtimeModuleRepository.tests
 intellij.platform.buildScripts.usages.tests
 intellij.platform.builtInServer.tests
 intellij.platform.collaborationTools.tests

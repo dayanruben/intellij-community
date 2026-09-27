@@ -325,3 +325,39 @@ func TestAnEmbeddedDescriptorWithProseDoesNotNestACdataFrame(t *testing.T) {
 		t.Errorf("the inner prose must be escaped text:\n%s", got)
 	}
 }
+
+// A scrambled product content module keeps an empty `<module/>`, and its descriptor is not resolved. So it needs no
+// declared descriptor (`processProductModule` of `productModuleLayout.kt`).
+func TestAScrambledModuleKeepsAnEmptyModule(t *testing.T) {
+	got := embedOrFail(t,
+		`<idea-plugin><content><module name="a"/><module name="scrambled" loading="embedded"/></content></idea-plugin>`,
+		structural.ContentRequest{MainModule: "intellij.example", Scrambled: map[string]bool{"scrambled": true}, Embeds: true},
+		map[string]string{"a.xml": `<idea-plugin/>`})
+
+	equals(t, got, `<idea-plugin>
+  <content>
+    <module name="a"><![CDATA[<idea-plugin />]]></module>
+    <module name="scrambled" loading="embedded" />
+  </content>
+</idea-plugin>`)
+}
+
+// A scrambled name must reach a kept `<module/>`, as a refusal must. A name the filter refused reaches none.
+func TestAnUnmatchedScrambledModuleIsRefused(t *testing.T) {
+	for name, request := range map[string]structural.ContentRequest{
+		"absent": {MainModule: "intellij.example", Scrambled: map[string]bool{"absent": true}, Embeds: true},
+		"refused": {
+			MainModule: "intellij.example", Refused: []string{"b"}, Scrambled: map[string]bool{"b": true}, Embeds: true,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := embed(t,
+				`<idea-plugin><content><module name="a"/><module name="b"/></content></idea-plugin>`,
+				request,
+				map[string]string{"a.xml": `<idea-plugin/>`, "b.xml": `<idea-plugin/>`})
+			if err == nil || !strings.Contains(err.Error(), "scrambles the content modules") {
+				t.Fatalf("got %v, want a refusal of the scrambled module", err)
+			}
+		})
+	}
+}

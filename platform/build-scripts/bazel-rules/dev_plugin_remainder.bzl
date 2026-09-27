@@ -635,7 +635,7 @@ def _remainder_providers(ctx, graph, execution_version, directory, metadata, ass
     ]
 
 _PACKER = attr.label(
-    default = "//build/content-module-packer/plugin-remainder-packer",
+    default = "//platform/build-scripts/bazel-rules:plugin_remainder_packer",
     executable = True,
     cfg = "exec",
 )
@@ -875,7 +875,7 @@ remainder use.""",
             providers = [DevDistProductInfo],
         ),
         "_trace_spans": attr.label(default = "//platform/build-scripts/bazel-rules:trace_spans", providers = [BuildSettingInfo]),
-        "_collector": attr.label(default = "//build/content-module-packer/dev-dist-collector", executable = True, cfg = "exec"),
+        "_collector": attr.label(default = "//platform/build-scripts/bazel-rules:dev_dist_collector", executable = True, cfg = "exec"),
         "_allowlist_function_transition": attr.label(default = Label("@bazel_tools//tools/allowlists/function_transition_allowlist")),
     },
 )

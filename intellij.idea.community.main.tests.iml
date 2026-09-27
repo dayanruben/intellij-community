@@ -222,6 +222,7 @@
     <orderEntry type="module" module-name="intellij.performanceTesting.ui.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.backend.observation.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.buildScripts.productDsl.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.buildScripts.runtimeModuleRepository.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.collaborationTools.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.compose.swing.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.compose.tests" scope="TEST" />

@@ -498,8 +498,8 @@ func TestARunWithATraceFileDescribesItselfInIt(t *testing.T) {
 		t.Fatalf("exit %d: %s", code, out.String())
 	}
 
-	// The path was relative, so it landed beside the jar: resolved against the working directory, which is what a
-	// worker's cwd is for the life of the process.
+	// The path was relative, so it landed beside the jar: resolved against the working directory, which is the exec root
+	// in a build.
 	content, err := os.ReadFile(filepath.Join(baseDir, "out", "example.jar.spans.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -567,8 +567,7 @@ func TestARunWithATraceFileDescribesItselfInIt(t *testing.T) {
 }
 
 func TestATraceFileThatCannotBeWrittenFailsTheRequest(t *testing.T) {
-	// In a worker this is a request that has to come back with a non-zero exit code: the action declared the file, and
-	// the failure may not go to stdout, which is the protocol.
+	// The run has to exit non-zero: the action declared the file.
 	baseDir := packOneJar(t, "")
 	var out strings.Builder
 	arguments := []string{"--flagfile=" + filepath.Join(baseDir, "recipe.txt"), "--trace-file=module.jar/spans.json"}
@@ -586,9 +585,8 @@ func TestATraceFileThatCannotBeWrittenFailsTheRequest(t *testing.T) {
 }
 
 func TestTheRecipeCanNameTheTraceDestination(t *testing.T) {
-	// This is the build's channel, and the only one it has: Bazel splits a worker spawn's arguments at the param file,
-	// so a `--trace-file=` there would belong to the worker process and to its WorkerKey - one worker per action across
-	// ~2 500 of them. The rule writes the line straight after `output=`; no flag is passed at all.
+	// This is the build's channel: the action passes only the flag file. The rule writes the line straight after
+	// `output=`; no flag is passed at all.
 	baseDir := packOneJar(t, "trace-file=out/example.jar.spans.json\n")
 	var out strings.Builder
 	if code := pack(context.Background(), []string{"--flagfile=" + filepath.Join(baseDir, "recipe.txt")}, baseDir, &out); code != 0 {

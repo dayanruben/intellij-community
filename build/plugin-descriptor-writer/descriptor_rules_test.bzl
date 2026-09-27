@@ -13,7 +13,9 @@ def _descriptor_action_test_impl(ctx):
         asserts.equals(env, ctx.attr.mode, action.argv[1])
         outputs = target[DefaultInfo].files.to_list()
         asserts.equals(env, [target.label.name + ".xml"], [file.basename for file in outputs])
-        asserts.equals(env, outputs, action.outputs.to_list())
+        extra_outputs = [file for file in action.outputs.to_list() if file not in outputs]
+        asserts.equals(env, outputs, [file for file in action.outputs.to_list() if file in outputs])
+        asserts.equals(env, [target.label.name + suffix for suffix in ctx.attr.extra_output_suffixes], [file.basename for file in extra_outputs])
         asserts.equals(env, "--out=" + outputs[0].path, action.argv[2])
     return analysistest.end(env)
 
@@ -22,8 +24,9 @@ descriptor_action_test = analysistest.make(
     attrs = {
         "mnemonic": attr.string(mandatory = True),
         "mode": attr.string(mandatory = True),
+        "extra_output_suffixes": attr.string_list(doc = "The suffixes of the outputs beside the descriptor, in action order."),
         "_writer": attr.label(
-            default = "//build/plugin-descriptor-writer",
+            default = "//platform/build-scripts/bazel-rules:plugin_descriptor_writer",
             executable = True,
             cfg = "exec",
         ),

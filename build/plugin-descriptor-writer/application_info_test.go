@@ -95,10 +95,12 @@ func TestApplicationInfoRequest(t *testing.T) {
 		clientApplicationInfo:  "a file=1.xml",
 		productApplicationInfo: "product.xml",
 		buildNumber:            "build.txt",
-		eapOverride:            "true",
-		versionSuffixOverride:  "Preview = 1",
-		nightly:                true,
-		branchName:             "feature = test",
+		overrides: applicationInfoOverrides{
+			eap:           "true",
+			versionSuffix: "Preview = 1",
+			nightly:       true,
+			branchName:    "feature = test",
+		},
 	}
 	if parsed != want {
 		t.Errorf("got %#v, want %#v", parsed, want)

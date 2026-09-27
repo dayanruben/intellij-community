@@ -1,6 +1,6 @@
 # plugin-descriptor-writer
 
-Writes plugin descriptors, embedded product descriptors, and application info for the embedded JetBrains Client.
+Writes plugin descriptors, product descriptors, embedded product descriptors, and application info.
 
 This is the Go port of `applyPluginDescriptorPatch`
 ([`PluginXmlPatcher.kt`](../../platform/build-scripts/src/org/jetbrains/intellij/build/impl/PluginXmlPatcher.kt)).
@@ -47,13 +47,15 @@ and a wrong join takes the wrong `separate-jar` verdicts in silence.
 
 ## Operations
 
-This binary executes three Bazel rules:
+This binary executes five Bazel rules:
 
 | Rule | Mode |
 |---|---|
 | [`dev_dist_plugin_descriptor`](../../platform/build-scripts/bazel-rules/dev_dist_plugin_descriptor.bzl) | No mode flag. Patches ordinary plugin descriptors. |
 | [`dev_dist_embedded_product_descriptor`](../../platform/build-scripts/bazel-rules/dev_dist_embedded_product_descriptor.bzl) | `--embedded-product`. Resolves includes and embeds content modules. |
 | [`dev_dist_frontend_application_info`](../../platform/build-scripts/bazel-rules/dev_dist_frontend_application_info.bzl) | `--application-info`. Applies product values to the client template. |
+| [`dev_dist_product_descriptor`](../../platform/build-scripts/bazel-rules/dev_dist_product_descriptor.bzl) | `--product-descriptor`. Resolves the product descriptor of the application-info module jar. |
+| [`dev_dist_product_application_info`](../../platform/build-scripts/bazel-rules/dev_dist_product_descriptor.bzl) | `--stamp-application-info`. Stamps the application info of a product. |
 
 Each operation accepts direct arguments or a multiline `--flagfile`. The rules keep their arguments, output names, and action mnemonics.
 The Kotlin executable is removed. There is no second producer.

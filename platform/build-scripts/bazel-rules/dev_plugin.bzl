@@ -457,8 +457,8 @@ at `<prefix>/<entry>` lands at `<destination>/<entry>`.""",
 The generator sets it on a product package whose product merges a refused module into another jar. A shared packaging leaves
 it unset, and the rule drops the refused modules.""",
         ),
-        "_collector": attr.label(default = "//build/content-module-packer/dev-dist-collector", executable = True, cfg = "exec"),
-        "_packer": attr.label(default = "//build/content-module-packer", executable = True, cfg = "exec"),
+        "_collector": attr.label(default = "//platform/build-scripts/bazel-rules:dev_dist_collector", executable = True, cfg = "exec"),
+        "_packer": attr.label(default = "//platform/build-scripts/bazel-rules:content_module_packer", executable = True, cfg = "exec"),
         "_trace_spans": attr.label(default = "//platform/build-scripts/bazel-rules:trace_spans", providers = [BuildSettingInfo]),
         "_product_info": attr.label(
             doc = "The product, read through the flag the consumer's transition sets. The default states no product, and the rule fails on it.",
