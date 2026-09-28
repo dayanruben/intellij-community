@@ -11,14 +11,13 @@ import (
 
 const compositionSpecVersion = 1
 
-// compositionComponent is the Kotlin DevBuildCompositionComponent. A nil Root is a component that owns no tree.
+// compositionComponent is one component of the composition spec. Its manifest names each file where it already is.
 type compositionComponent struct {
-	Root                *string
 	Manifest            string
 	PluginClasspathPart *string
 }
 
-// compositionSpec is the Kotlin DevBuildCompositionSpec. A nil SourceRunfiles requests a full distribution.
+// compositionSpec is the file that `--composition-spec` names. A nil SourceRunfiles requests a full distribution.
 type compositionSpec struct {
 	Version                 int64
 	ExpectedFragments       []string
@@ -49,7 +48,7 @@ func readCompositionSpec(file string) (*compositionSpec, error) {
 }
 
 func decodeCompositionSpec(data []byte) (*compositionSpec, error) {
-	object, err := decodeJSONObject(data, "org.jetbrains.intellij.build.dev.DevBuildCompositionSpec",
+	object, err := decodeJSONObject(data, "dev build composition spec",
 		"version", "expectedFragments", "additionalModules", "components", "pluginClasspathPrefix", "sourceRunfiles",
 		"sourceDirectoryRunfiles", "sourceBindings")
 	if err != nil {
@@ -72,15 +71,12 @@ func decodeCompositionSpec(data []byte) (*compositionSpec, error) {
 		return nil, err
 	}
 	for _, item := range items {
-		component, err := decodeJSONObject(item, "org.jetbrains.intellij.build.dev.DevBuildCompositionComponent",
-			"root", "manifest", "pluginClasspathPart")
+		component, err := decodeJSONObject(item, "dev build composition component",
+			"manifest", "pluginClasspathPart")
 		if err != nil {
 			return nil, err
 		}
 		var value compositionComponent
-		if value.Root, err = component.optionalString("root", false); err != nil {
-			return nil, err
-		}
 		if value.Manifest, err = component.string("manifest"); err != nil {
 			return nil, err
 		}
@@ -110,15 +106,15 @@ func decodeCompositionSpec(data []byte) (*compositionSpec, error) {
 	return spec, nil
 }
 
-// boundSource is the Kotlin DevBuildBoundSource. An empty directory means a file artifact.
+// boundSource is one artifact that Bazel staged for a component. An empty directory means a file artifact.
 type boundSource struct {
 	path      string
 	directory string
 	kind      string
 }
 
-// componentSources is the Kotlin DevBuildComponentSources. It maps the absolute path of each staged source to the
-// artifact that Bazel declared for it.
+// componentSources maps the absolute path of each staged source of one component to the artifact that Bazel declared
+// for it.
 type componentSources struct {
 	sources map[string]boundSource
 }
@@ -185,8 +181,8 @@ func (sources *componentSources) resolve(source string) (string, error) {
 	return boundReal, nil
 }
 
-// readSourceBindings is the Kotlin readDevBuildSourceBindings. Each line of file describes one artifact that Bazel
-// staged for a component: a file, or a directory with its members.
+// readSourceBindings reads the source bindings file. Each line of file describes one artifact that Bazel staged for a
+// component: a file, or a directory with its members.
 func readSourceBindings(file string, components []compositionComponent) (map[string]*componentSources, error) {
 	logicalFile, err := absolutePath(file)
 	if err != nil {
@@ -211,7 +207,7 @@ func readSourceBindings(file string, components []compositionComponent) (map[str
 	}
 	roots := make(map[string]map[string]bool)
 	for _, line := range javaLines(string(data)) {
-		artifact, err := decodeJSONObject([]byte(line), "org.jetbrains.intellij.build.dev.DevBuildSourceArtifact",
+		artifact, err := decodeJSONObject([]byte(line), "dev build source artifact",
 			"component", "source", "anchorRelativePath", "type", "members")
 		if err != nil {
 			return nil, err

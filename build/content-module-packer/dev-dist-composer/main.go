@@ -1,5 +1,5 @@
-// The dev-dist-composer command is the Go port of the Kotlin DevDistComposeMain. It assembles the components of a
-// dev distribution into one tree, or into launch metadata only. Then it writes the files that start the IDE.
+// The dev-dist-composer command assembles the components of a dev distribution into one tree, or into launch metadata
+// only. Then it writes the files that start the IDE.
 package main
 
 import (
@@ -112,8 +112,8 @@ func (options *commandLineOptions) checkNoUnknownOptions() error {
 	return nil
 }
 
-// composeDevDistribution is the body of the Kotlin DevDistComposeMain. The checks run in the Kotlin order, so the same
-// invalid input gives the same first failure.
+// composeDevDistribution checks the composition spec first, then the output options, the unknown options, the source
+// bindings and each component manifest. It removes the output directory only after all of these checks pass.
 func composeDevDistribution(options *commandLineOptions, tracer *span.Tracer, root *span.Span) error {
 	specFile, err := options.requiredPath("--composition-spec")
 	if err != nil {
@@ -156,14 +156,9 @@ func composeDevDistribution(options *commandLineOptions, tracer *span.Tracer, ro
 		if err != nil {
 			return err
 		}
-		// A component with no tree resolves the paths of its entries against the working directory. That is the
-		// execution root where its action staged them, so nothing becomes absolute here for it.
+		// A component resolves the paths of its entries against the working directory. That is the execution root
+		// where its action staged them, so nothing becomes absolute here for it.
 		value := devBuildComponent{manifest: manifest}
-		if component.Root != nil {
-			if value.root, err = absolutePath(*component.Root); err != nil {
-				return err
-			}
-		}
 		if component.PluginClasspathPart != nil {
 			if value.pluginClasspathPart, err = absolutePath(*component.PluginClasspathPart); err != nil {
 				return err
@@ -229,8 +224,8 @@ func absoluteKeys(source *orderedMap) (*orderedMap, error) {
 	return result, nil
 }
 
-// writeDevIdeConfig is the Java DevIdeConfig.write. It names the home relative to the config file when the config file
-// is above it, so that the pair can move as a unit. Both paths are absolute and normalized.
+// writeDevIdeConfig writes the file that the Java DevIdeConfig reads. It names the home relative to the config file when
+// the config file is above it, so that the pair can move as a unit. Both paths are absolute and normalized.
 func writeDevIdeConfig(configFile, home, mainClass, platformPrefix string, additionalModules []string) error {
 	configDir := filepath.Dir(configFile)
 	hasParent := configDir != configFile

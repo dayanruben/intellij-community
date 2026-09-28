@@ -96,20 +96,6 @@ import kotlin.time.Duration.Companion.hours
 
 private const val maxWindowsPathLengthForIDERootToBeAbleToRunRiderBackend: Int = 64
 
-sealed interface DevBuildOutput {
-  data object Complete : DevBuildOutput
-
-  data class Component(
-    @JvmField val fragment: DevBuildFragment,
-    @JvmField val manifestFile: Path,
-    @JvmField val pluginClasspathPrefixFile: Path? = null,
-  ) : DevBuildOutput {
-    init {
-      require(!fragment.isComplete) { "A complete dev distribution must use DevBuildOutput.Complete" }
-    }
-  }
-}
-
 /** What [buildProduct] assembled: the run directory, the IDE main class, and the classpath the launcher starts it with. */
 class DevBuildResult(
   @JvmField val runDir: Path,
@@ -138,6 +124,12 @@ data class BuildRequest(
    * and its generation makes the project build a little longer, so it should be enabled only if needed.
    */
   @JvmField val generateRuntimeModuleRepository: Boolean = false,
+
+  /**
+   * Where the runtime module repository fragment also writes the `RuntimeModuleRepositoryLayout` it generates the
+   * repository from, or `null` for none. `./build/dev-dist.cmd runtime-repo` reads it.
+   */
+  @JvmField val runtimeModuleRepositoryLayoutFile: Path? = null,
 
   @JvmField val scrambleTool: ScrambleTool? = null,
 
@@ -173,15 +165,9 @@ data class BuildRequest(
   // `Long` is `java.lang.Long` in this file
   @JvmField val buildDateInSeconds: kotlin.Long? = null,
 
-  /** Complete distribution, or one fully specified independently cacheable component. */
-  @JvmField val output: DevBuildOutput = DevBuildOutput.Complete,
+  /** The whole distribution, or one reference fragment of it. */
+  @JvmField val fragment: DevBuildFragment = DevBuildFragment.COMPLETE,
 ) {
-  internal val fragment: DevBuildFragment
-    get() = (output as? DevBuildOutput.Component)?.fragment ?: DevBuildFragment.COMPLETE
-
-  internal val componentOutput: DevBuildOutput.Component?
-    get() = output as? DevBuildOutput.Component
-
   override fun toString(): String {
     return buildString {
       append("DevBuildRequest(platformPrefix='$platformPrefix', ")
@@ -264,21 +250,19 @@ internal fun buildProduct(request: BuildRequest, createBuildContext: (buildDir: 
       }
       else null
 
-      val platformResourcesJob = if (request.fragment.platformResources) {
+      // `bin`, the product metadata, the natives and the declared OS-specific files belong to a complete build only. A split
+      // distribution takes them from its `platform_resources` and `platform_assets` components.
+      val platformResourcesJob = if (request.fragment.isComplete) {
         fork("layout platform resources") {
           // PathManager.getBinPath() is used as a working dir for maven
           val binDir = Files.createDirectories(runDir.resolve("bin"))
           val oldFiles = Files.newDirectoryStream(binDir).use { it.toCollection(HashSet()) }
           oldFiles.removeAll(writePlatformResourceFiles(context, request.os, request.arch, runDir).toSet())
 
-          // The natives and the declared OS-specific files belong to a complete build only. A split distribution
-          // takes them from its `platform_assets` component, which places them without build code.
-          if (request.fragment.isComplete) {
-            val osDistributionBuilder = getOsDistributionBuilder(os = request.os, libcImpl = LibcImpl.current(request.os), context = context)
-            if (osDistributionBuilder != null) {
-              val platformLayoutAwaited = checkNotNull(platformLayout).await()
-              oldFiles.removeAll(layOutNativeBinFiles(osDistributionBuilder, binDir, runDir, request.arch, platformLayoutAwaited, context))
-            }
+          val osDistributionBuilder = getOsDistributionBuilder(os = request.os, libcImpl = LibcImpl.current(request.os), context = context)
+          if (osDistributionBuilder != null) {
+            val platformLayoutAwaited = checkNotNull(platformLayout).await()
+            oldFiles.removeAll(layOutNativeBinFiles(osDistributionBuilder, binDir, runDir, request.arch, platformLayoutAwaited, context))
           }
 
           for (oldFile in oldFiles) {
@@ -445,25 +429,6 @@ internal fun buildProduct(request: BuildRequest, createBuildContext: (buildDir: 
           }
           else null
 
-          request.componentOutput?.pluginClasspathPrefixFile?.let { prefixFile ->
-            fork("write plugin classpath prefix") {
-              val requiredPlatformLayout = checkNotNull(platformLayoutAwaited) {
-                "The '${request.fragment}' fragment must lay out the platform to describe the product"
-              }
-              val byteOut = ByteArrayOutputStream()
-              DataOutputStream(byteOut).use { out ->
-                writePluginClassPathPrefix(
-                  out = out,
-                  platformLayout = requiredPlatformLayout,
-                  descriptorCacheContainer = requiredPlatformLayout.descriptorCacheContainer,
-                  context = context,
-                )
-              }
-              prefixFile.parent?.createDirectories()
-              Files.write(prefixFile, byteOut.toByteArray())
-            }
-          }
-
           if (context.generateRuntimeModuleRepository && request.fragment.isComplete) {
             fork("generate runtime repository") {
               val contentReport = ContentReport(
@@ -496,10 +461,8 @@ internal fun buildProduct(request: BuildRequest, createBuildContext: (buildDir: 
             }
           }
 
-          if (request.fragment.platformResources) {
-            checkNotNull(platformResourcesJob).await()
-          }
           if (request.fragment.isComplete) {
+            checkNotNull(platformResourcesJob).await()
             // A split distribution takes these files from its `platform_assets` component.
             context.productProperties.copyAdditionalOsSpecificFiles(
               runDir = runDir,
@@ -507,9 +470,6 @@ internal fun buildProduct(request: BuildRequest, createBuildContext: (buildDir: 
               arch = request.arch,
               context = context
             )
-          }
-
-          if (request.fragment.isComplete) {
             registerPlatformDistFiles(checkNotNull(platformLayoutAwaited) { "A complete build lays out the platform" }, context)
             context.productProperties.registerDistFiles(context)
           }
@@ -525,30 +485,13 @@ internal fun buildProduct(request: BuildRequest, createBuildContext: (buildDir: 
         }
       }
 
-      fork("compute IDE fingerprint") {
-        // The component manifest inventories the finished tree, including DistFiles and semantic archive links. It
-        // must therefore run after every post-processing child has completed, not merely after jars were laid out.
-        postProcessJob.await()
-        if (request.fragment.isComplete) {
+      if (request.fragment.isComplete) {
+        fork("compute IDE fingerprint") {
+          postProcessJob.await()
           computeIdeFingerprint(
             platformDistributionEntriesDeferred = platformLayoutResultDeferred,
             pluginDistributionEntriesDeferred = pluginDistributionEntriesDeferred,
             runDir = runDir,
-          )
-        }
-        else {
-          val pluginsResult = pluginDistributionEntriesDeferred.await()
-          writeDevBuildComponentManifest(
-            file = checkNotNull(request.componentOutput).manifestFile,
-            kind = request.fragment.name,
-            platformPrefix = request.platformPrefix,
-            os = request.os,
-            arch = request.arch,
-            additionalModules = if (request.fragment.ownsPlugins) request.additionalModules else emptyList(),
-            mainClass = context.ideMainClassName,
-            coreClassPath = coreClassPathDeferred.await(),
-            pluginCount = pluginsResult.pluginEntries.size + (pluginsResult.additionalPlugins?.size ?: 0),
-            componentRoot = runDir,
           )
         }
       }
@@ -598,7 +541,7 @@ internal fun prepareOverriddenRunDir(runDir: Path): Path {
 
   check(staleEntries.isEmpty()) {
     "a run directory override must be empty, but $runDir already contains ${staleEntries.joinToString()};" +
-    " delete it first (the standalone assembler has --clean-output for that)"
+    " delete it first"
   }
   return Files.createDirectories(runDir)
 }
@@ -652,7 +595,8 @@ private fun prepareDevRunDir(request: BuildRequest): Path {
 
 /**
  * Writes `build.txt`, `bin/idea.properties`, the vmoptions file and `bin/product-info.json` of [context] for [os] and
- * [arch] into [runDir], and returns the files it wrote. The `platform_resources` fragment owns these files.
+ * [arch] into [runDir], and returns the files it wrote. A complete assembly writes these files, and
+ * [renderSplitPlatformResources] writes them for the launch model test.
  */
 internal fun writePlatformResourceFiles(context: BuildContext, os: OsFamily, arch: JvmArchitecture, runDir: Path): List<Path> {
   val result = ArrayList<Path>()
@@ -849,9 +793,9 @@ internal fun configureDevModeBuildOptions(options: BuildOptions, request: BuildR
   // A dev assembly can contain uncommitted changes, so HEAD does not identify its contents.
   // Avoid coupling assembly to the mutable checkout solely for production provenance metadata.
   options.storeGitRevision = false
-  // Only the fragment that packs the core jars or writes the `plugin-classpath.txt` prefix has anywhere to put the
-  // inlined content-module descriptors; for the rest, resolving them only makes every content module's jar an input.
-  options.embedProductContentModuleDescriptors = request.fragment.ownsProductDescriptorJars || request.componentOutput?.pluginClasspathPrefixFile != null
+  // Only the fragment that packs the core jars has anywhere to put the inlined content-module descriptors; for the rest,
+  // resolving them only makes every content module's jar an input.
+  options.embedProductContentModuleDescriptors = request.fragment.ownsPlatformJars
 }
 
 /** [scratchDir] holds throwaway build data (`temp`, `artifacts`); it is separate from [buildDir] when the latter must contain only the distribution. */
@@ -1051,6 +995,7 @@ private fun generateRuntimeModuleRepositoryFragment(
       targetDirectory = runDir,
       context = context,
       platformLayout = platformLayout,
+      layoutFile = request.runtimeModuleRepositoryLayoutFile,
     )
     // The dry plugin layout may leave plugin trees; this fragment owns only modules/.
     NioFiles.deleteRecursively(runDir.resolve("plugins"))
@@ -1068,23 +1013,12 @@ private fun layoutPlatform(
   val selector = checkNotNull(request.fragment.platform)
   check(platformLayout.resourcePaths.isEmpty() || request.fragment.isComplete) {
     // Copied by whatever lays the platform out, into its own tree, and the paths are not jars the asset filter can
-    // partition. No product does this today; the first one that does has to say which producer owns them - most
-    // naturally the fragment owning `lib/` by exclusion, which computes the layout anyway.
+    // partition. No product does this today. The first one that does has to say which producer owns them.
     "The platform layout of '${request.platformPrefix}' declares resource paths" +
     " (${platformLayout.resourcePaths.joinToString { it.relativeOutputPath }}), which a split assembly cannot place:" +
     " they are not jars a selector can partition. Give them an owner before splitting this product."
   }
   val includedModules = selector.selectModules(platformLayout.includedModules)
-  // The fragment decided before the layout existed whether it would need the inlined content-module descriptors. A
-  // fragment that owns `lib/` by exclusion holds the application-info module. Confirm this against the actual layout:
-  // a fragment that packs that module without the inlined descriptors ships a product descriptor with nothing inlined
-  // into it, which fails far away at runtime. The plan generator rules out a content module jar that packs the module.
-  val applicationInfoModule = context.productProperties.applicationInfoModule
-  check(context.options.embedProductContentModuleDescriptors || includedModules.none { it.moduleName == applicationInfoModule }) {
-    "Fragment '${request.fragment}' packs the application-info module '$applicationInfoModule'," +
-    " whose jar carries the product descriptor, but it did not inline the content-module descriptors into it." +
-    " DevBuildFragment.ownsProductDescriptorJars has to account for how '${request.platformPrefix}' lays that module out."
-  }
   // cannot be in parallel
   val entries = layoutPlatformDistribution(
     moduleOutputPatcher = moduleOutputPatcher,

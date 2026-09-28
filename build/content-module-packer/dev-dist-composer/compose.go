@@ -14,16 +14,16 @@ import (
 	"jetbrains.com/content-module-packer/internal/span"
 )
 
-// devBuildComponent is the Kotlin DevBuildComponent. An empty root is a component that owns no tree, and an empty
-// pluginClasspathPart is a component without plugin records. Both paths are absolute when set.
+// devBuildComponent is one component to compose. Its manifest names each file where it already is. An empty
+// pluginClasspathPart is a component without plugin records; the path is absolute when set.
 type devBuildComponent struct {
-	root                string
 	manifest            *componentManifest
 	pluginClasspathPart string
 	sourceBindings      *componentSources
 }
 
-// composedBuild is the Kotlin ComposedDevBuild.
+// composedBuild is the result of composeComponents: the values of the IDE config, the core classpath, and the
+// fingerprint.
 type composedBuild struct {
 	platformPrefix    string
 	mainClass         string
@@ -32,8 +32,8 @@ type composedBuild struct {
 	fingerprint       string
 }
 
-// composeOptions holds the optional arguments of the Kotlin composeDevBuildComponents. A nil sourceRunfiles requests a
-// full distribution, and a map requests launch metadata only. The keys of both maps are absolute paths.
+// composeOptions holds the optional arguments of composeComponents. A nil sourceRunfiles requests a full distribution,
+// and a map requests launch metadata only. The keys of both maps are absolute paths.
 type composeOptions struct {
 	pluginClasspathPrefix   string
 	expectedFragments       []string
@@ -44,8 +44,7 @@ type composeOptions struct {
 	parent                  *span.Span
 }
 
-// composeComponents is the Kotlin composeDevBuildComponents. It checks that the components form one distribution,
-// then assembles them at target.
+// composeComponents checks that the components form one distribution, then assembles them at target.
 func composeComponents(components []devBuildComponent, target string, options composeOptions) (*composedBuild, error) {
 	if len(components) == 0 {
 		return nil, fmt.Errorf("At least one dev-build component is required")
@@ -218,8 +217,8 @@ func kotlinList(values []string) string {
 	return "[" + strings.Join(values, ", ") + "]"
 }
 
-// mergeComponents is the Kotlin mergeDevBuildComponents. It validates every destination of every component before
-// it writes the first file.
+// mergeComponents writes the files of every component at target. It validates every destination of every component
+// before it writes the first file.
 func mergeComponents(components []devBuildComponent, target string, sourceDirectories []string, tracer *span.Tracer, parent *span.Span) error {
 	var links []distributionLink
 	var relativePaths []string
@@ -262,12 +261,10 @@ func mergeComponents(components []devBuildComponent, target string, sourceDirect
 			if err := checkDevBuildDistributionLink(name, *entry.SymlinkTarget); err != nil {
 				return err
 			}
-			if component.root == "" {
-				if spelling, err := hasJavaPathSpelling(*entry.SymlinkTarget); err != nil {
-					return err
-				} else if !spelling {
-					return fmt.Errorf("The exporter cannot preserve symbolic link '%s' with target '%s'", name, *entry.SymlinkTarget)
-				}
+			if spelling, err := hasJavaPathSpelling(*entry.SymlinkTarget); err != nil {
+				return err
+			} else if !spelling {
+				return fmt.Errorf("The exporter cannot preserve symbolic link '%s' with target '%s'", name, *entry.SymlinkTarget)
 			}
 		}
 	}
@@ -276,35 +273,10 @@ func mergeComponents(components []devBuildComponent, target string, sourceDirect
 	}
 	for _, component := range components {
 		manifest := component.manifest
-		genuineSymlinks := make(map[string]string)
-		for _, entry := range manifest.Entries {
-			if entry.SymlinkTarget == nil {
-				continue
-			}
-			if _, exists := genuineSymlinks[entry.RelativePath]; exists {
-				return fmt.Errorf("Dev-build component '%s' declares symbolic link '%s' more than once", manifest.Kind, entry.RelativePath)
-			}
-			genuineSymlinks[entry.RelativePath] = *entry.SymlinkTarget
-		}
-		// One span per component, so that a slow composition names the fragment that made it slow.
+		// One span per component, so that a slow composition names the component that made it slow.
 		activity := tracer.Start("merge dev build component", parent)
 		activity.SetString("kind", manifest.Kind)
-		activity.SetString("manifestOnly", fmt.Sprint(component.root == ""))
-		var merged mergedComponent
-		var err error
-		if component.root == "" {
-			merged, err = copyManifestOnlyComponent(manifest, target, sourceDirectories, component.sourceBindings)
-		} else {
-			merged, err = mergeTree(component.root, target, genuineSymlinks)
-			for _, entry := range manifest.Entries {
-				if err != nil {
-					break
-				}
-				if entry.Type != "directory" && entry.Mode != nil {
-					err = setDistributionFileMode(resolveRelative(target, entry.RelativePath), entry.Executable, entry.Mode)
-				}
-			}
-		}
+		merged, err := copyManifestOnlyComponent(manifest, target, sourceDirectories, component.sourceBindings)
 		if err != nil {
 			activity.Fail(err)
 			activity.End()
@@ -411,8 +383,8 @@ type mergedComponent struct {
 	byteCount int64
 }
 
-// copyManifestOnlyComponent is the Kotlin copyManifestOnlyComponent. It copies the files of a component that owns no
-// tree from the sources that its manifest names. The manifest declares the executable flag, so a source mode never
+// copyManifestOnlyComponent copies the files of a component that owns no tree from the sources that its manifest
+// names. The manifest declares the executable flag, so a source mode never
 // reaches the distribution.
 func copyManifestOnlyComponent(manifest *componentManifest, target string, sourceDirectories []string, bindings *componentSources) (mergedComponent, error) {
 	normalizedTarget := filepath.Clean(target)
@@ -544,8 +516,8 @@ func stagedPath(staged string) string {
 	return staged
 }
 
-// orderDevBuildLinks is the Kotlin orderDevBuildLinks. A link comes after every link that its target path traverses,
-// because Windows gives a link the kind of the target that exists at creation. Independent links keep their order.
+// orderDevBuildLinks puts a link after every link that its target path traverses, because Windows gives a link the
+// kind of the target that exists at creation. Independent links keep their order.
 func orderDevBuildLinks(names []string, targets map[string]string) ([]string, error) {
 	pending := make(map[string]bool, len(names))
 	for _, name := range names {
@@ -591,109 +563,6 @@ func linkTraversesPending(name, target string, pending map[string]bool) bool {
 		}
 	}
 	return false
-}
-
-// mergeTree is the Kotlin mergeDevBuildComponent. It copies every file of source into target and follows the staging
-// links of Bazel, so that the result owns its bytes. Only the links in genuineSymlinks are distribution semantics, and
-// the merge creates them again after the walk.
-func mergeTree(source, target string, genuineSymlinks map[string]string) (mergedComponent, error) {
-	var merged mergedComponent
-	linksNotSeen := make(map[string]bool, len(genuineSymlinks))
-	for name := range genuineSymlinks {
-		linksNotSeen[name] = true
-	}
-	var pendingNames []string
-	pendingDestinations := make(map[string]string)
-	normalizedTarget := filepath.Clean(target)
-	recreateGenuineSymlink := func(relativePath, destination, symlinkTarget string) error {
-		if _, err := os.Lstat(destination); err == nil {
-			return fmt.Errorf("Dev-build components both provide '%s'", relativePath)
-		}
-		link, err := javaPath(symlinkTarget)
-		if err != nil {
-			return err
-		}
-		if filepath.IsAbs(link) || !pathStartsWith(filepath.Join(filepath.Dir(destination), link), normalizedTarget) {
-			return fmt.Errorf("Dev-build component symbolic link '%s' escapes the distribution: %s", relativePath, symlinkTarget)
-		}
-		pendingNames = append(pendingNames, relativePath)
-		pendingDestinations[relativePath] = destination
-		delete(linksNotSeen, relativePath)
-		return nil
-	}
-
-	// Bazel stages a tree artifact with no file as one symbolic link to the tree. The walk starts at the tree itself.
-	tree := source
-	if info, err := os.Lstat(source); err == nil && info.Mode()&os.ModeSymlink != 0 {
-		if tree, err = realPath(source); err != nil {
-			return merged, err
-		}
-	}
-	err := filepath.WalkDir(tree, func(file string, item fs.DirEntry, walkError error) error {
-		if walkError != nil {
-			return walkError
-		}
-		relativePath, err := filepath.Rel(tree, file)
-		if err != nil {
-			return err
-		}
-		relativePath = filepath.ToSlash(relativePath)
-		if relativePath == "." {
-			relativePath = ""
-		}
-		destination := resolveRelative(target, relativePath)
-		genuineTarget, genuine := genuineSymlinks[relativePath]
-		if item.IsDir() {
-			if genuine {
-				// Bazel may turn a directory link inside a tree artifact into the directory it points to. The manifest
-				// keeps the link, so the merge creates the link and skips the subtree.
-				if err := recreateGenuineSymlink(relativePath, destination, genuineTarget); err != nil {
-					return err
-				}
-				return filepath.SkipDir
-			}
-			return os.MkdirAll(destination, 0o777)
-		}
-		if _, err := os.Lstat(destination); err == nil {
-			return fmt.Errorf("Dev-build components both provide '%s'", relativePath)
-		}
-		if genuine {
-			return recreateGenuineSymlink(relativePath, destination, genuineTarget)
-		}
-		// Follow the staging link of Bazel. A copy of the link would leak the execution root into the distribution.
-		realFile, err := evalSymlinks(file)
-		if err != nil {
-			return err
-		}
-		merged.fileCount++
-		info, err := os.Stat(realFile)
-		if err != nil {
-			return err
-		}
-		merged.byteCount += info.Size()
-		return copyWithAttributes(realFile, destination)
-	})
-	if err != nil {
-		return merged, err
-	}
-	if len(linksNotSeen) != 0 {
-		absent := make([]string, 0, len(linksNotSeen))
-		for name := range linksNotSeen {
-			absent = append(absent, name)
-		}
-		return merged, fmt.Errorf("Dev-build component manifest declares symbolic links absent from %s: %s", source,
-			strings.Join(sortedStrings(absent), ", "))
-	}
-	ordered, err := orderDevBuildLinks(pendingNames, genuineSymlinks)
-	if err != nil {
-		return merged, err
-	}
-	for _, name := range ordered {
-		if err := createSymbolicLink(pendingDestinations[name], genuineSymlinks[name]); err != nil {
-			return merged, err
-		}
-	}
-	return merged, nil
 }
 
 // createSymbolicLink is `Files.createSymbolicLink(destination, Path.of(target))`.
@@ -762,8 +631,8 @@ func setDistributionFileMode(target string, executable bool, mode *int64) error 
 	return os.Chmod(target, permissions)
 }
 
-// orderCoreClasspathEntries is the Kotlin orderCoreClasspathEntries (classpath.kt). The leading jars come first in a
-// fixed order. The other entries follow in the order of Java `Path` on Unix and of Java `String` on Windows.
+// orderCoreClasspathEntries applies the order of the Kotlin generateClassPathByLayoutReport (classpath.kt) to
+// home-relative entries. The leading jars come first in a fixed order. The other entries follow in the order of Java `Path` on Unix and of Java `String` on Windows.
 func orderCoreClasspathEntries(entries []string) []string {
 	remaining := slices.Clone(entries)
 	result := make([]string, 0, len(entries))

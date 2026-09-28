@@ -20,7 +20,7 @@ const (
 	pluginClassPath          = "plugins/plugin-classpath.txt"
 )
 
-// componentEntry is the Kotlin DevBuildComponentEntry. A nil pointer is a Kotlin null.
+// componentEntry is one entry of a component manifest. A nil pointer is an absent field.
 type componentEntry struct {
 	RelativePath  string
 	Type          string
@@ -31,8 +31,8 @@ type componentEntry struct {
 	Mode          *int64
 }
 
-// componentManifest is the Kotlin DevBuildComponentManifest. A nil MainClass is a component that contributes files
-// and nothing else.
+// componentManifest is the manifest of one component. A nil MainClass is a component that contributes files and
+// nothing else.
 type componentManifest struct {
 	Version           int64
 	Kind              string
@@ -72,7 +72,7 @@ func readComponentManifest(file string) (*componentManifest, error) {
 }
 
 func decodeComponentManifest(data []byte) (*componentManifest, error) {
-	object, err := decodeJSONObject(data, "org.jetbrains.intellij.build.dev.DevBuildComponentManifest",
+	object, err := decodeJSONObject(data, "dev build component manifest",
 		"version", "kind", "platformPrefix", "os", "arch", "additionalModules", "mainClass", "coreClassPath", "pluginCount", "entries")
 	if err != nil {
 		return nil, err
@@ -121,7 +121,7 @@ func decodeComponentManifest(data []byte) (*componentManifest, error) {
 }
 
 func decodeComponentEntry(data []byte) (entry componentEntry, err error) {
-	object, err := decodeJSONObject(data, "org.jetbrains.intellij.build.dev.DevBuildComponentEntry",
+	object, err := decodeJSONObject(data, "dev build component entry",
 		"relativePath", "type", "hash", "executable", "symlinkTarget", "source", "mode")
 	if err != nil {
 		return entry, err
@@ -188,8 +188,8 @@ type fingerprintEntry struct {
 	executable   bool
 }
 
-// computeIdeFingerprintFromComponents is the Kotlin computeIdeFingerprintFromComponents. A nil declaredModules means
-// that the caller has no declaration, and then the sum over the components applies.
+// computeIdeFingerprintFromComponents computes the IDE fingerprint of the components. A nil declaredModules means that
+// the caller has no declaration, and then the sum over the components applies.
 func computeIdeFingerprintFromComponents(components []*componentManifest, pluginClasspathFile string, declaredModules *[]string) (string, error) {
 	if len(components) == 0 {
 		return "", fmt.Errorf("At least one dev-build component manifest is required")

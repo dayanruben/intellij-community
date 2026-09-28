@@ -14,8 +14,8 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
-// The Kotlin composer resolves paths through java.nio.file.Path. The helpers in this file reproduce the parts of that
-// behavior the composer depends on.
+// The helpers in this file resolve a path with the rules of java.nio.file.Path. The composer depends on these parts of
+// that behavior.
 
 const windows = runtime.GOOS == "windows"
 
@@ -177,8 +177,7 @@ type distributionLink struct {
 	target string
 }
 
-// validateDevBuildLinks is the Kotlin validateDevBuildLinks. It resolves every link chain and fails on a cycle or on
-// a chain that leaves the distribution.
+// validateDevBuildLinks resolves every link chain and fails on a cycle or on a chain that leaves the distribution.
 func validateDevBuildLinks(entries []distributionLink) error {
 	links := make(map[string]distributionLink)
 	identities := make([]string, 0, len(entries))
@@ -240,8 +239,8 @@ func validateDevBuildLinks(entries []distributionLink) error {
 	return nil
 }
 
-// checkDevBuildDistributionLink is the Kotlin checkDevBuildDistributionLink. The target must be relative, and it
-// must not leave the distribution from the directory of the link.
+// checkDevBuildDistributionLink checks one distribution link. The target must be relative, and it must not leave the
+// distribution from the directory of the link.
 func checkDevBuildDistributionLink(name, target string) error {
 	if err := validateDevBuildLocalPath(name); err != nil {
 		return err

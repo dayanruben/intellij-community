@@ -814,6 +814,7 @@
       <module fileurl="file://$PROJECT_DIR$/plugins/junit/kotlin-tests-shared/intellij.junit.kotlin.tests.shared.iml" filepath="$PROJECT_DIR$/plugins/junit/kotlin-tests-shared/intellij.junit.kotlin.tests.shared.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/junit/properties/intellij.junit.properties.iml" filepath="$PROJECT_DIR$/plugins/junit/properties/intellij.junit.properties.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/junit_rt/intellij.junit.rt.iml" filepath="$PROJECT_DIR$/plugins/junit_rt/intellij.junit.rt.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/junit_rt_tests/intellij.junit.rt.tests.iml" filepath="$PROJECT_DIR$/plugins/junit_rt_tests/intellij.junit.rt.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/junit/testFramework/intellij.junit.testFramework.iml" filepath="$PROJECT_DIR$/plugins/junit/testFramework/intellij.junit.testFramework.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/junit5_rt/intellij.junit.v5.rt.iml" filepath="$PROJECT_DIR$/plugins/junit5_rt/intellij.junit.v5.rt.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/junit5_rt_tests/intellij.junit.v5.rt.tests.iml" filepath="$PROJECT_DIR$/plugins/junit5_rt_tests/intellij.junit.v5.rt.tests.iml" />
@@ -1163,6 +1164,7 @@
       <module fileurl="file://$PROJECT_DIR$/libraries/java-websocket/intellij.libraries.java.websocket.iml" filepath="$PROJECT_DIR$/libraries/java-websocket/intellij.libraries.java.websocket.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/javax/activation/intellij.libraries.javax.activation.iml" filepath="$PROJECT_DIR$/libraries/javax/activation/intellij.libraries.javax.activation.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/javax/annotation/intellij.libraries.javax.annotation.iml" filepath="$PROJECT_DIR$/libraries/javax/annotation/intellij.libraries.javax.annotation.iml" />
+      <module fileurl="file://$PROJECT_DIR$/libraries/jaxb/intellij.libraries.jaxb.iml" filepath="$PROJECT_DIR$/libraries/jaxb/intellij.libraries.jaxb.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/jaxen/intellij.libraries.jaxen.iml" filepath="$PROJECT_DIR$/libraries/jaxen/intellij.libraries.jaxen.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/jbr/intellij.libraries.jbr.iml" filepath="$PROJECT_DIR$/libraries/jbr/intellij.libraries.jbr.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/jcef/intellij.libraries.jcef.iml" filepath="$PROJECT_DIR$/libraries/jcef/intellij.libraries.jcef.iml" />
@@ -1197,9 +1199,6 @@
       <module fileurl="file://$PROJECT_DIR$/libraries/junit5-pioneer/intellij.libraries.junit5.pioneer.iml" filepath="$PROJECT_DIR$/libraries/junit5-pioneer/intellij.libraries.junit5.pioneer.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/junit5-suites/intellij.libraries.junit5.suites.iml" filepath="$PROJECT_DIR$/libraries/junit5-suites/intellij.libraries.junit5.suites.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/junit5-vintage/intellij.libraries.junit5.vintage.iml" filepath="$PROJECT_DIR$/libraries/junit5-vintage/intellij.libraries.junit5.vintage.iml" />
-      <module fileurl="file://$PROJECT_DIR$/libraries/junit6/intellij.libraries.junit6.iml" filepath="$PROJECT_DIR$/libraries/junit6/intellij.libraries.junit6.iml" />
-      <module fileurl="file://$PROJECT_DIR$/libraries/junit6-launcher/intellij.libraries.junit6.launcher.iml" filepath="$PROJECT_DIR$/libraries/junit6-launcher/intellij.libraries.junit6.launcher.iml" />
-      <module fileurl="file://$PROJECT_DIR$/libraries/junit6-params/intellij.libraries.junit6.params.iml" filepath="$PROJECT_DIR$/libraries/junit6-params/intellij.libraries.junit6.params.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/jvm-native-trusted-roots/intellij.libraries.jvm.native.trusted.roots.iml" filepath="$PROJECT_DIR$/libraries/jvm-native-trusted-roots/intellij.libraries.jvm.native.trusted.roots.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/jzlib/intellij.libraries.jzlib.iml" filepath="$PROJECT_DIR$/libraries/jzlib/intellij.libraries.jzlib.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/kaml/intellij.libraries.kaml.iml" filepath="$PROJECT_DIR$/libraries/kaml/intellij.libraries.kaml.iml" />
@@ -1492,7 +1491,7 @@
       <module fileurl="file://$PROJECT_DIR$/platform/build-scripts/bazel/intellij.platform.buildScripts.bazel.iml" filepath="$PROJECT_DIR$/platform/build-scripts/bazel/intellij.platform.buildScripts.bazel.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/build-scripts/codeOptimizer/intellij.platform.buildScripts.codeOptimizer.iml" filepath="$PROJECT_DIR$/platform/build-scripts/codeOptimizer/intellij.platform.buildScripts.codeOptimizer.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/build-scripts/concurrency/intellij.platform.buildScripts.concurrency.iml" filepath="$PROJECT_DIR$/platform/build-scripts/concurrency/intellij.platform.buildScripts.concurrency.iml" />
-      <module fileurl="file://$PROJECT_DIR$/platform/build-scripts/dev-server/intellij.platform.buildScripts.devBuildServer.iml" filepath="$PROJECT_DIR$/platform/build-scripts/dev-server/intellij.platform.buildScripts.devBuildServer.iml" />
+      <module fileurl="file://$PROJECT_DIR$/platform/build-scripts/dev-server-legacy/intellij.platform.buildScripts.devBuildServer.legacy.iml" filepath="$PROJECT_DIR$/platform/build-scripts/dev-server-legacy/intellij.platform.buildScripts.devBuildServer.legacy.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/build-scripts/dev-launch/intellij.platform.buildScripts.devLaunch.iml" filepath="$PROJECT_DIR$/platform/build-scripts/dev-launch/intellij.platform.buildScripts.devLaunch.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/build-scripts/downloader/intellij.platform.buildScripts.downloader.iml" filepath="$PROJECT_DIR$/platform/build-scripts/downloader/intellij.platform.buildScripts.downloader.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/build-scripts/downloader/intellij.platform.buildScripts.downloader.tests.iml" filepath="$PROJECT_DIR$/platform/build-scripts/downloader/intellij.platform.buildScripts.downloader.tests.iml" />

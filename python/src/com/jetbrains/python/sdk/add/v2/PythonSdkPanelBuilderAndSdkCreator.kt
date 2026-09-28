@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.sdk.add.v2
 
 import com.intellij.openapi.application.EDT
@@ -9,15 +9,17 @@ import com.intellij.openapi.observable.util.isNotNull
 import com.intellij.openapi.observable.util.or
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.ui.validation.WHEN_PROPERTY_CHANGED
-import com.intellij.platform.eel.provider.localEel
 import com.intellij.python.pytools.backend.Version
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.builder.bindText
 import com.intellij.util.asDisposable
+import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.ui.launchOnShow
+import com.jetbrains.python.EEL_FOR_NEW_PROJECTS
 import com.jetbrains.python.PyBundle.message
 import com.jetbrains.python.Result
 import com.jetbrains.python.TraceContext
+import com.jetbrains.python.errorProcessing.ErrorSink
 import com.jetbrains.python.errorProcessing.PyResult
 import com.jetbrains.python.newProject.collector.InterpreterStatisticsInfo
 import com.jetbrains.python.newProjectWizard.projectPath.ProjectPathFlows
@@ -28,14 +30,12 @@ import com.jetbrains.python.sdk.add.v2.PythonInterpreterSelectionMode.CUSTOM
 import com.jetbrains.python.sdk.add.v2.PythonInterpreterSelectionMode.PROJECT_UV
 import com.jetbrains.python.sdk.add.v2.PythonInterpreterSelectionMode.PROJECT_VENV
 import com.jetbrains.python.sdk.add.v2.conda.selectCondaEnvironment
-import com.jetbrains.python.sdk.add.v2.venv.venvBaseVersionError
 import com.jetbrains.python.sdk.add.v2.uv.UvInterpreterSection
 import com.jetbrains.python.sdk.add.v2.venv.setupVirtualenv
+import com.jetbrains.python.sdk.add.v2.venv.venvBaseVersionError
 import com.jetbrains.python.statistics.InterpreterCreationMode
 import com.jetbrains.python.statistics.InterpreterTarget
 import com.jetbrains.python.statistics.InterpreterType
-import com.jetbrains.python.errorProcessing.ErrorSink
-import com.jetbrains.python.errorProcessing.withProject
 import com.jetbrains.python.venvReader.VirtualEnvReader
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -54,6 +54,7 @@ interface PySdkPanelBuilder {
   /**
    * Performs only static initialization using Kotlin DSL [com.intellij.ui.dsl], without access to [CoroutineScope].
    */
+  @RequiresEdt
   fun buildPanel(outerPanel: Panel, projectPathFlows: ProjectPathFlows)
 
   /**
@@ -71,7 +72,6 @@ interface PySdkPanelBuilder {
  * If `onlyAllowedInterpreterTypes` then only these types are displayed. All types displayed otherwise
  */
 internal class PythonSdkPanelBuilderAndSdkCreator(
-  private val module: Module? = null,
   private val limitExistingEnvironments: Boolean = true,
 ) : PySdkPanelBuilder, PySdkCreator {
   private val propertyGraph = PropertyGraph()
@@ -82,6 +82,7 @@ internal class PythonSdkPanelBuilderAndSdkCreator(
   private var _projectVenv = propertyGraph.booleanProperty(selectedMode, PROJECT_VENV)
   private var _baseConda = propertyGraph.booleanProperty(selectedMode, BASE_CONDA)
   private var _custom = propertyGraph.booleanProperty(selectedMode, CUSTOM)
+
   // false when the selected Project venv base interpreter can't be used to create a venv (< 3.8)
   private val _venvBaseValid = propertyGraph.property(true)
   private var venvHint = propertyGraph.property("")
@@ -104,29 +105,30 @@ internal class PythonSdkPanelBuilderAndSdkCreator(
   private lateinit var custom: PythonAddCustomInterpreter<PathHolder.Eel>
   private lateinit var model: PythonMutableTargetAddInterpreterModel<PathHolder.Eel>
 
+  @RequiresEdt
   override fun buildPanel(outerPanel: Panel, projectPathFlows: ProjectPathFlows) {
-    model = PythonLocalAddInterpreterModel(projectPathFlows, EelFileSystem(localEel))
+    // To support project creation on new WSL we would need to derive eel from pathFlow
+    // That means we would need to rebuild the whole UI as soon as it changes
+    // While it is possible, it cost time, and we postpone for now
+    model = PythonLocalAddInterpreterModel(projectPathFlows, EelFileSystem(EEL_FOR_NEW_PROJECTS))
     model.navigator.selectionMode = selectedMode
     propertyGraph.dependsOn(_venvBaseValid, model.state.baseInterpreter, deleteWhenChildModified = false) {
       model.state.baseInterpreter.get()?.let { venvBaseVersionError(it) == null } ?: true
     }
-    uvSection = UvInterpreterSection(model, module, selectedMode, propertyGraph)
+    uvSection = UvInterpreterSection(model, selectedMode, propertyGraph)
 
-    custom = PythonAddCustomInterpreter(
-      model = model,
-      module = module,
-      errorSink = module?.project?.let { ErrorSink().withProject(it) } ?: ErrorSink(),
-      limitExistingEnvironments = limitExistingEnvironments,
-      bestGuessCreateSdkInfo = CompletableDeferred(value = null)
-    )
+    custom = PythonAddCustomInterpreter(model = model,
+                                        module = null,
+                                        errorSink = ErrorSink(),
+                                        limitExistingEnvironments = limitExistingEnvironments,
+                                        bestGuessCreateSdkInfo = CompletableDeferred(value = null))
 
     val validationRequestor = WHEN_PROPERTY_CHANGED(selectedMode)
 
     with(outerPanel) {
       if (PythonInterpreterSelectionMode.entries.size > 1) { // No need to show control with only one selection
         row(message("sdk.create.interpreter.type")) {
-          segmentedButton(PythonInterpreterSelectionMode.entries) { text = message(it.nameKey) }
-            .bind(selectedMode)
+          segmentedButton(PythonInterpreterSelectionMode.entries) { text = message(it.nameKey) }.bind(selectedMode)
         }
       }
 
@@ -168,7 +170,8 @@ internal class PythonSdkPanelBuilderAndSdkCreator(
   }
 
   override fun onShownInitialization(scopingComponent: Component) {
-    scopingComponent.launchOnShow("${this::class.java} onShown initialization", TraceContext(message("trace.context.new.project.wizard"), null)) {
+    scopingComponent.launchOnShow("${this::class.java} onShown initialization",
+                                  TraceContext(message("trace.context.new.project.wizard"), null)) {
       initMutex.withLock {
         supervisorScope {
           initialize(this@supervisorScope)
@@ -219,34 +222,28 @@ internal class PythonSdkPanelBuilderAndSdkCreator(
   }
 
   private fun createStatisticsInfo(): InterpreterStatisticsInfo = when (selectedMode.get()) {
-    PROJECT_VENV -> InterpreterStatisticsInfo(
-      type = InterpreterType.VIRTUALENV,
-      target = InterpreterTarget.LOCAL,
-      globalSitePackage = false,
-      makeAvailableToAllProjects = false,
-      previouslyConfigured = false,
-      isWSLContext = false,
-      creationMode = InterpreterCreationMode.SIMPLE
-    )
-    PROJECT_UV -> InterpreterStatisticsInfo(
-      type = InterpreterType.UV,
-      target = InterpreterTarget.LOCAL,
+    PROJECT_VENV -> InterpreterStatisticsInfo(type = InterpreterType.VIRTUALENV,
+                                              target = InterpreterTarget.LOCAL,
+                                              globalSitePackage = false,
+                                              makeAvailableToAllProjects = false,
+                                              previouslyConfigured = false,
+                                              isWSLContext = false,
+                                              creationMode = InterpreterCreationMode.SIMPLE)
+    PROJECT_UV -> InterpreterStatisticsInfo(type = InterpreterType.UV,
+                                            target = InterpreterTarget.LOCAL,
       // The uv page shows the "inherit packages" checkbox in this flow too, so report the real value.
-      globalSitePackage = model.uvViewModel.inheritSitePackages.get(),
-      makeAvailableToAllProjects = false,
-      previouslyConfigured = false,
-      isWSLContext = false,
-      creationMode = InterpreterCreationMode.SIMPLE
-    )
-    BASE_CONDA -> InterpreterStatisticsInfo(
-      type = InterpreterType.BASE_CONDA,
-      target = InterpreterTarget.LOCAL,
-      globalSitePackage = false,
-      makeAvailableToAllProjects = false,
-      previouslyConfigured = true,
-      isWSLContext = false,
-      creationMode = InterpreterCreationMode.SIMPLE
-    )
+                                            globalSitePackage = model.uvViewModel.inheritSitePackages.get(),
+                                            makeAvailableToAllProjects = false,
+                                            previouslyConfigured = false,
+                                            isWSLContext = false,
+                                            creationMode = InterpreterCreationMode.SIMPLE)
+    BASE_CONDA -> InterpreterStatisticsInfo(type = InterpreterType.BASE_CONDA,
+                                            target = InterpreterTarget.LOCAL,
+                                            globalSitePackage = false,
+                                            makeAvailableToAllProjects = false,
+                                            previouslyConfigured = true,
+                                            isWSLContext = false,
+                                            creationMode = InterpreterCreationMode.SIMPLE)
     CUSTOM -> custom.createStatisticsInfo()
   }
 }

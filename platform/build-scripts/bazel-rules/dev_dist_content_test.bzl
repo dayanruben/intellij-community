@@ -8,10 +8,12 @@ load(":content_module_jar_test.bzl", "content_module_jar_test_suite")
 load(":dev_dist_content.bzl", "DevDistContentInfo", "DevDistPlatformPayloadInfo", "dev_dist_platform_payload", "dev_dist_plugin_content")
 load(":dev_dist_plugin.bzl", "dev_dist_plugin")
 load(":dev_dist_plugin_descriptor.bzl", "dev_dist_plugin_descriptor_target_name", "dev_dist_product_info")
+load(":dev_dist_runtime_module_repository.bzl", "dev_dist_runtime_module_repository")
 load(
     ":intellij_dev_dist.bzl",
     "IntellijDevBuildInputsInfo",
     "IntellijDevFragmentInfo",
+    "IntellijDevReferenceInfo",
     "IntellijProjectModelTreeInfo",
     "intellij_dev_build_inputs",
     "intellij_dev_fragment",
@@ -236,7 +238,16 @@ def _platform_payload_test_impl(ctx):
         struct(jar = natives.jar, metadata = natives.metadata, relative_path = natives.relative_path, native_tree = native.tree, native_metadata = native.metadata, native_lib_dir = natives.native_lib_dir),
         records[natives.jar],
     )
-    asserts.equals(env, sorted(ctx.attr.expected_declared_modules), sorted(payload.declared_modules.to_list()))
+
+    # What each packed jar merges, sorted by destination. The runtime module repository orders it by the platform jar order.
+    asserts.equals(
+        env,
+        sorted([
+            struct(destination = info.relative_path, member_modules = info.member_modules, library_jars = info.library_jars)
+            for info in [packed, nested, natives]
+        ], key = lambda entry: entry.destination),
+        payload.layout,
+    )
     asserts.equals(env, list(packed.member_jars) + list(natives.member_jars), reference.module_jars.to_list())
     asserts.equals(env, list(packed.library_jars), reference.library_jars.to_list())
     return analysistest.end(env)
@@ -244,7 +255,6 @@ def _platform_payload_test_impl(ctx):
 _platform_payload_test = analysistest.make(
     _platform_payload_test_impl,
     attrs = {
-        "expected_declared_modules": attr.string_list(mandatory = True),
         "packed": attr.label(mandatory = True, providers = [ContentModuleJarInfo]),
         "nested": attr.label(mandatory = True, providers = [DevDistPlatformJarInfo]),
         "natives": attr.label(mandatory = True, providers = [ContentModuleJarInfo]),
@@ -297,19 +307,30 @@ _tool_fixture = rule(
 def _fragment_test_impl(ctx):
     env = analysistest.begin(ctx)
     target = analysistest.target_under_test(env)
-    fragment = target[IntellijDevFragmentInfo]
     inputs = ctx.attr.build_inputs[IntellijDevBuildInputsInfo]
     actions = [action for action in analysistest.target_actions(env) if action.mnemonic.startswith("IntellijDev")]
     asserts.equals(env, 1, len(actions))
+    layout = target[OutputGroupInfo].runtime_module_repository_layout.to_list()
+    asserts.equals(env, 1, len(layout))
     if actions:
         action = actions[0]
         for file in inputs.files.to_list():
             asserts.true(env, file in action.inputs.to_list(), file.path)
 
-    # A fragment builds no plugin, so it declares no plugin output: the packed plugin components own that group.
+        # The runtime module repository fragment also writes the layout it generates the repository from, beside the home.
+        asserts.true(env, layout[0] in action.outputs.to_list())
+        asserts.true(env, "--runtime-module-repository-layout=" + layout[0].path in action.argv)
+
+    # A reference builds no plugin, so it declares no plugin output: the packed plugin components own that group. It
+    # publishes no component provider, so no distribution can compose it.
     asserts.false(env, hasattr(target[OutputGroupInfo], "dev_dist_plugin_outputs"))
-    asserts.equals(env, None, fragment.plugin_classpath_part)
-    asserts.equals(env, [fragment.home, fragment.manifest], target[DefaultInfo].files.to_list())
+    asserts.false(env, IntellijDevFragmentInfo in target)
+    asserts.equals(env, "platform_runtime_module_repository", target[IntellijDevReferenceInfo].name)
+    asserts.equals(
+        env,
+        [target.label.name + ".home"],
+        [file.basename for file in target[DefaultInfo].files.to_list()],
+    )
     return analysistest.end(env)
 
 _fragment_test = analysistest.make(
@@ -318,6 +339,49 @@ _fragment_test = analysistest.make(
         "build_inputs": attr.label(mandatory = True, providers = [IntellijDevBuildInputsInfo]),
     },
     config_settings = {_TRACE_SPANS: False},
+)
+
+def _runtime_module_repository_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+    actions = analysistest.target_actions(env)
+    payload = ctx.attr.payload[DevDistPlatformPayloadInfo]
+
+    # The core plugin part, written at analysis from the payload: every packed jar under `lib/`, and the jar order file
+    # that the assembly orders them by.
+    parts = [action for action in actions if action.mnemonic == "FileWrite" and action.outputs.to_list()[0].basename.endswith(".platform.runtime-layout.json")]
+    asserts.equals(env, 1, len(parts))
+    part = json.decode(parts[0].content)
+    asserts.equals(env, ["test.core", "", "layout", ctx.file.jar_order.path], [part[key] for key in ["descriptorModule", "directory", "order", "jarOrder"]])
+    asserts.equals(env, ["lib/" + entry.destination for entry in payload.layout], [jar["destination"] for jar in part["jars"]])
+    asserts.equals(env, [{"module": module} for module in payload.layout[0].member_modules], [member for member in part["jars"][0]["members"] if "module" in member])
+
+    # The assembly reads the part, the jar order and bazel-targets.json. The generator reads the layout, the project model
+    # tree and the core descriptor, and writes the two predeclared files.
+    assemblies = [action for action in actions if action.mnemonic == "DevDistRuntimeLayout"]
+    asserts.equals(env, 1, len(assemblies))
+    layout = target[OutputGroupInfo].runtime_module_repository_layout.to_list()
+    asserts.equals(env, 1, len(layout))
+    if assemblies:
+        asserts.true(env, "--part=" + parts[0].outputs.to_list()[0].path in assemblies[0].argv)
+        asserts.true(env, ctx.file.jar_order in assemblies[0].inputs.to_list())
+        asserts.equals(env, layout, assemblies[0].outputs.to_list())
+    generators = [action for action in actions if action.mnemonic == "DevDistRuntimeModuleRepository"]
+    asserts.equals(env, 1, len(generators))
+    if generators:
+        asserts.equals(env, ["module-descriptors.dat", "module-descriptors.jar"], [file.basename for file in generators[0].outputs.to_list()])
+        for file in layout + [ctx.file.core_descriptor]:
+            asserts.true(env, file in generators[0].inputs.to_list(), file.path)
+        asserts.equals(env, generators[0].outputs.to_list(), target[DefaultInfo].files.to_list())
+    return analysistest.end(env)
+
+_runtime_module_repository_test = analysistest.make(
+    _runtime_module_repository_test_impl,
+    attrs = {
+        "payload": attr.label(mandatory = True, providers = [DevDistPlatformPayloadInfo]),
+        "jar_order": attr.label(mandatory = True, allow_single_file = True),
+        "core_descriptor": attr.label(mandatory = True, allow_single_file = True),
+    },
 )
 
 def _fake_component_impl(ctx):
@@ -332,13 +396,10 @@ def _fake_component_impl(ctx):
         OutputGroupInfo(dev_dist_plugin_outputs = depset([plugin_output])),
         IntellijDevFragmentInfo(
             name = ctx.attr.component_name,
-            home = None,
             payload = depset([payload]),
             manifest = manifest,
             plugin_classpath_part = None,
             plugin_classpath_prefix = None,
-            inputs_manifest = None,
-            unused_inputs = None,
         ),
     ]
 
@@ -377,7 +438,6 @@ def _packed_component_test_impl(ctx):
     if actions:
         for file in payload:
             asserts.false(env, file in actions[0].inputs.to_list())
-    asserts.equals(env, None, component.home)
     asserts.equals(env, sorted([component.manifest] + payload), sorted(target[DefaultInfo].files.to_list()))
 
     # The tree is in the payload beside its jar, so the composer places it. Both files the collector reads name it as a
@@ -570,7 +630,6 @@ def dev_dist_content_test_suite(name):
     payload = name + "_payload"
     dev_dist_platform_payload(
         name = payload,
-        modules = [":" + packed_owner, ":" + raw_owner, ":" + natives_owner],
         packed = [":" + packed, ":" + nested, ":" + natives],
         native_platform = _PAYLOAD_PLATFORM,
     )
@@ -581,7 +640,6 @@ def dev_dist_content_test_suite(name):
         packed = ":" + packed,
         nested = ":" + nested,
         natives = ":" + natives,
-        expected_declared_modules = ["test.raw"],
     )
 
     # One owner per `lib/<dir>/`: two trees in one directory are refused where both jars are still named.
@@ -598,7 +656,6 @@ def dev_dist_content_test_suite(name):
         failing_payload = name + "_" + case + "_payload"
         dev_dist_platform_payload(
             name = failing_payload,
-            modules = [":" + raw_owner],
             packed = [":" + jar for jar in packed_jars],
             native_platform = native_platform,
             tags = ["manual"],
@@ -681,6 +738,29 @@ def dev_dist_content_test_suite(name):
         preloaded_manifests = [":" + fixture + ".data"],
         tags = ["manual"],
     )
+    repository_files = [name + "_repository_order.txt", name + "_repository_core.xml", name + "_repository_targets.json"]
+    for file in repository_files:
+        native.genrule(name = file + "_file", outs = [file], cmd = "echo '{}' > $@", tags = ["manual"])
+    repository = name + "_runtime_module_repository"
+    dev_dist_runtime_module_repository(
+        name = repository,
+        platform_payload = ":" + payload,
+        core_module = "test.core",
+        core_descriptor = ":" + repository_files[1],
+        jar_order = ":" + repository_files[0],
+        project_model_tree = ":" + fixture,
+        bazel_targets_json = ":" + repository_files[2],
+        tags = ["manual"],
+    )
+    tests.append(repository + "_test")
+    _runtime_module_repository_test(
+        name = tests[-1],
+        target_under_test = ":" + repository,
+        payload = ":" + payload,
+        jar_order = ":" + repository_files[0],
+        core_descriptor = ":" + repository_files[1],
+    )
+
     tests.append(fragment + "_test")
     _fragment_test(
         name = tests[-1],
