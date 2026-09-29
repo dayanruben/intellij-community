@@ -338,6 +338,7 @@ java/java-impl-inspections
 java/java-impl-jsp
 java/java-impl-refactorings
 java/java-impl-refactorings-jsp
+java/java-impl/testFramework
 java/java-indexing-api
 java/java-indexing-impl
 java/java-indexing-serializers
@@ -545,6 +546,7 @@ libraries/keychain
 libraries/kodein-di-jvm
 libraries/kotlin/gradle-plugin-idea
 libraries/kotlin/gradle-plugin-idea-proto
+libraries/kotlin/gradle.plugin.idea.browser.debug
 libraries/kotlin/logging
 libraries/kotlin/metadata
 libraries/kotlin/reflect
@@ -1720,6 +1722,7 @@ plugins/properties/properties-common
 plugins/properties/properties-psi-api
 plugins/properties/properties-psi-impl
 plugins/properties/property-tests
+plugins/properties/structuralsearch
 plugins/properties/tests
 plugins/pty4j/plugin
 plugins/rareJavaRefactorings

@@ -733,6 +733,7 @@
       <module fileurl="file://$PROJECT_DIR$/java/java-impl-jsp/intellij.java.impl.jsp.iml" filepath="$PROJECT_DIR$/java/java-impl-jsp/intellij.java.impl.jsp.iml" />
       <module fileurl="file://$PROJECT_DIR$/java/java-impl-refactorings/intellij.java.impl.refactorings.iml" filepath="$PROJECT_DIR$/java/java-impl-refactorings/intellij.java.impl.refactorings.iml" />
       <module fileurl="file://$PROJECT_DIR$/java/java-impl-refactorings-jsp/intellij.java.impl.refactorings.jsp.iml" filepath="$PROJECT_DIR$/java/java-impl-refactorings-jsp/intellij.java.impl.refactorings.jsp.iml" />
+      <module fileurl="file://$PROJECT_DIR$/java/java-impl/testFramework/intellij.java.impl.testFramework.iml" filepath="$PROJECT_DIR$/java/java-impl/testFramework/intellij.java.impl.testFramework.iml" />
       <module fileurl="file://$PROJECT_DIR$/java/java-indexing-api/intellij.java.indexing.iml" filepath="$PROJECT_DIR$/java/java-indexing-api/intellij.java.indexing.iml" />
       <module fileurl="file://$PROJECT_DIR$/java/java-indexing-impl/intellij.java.indexing.impl.iml" filepath="$PROJECT_DIR$/java/java-indexing-impl/intellij.java.indexing.impl.iml" />
       <module fileurl="file://$PROJECT_DIR$/java/java-indexing-serializers/intellij.java.indexing.serializers.iml" filepath="$PROJECT_DIR$/java/java-indexing-serializers/intellij.java.indexing.serializers.iml" />
@@ -1207,6 +1208,7 @@
       <module fileurl="file://$PROJECT_DIR$/libraries/keychain/intellij.libraries.keychain.iml" filepath="$PROJECT_DIR$/libraries/keychain/intellij.libraries.keychain.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/kodein-di-jvm/intellij.libraries.kodein.di.jvm.iml" filepath="$PROJECT_DIR$/libraries/kodein-di-jvm/intellij.libraries.kodein.di.jvm.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/kotlin/gradle-plugin-idea/intellij.libraries.kotlin.gradle.plugin.idea.iml" filepath="$PROJECT_DIR$/libraries/kotlin/gradle-plugin-idea/intellij.libraries.kotlin.gradle.plugin.idea.iml" />
+      <module fileurl="file://$PROJECT_DIR$/libraries/kotlin/gradle.plugin.idea.browser.debug/intellij.libraries.kotlin.gradle.plugin.idea.browser.debug.iml" filepath="$PROJECT_DIR$/libraries/kotlin/gradle.plugin.idea.browser.debug/intellij.libraries.kotlin.gradle.plugin.idea.browser.debug.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/kotlin/gradle-plugin-idea-proto/intellij.libraries.kotlin.gradle.plugin.idea.proto.iml" filepath="$PROJECT_DIR$/libraries/kotlin/gradle-plugin-idea-proto/intellij.libraries.kotlin.gradle.plugin.idea.proto.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/kotlin/logging/intellij.libraries.kotlin.logging.iml" filepath="$PROJECT_DIR$/libraries/kotlin/logging/intellij.libraries.kotlin.logging.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/kotlin/metadata/intellij.libraries.kotlin.metadata.iml" filepath="$PROJECT_DIR$/libraries/kotlin/metadata/intellij.libraries.kotlin.metadata.iml" />
@@ -2036,6 +2038,7 @@
       <module fileurl="file://$PROJECT_DIR$/plugins/properties/copyright/intellij.properties.copyright.iml" filepath="$PROJECT_DIR$/plugins/properties/copyright/intellij.properties.copyright.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/properties/property-tests/intellij.properties.propertyBased.tests.iml" filepath="$PROJECT_DIR$/plugins/properties/property-tests/intellij.properties.propertyBased.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/properties/properties-psi-api/intellij.properties.psi.iml" filepath="$PROJECT_DIR$/plugins/properties/properties-psi-api/intellij.properties.psi.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/properties/structuralsearch/intellij.properties.structuralSearch.iml" filepath="$PROJECT_DIR$/plugins/properties/structuralsearch/intellij.properties.structuralSearch.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/properties/tests/intellij.properties.tests.iml" filepath="$PROJECT_DIR$/plugins/properties/tests/intellij.properties.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/pty4j/plugin/intellij.pty4j.plugin.iml" filepath="$PROJECT_DIR$/plugins/pty4j/plugin/intellij.pty4j.plugin.iml" />
       <module fileurl="file://$PROJECT_DIR$/python/intellij.pycharm.community.iml" filepath="$PROJECT_DIR$/python/intellij.pycharm.community.iml" />

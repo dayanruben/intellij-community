@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.groovy.lang.psi.impl.toplevel.imports;
 
 import com.intellij.lang.ASTNode;
@@ -23,10 +23,13 @@ import org.jetbrains.plugins.groovy.lang.psi.api.types.GrCodeReferenceElement;
 import org.jetbrains.plugins.groovy.lang.psi.impl.GrStubElementBase;
 import org.jetbrains.plugins.groovy.lang.psi.stubs.GrImportStatementStub;
 import org.jetbrains.plugins.groovy.lang.resolve.imports.GroovyImport;
+import org.jetbrains.plugins.groovy.lang.resolve.imports.ModuleImport;
+import org.jetbrains.plugins.groovy.lang.resolve.imports.RegularImport;
+import org.jetbrains.plugins.groovy.lang.resolve.imports.StarImport;
+import org.jetbrains.plugins.groovy.lang.resolve.imports.StaticImport;
+import org.jetbrains.plugins.groovy.lang.resolve.imports.StaticStarImport;
 
 import java.util.Objects;
-
-import static org.jetbrains.plugins.groovy.lang.psi.impl.utils.PsiImportUtil.createImportFromStatement;
 
 public class GrImportStatementImpl extends GrStubElementBase<GrImportStatementStub> implements GrImportStatement, StubBasedPsiElement<GrImportStatementStub> {
 
@@ -75,7 +78,7 @@ public class GrImportStatementImpl extends GrStubElementBase<GrImportStatementSt
 
   @Override
   public @Nullable String getImportedName() {
-    if (isOnDemand()) return null;
+    if (isOnDemand() || isModule()) return null;
 
     GrImportStatementStub stub = getStub();
     if (stub != null) {
@@ -98,6 +101,12 @@ public class GrImportStatementImpl extends GrStubElementBase<GrImportStatementSt
 
     GrCodeReferenceElement ref = getImportReference();
     return ref == null ? null : ref.getReferenceName();
+  }
+
+  @Override
+  public boolean isModule() {
+    GrImportStatementStub stub = getStub();
+    return stub != null ? stub.isModule() : findChildByType(GroovyTokenTypes.kMODULE) != null;
   }
 
   @Override
@@ -140,6 +149,7 @@ public class GrImportStatementImpl extends GrStubElementBase<GrImportStatementSt
 
   @Override
   public @Nullable PsiClass resolveTargetClass() {
+    if (isModule()) return null;
     final GrCodeReferenceElement ref = getImportReference();
     if (ref == null) return null;
 
@@ -161,6 +171,25 @@ public class GrImportStatementImpl extends GrStubElementBase<GrImportStatementSt
 
   @Override
   public @Nullable GroovyImport getImport() {
-    return createImportFromStatement(this);
+    String qualifiedName = getImportFqn();
+    if (qualifiedName == null) return null;
+    if (isModule()) {
+      return new ModuleImport(qualifiedName);
+    }
+    if (isOnDemand()) {
+      return isStatic() ? new StaticStarImport(qualifiedName) : new StarImport(qualifiedName);
+    }
+    String importedName = getImportedName();
+    if (importedName == null) return null;
+    if (isStatic()) {
+      int index = qualifiedName.lastIndexOf('.');
+      if (index <= 0) {
+        return new RegularImport(qualifiedName, importedName);
+      }
+      String packageName = qualifiedName.substring(0, index);
+      String shortName = qualifiedName.substring(index + 1);
+      return new StaticImport(packageName, shortName, importedName);
+    }
+    return new RegularImport(qualifiedName, importedName);
   }
 }
