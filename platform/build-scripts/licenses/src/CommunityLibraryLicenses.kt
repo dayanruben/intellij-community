@@ -1179,10 +1179,6 @@ val COMMUNITY_LICENSES_LIST: List<LibraryLicense> = listOf(
   LibraryLicense("OverlayScrollbars", version = "2.1.1", attachedTo = "intellij.idea.community.main", url = "https://kingsora.github.io/OverlayScrollbars")
     .mit("https://github.com/KingSora/OverlayScrollbars/blob/master/LICENSE"),
 
-  LibraryLicense("Package Search API-Client", libraryName = "package-search-api-client", url = "https://github.com/JetBrains/package-search-api-models")
-    .apache("https://github.com/JetBrains/package-search-api-models/blob/master/LICENSE")
-    .suppliedByOrganizations("JetBrains Team"),
-
   LibraryLicense("pip", version = "24.3.1", attachedTo = "intellij.python", url = "https://pip.pypa.io/")
     .mit("https://github.com/pypa/pip/blob/main/LICENSE.txt"),
 
@@ -1337,10 +1333,6 @@ val COMMUNITY_LICENSES_LIST: List<LibraryLicense> = listOf(
 
   LibraryLicense("StreamEx", libraryName = "StreamEx", url = "https://github.com/amaembo/streamex")
     .apache("https://github.com/amaembo/streamex/blob/master/LICENSE"),
-
-  LibraryLicense("swingx", libraryName = "swingx", url = "https://central.sonatype.com/artifact/org.swinglabs/swingx-core/1.6.2-2")
-    .lgpl21("https://www.gnu.org/licenses/old-licenses/lgpl-2.1.en.html")
-    .suppliedByOrganizations("Sun Microsystems, Inc."),
 
   LibraryLicense("System Stubs Jupiter", libraryName = "uk.webcompere.system.stubs.jupiter", url = "https://github.com/webcompere/system-stubs")
     .mit("https://github.com/webcompere/system-stubs/blob/main/LICENSE")

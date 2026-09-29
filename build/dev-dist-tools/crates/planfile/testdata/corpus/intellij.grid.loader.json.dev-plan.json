@@ -1,0 +1,127 @@
+{
+    "version": 2,
+    "plugin": "intellij.grid.loader.json",
+    "variant": "",
+    "layoutSignature": "dms42pfq1d3fklegww67t27fp",
+    "assets": [
+        {
+            "destination": "lib/grid-loader-json.jar",
+            "recipe": {
+                "sources": [
+                    {
+                        "input": "descriptor:intellij.grid.loader.json",
+                        "kind": "file",
+                        "filter": "none",
+                        "entry": "META-INF/plugin.xml",
+                        "options": [
+                            "patch"
+                        ]
+                    },
+                    {
+                        "input": "intellij.grid.loader.json",
+                        "kind": "module",
+                        "filter": "module-v1"
+                    }
+                ],
+                "writer": {
+                    "mergeEntities": true
+                }
+            }
+        },
+        {
+            "destination": "external-extensions",
+            "inputs": [
+                "layout-assets:resource-generator:0:output"
+            ],
+            "kind": "tree",
+            "classPath": false
+        },
+        {
+            "destination": "grape",
+            "inputs": [
+                "layout-assets:resource-generator:1:output"
+            ],
+            "kind": "tree",
+            "classPath": false
+        }
+    ],
+    "preparations": [
+        {
+            "id": "layout-assets:resource-generator:0",
+            "inputs": [
+                "module-resource:resource-generator:0:0:source"
+            ],
+            "outputs": [
+                "layout-assets:resource-generator:0:output"
+            ],
+            "modelSignature": "1tazlojijzo0w2ie9n6kd6fzx"
+        },
+        {
+            "id": "layout-assets:resource-generator:1",
+            "inputs": [
+                "layout-source:resource-generator:1:0"
+            ],
+            "outputs": [
+                "layout-assets:resource-generator:1:output"
+            ],
+            "modelSignature": "1ukcvz0odd8k4pyrifccery79"
+        }
+    ],
+    "operations": [
+        {
+            "id": "layout-assets:resource-generator:0",
+            "kind": "layout-assets",
+            "inputs": [
+                {
+                    "artifact": "module-resource:resource-generator:0:0:source"
+                }
+            ],
+            "output": "layout-assets:resource-generator:0:output",
+            "manifest": "keep",
+            "layoutAssets": {
+                "format": "tree",
+                "root": "external-extensions",
+                "assets": [
+                    {
+                        "destination": "",
+                        "sources": [
+                            0
+                        ]
+                    }
+                ]
+            }
+        },
+        {
+            "id": "layout-assets:resource-generator:1",
+            "kind": "layout-assets",
+            "inputs": [
+                {
+                    "artifact": "layout-source:resource-generator:1:0"
+                }
+            ],
+            "output": "layout-assets:resource-generator:1:output",
+            "manifest": "keep",
+            "layoutAssets": {
+                "format": "tree",
+                "root": "grape",
+                "assets": [
+                    {
+                        "destination": "",
+                        "sources": [
+                            0
+                        ],
+                        "transform": {
+                            "kind": "archive-tree",
+                            "mappings": [
+                                {
+                                    "pattern": "grape/**",
+                                    "stripComponents": 1
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        }
+    ]
+}

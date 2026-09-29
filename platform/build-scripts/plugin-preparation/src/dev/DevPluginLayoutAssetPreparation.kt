@@ -14,7 +14,12 @@ import java.nio.file.FileSystems
  */
 @ApiStatus.Internal
 sealed interface DevPluginLayoutAssetSource {
-  data class ModuleDirectory(@JvmField val moduleName: String, @JvmField val path: String) : DevPluginLayoutAssetSource
+  /** A checkout directory of a module. The generator gives a directory with [exclusions] a filegroup of its own. */
+  data class ModuleDirectory(
+    @JvmField val moduleName: String,
+    @JvmField val path: String,
+    @JvmField val exclusions: DevPluginResourceExclusions = DevPluginResourceExclusions.NONE,
+  ) : DevPluginLayoutAssetSource
 
   /** A debugger egg prepared in Kotlin from two raw checkout directories. Paths are relative to the project root. */
   data class DebuggerEgg(
@@ -109,6 +114,52 @@ sealed interface DevPluginLayoutAssetSource {
   ) : DevPluginLayoutAssetSource
 }
 
+/**
+ * The files and directories that a checkout directory source leaves out. Production and the generated Bazel glob read
+ * the same patterns.
+ *
+ * A pattern has one or more `/`-separated segments. A segment is literal text, and `*` in it matches any text without
+ * `/`. A pattern matches the last segments of a path relative to the directory, at any depth. So `tests` matches
+ * `tests` and `a/b/tests`. A file pattern leaves out a matching file. A directory pattern leaves out a matching
+ * directory and everything below it, and it keeps a file of that name.
+ */
+@ApiStatus.Internal
+data class DevPluginResourceExclusions(
+  @JvmField val files: List<String> = emptyList(),
+  @JvmField val directories: List<String> = emptyList(),
+) {
+  init {
+    for (pattern in files + directories) {
+      val segments = pattern.split('/')
+      require(pattern.none { it in "?[]{}\\" } && segments.none { it.isEmpty() || it == "." || it == ".." || it == "**" }) {
+        "A resource exclusion requires segments of literal text and '*': '$pattern'"
+      }
+    }
+  }
+
+  fun isEmpty(): Boolean = files.isEmpty() && directories.isEmpty()
+
+  /** The java.nio globs over a path relative to the directory, for the files. */
+  fun fileGlobs(): List<String> = files.flatMap { listOf(it, "**/$it") }
+
+  /** The java.nio globs over a path relative to the directory, for the directories. */
+  fun directoryGlobs(): List<String> = directories.flatMap { listOf(it, "**/$it") }
+
+  /**
+   * The `exclude` patterns of a Bazel `glob` over the package-relative [directory], sorted. A trailing Bazel double star
+   * also matches zero segments and would leave out a file named like a directory pattern. So a directory pattern ends
+   * with a double star and then a single star, which match one or more segments.
+   */
+  fun bazelExcludes(directory: String): List<String> {
+    return (files.map { "$directory/**/$it" } + directories.map { "$directory/**/$it/**/*" }).sorted()
+  }
+
+  companion object {
+    @JvmField
+    val NONE: DevPluginResourceExclusions = DevPluginResourceExclusions()
+  }
+}
+
 @ApiStatus.Internal
 enum class JupyterFrontendOperation {
   RESOURCES_AND_LICENSES,
@@ -145,7 +196,8 @@ interface DevPluginLayoutAssetOwner {
 
 /**
  * One file or tree contribution to a prepared plugin tree.
- * A null [transform] is a direct copy.
+ * A null [transform] is a direct copy. A [mode] of a direct directory copy sets its regular files, and its directories get
+ * 0755. Mode zero keeps the source modes.
  *
  * [hostPlatforms] names the `HOST_PLATFORMS` entries the asset serves, such as `darwin_aarch64`. An empty list serves
  * every platform. The generator keeps the asset in the plan of a named platform and drops it from every other plan,
@@ -240,7 +292,7 @@ data class DevPluginLayoutAssetPreparation(
 )
 
 /**
- * Validates one layout-assets payload at generation time. The Go packer ports these rules to `plan.go`.
+ * Validates one layout-assets payload at generation time. The packer ports these rules to `plan.rs` of the `pluginpack` crate.
  * A `gzip-xml-archive` asset requires the `entries` format.
  */
 internal fun validateDevPluginLayoutAssetPreparation(
@@ -260,7 +312,7 @@ internal fun validateDevPluginLayoutAssetPreparation(
     require(asset.hostPlatforms.isEmpty()) { "A layout asset payload must not name host platforms: ${asset.destination}" }
     if (asset.destination.isEmpty()) {
       // An entry asset writes its output root when every entry brings its own relative path: a mapped tree, an
-      // extracted archive, a gzip archive, or a copied directory. The Go packer checks the directory kind.
+      // extracted archive, a gzip archive, or a copied directory. The packer checks the directory kind.
       require(preparation.format == "tree" ||
               preparation.format == "entries" && transform?.kind in setOf("archive-tree", "gzip-xml-archive", "tree-map", null)) {
         "Only a tree, a mapped entry asset, an extracted archive, a gzip archive, or a copied directory can use its output root"

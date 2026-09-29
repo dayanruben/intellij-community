@@ -7,8 +7,8 @@
       <excludeFolder url="file://$MODULE_DIR$/gradlebuild/build" />
     </content>
     <orderEntry type="sourceFolder" forTests="false" />
-    <orderEntry type="module" module-name="intellij.libraries.junit5" exported="" />
-    <orderEntry type="module" module-name="intellij.libraries.junit5.params" exported="" />
+    <orderEntry type="module" module-name="intellij.libraries.junit6" exported="" />
+    <orderEntry type="module" module-name="intellij.libraries.junit6.params" exported="" />
     <orderEntry type="module-library" exported="">
       <library name="JUnit6Jupiter" type="repository">
         <properties include-transitive-deps="false" maven-id="org.junit.jupiter:junit-jupiter-engine:6.1.3">
@@ -27,7 +27,7 @@
         </SOURCES>
       </library>
     </orderEntry>
-    <orderEntry type="module" module-name="intellij.libraries.junit5.launcher" exported="" />
+    <orderEntry type="module" module-name="intellij.libraries.junit6.launcher" exported="" />
     <orderEntry type="module" module-name="intellij.libraries.hamcrest" exported="" />
     <orderEntry type="library" exported="" name="kotlin-test-junit5" level="project" />
     <orderEntry type="module" module-name="intellij.libraries.kotlinTest" exported="" />

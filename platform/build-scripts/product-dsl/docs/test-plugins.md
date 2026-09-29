@@ -96,11 +96,11 @@ The following modules mark a plugin as a test plugin when declared as content:
 ```kotlin
 testFrameworkContentModules = setOf(
   "intellij.libraries.junit4",
-  "intellij.libraries.junit5",
-  "intellij.libraries.junit5.jupiter",
-  "intellij.libraries.junit5.launcher",
-  "intellij.libraries.junit5.params",
-  "intellij.libraries.junit5.vintage",
+  "intellij.libraries.junit6",
+  "intellij.libraries.junit6.jupiter",
+  "intellij.libraries.junit6.launcher",
+  "intellij.libraries.junit6.params",
+  "intellij.libraries.junit6.vintage",
   "intellij.platform.testFramework",
   "intellij.platform.testFramework.common",
   "intellij.platform.testFramework.core",
@@ -243,8 +243,8 @@ See [dependency_generation.md](dependency_generation.md) for implementation deta
 
     <!-- region additional -->
     <module name="intellij.tools.testsBootstrap"/>
-    <module name="intellij.libraries.junit5"/>
-    <module name="intellij.libraries.junit5.jupiter"/>
+    <module name="intellij.libraries.junit6"/>
+    <module name="intellij.libraries.junit6.jupiter"/>
     <!-- endregion -->
   </content>
 </idea-plugin>

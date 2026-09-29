@@ -23,6 +23,7 @@ import org.jetbrains.annotations.ApiStatus
 //   TerminalMouseEvents.kt   TerminalMouseEvent (+ TerminalMouseAction, TerminalMouseButton)
 //   TerminalInputModifier.kt TerminalInputModifier — modifier state shared by both event types
 //   TerminalProgress.kt      TerminalProgress, TerminalProgressState (OSC 9;4)
+//   TerminalColorScheme.kt   ColorScheme — dark or light, for the color scheme query (CSI ? 996 n)
 //   TerminalChangeTracking.kt ScreenChange, HistoryMark — what to repaint / append
 //   TerminalListener.kt      TerminalListener, TerminalCustomCommandListener — the push callbacks
 //
@@ -94,6 +95,14 @@ interface TerminalEmulator : AutoCloseable {
   val title: String
 
   /**
+   * Sets the name of the terminfo entry that the terminal runs as, for example `xterm-256color`.
+   * The reply to the `XTGETTCAP` query `TN` reports it. Until the first call, the query gets no reply.
+   *
+   * @throws IllegalArgumentException if the backend rejects [name], for example a name longer than 128 bytes.
+   */
+  fun setTerminfoName(name: String)
+
+  /**
    * Progress the running program reports via `OSC 9;4` (`ESC ] 9 ; 4 ; <state> [; <percent>] <terminator>`),
    * or null when none is being reported — nothing was reported yet, or the program removed its previous
    * report with `OSC 9;4;0`.
@@ -121,6 +130,16 @@ interface TerminalEmulator : AutoCloseable {
   fun setDefaultBackgroundColor(color: TerminalColor.Rgb)
 
   /**
+   * Sets whether the embedder colors are dark or light. The reply to the color scheme query (`CSI ? 996 n`) reports it.
+   * Until the first call, the query gets no reply.
+   *
+   * While the program enables the color scheme reports (mode 2031), each call also sends a report (`CSI ? 997 ; Ps n`)
+   * through [TerminalListener.onRespondToHost]. The report tells the program to query the embedder colors again.
+   * So call this function for each change of the embedder colors, after the calls that set them.
+   */
+  fun setColorScheme(scheme: ColorScheme)
+
+  /**
    * The current RGB of palette slot [index] (`0..255`), reflecting any program `OSC 4` overrides (and
    * `OSC 104` resets). Slots `0..15` are the ANSI colors; `16..255` the xterm cube + grayscale ramp.
    *
@@ -132,6 +151,15 @@ interface TerminalEmulator : AutoCloseable {
    * @throws IllegalArgumentException if [index] is outside `0..255`.
    */
   fun paletteColor(index: Int): TerminalColor.Rgb
+
+  /**
+   * Sets the embedder default colors of the ANSI palette slots `0..15`, in slot order. Slots `16..255` keep their defaults.
+   * [paletteColor] and the reply to `OSC 4 ; n ; ?` report them.
+   * A program override (`OSC 4`) has priority until the program resets it (`OSC 104`).
+   *
+   * @throws IllegalArgumentException if [colors] does not have exactly 16 entries.
+   */
+  fun setDefaultAnsiColors(colors: List<TerminalColor.Rgb>)
 
   /** True when the alternate screen buffer is active (e.g. a full-screen TUI). */
   val usingAlternateScreen: Boolean

@@ -140,6 +140,7 @@ jvm_library(
         "//platform/platform-impl:ide-impl_test_lib",
         "//platform/platform-impl/rpc:rpc_test_lib",
         "//platform/non-modal-welcome-screen:non-modal-welcome-screen_test_lib",
+        "//platform/ide-core:ide-core_test_lib",
     ],
     deps = [
         # do not sort,
@@ -175,8 +176,8 @@ jvm_library(
         "//platform/welcome-screen:welcome-screen_test_lib",
         "//platform/welcome-screen-impl:welcomeScreen-impl",
         "//platform/welcome-screen-impl:welcomeScreen-impl_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
         "//platform/statistics",
         "//platform/statistics:statistics_test_lib",
         "//libraries/kotlinx/serialization/core",
@@ -188,6 +189,7 @@ jvm_library(
         "//platform/project/shared:project_test_lib",
         "//fleet/rhizomedb",
         "//fleet/rhizomedb:rhizomedb_test_lib",
+        "//platform/ide-core",
     ],
 )
 ### auto-generated section `build intellij.platform.ide.nonModalWelcomeScreen.tests` end

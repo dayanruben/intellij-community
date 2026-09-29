@@ -1,19 +1,15 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.terminal.frontend.session.ghostty
 
-import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.diagnostic.trace
-import com.intellij.openapi.editor.colors.EditorColorsListener
-import com.intellij.openapi.editor.colors.EditorColorsManager
-import com.intellij.openapi.editor.ex.EditorSettingsExternalizable
 import com.intellij.openapi.project.Project
 import com.intellij.platform.eel.EelDescriptor
 import com.intellij.platform.eel.EelOsFamily
 import com.intellij.platform.eel.provider.LocalEelDescriptor
 import com.intellij.platform.util.coroutines.childScope
 import com.intellij.terminal.JBTerminalSystemSettingsProviderBase
-import com.intellij.terminal.TerminalUiSettingsManager
+import com.intellij.terminal.emulator.ColorScheme
 import com.intellij.terminal.emulator.CursorShape
 import com.intellij.terminal.emulator.ScreenChange
 import com.intellij.terminal.emulator.ScrollbackPullPolicy
@@ -27,7 +23,6 @@ import com.intellij.terminal.frontend.session.ObservableTtyConnector
 import com.intellij.terminal.frontend.session.TerminalShellIntegrationController
 import com.intellij.terminal.frontend.session.addWorkingDirectoryListener
 import com.intellij.util.AwaitCancellationAndInvoke
-import com.intellij.util.asDisposable
 import com.intellij.util.awaitCancellationAndInvoke
 import com.jediterm.core.util.TermSize
 import com.jediterm.terminal.TtyConnector
@@ -49,9 +44,7 @@ import org.jetbrains.annotations.VisibleForTesting
 import org.jetbrains.plugins.terminal.LocalTerminalTtyConnector
 import org.jetbrains.plugins.terminal.ShellStartupOptions
 import org.jetbrains.plugins.terminal.TerminalEmulatorType
-import org.jetbrains.plugins.terminal.TerminalOptionsProvider
 import org.jetbrains.plugins.terminal.TerminalUtil
-import org.jetbrains.plugins.terminal.block.ui.TerminalUi
 import org.jetbrains.plugins.terminal.block.ui.TerminalUiUtils
 import org.jetbrains.plugins.terminal.original
 import org.jetbrains.plugins.terminal.session.impl.TerminalBeepEvent
@@ -63,15 +56,19 @@ import org.jetbrains.plugins.terminal.session.impl.TerminalOutputEvent
 import org.jetbrains.plugins.terminal.session.impl.TerminalResizeEvent
 import org.jetbrains.plugins.terminal.session.impl.TerminalSession
 import org.jetbrains.plugins.terminal.session.impl.TerminalSessionTerminatedEvent
+import org.jetbrains.plugins.terminal.session.impl.TerminalSetColorSchemeEvent
+import org.jetbrains.plugins.terminal.session.impl.TerminalSetDefaultCursorShapeEvent
 import org.jetbrains.plugins.terminal.session.impl.TerminalStateChangedEvent
 import org.jetbrains.plugins.terminal.session.impl.TerminalWriteBytesEvent
+import org.jetbrains.plugins.terminal.session.impl.dto.CursorShapeDto
 import org.jetbrains.plugins.terminal.session.impl.dto.KeyEventProcessingResultDto
+import org.jetbrains.plugins.terminal.session.impl.dto.TerminalColorSchemeDto
+import org.jetbrains.plugins.terminal.session.impl.dto.TerminalRgbColorDto
 import org.jetbrains.plugins.terminal.session.impl.dto.TerminalStateDto
+import org.jetbrains.plugins.terminal.session.impl.dto.toCursorShape
 import org.jetbrains.plugins.terminal.startup.TerminalProcessType
-import java.awt.Color
 import java.awt.event.KeyEvent
 import java.awt.event.MouseEvent
-import java.beans.PropertyChangeListener
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.thread
 import kotlin.concurrent.withLock
@@ -123,6 +120,8 @@ class GhosttyTerminalSession internal constructor(
   private val ttyConnector: TtyConnector,
   initialSize: TerminalSize,
   initialWorkingDirectory: String?,
+  /** The `TERM` of the started process, which the emulator reports for the `XTGETTCAP` query `TN`; null if not set. */
+  private val terminfoName: String?,
   private val shellIntegrationController: TerminalShellIntegrationController,
   settings: JBTerminalSystemSettingsProviderBase,
   override val coroutineScope: CoroutineScope,
@@ -195,8 +194,8 @@ class GhosttyTerminalSession internal constructor(
   // flushed by syncLocked().
   private val pendingEvents = ArrayList<TerminalOutputEvent>()
 
-  // Emulator replies to host queries (DSR, DA, OSC reports), collected during a write
-  // and written to the PTY by [flushResponses] *after* [lock] is released. They must
+  // Emulator replies to host queries (DSR, DA, OSC reports) and color scheme reports, collected during a write
+  // or a color scheme change and written to the PTY by [flushResponses] *after* [lock] is released. They must
   // not be written inline: the write-pty effect fires synchronously inside
   // emulator.write, so a full PTY buffer would park the read thread both inside
   // ghostty's vt_write (see terminal.h: effects "must not block for too long ... they
@@ -265,7 +264,7 @@ class GhosttyTerminalSession internal constructor(
   @OptIn(AwaitCancellationAndInvoke::class)
   fun start() {
     emulator.listener = object : TerminalListener {
-      // Fires synchronously inside emulator.write, i.e. under [lock] on the read thread.
+      // Fires synchronously inside emulator.write (or emulator.setColorScheme), i.e. under [lock].
       // Queue only: the actual pty write happens in flushResponses(), once the lock is
       // released. See [pendingResponses].
       override fun onRespondToHost(data: ByteArray) {
@@ -290,15 +289,6 @@ class GhosttyTerminalSession internal constructor(
     }
     emulator.customCommandListener = TerminalCustomCommandListener(shellIntegrationController::processCustomCommand)
 
-    // Applies the IDE's cursor-shape/blink-caret settings as the emulator's defaults, and keeps
-    // them in sync with those settings for the rest of the session. Must run before the read loop
-    // below starts, so the emulator never shows Ghostty's own hardcoded defaults even briefly.
-    installDefaultCursorStateUpdating(coroutineScope.childScope("Default cursor state updating"))
-
-    // Applies the IDE terminal colors as the emulator's default colors, and keeps them in sync with the color scheme.
-    // Must run before the read loop below starts, so the emulator answers the first color query (OSC 10/11) of a program.
-    installColorSchemeUpdating(coroutineScope.childScope("Color scheme updating"))
-
     // Windows host is using ConPTY that has its own buffer: it stores screen lines only,
     // and when terminal size grows, it can't pull scrollback lines to the screen.
     // So, we have to use "ScrollbackPullPolicy.NEVER" in the Windows case to ensure
@@ -308,6 +298,12 @@ class GhosttyTerminalSession internal constructor(
     }
     else ScrollbackPullPolicy.CURSOR_AT_BOTTOM
     emulator.setResizeScrollbackPullPolicy(scrollbackPullPolicy)
+
+    terminfoName?.let { name ->
+      // TERM comes from the user environment, so a name that the emulator rejects must not stop the session.
+      runCatching { emulator.setTerminfoName(name) }
+        .onFailure { LOG.warn("Failed to set the terminfo name '$name'", it) }
+    }
 
     // Read the PTY on a dedicated daemon thread rather than a coroutine in the session
     // scope (production uses a plain executor for the same reason): the blocking read()
@@ -452,7 +448,28 @@ class GhosttyTerminalSession internal constructor(
       }
       is TerminalClearBufferEvent -> handleClearBuffer()
       is TerminalCloseEvent -> runCatching { ttyConnector.close() }
+      is TerminalSetColorSchemeEvent -> handleSetColorScheme(event.colorScheme)
+      is TerminalSetDefaultCursorShapeEvent -> lock.withLock {
+        if (disposed) return
+        emulator.setDefaultCursorShape(event.cursorShape.toEmulatorCursorShape())
+        emulator.setDefaultCursorBlinking(event.cursorShape.toCursorShape().isBlinking)
+        changedSinceLastProjection = true
+      }
     }
+  }
+
+  private fun handleSetColorScheme(colorScheme: TerminalColorSchemeDto) {
+    var responses: List<ByteArray> = emptyList()
+    lock.withLock {
+      if (disposed) return
+      emulator.setDefaultForegroundColor(colorScheme.foreground.toEmulatorColor())
+      emulator.setDefaultBackgroundColor(colorScheme.background.toEmulatorColor())
+      emulator.setDefaultAnsiColors(colorScheme.ansiColors.map { it.toEmulatorColor() })
+      // Last, because it can send the color scheme report (mode 2031), after which the program queries the new colors.
+      emulator.setColorScheme(if (colorScheme.isDark) ColorScheme.DARK else ColorScheme.LIGHT)
+      responses = takeResponsesLocked()
+    }
+    flushResponses(responses)
   }
 
   private fun handleClearBuffer() {
@@ -687,96 +704,6 @@ class GhosttyTerminalSession internal constructor(
     syncWatchdogJob = null
     syncOutputForcePaint = false
   }
-
-  /**
-   * Subscribes to the terminal's "Cursor shape" setting ([TerminalOptionsProvider]) and the
-   * editor's "Blink caret" setting ([EditorSettingsExternalizable]), and pushes their current
-   * values into [emulator] as its default cursor shape/blink.
-   */
-  private fun installDefaultCursorStateUpdating(scope: CoroutineScope) {
-    val disposable = scope.asDisposable()
-    var lastCursorShape: TerminalUiSettingsManager.CursorShape? = null
-    var lastBlinkCaret: Boolean? = null
-
-    fun TerminalUiSettingsManager.CursorShape.toEmulatorCursorShape(): CursorShape = when (this) {
-      TerminalUiSettingsManager.CursorShape.BLOCK -> CursorShape.BLOCK
-      TerminalUiSettingsManager.CursorShape.UNDERLINE -> CursorShape.UNDERLINE
-      TerminalUiSettingsManager.CursorShape.VERTICAL -> CursorShape.BAR
-    }
-
-    fun updateCursorShapeIfChangedLocked() {
-      val current = TerminalOptionsProvider.instance.cursorShape
-      if (current != lastCursorShape) {
-        lastCursorShape = current
-        emulator.setDefaultCursorShape(current.toEmulatorCursorShape())
-        changedSinceLastProjection = true
-      }
-    }
-
-    fun updateCursorBlinkIfChangedLocked() {
-      val current = EditorSettingsExternalizable.getInstance().isBlinkCaret
-      if (current != lastBlinkCaret) {
-        lastBlinkCaret = current
-        emulator.setDefaultCursorBlinking(current)
-        changedSinceLastProjection = true
-      }
-    }
-
-    TerminalOptionsProvider.instance.addListener(disposable) {
-      lock.withLock {
-        if (!disposed) updateCursorShapeIfChangedLocked()
-      }
-    }
-    EditorSettingsExternalizable.getInstance().addPropertyChangeListener(PropertyChangeListener { event ->
-      if (event.propertyName == EditorSettingsExternalizable.PropNames.PROP_IS_CARET_BLINKING) {
-        lock.withLock {
-          if (!disposed) updateCursorBlinkIfChangedLocked()
-        }
-      }
-    }, disposable)
-
-    lock.withLock {
-      updateCursorShapeIfChangedLocked()
-      updateCursorBlinkIfChangedLocked()
-    }
-  }
-
-  /**
-   * Subscribes to the global editor color scheme ([EditorColorsManager.TOPIC]), and pushes the IDE terminal colors
-   * ([TerminalUi.defaultForeground] and [TerminalUi.defaultBackground]) into [emulator] as its default colors.
-   * The emulator reports them to a program that queries them (`OSC 10 ; ?` and `OSC 11 ; ?`).
-   */
-  private fun installColorSchemeUpdating(scope: CoroutineScope) {
-    var lastForeground: TerminalColor.Rgb? = null
-    var lastBackground: TerminalColor.Rgb? = null
-
-    fun Color.toEmulatorColor(): TerminalColor.Rgb = TerminalColor.Rgb(red, green, blue)
-
-    fun updateColorsIfChangedLocked() {
-      val foreground = TerminalUi.defaultForeground().toEmulatorColor()
-      if (foreground != lastForeground) {
-        lastForeground = foreground
-        emulator.setDefaultForegroundColor(foreground)
-      }
-      val background = TerminalUi.defaultBackground().toEmulatorColor()
-      if (background != lastBackground) {
-        lastBackground = background
-        emulator.setDefaultBackgroundColor(background)
-      }
-    }
-
-    ApplicationManager.getApplication().messageBus
-      .connect(scope.asDisposable())
-      .subscribe(EditorColorsManager.TOPIC, EditorColorsListener {
-        lock.withLock {
-          if (!disposed) updateColorsIfChangedLocked()
-        }
-      })
-
-    lock.withLock {
-      updateColorsIfChangedLocked()
-    }
-  }
 }
 
 private val LOG = logger<GhosttyTerminalSession>()
@@ -797,6 +724,14 @@ private val OUTPUT_POLL_INTERVAL: Duration = 20.milliseconds
 private val CLEAR_BUFFER_SEQUENCE: ByteArray = "\u001B[2J\u001B[3J".encodeToByteArray()
 
 private val CTRL_L_BYTE: ByteArray = byteArrayOf(0x0C)
+
+private fun TerminalRgbColorDto.toEmulatorColor(): TerminalColor.Rgb = TerminalColor.Rgb(red, green, blue)
+
+private fun CursorShapeDto.toEmulatorCursorShape(): CursorShape = when (this) {
+  CursorShapeDto.BLINK_BLOCK, CursorShapeDto.STEADY_BLOCK -> CursorShape.BLOCK
+  CursorShapeDto.BLINK_UNDERLINE, CursorShapeDto.STEADY_UNDERLINE -> CursorShape.UNDERLINE
+  CursorShapeDto.BLINK_VERTICAL_BAR, CursorShapeDto.STEADY_VERTICAL_BAR -> CursorShape.BAR
+}
 
 /** Escapes control characters (e.g. `\e` for ESC) so raw PTY output is readable in the log. */
 private fun String.escapeControlCharactersForLog(): String {
@@ -837,6 +772,7 @@ internal fun createGhosttyTerminalSession(
     ttyConnector = observableTtyConnector,
     initialSize = TerminalSize(initialTermSize.columns, initialTermSize.rows),
     initialWorkingDirectory = options.workingDirectory,
+    terminfoName = options.envVariables["TERM"],
     shellIntegrationController = shellIntegrationController,
     settings = settings,
     coroutineScope = coroutineScope,

@@ -531,13 +531,13 @@ libraries/jspecify
 libraries/jsr305
 libraries/jsvg
 libraries/junit4
-libraries/junit5
-libraries/junit5-jupiter
-libraries/junit5-launcher
-libraries/junit5-params
 libraries/junit5-pioneer
-libraries/junit5-suites
-libraries/junit5-vintage
+libraries/junit6
+libraries/junit6-jupiter
+libraries/junit6-launcher
+libraries/junit6-params
+libraries/junit6-suites
+libraries/junit6-vintage
 libraries/jvm-native-trusted-roots
 libraries/jzlib
 libraries/kaml
@@ -650,7 +650,6 @@ libraries/opentelemetry-semconv
 libraries/opentest4j
 libraries/oro-matcher
 libraries/oshi-core
-libraries/package-search-api-client
 libraries/plexus-utils
 libraries/protobuf
 libraries/protobuf-java-util
@@ -676,7 +675,6 @@ libraries/sqlite-native
 libraries/sshd-osgi
 libraries/sshj
 libraries/stream
-libraries/swingx
 libraries/system-stubs-jupiter
 libraries/teamcity/service-messages
 libraries/test-discovery
@@ -1726,7 +1724,6 @@ plugins/properties/tests
 plugins/pty4j/plugin
 plugins/rareJavaRefactorings
 plugins/remote-control
-plugins/repository-search/common
 plugins/repository-search/completion
 plugins/restructuredtext
 plugins/search-everywhere-lucene

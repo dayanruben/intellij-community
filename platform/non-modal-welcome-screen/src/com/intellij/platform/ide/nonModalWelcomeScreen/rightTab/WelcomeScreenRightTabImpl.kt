@@ -1,9 +1,11 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.ide.nonModalWelcomeScreen.rightTab
 
+import com.intellij.diagnostic.ExceptionAutoReportUtil
 import com.intellij.icons.AllIcons
 import com.intellij.ide.IdeBundle
 import com.intellij.ide.dnd.FileCopyPasteUtil
+import com.intellij.ide.gdpr.showDataSharingOptionsDialog
 import com.intellij.ide.plugins.PluginManagerConfigurable
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.ActionManager
@@ -18,7 +20,9 @@ import com.intellij.openapi.actionSystem.toolbarLayout.ToolbarLayoutStrategy
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ModalityState
+import com.intellij.openapi.application.UI
 import com.intellij.openapi.application.asContextElement
+import com.intellij.openapi.diagnostic.fileLogger
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.DumbAwareAction
@@ -37,6 +41,7 @@ import com.intellij.platform.ide.nonModalWelcomeScreen.WelcomeScreenTabUsageColl
 import com.intellij.platform.ide.nonModalWelcomeScreen.rightTab.WelcomeRightTabContentProvider.WelcomeContent
 import com.intellij.platform.ide.nonModalWelcomeScreen.rightTab.WelcomeScreenRightTabComboBoxModel.KeymapModel
 import com.intellij.platform.ide.nonModalWelcomeScreen.rightTab.WelcomeScreenRightTabComboBoxModel.ThemeModel
+import com.intellij.ui.components.ActionLink
 import com.intellij.ui.components.DisclosureButton
 import com.intellij.ui.components.labels.LinkLabel
 import com.intellij.ui.components.panels.HorizontalLayout
@@ -50,6 +55,7 @@ import com.intellij.util.ui.AbstractLayoutManager
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import com.intellij.util.ui.components.BorderLayoutPanel
+import com.intellij.util.ui.launchOnShow
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -77,6 +83,8 @@ import javax.swing.SwingConstants
 import javax.swing.border.Border
 import javax.swing.border.CompoundBorder
 import kotlin.math.max
+
+private val LOG = fileLogger()
 
 internal class WelcomeScreenRightTabImpl(
   project: Project,
@@ -243,8 +251,12 @@ internal class WelcomeScreenRightTabImpl(
     val generation = contentGeneration
     contentProvider.coroutineScope.launch {
       try {
-        val availableFeatureIds = WelcomeScreenFeatureApi.getInstance().getAvailableFeatureIds().toSet()
-        val contents = createFeatureContents(availableFeatureIds)
+        val offeredFeatures = offeredFeatures(
+          project = project,
+          registeredFeatureIds = WelcomeScreenFeatureApi.getInstance().getAvailableFeatureIds(),
+          features = WelcomeScreenFeatureUI.features(),
+        )
+        val sections = createFeatureContents(offeredFeatures)
 
         withContext(Dispatchers.EDT + ModalityState.any().asContextElement()) {
           disposeSingleBanner()
@@ -252,10 +264,10 @@ internal class WelcomeScreenRightTabImpl(
           // was built for. A section holds an editor and a scope, so a fill that no tab takes must release it
           // here. Both checks and the disposal run on the EDT, and so does [dispose].
           if (disposed || generation != contentGeneration) {
-            disposeContents(contents)
+            disposeContents(sections.map { it.content })
             return@withContext
           }
-          createDefaultContent(availableFeatureIds, contents, finish)
+          createDefaultContent(offeredFeatures, sections, finish)
         }
       }
       catch (e: CancellationException) {
@@ -268,15 +280,15 @@ internal class WelcomeScreenRightTabImpl(
   }
 
   /**
-   * Asks each available feature for its section. A feature that fails does not stop the other features.
+   * Asks each offered feature for its section. A feature that fails does not stop the other features.
    */
-  private suspend fun createFeatureContents(availableFeatureIds: Set<String>): List<WelcomeScreenFeatureUI.Content> {
+  private suspend fun createFeatureContents(offeredFeatures: OfferedFeatures): List<FeatureSection> {
     return WelcomeScreenFeatureUI.features()
-      .filter { it.isAlwaysAvailable || it.featureKey in availableFeatureIds }
+      .filter { offeredFeatures.isOffered(it.featureKey, it.isAlwaysAvailable) }
       .sortedBy { it.contentOrder }
       .mapNotNull { feature ->
         try {
-          feature.createContent(project)
+          feature.createContent(project)?.let { FeatureSection(feature.featureKey, it) }
         }
         catch (e: CancellationException) {
           throw e
@@ -289,23 +301,29 @@ internal class WelcomeScreenRightTabImpl(
   }
 
   private fun createDefaultContent(
-    availableFeatureIds: Set<String>,
-    contents: List<WelcomeScreenFeatureUI.Content>,
+    offeredFeatures: OfferedFeatures,
+    sections: List<FeatureSection>,
     finish: () -> Unit,
   ) {
-    if (contents.isEmpty()) {
-      createDefaultContent(contentPanel, availableFeatureIds, false)
+    val featureModels = visibleFeatureButtonModels(
+      models = contentProvider.getFeatureButtonModels(project),
+      offeredFeatures = offeredFeatures,
+      sectionFeatureKeys = sections.mapTo(HashSet()) { it.featureKey },
+      featureKeysReplacingFeatureGrid = contentProvider.featureKeysReplacingFeatureGrid,
+    )
+    if (sections.isEmpty()) {
+      createDefaultContent(contentPanel, featureModels, false)
     }
     else {
       val contentsPanel = JPanel(VerticalLayout(0))
       contentsPanel.isOpaque = false
       contentsPanel.border = JBUI.Borders.emptyBottom(40)
-      createFeatureSections(contentsPanel, contents)
+      createFeatureSections(contentsPanel, sections.map { it.content })
       contentPanel.addToCenter(contentsPanel)
 
       val bottomPanel = BorderLayoutPanel()
       bottomPanel.isOpaque = false
-      createDefaultContent(bottomPanel, availableFeatureIds, true)
+      createDefaultContent(bottomPanel, featureModels, true)
       contentPanel.addToBottom(bottomPanel)
     }
 
@@ -319,8 +337,12 @@ internal class WelcomeScreenRightTabImpl(
     }
   }
 
-  private fun createDefaultContent(parentPanel: BorderLayoutPanel, availableFeatureIds: Set<String>, extraContent: Boolean) {
-    parentPanel.addToCenter(createFeatureGrid(availableFeatureIds, extraContent))
+  private fun createDefaultContent(
+    parentPanel: BorderLayoutPanel,
+    featureModels: List<WelcomeRightTabContentProvider.FeatureButtonModel>,
+    extraContent: Boolean,
+  ) {
+    parentPanel.addToCenter(createFeatureGrid(featureModels, extraContent))
 
     val additionalPanel = JPanel(VerticalLayout(0))
     additionalPanel.isOpaque = false
@@ -333,12 +355,7 @@ internal class WelcomeScreenRightTabImpl(
     }
   }
 
-  private fun createFeatureGrid(availableFeatureIds: Set<String>, extraContent: Boolean): JPanel {
-    // Show only the features a frontend or a backend handler registers, and every button without a feature key
-    val featureModels = contentProvider.getFeatureButtonModels(project).filter {
-      it !is WelcomeRightTabContentProvider.FeatureButtonModelWithBackend || it.isAlwaysAvailable || it.featureKey in availableFeatureIds
-    }
-
+  private fun createFeatureGrid(featureModels: List<WelcomeRightTabContentProvider.FeatureButtonModel>, extraContent: Boolean): JPanel {
     val buttonPanel = JPanel(GridLayout())
     buttonPanel.isOpaque = false
 
@@ -433,7 +450,66 @@ internal class WelcomeScreenRightTabImpl(
     toolbar.targetComponent = component
     toolbar.layoutStrategy = ToolbarLayoutStrategy.NOWRAP_STRATEGY
     toolbar.component.isOpaque = false
-    component.add(toolbar.component)
+
+    val footerWrapper = JPanel(VerticalLayout(UIUtil.DEFAULT_VGAP, SwingConstants.CENTER))
+    component.add(footerWrapper)
+    footerWrapper.add(toolbar.component)
+
+    addErrorReportAlert(coroutineScope, footerWrapper)
+  }
+
+  private fun addErrorReportAlert(coroutineScope: CoroutineScope, footerWrapper: JPanel) {
+    fun reconcileErrorReportAlert(alert: JPanel) {
+      coroutineScope.launch {
+        LOG.debug("Recheck if error reporting is enabled, hide alert otherwise")
+
+        if (!ExceptionAutoReportUtil.isAutoReportAllowedByUser()) {
+          withContext(Dispatchers.UI) {
+            alert.parent?.remove(alert)
+          }
+
+          LOG.debug("Error reporting is disabled, hide alert")
+        }
+      }
+    }
+
+    if (ExceptionAutoReportUtil.isConsentAllowedToBeVisible) {
+      coroutineScope.launch {
+        if (ExceptionAutoReportUtil.isAutoReportAllowedByUser()) {
+          if (ExceptionAutoReportUtil.needNotificationOfDataCollection()) {
+            LOG.info("Notify user that error reports are sent automatically")
+
+            withContext(Dispatchers.UI) {
+              val label = JLabel(IdeBundle.message("welcome.screen.ea.auto.report.alert"))
+              label.foreground = UIUtil.getInactiveTextColor()
+
+              val horizontalPanel = JPanel(HorizontalLayout(UIUtil.DEFAULT_HGAP))
+              horizontalPanel.add(label)
+              horizontalPanel.add(ActionLink(IdeBundle.message("welcome.screen.ea.auto.report.configure.link")) {
+                ExceptionAutoReportUtil.recordUserVisitedConfigure()
+
+                if (showDataSharingOptionsDialog()) {
+                  reconcileErrorReportAlert(horizontalPanel)
+                }
+              })
+
+              footerWrapper.add(horizontalPanel)
+              footerWrapper.invalidate()
+              footerWrapper.repaint()
+
+              horizontalPanel.launchOnShow("isAutoReportAllowedByUser") {
+                reconcileErrorReportAlert(horizontalPanel)
+              }
+            }
+
+            ExceptionAutoReportUtil.recordUserNotifiedOfDataCollection()
+          }
+          else {
+            LOG.debug("User is already notified enough of error reports collection")
+          }
+        }
+      }
+    }
   }
 
   private fun createFooterModels(): List<InfoPanelModel> {
@@ -446,6 +522,74 @@ internal class WelcomeScreenRightTabImpl(
       add(ComboBoxInfoPanelModel(AllIcons.General.Keyboard, "welcome.screen.right.tab.keymap.switch.prefix", KeymapModel()))
       addAll(contentProvider.getAdditionalInfoButtonModels(project).map { ButtonInfoPanelModel(it) })
     }
+  }
+}
+
+/** A section of the tab, and the key of the feature that stated it. */
+private class FeatureSection(@JvmField val featureKey: String, @JvmField val content: WelcomeScreenFeatureUI.Content)
+
+/**
+ * Which features the tab offers while it fills its content. The feature buttons and the sections read this one rule.
+ *
+ * @param registeredFeatureIds the keys that a frontend or a backend handler registers.
+ * @param withdrawnFeatureKeys the keys whose [WelcomeScreenFeatureUI.isAvailable] answered `false`.
+ */
+internal class OfferedFeatures(
+  private val registeredFeatureIds: Set<String>,
+  private val withdrawnFeatureKeys: Set<String>,
+) {
+  /** Tells if the tab offers the feature [featureKey]. [isAlwaysAvailable] skips the check of the handler. */
+  fun isOffered(featureKey: String, isAlwaysAvailable: Boolean): Boolean {
+    return featureKey !in withdrawnFeatureKeys && (isAlwaysAvailable || featureKey in registeredFeatureIds)
+  }
+}
+
+/**
+ * Asks each of [features] if it offers itself in [project] now.
+ *
+ * A feature that fails to answer stays available, and the failure does not stop the other features.
+ */
+internal suspend fun offeredFeatures(
+  project: Project,
+  registeredFeatureIds: Collection<String>,
+  features: List<WelcomeScreenFeatureUI>,
+): OfferedFeatures {
+  val withdrawnFeatureKeys = HashSet<String>()
+  for (feature in features) {
+    val available = try {
+      feature.isAvailable(project)
+    }
+    catch (e: CancellationException) {
+      throw e
+    }
+    catch (e: Throwable) {
+      LOG.error("Cannot tell if the welcome right tab feature ${feature.featureKey} is available", e)
+      true
+    }
+    if (!available) {
+      withdrawnFeatureKeys.add(feature.featureKey)
+    }
+  }
+  return OfferedFeatures(registeredFeatureIds.toHashSet(), withdrawnFeatureKeys)
+}
+
+/**
+ * The feature buttons that the grid shows.
+ *
+ * A button without a feature key always shows. A button with a key shows while [offeredFeatures] offers its feature.
+ * No button shows while [sectionFeatureKeys] holds a key of [featureKeysReplacingFeatureGrid].
+ */
+internal fun visibleFeatureButtonModels(
+  models: List<WelcomeRightTabContentProvider.FeatureButtonModel>,
+  offeredFeatures: OfferedFeatures,
+  sectionFeatureKeys: Set<String>,
+  featureKeysReplacingFeatureGrid: Set<String>,
+): List<WelcomeRightTabContentProvider.FeatureButtonModel> {
+  if (sectionFeatureKeys.any { it in featureKeysReplacingFeatureGrid }) {
+    return emptyList()
+  }
+  return models.filter {
+    it !is WelcomeRightTabContentProvider.FeatureButtonModelWithBackend || offeredFeatures.isOffered(it.featureKey, it.isAlwaysAvailable)
   }
 }
 

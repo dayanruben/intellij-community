@@ -23,6 +23,9 @@ dev_dist_plugin(
         ],
     },
     main_module = "intellij.copyright",
+    mode_refused_content_modules = {
+        "frontend": ["intellij.copyright.vcs"],
+    },
 )
 ### auto-generated section `dev intellij.copyright` end
 
@@ -197,8 +200,8 @@ jvm_library(
         "//libraries/assertj-core:assertj-core_test_lib",
         "//platform/core-ui",
         "//platform/core-ui:core-ui_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
         "//xml/xml-psi-api:psi",
         "//xml/xml-psi-api:psi_test_lib",
         "//platform/util/jdom",
