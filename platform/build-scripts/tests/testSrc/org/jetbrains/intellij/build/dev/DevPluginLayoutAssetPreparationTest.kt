@@ -17,15 +17,17 @@ import org.junit.jupiter.api.Test
  */
 internal class DevPluginLayoutAssetPreparationTest {
   @Test
-  fun `the removed gzip-xml-archive transform is refused`() {
-    val gzip = DevPluginLayoutAsset(destination = "resources", sources = listOf(0), transform = DevPluginLayoutAssetTransform(kind = "gzip-xml-archive"))
-    val operation = DevPluginPreparationOperation(
-      id = "layout-assets:gzip", kind = "layout-assets", inputs = listOf(DevPluginReference("archive")), output = "layout-assets:gzip:output",
-      manifest = "keep", layoutAssets = DevPluginLayoutAssetPreparation(format = "entries", assets = listOf(gzip)),
-    )
-    assertThat(isPackerExecutedOperation(operation)).isFalse()
-    assertThatThrownBy { devPluginPreparationOperationSignature(operation, version = 2) }
-      .hasMessageContaining("No packer operation executes 'layout-assets:gzip'")
+  fun `a removed transform is refused`() {
+    for (kind in listOf("gzip-xml-archive", "tree-map")) {
+      val asset = DevPluginLayoutAsset(destination = "resources", sources = listOf(0), transform = DevPluginLayoutAssetTransform(kind = kind))
+      val operation = DevPluginPreparationOperation(
+        id = "layout-assets:$kind", kind = "layout-assets", inputs = listOf(DevPluginReference("archive")), output = "layout-assets:$kind:output",
+        manifest = "keep", layoutAssets = DevPluginLayoutAssetPreparation(format = "entries", assets = listOf(asset)),
+      )
+      assertThat(isPackerExecutedOperation(operation)).isFalse()
+      assertThatThrownBy { devPluginPreparationOperationSignature(operation, version = 2) }
+        .hasMessageContaining("No packer operation executes 'layout-assets:$kind'")
+    }
   }
 
   @Test
@@ -33,16 +35,12 @@ internal class DevPluginLayoutAssetPreparationTest {
     val treeAssets = listOf(DevPluginLayoutAsset(destination = "", sources = listOf(0), transform = DevPluginLayoutAssetTransform.archiveTree(stripComponents = 1)))
     val operations = listOf(
       DevPluginPreparationOperation(
-        id = "module-filter:module", input = DevPluginReference("module"), output = "module-filter:module:output", manifest = "drop",
-        excludes = listOf("drop/**"),
-      ),
-      DevPluginPreparationOperation(
         id = "layout-assets:tree", kind = "layout-assets", inputs = listOf(DevPluginReference("archive")), output = "layout-assets:tree:output",
         manifest = "keep", layoutAssets = DevPluginLayoutAssetPreparation(format = "tree", root = "payload", assets = treeAssets),
       ),
       DevPluginPreparationOperation(
         id = "layout-assets:entries", kind = "layout-assets", inputs = listOf(DevPluginReference("resources")), output = "layout-assets:entries:output",
-        manifest = "keep", layoutAssets = treeMapEntriesPreparation(sources = listOf(0)),
+        manifest = "keep", layoutAssets = plainCopyEntriesPreparation(sources = listOf(0)),
       ),
     )
     assertThat(operations).allMatch(::isPackerExecutedOperation)
@@ -50,10 +48,6 @@ internal class DevPluginLayoutAssetPreparationTest {
       plugin = "test.plugin",
       variant = "linux_x64",
       assets = listOf(
-        PluginPackingAsset(
-          destination = "lib/main.jar", inputs = listOf("module-filter:module:output"),
-          recipe = CanonicalJarRecipe(listOf(JarSourceRecipe("module-filter:module:output", "prepared", "prepared")), JarWriterRecipe(manifest = "drop")),
-        ),
         PluginPackingAsset(destination = "payload", inputs = listOf("layout-assets:tree:output"), kind = "tree", classPath = false),
         PluginPackingAsset(
           destination = "lib/resources.jar", inputs = listOf("layout-assets:entries:output"),
@@ -72,19 +66,21 @@ internal class DevPluginLayoutAssetPreparationTest {
       artifacts = emptyList(),
     )
 
-    for (operation in operations.filter { it.kind == "layout-assets" }) {
+    for (operation in operations) {
       validateDevPluginLayoutAssetConsumers(operation, plan)
     }
-    val misplacedTree = operations[1].copy(layoutAssets = DevPluginLayoutAssetPreparation(format = "tree", root = "other", assets = treeAssets))
+    val misplacedTree = operations[0].copy(layoutAssets = DevPluginLayoutAssetPreparation(format = "tree", root = "other", assets = treeAssets))
     assertThatThrownBy { validateDevPluginLayoutAssetConsumers(misplacedTree, plan) }.hasMessageContaining("one tree asset at 'other'")
   }
 
   @Test
   fun `every operation of a plan file is packer-executed`() {
-    val moduleFilter = DevPluginPreparationOperation(id = "filter", input = DevPluginReference("module"), output = "filtered", manifest = "keep")
+    val moduleFilter = DevPluginPreparationOperation(
+      id = "filter", kind = "module-filter", inputs = listOf(DevPluginReference("module")), output = "filtered", manifest = "keep",
+    )
     val entries = DevPluginPreparationOperation(
       id = "entries", kind = "layout-assets", inputs = listOf(DevPluginReference("resources")), output = "entries:output", manifest = "keep",
-      layoutAssets = treeMapEntriesPreparation(sources = listOf(0)),
+      layoutAssets = plainCopyEntriesPreparation(sources = listOf(0)),
     )
     val file = DevPluginPreparationOperation(
       id = "file", kind = "layout-assets", inputs = listOf(DevPluginReference("build")), output = "file:output", manifest = "keep",
@@ -94,13 +90,15 @@ internal class DevPluginLayoutAssetPreparationTest {
       ),
     )
     val presigned = DevPluginPreparationOperation(
-      id = "presigned", kind = "native-presigned", input = DevPluginReference("library"), output = "presigned:output", manifest = "keep", filter = "library",
+      id = "presigned", kind = "native-presigned", inputs = listOf(DevPluginReference("library")), output = "presigned:output", manifest = "keep", filter = "library",
     )
 
-    assertThat(isPackerExecutedOperation(moduleFilter)).isTrue()
+    assertThat(isPackerExecutedOperation(moduleFilter)).isFalse()
     assertThat(isPackerExecutedOperation(entries)).isTrue()
     assertThat(isPackerExecutedOperation(file)).isFalse()
     assertThat(isPackerExecutedOperation(presigned)).isFalse()
+    assertThatThrownBy { devPluginPreparationOperationSignature(moduleFilter, version = 2) }
+      .hasMessageContaining("No packer operation executes 'filter' of kind 'module-filter'")
     assertThatThrownBy { devPluginPreparationOperationSignature(presigned, version = 2) }
       .hasMessageContaining("No packer operation executes 'presigned' of kind 'native-presigned'")
     assertThatThrownBy { devPluginPreparationOperationSignature(file, version = 2) }
@@ -108,47 +106,22 @@ internal class DevPluginLayoutAssetPreparationTest {
   }
 
   @Test
-  fun `tree exclusions change the preparation signature`() {
-    val transform = DevPluginLayoutAssetTransform.treeMap(listOf(DevPluginLayoutAssetMapping()))
-    fun signature(value: DevPluginLayoutAssetTransform): String {
-      return devPluginPreparationOperationSignature(DevPluginPreparationOperation(
-        id = "layout-assets:tree", kind = "layout-assets", inputs = listOf(DevPluginReference("tree")), output = "tree:output", manifest = "keep",
-        layoutAssets = DevPluginLayoutAssetPreparation(
-          format = "tree", root = "helpers",
-          assets = listOf(DevPluginLayoutAsset(destination = "", sources = listOf(0), transform = value)),
-        ),
-      ), version = 2)
-    }
-
-    assertThat(signature(transform.copy(excludes = listOf("setup.py")))).isNotEqualTo(signature(transform))
-    assertThat(signature(transform.copy(directoryExcludes = listOf("tests")))).isNotEqualTo(signature(transform))
-  }
-
-  @Test
-  fun `only tree mappings accept valid exclusion patterns`() {
-    val tree = DevPluginLayoutAssetTransform.treeMap(listOf(DevPluginLayoutAssetMapping()))
-    val transforms = listOf(
-      tree.copy(excludes = listOf("")),
-      tree.copy(excludes = listOf("[")),
-      tree.copy(directoryExcludes = listOf("")),
-      tree.copy(directoryExcludes = listOf("[")),
-      DevPluginLayoutAssetTransform.archiveTree().copy(excludes = listOf("setup.py")),
-      DevPluginLayoutAssetTransform.archiveTree().copy(directoryExcludes = listOf("tests")),
-    )
-    for (transform in transforms) {
-      assertThatThrownBy {
-        validateLayoutAssets(DevPluginLayoutAssetPreparation(
-          format = "tree", root = "helpers",
-          assets = listOf(DevPluginLayoutAsset(destination = "", sources = listOf(0), transform = transform)),
-        ), listOf(DevPluginReference("tree")))
-      }.isInstanceOf(IllegalArgumentException::class.java)
-    }
+  fun `a plain copy of a directory writes the output root and takes one source`() {
+    validateLayoutAssets(DevPluginLayoutAssetPreparation(
+      format = "entries",
+      assets = listOf(DevPluginLayoutAsset(destination = "", sources = listOf(0)), DevPluginLayoutAsset(destination = "", sources = listOf(1))),
+    ), listOf(DevPluginReference("properties"), DevPluginReference("descriptions")))
+    assertThatThrownBy {
+      validateLayoutAssets(DevPluginLayoutAssetPreparation(
+        format = "entries",
+        assets = listOf(DevPluginLayoutAsset(destination = "", sources = listOf(0, 1))),
+      ), listOf(DevPluginReference("properties"), DevPluginReference("descriptions")))
+    }.hasMessageContaining("A direct layout asset requires one source")
   }
 
   @Test
   fun `archive includes and executable patterns change the preparation signature`() {
     val archive = DevPluginLayoutAssetTransform.archiveTree()
-    val tree = DevPluginLayoutAssetTransform.treeMap(listOf(DevPluginLayoutAssetMapping()))
     fun signature(value: DevPluginLayoutAssetTransform, input: String): String {
       return devPluginPreparationOperationSignature(DevPluginPreparationOperation(
         id = "layout-assets:native", kind = "layout-assets", inputs = listOf(DevPluginReference(input)), output = "native:output", manifest = "keep",
@@ -161,17 +134,14 @@ internal class DevPluginLayoutAssetPreparationTest {
 
     assertThat(signature(archive.copy(includes = listOf("bin/**", "!bin/LLDBFrontend")), "archive")).isNotEqualTo(signature(archive, "archive"))
     assertThat(signature(archive.copy(executables = listOf("bin/*")), "archive")).isNotEqualTo(signature(archive, "archive"))
-    assertThat(signature(tree.copy(executables = listOf("DotFiles/*.sh")), "tree")).isNotEqualTo(signature(tree, "tree"))
     assertThat(signature(DevPluginLayoutAssetTransform.archiveTree(includes = listOf("!x"), executables = listOf("y")), "archive"))
       .isEqualTo(signature(archive.copy(includes = listOf("!x"), executables = listOf("y")), "archive"))
   }
 
   @Test
-  fun `only archive-tree accepts includes and only the tree transforms accept executable patterns`() {
+  fun `archive-tree accepts valid includes and executable patterns`() {
     val archive = DevPluginLayoutAssetTransform.archiveTree()
-    val tree = DevPluginLayoutAssetTransform.treeMap(listOf(DevPluginLayoutAssetMapping()))
     val invalid = listOf(
-      tree.copy(includes = listOf("bin/**")) to "tree",
       archive.copy(includes = listOf("")) to "archive",
       archive.copy(includes = listOf("!")) to "archive",
       archive.copy(includes = listOf("[")) to "archive",
@@ -201,11 +171,10 @@ internal class DevPluginLayoutAssetPreparationTest {
     }.hasMessageContaining("host platforms")
   }
 
-  private fun treeMapEntriesPreparation(sources: List<Int>): DevPluginLayoutAssetPreparation {
-    val transform = DevPluginLayoutAssetTransform.treeMap(listOf(DevPluginLayoutAssetMapping()))
+  private fun plainCopyEntriesPreparation(sources: List<Int>): DevPluginLayoutAssetPreparation {
     return DevPluginLayoutAssetPreparation(
       format = "entries",
-      assets = listOf(DevPluginLayoutAsset(destination = "resources", sources = sources, transform = transform)),
+      assets = listOf(DevPluginLayoutAsset(destination = "resources", sources = sources)),
     )
   }
 

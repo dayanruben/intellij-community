@@ -163,8 +163,8 @@ http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "ht
 
 http_archive(
     name = "remote_java_tools_windows_with_vc_redist",
-    sha256 = "82203dfae9f75a268e5e0e643ce5696a7c035ce9626938601fb410ee11849b1b",
-    url = "https://packages.jetbrains.team/files/p/ij/intellij-build-dependencies/rules-java/java_tools_windows-v19.0-with-vc_redist.zip",
+    sha256 = "a9df22ddf20fcd0407ae0782845b58787e4a126eb81aa8d16dfa5be542c443d0",
+    url = "https://packages.jetbrains.team/files/p/ij/intellij-build-dependencies/rules-java/java_tools_windows-v19.0-with-vc_redist-v2.zip",
 )
 
 override_repo(
@@ -259,11 +259,38 @@ crate.from_cargo(
     platform_triples = [
         "aarch64-apple-darwin",
         "x86_64-apple-darwin",
+        "aarch64-pc-windows-msvc",
         "x86_64-pc-windows-msvc",
         "aarch64-unknown-linux-gnu",
         "x86_64-unknown-linux-gnu",
     ],
 )
 use_repo(crate, "ddt")
+
+# The crates of //tools/bt, resolved from its `Cargo.lock`. The name is short for the same reason. BT runs on every
+# host, and the Air UI-lane workspace links `bt-junit` into its guest agent, so the triples also cover the guests.
+crate.from_cargo(
+    name = "bt",
+    cargo_config = "//tools/bt:.cargo/config.toml",
+    cargo_lock = "//tools/bt:Cargo.lock",
+    cargo_toml = "//tools/bt:Cargo.toml",
+    # Renders `[workspace.lints]` as `@bt//:workspace_cargo_lints`, the lint policy of every crate.
+    generate_lint_config = True,
+    platform_triples = [
+        # A macOS host, and the macOS guest agent.
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin",
+        # A Windows host, and the Windows compile and clippy checks of `bt`.
+        "aarch64-pc-windows-msvc",
+        "x86_64-pc-windows-msvc",
+        # A Linux host.
+        "aarch64-unknown-linux-gnu",
+        "x86_64-unknown-linux-gnu",
+        # The Linux guest agents.
+        "aarch64-unknown-linux-musl",
+        "x86_64-unknown-linux-musl",
+    ],
+)
+use_repo(crate, "bt")
 
 include("//:fleet/kmp.MODULE.bazel")

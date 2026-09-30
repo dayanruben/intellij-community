@@ -1036,13 +1036,6 @@ c:com.intellij.execution.services.SimpleServiceViewDescriptor
 - <init>(java.lang.String,javax.swing.Icon,java.lang.String):V
 - getId():java.lang.String
 - getPresentation():com.intellij.navigation.ItemPresentation
-c:com.intellij.execution.ui.actions.CloseAction
-- <init>(com.intellij.execution.Executor,com.intellij.execution.ui.RunContentDescriptor,com.intellij.openapi.project.Project):V
-- getActionUpdateThread():com.intellij.openapi.actionSystem.ActionUpdateThread
-- getContentDescriptor():com.intellij.execution.ui.RunContentDescriptor
-- getExecutor():com.intellij.execution.Executor
-- perform():V
-- update(com.intellij.openapi.actionSystem.AnActionEvent):V
 c:com.intellij.execution.util.EnvironmentVariable
 - IS_PREDEFINED:Z
 - NAME:java.lang.String
@@ -3455,7 +3448,6 @@ f:com.intellij.psi.search.GlobalSearchScopes
 - s:directoriesScope(com.intellij.openapi.project.Project,Z,com.intellij.openapi.vfs.VirtualFile[]):com.intellij.psi.search.GlobalSearchScope
 - s:directoryScope(com.intellij.openapi.project.Project,com.intellij.openapi.vfs.VirtualFile,Z):com.intellij.psi.search.GlobalSearchScope
 - s:directoryScope(com.intellij.psi.PsiDirectory,Z):com.intellij.psi.search.GlobalSearchScope
-- s:executionScope(com.intellij.openapi.project.Project,com.intellij.execution.configurations.RunProfile):com.intellij.psi.search.GlobalSearchScope
 - s:filterScope(com.intellij.openapi.project.Project,com.intellij.psi.search.scope.packageSet.NamedScope):com.intellij.psi.search.GlobalSearchScope
 a:com.intellij.psi.stubs.NamedStubBase
 - p:<init>(com.intellij.psi.stubs.StubElement,com.intellij.psi.stubs.IStubElementType,com.intellij.util.io.StringRef):V

@@ -141,7 +141,9 @@ public abstract class TodoTreeBuilder implements Disposable {
     myCoroutineHelper = new TodoTreeBuilderCoroutineHelper(this);
 
     Disposer.register(myProject, this);
-    PsiManager.getInstance(myProject).addPsiTreeChangeListener(new MyPsiTreeChangeListener(), this);
+    if (!shouldUseSplitTodo()) {
+      PsiManager.getInstance(myProject).addPsiTreeChangeListener(new MyPsiTreeChangeListener(), this);
+    }
 
     //setCanYieldUpdate(true);
   }
@@ -190,7 +192,9 @@ public abstract class TodoTreeBuilder implements Disposable {
     catch (IndexNotReadyException ignore) {
     }
 
-    FileStatusManager.getInstance(myProject).addFileStatusListener(myFileStatusListener, this);
+    if (!shouldUseSplitTodo()) {
+      FileStatusManager.getInstance(myProject).addFileStatusListener(myFileStatusListener, this);
+    }
   }
 
   public boolean isDisposed() {

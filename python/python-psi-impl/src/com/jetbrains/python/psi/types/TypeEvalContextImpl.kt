@@ -3,8 +3,10 @@ package com.jetbrains.python.psi.types
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.ModuleUtilCore
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.roots.JdkOrderEntry
 import com.intellij.openapi.roots.ProjectFileIndex
 import com.intellij.openapi.util.RecursionManager
 import com.intellij.openapi.util.registry.Registry
@@ -27,6 +29,7 @@ import com.jetbrains.python.psi.types.engine.PyTypeEngine
 import com.jetbrains.python.psi.types.engine.PyTypeEngineProvider
 import com.jetbrains.python.pyi.PyiLanguageDialect
 import org.jetbrains.annotations.ApiStatus
+import java.util.Optional
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentMap
 import kotlin.concurrent.Volatile
@@ -45,15 +48,35 @@ open class TypeEvalContextImpl internal constructor(
 
   private val myProcessingContext = ThreadLocal.withInitial { ProcessingContext() }
 
+  private val myModuleTypeEngines: MutableMap<Module, Optional<PyTypeEngine>> = ConcurrentHashMap()
+
   @ApiStatus.Internal
   val typeEngine: PyTypeEngine? = constraints.myOrigin?.let {
     if (isNotebookExternalTypeEngineDisabled(it)) {
       return@let null
     }
-    ModuleUtilCore.findModuleForFile(it)
-  }?.let { module ->
-    PyTypeEngineProvider.createTypeEngine(module)
+    getOrCreateTypeEngine(it.originalFile)
   }
+
+  private fun getTypeEngine(element: PyTypedElement): PyTypeEngine? {
+    val containingFile = element.containingFile ?: return null
+    if (isNotebookExternalTypeEngineDisabled(containingFile)) {
+      return null
+    }
+    return getOrCreateTypeEngine(containingFile)
+  }
+
+  private fun getOrCreateTypeEngine(file: PsiFile): PyTypeEngine? {
+    val module = file.getUserData(ModuleUtilCore.KEY_MODULE) ?: ModuleUtilCore.findModuleForFile(file.originalFile)
+    if (module != null) {
+      return moduleTypeEngine(module)
+    }
+    return findTypeEngineWithoutModule(file.originalFile)
+  }
+
+  private fun moduleTypeEngine(module: Module): PyTypeEngine? =
+    myModuleTypeEngines.computeIfAbsent(module) { Optional.ofNullable(PyTypeEngineProvider.createTypeEngine(it)) }.orElse(null)
+
   protected val myEvaluated: MutableMap<PyTypedElement?, PyType?> = getConcurrentMapForCachingTypes()
   protected val myEvaluatedReturn: MutableMap<PyCallable?, PyType?> = getConcurrentMapForCachingTypes()
   protected val contextTypeCache: ConcurrentMap<Pair<Any, Any>, PyType> = getConcurrentMapForCachingTypes()
@@ -95,6 +118,16 @@ open class TypeEvalContextImpl internal constructor(
     val realFile = origin.originalFile.virtualFile ?: return false
     return realFile.extension.equals("ipynb", ignoreCase = true) &&
            !Registry.`is`("python.lsp.type.engine.notebooks", false)
+  }
+
+  private fun findTypeEngineWithoutModule(origin: PsiFile): PyTypeEngine? {
+    val virtualFile = origin.virtualFile ?: return null
+    return ProjectFileIndex.getInstance(origin.project).getOrderEntriesForFile(virtualFile)
+      .asSequence()
+      .filterIsInstance<JdkOrderEntry>()
+      .map { it.ownerModule }
+      .distinct()
+      .firstNotNullOfOrNull(::moduleTypeEngine)
   }
 
   @ApiStatus.Internal
@@ -234,19 +267,24 @@ open class TypeEvalContextImpl internal constructor(
     }
 
     return RecursionManager.doPreventingRecursion(element to this, false) {
-      val engine = typeEngine
-      val type = if (engine != null && engine.isSupportedForResolve(element)) {
+      val engine = getTypeEngine(element)?.takeIf { it.isSupportedForResolve(element) }
+      val type = if (engine == null) {
+        evaluateWithBuiltInEngine(element)
+      }
+      else if (engine.isReady) {
         PyTypeEvaluationAggregatesCollector.recordHybridTypeEngineTime(engine) {
           val isUserInitiated = constraints.myAllowStubToAST && constraints.myAllowDataFlow
-          // An engine gives no answer for an element it cannot see, for example one in an unopened file.
-          // That means an unknown type, the same as the null it used to give.
-          engine.resolveType(element, this is LibraryTypeEvalContext, isUserInitiated)?.get() ?: PyAnyType.unknown
+          val resolvedType = engine.resolveType(element, this is LibraryTypeEvalContext, isUserInitiated)
+          // resolvedType is null when the engine could not evaluate at all, in contrast to Ref(null) which means the type is legitimately null
+          if (resolvedType == null) evaluateWithBuiltInEngine(element) else resolvedType.get()
         }
       }
+      else if (engine.allowsBuiltInTypeEngineFallbackWhenUnavailable) {
+        evaluateWithBuiltInEngine(element)
+      }
       else {
-        PyTypeEvaluationAggregatesCollector.recordPyCharmTypeEngineTime {
-          element.getType(this, KeyImpl)
-        }
+        // The engine answers after its server starts, and the start drops this context. Do not cache the gap.
+        return@doPreventingRecursion PyAnyType.unknown
       }
 
       assertValid(type, element)
@@ -254,6 +292,11 @@ open class TypeEvalContextImpl internal constructor(
       publish(myEvaluated, element, type)
     } ?: PyAnyType.unknown
   }
+
+  private fun evaluateWithBuiltInEngine(element: PyTypedElement): PyType? =
+    PyTypeEvaluationAggregatesCollector.recordPyCharmTypeEngineTime {
+      element.getType(this, KeyImpl)
+    }
 
   override fun getReturnType(callable: PyCallable): PyType? {
     if (canDelegateToLibraryContext(callable)) {

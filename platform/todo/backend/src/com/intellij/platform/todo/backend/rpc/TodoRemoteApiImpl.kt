@@ -20,6 +20,8 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.progress.blockingContextToIndicator
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.vcs.FileStatusListener
+import com.intellij.openapi.vcs.FileStatusManager
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.project.ProjectId
 import com.intellij.platform.project.findProjectOrNull
@@ -49,7 +51,7 @@ internal class TodoRemoteApiImpl : TodoRemoteApi {
   ): Flow<TodoEvent> = channelFlow {
     val project = projectId.findProjectOrNull() ?: return@channelFlow
     val filter = request.filter?.toTodoFilter()
-    val searchScope = request.scope.toSearchScope(project)
+    val searchScope = readAction { request.scope.toSearchScope(project) }
 
     val flowDisposable = this@channelFlow.asDisposable()
     var scanDisposable: Disposable? = null
@@ -70,16 +72,21 @@ internal class TodoRemoteApiImpl : TodoRemoteApi {
             buildInitialScanEvents(project, request.scope, searchScope, filter)
           }
           PsiManager.getInstance(project).addPsiTreeChangeListener(
-            TodoBackendPsiListener { file -> if (searchScope?.contains(file) != false) fileChangesQueue.trySend(file) },
+            TodoBackendPsiListener(::scheduleInitialScan) { file -> fileChangesQueue.trySend(file) },
             currentScanDisposable
           )
         }
       }
     }
 
+    FileStatusManager.getInstance(project).addFileStatusListener(object : FileStatusListener {
+      override fun fileStatusesChanged() = scheduleInitialScan()
+      override fun fileStatusChanged(virtualFile: VirtualFile) { fileChangesQueue.trySend(virtualFile) }
+    }, flowDisposable)
+
     launch {
       for (file in fileChangesQueue) {
-        scheduleFileChanges(project, file, filter)
+        scheduleFileChanges(project, file, searchScope, filter)
       }
     }
 
@@ -138,12 +145,12 @@ internal class TodoRemoteApiImpl : TodoRemoteApi {
     trySend(TodoEvent.ItemUpserted(result))
   }
 
-  private suspend fun ProducerScope<TodoEvent>.scheduleFileChanges(project: Project, file: VirtualFile, filter: TodoFilter?) {
+  private suspend fun ProducerScope<TodoEvent>.scheduleFileChanges(project: Project, file: VirtualFile, searchScope: SearchScope?, filter: TodoFilter?) {
     readAction {
       val psiManager = PsiManager.getInstance(project)
       val helper = PsiTodoSearchHelper.getInstance(project)
 
-      if (!file.isValid) {
+      if (!file.isValid || searchScope?.contains(file) == false) {
         trySend(TodoEvent.ItemRemoved(file.rpcId()))
         return@readAction
       }

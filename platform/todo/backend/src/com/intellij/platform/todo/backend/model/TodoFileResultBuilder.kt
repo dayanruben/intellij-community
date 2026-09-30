@@ -1,15 +1,20 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.todo.backend.model
 
+import com.intellij.ide.rpc.util.toRpc
 import com.intellij.ide.todo.TodoFilter
+import com.intellij.ide.todo.rpc.TodoAdditionalLine
 import com.intellij.ide.todo.rpc.TodoFileResult
 import com.intellij.ide.todo.rpc.TodoResult
 import com.intellij.ide.ui.SerializableTextChunk
+import com.intellij.ide.ui.colors.rpcId
 import com.intellij.ide.vfs.rpcId
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.module.ModuleUtilCore
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectRootManager
+import com.intellij.openapi.vcs.FileStatusManager
+import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiFile
@@ -47,6 +52,7 @@ object TodoFileResultBuilder {
       moduleName = getModuleName(project, virtualFile),
       packageName = getPackageName(project, virtualFile),
       todos = todos,
+      fileStatusColor = FileStatusManager.getInstance(project).getStatus(virtualFile).color?.rpcId(),
     )
   }
 
@@ -66,7 +72,7 @@ object TodoFileResultBuilder {
         val (line, preview) = if (document != null) {
           val startOffset = todoItem.textRange.startOffset
           val line = document.getLineNumber(startOffset)
-          val previewChunks = buildPreviewChunks(document, todoItem, line)
+          val previewChunks = buildPreviewChunks(document, todoItem, todoItem.textRange)
           line to previewChunks
         } else 0 to emptyList()
 
@@ -74,25 +80,29 @@ object TodoFileResultBuilder {
           presentation = preview,
           fileId = virtualFile.rpcId(),
           line = line,
-          navigationOffset = todoItem.textRange.startOffset,
-          length = todoItem.textRange.endOffset - todoItem.textRange.startOffset
+          range = todoItem.textRange.toRpc(),
+          additionalLines = if (document != null) {
+            todoItem.additionalTextRanges.map { TodoAdditionalLine(buildPreviewChunks(document, todoItem, it), it.toRpc()) }
+          }
+          else emptyList(),
         )
       }
   }
 
-  private fun buildPreviewChunks(document: Document?, todoItem : TodoItem, line: Int) : List<SerializableTextChunk> {
-    if (document == null || document.lineCount == 0) return emptyList()
+  private fun buildPreviewChunks(document: Document, todoItem: TodoItem, range: TextRange): List<SerializableTextChunk> {
+    if (document.lineCount == 0) return emptyList()
 
     val chars = document.charsSequence
 
+    val line = document.getLineNumber(range.startOffset)
     val lineStart = document.getLineStartOffset(line)
     val lineEnd = document.getLineEndOffset(line)
     val lineStartNonWs = CharArrayUtil.shiftForward(chars, lineStart, " \t")
 
     val text = chars.subSequence(lineStartNonWs, lineEnd).toString()
 
-    val startInLine = todoItem.textRange.startOffset - lineStartNonWs
-    val endInLine = todoItem.textRange.endOffset - lineStartNonWs
+    val startInLine = range.startOffset - lineStartNonWs
+    val endInLine = range.endOffset - lineStartNonWs
     if (startInLine !in 0..<endInLine || endInLine > text.length) {
       return listOf(SerializableTextChunk(text))
     }

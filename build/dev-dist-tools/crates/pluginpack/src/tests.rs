@@ -153,12 +153,7 @@ pub(crate) fn jar(destination: &str, sources: Vec<Source>) -> Operation {
 }
 
 pub(crate) fn archive_source(input: Reference, filter: Filter, manifest: Manifest) -> Source {
-    Source::Archive {
-        input,
-        filter,
-        excludes: Vec::new(),
-        manifest,
-    }
+    Source::Archive { input, filter, manifest }
 }
 
 pub(crate) fn transform(kind: LayoutTransformKind) -> LayoutTransform {
@@ -166,8 +161,6 @@ pub(crate) fn transform(kind: LayoutTransformKind) -> LayoutTransform {
         kind,
         strip_components: 0,
         mappings: Vec::new(),
-        excludes: Vec::new(),
-        directory_excludes: Vec::new(),
         includes: Vec::new(),
         executables: Vec::new(),
     }
@@ -178,13 +171,6 @@ pub(crate) fn archive_tree(strip_components: u32, mappings: Vec<LayoutMapping>) 
         strip_components,
         mappings,
         ..transform(LayoutTransformKind::ArchiveTree)
-    }
-}
-
-pub(crate) fn tree_map(mappings: Vec<LayoutMapping>) -> LayoutTransform {
-    LayoutTransform {
-        mappings,
-        ..transform(LayoutTransformKind::TreeMap)
     }
 }
 

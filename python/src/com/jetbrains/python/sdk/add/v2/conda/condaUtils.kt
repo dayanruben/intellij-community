@@ -14,8 +14,10 @@ import com.jetbrains.python.onSuccess
 import com.jetbrains.python.sdk.ModuleOrProject
 import com.jetbrains.python.sdk.add.v2.PyProjectCreateHelpers
 import com.jetbrains.python.sdk.add.v2.PythonAddInterpreterModel
-import com.jetbrains.python.sdk.add.v2.TargetFileSystem
 import com.jetbrains.python.sdk.add.v2.existingSdks
+import com.jetbrains.python.sdk.add.v2.pathHolder
+import com.jetbrains.python.sdk.add.v2.targetEnvironmentConfiguration
+import com.jetbrains.python.sdk.add.v2.validationResult
 import com.jetbrains.python.sdk.conda.createCondaSdkAlongWithNewEnv
 import com.jetbrains.python.sdk.conda.createCondaSdkFromExistingEnvironment
 import com.jetbrains.python.sdk.flavors.conda.NewCondaEnvRequest
@@ -27,22 +29,23 @@ import kotlinx.coroutines.flow.takeWhile
 
 @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
 internal fun PythonAddInterpreterModel<*>.createCondaCommand(): PyResult<PyCondaCommand> {
-  val targetEnvironmentConfiguration = (fileSystem as? TargetFileSystem)?.targetEnvironmentConfiguration
+  val targetEnvironmentConfiguration = fileSystem.targetEnvironmentConfiguration
   val executable = condaViewModel.condaExecutable.get() ?: return PyResult.localizedError(message("python.sdk.select.conda.path.title"))
-  return PyCondaCommand(
-    fullCondaPathOnTarget = executable.pathHolder.toString(),
-    targetConfig = targetEnvironmentConfiguration
-  ).let { PyResult.success(it) }
+  val path = executable.pathHolder.getOr { return it }
+  return PyCondaCommand(fullCondaPathOnTarget = path.toStringForExecution(),
+                        targetConfig = targetEnvironmentConfiguration).let { PyResult.success(it) }
 }
 
-internal suspend fun PythonAddInterpreterModel<*>.createCondaEnvironment(moduleOrProject: ModuleOrProject, request: NewCondaEnvRequest): PyResult<Sdk> {
+internal suspend fun PythonAddInterpreterModel<*>.createCondaEnvironment(
+  moduleOrProject: ModuleOrProject,
+  request: NewCondaEnvRequest,
+): PyResult<Sdk> {
 
   val result = createCondaCommand().getOr { return it }.createCondaSdkAlongWithNewEnv(
     newCondaEnvInfo = request,
     existingSdks = existingSdks,
     moduleOrProject.workingDirectory ?: return PyResult.localizedError(message("python.sdk.project.working.directory.not.found")),
-  )
-    .onSuccess { sdk ->
+  ).onSuccess { sdk ->
       val module = PyProjectCreateHelpers.getModule(moduleOrProject, null)
       if (module != null) {
         sdk.setAssociationToModule(module)
@@ -68,19 +71,17 @@ internal suspend fun PythonAddInterpreterModel<*>.selectCondaEnvironment(moduleO
   else {
     condaViewModel.selectedCondaEnv.get()?.let { PyResult.success(it) }
     ?: PyResult.localizedError(message("python.sdk.conda.no.env.selected.error"))
-  }
-    .getOr { return it }
+  }.getOr { return it }
   val existingSdk = ProjectJdkTable.getInstance().findJdk(pyCondaEnv.envIdentity.userReadableName)
   if (existingSdk != null && existingSdk.isCondaVirtualEnv) return PyResult.success(existingSdk)
   val executable = condaViewModel.condaExecutable.get() ?: return PyResult.localizedError(message("python.sdk.select.conda.path.title"))
-  executable.validationResult.getOr { return it }
+  // We only take pathHolder if everything is valid
+  val pathHolder = executable.validationResult.getOr { return it }.pathHolder
 
-  val workingDirectory = moduleOrProject.workingDirectory
-                         ?: return PyResult.localizedError(message("python.sdk.project.working.directory.not.found"))
-  val sdk = PyCondaCommand(
-    fullCondaPathOnTarget = executable.pathHolder.toString(),
-    targetConfig = (fileSystem as? TargetFileSystem)?.targetEnvironmentConfiguration
-  ).createCondaSdkFromExistingEnvironment(
+  val workingDirectory =
+    moduleOrProject.workingDirectory ?: return PyResult.localizedError(message("python.sdk.project.working.directory.not.found"))
+  val sdk = PyCondaCommand(fullCondaPathOnTarget = pathHolder.toStringForExecution(),
+                           targetConfig = fileSystem.targetEnvironmentConfiguration).createCondaSdkFromExistingEnvironment(
     condaIdentity = pyCondaEnv.envIdentity,
     existingSdks = this@selectCondaEnvironment.existingSdks,
     workingDirectory = workingDirectory,

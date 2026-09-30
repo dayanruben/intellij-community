@@ -12,6 +12,7 @@ import com.intellij.python.pyproject.PyProjectToml
 import com.intellij.python.pytools.backend.Version
 import com.jetbrains.python.PyBundle.message
 import com.jetbrains.python.TraceContext
+import com.jetbrains.python.errorProcessing.PyError
 import com.jetbrains.python.errorProcessing.PyResult
 import com.jetbrains.python.newProjectWizard.projectPath.ProjectPathFlows
 import com.jetbrains.python.sdk.add.v2.conda.CondaViewModel
@@ -112,7 +113,8 @@ abstract class PythonAddInterpreterModel<P : PathHolder>(
 
     val coroutineContext = if (fileSystem.isLocal) {
       TraceContext(message("trace.context.loading.interpreter.list"), scope)
-    } else EmptyCoroutineContext
+    }
+    else EmptyCoroutineContext
     scope.launch(coroutineContext + Dispatchers.EDT) {
       installable = fileSystem.getInstallableInterpreters()
       val projectPathPrefix = projectPathFlows.projectPathWithDefault.first()
@@ -191,23 +193,6 @@ class PythonLocalAddInterpreterModel<P : PathHolder>(projectPathFlows: ProjectPa
 }
 
 
-
-
-
-sealed interface ValidatedPath<T, P : PathHolder> {
-  val pathHolder: P?
-  val validationResult: PyResult<T>
-
-  data class Folder<P : PathHolder>(
-    override val pathHolder: P?,
-    override val validationResult: PyResult<Unit>,
-  ) : ValidatedPath<Unit, P>
-
-  data class Executable<P : PathHolder>(
-    override val pathHolder: P?,
-    override val validationResult: PyResult<Version>,
-  ) : ValidatedPath<Version, P>
-}
 
 open class AddInterpreterState<P : PathHolder>(propertyGraph: PropertyGraph) {
   val selectedInterpreter: ObservableMutableProperty<PythonSelectableInterpreter<P>?> = propertyGraph.property(null)

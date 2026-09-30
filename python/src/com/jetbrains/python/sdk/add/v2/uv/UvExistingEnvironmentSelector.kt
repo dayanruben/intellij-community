@@ -16,7 +16,7 @@ import com.jetbrains.python.sdk.add.v2.PythonMutableTargetAddInterpreterModel
 import com.jetbrains.python.sdk.add.v2.ToolValidator
 import com.jetbrains.python.sdk.add.v2.ValidatedPath
 import com.intellij.python.uv.backend.UvPyTool
-import com.jetbrains.python.sdk.add.v2.persistCustomToolPath
+import com.jetbrains.python.sdk.add.v2.pathHolder
 import com.jetbrains.python.sdk.uv.setupExistingEnvAndSdk
 import com.jetbrains.python.statistics.InterpreterType
 import com.jetbrains.python.uv.sdk.configuration.isUvEnv
@@ -40,9 +40,10 @@ internal class UvExistingEnvironmentSelector<P : PathHolder>(model: PythonMutabl
     val workingDir = moduleOrProject.workingDirectory
                      ?: return PyResult.localizedError(PyBundle.message("python.sdk.project.working.directory.not.found"))
 
+    val uvPath = toolExecutable.get()!!.pathHolder.getOr { return it }
     return setupExistingEnvAndSdk(
       pythonBinary = selectedInterpreterPath,
-      uvPath = toolExecutable.get()!!.pathHolder!!,
+      uvPath = uvPath,
       workingDir = workingDir,
       fileSystem = model.fileSystem,
       usePip = false

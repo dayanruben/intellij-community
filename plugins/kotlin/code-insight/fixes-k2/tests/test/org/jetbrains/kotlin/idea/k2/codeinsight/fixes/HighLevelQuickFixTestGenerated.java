@@ -3105,6 +3105,16 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
 
+        @TestMetadata("moveOverloadToCompanionBlock.kt")
+        public void testMoveOverloadToCompanionBlock() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/companionBlocksAndObjects/moveOverloadToCompanionBlock.kt");
+        }
+
+        @TestMetadata("moveOverloadToCompanionObject.kt")
+        public void testMoveOverloadToCompanionObject() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/companionBlocksAndObjects/moveOverloadToCompanionObject.kt");
+        }
+
         @TestMetadata("removeReceiverCompanionExtensionInsideClass.kt")
         public void testRemoveReceiverCompanionExtensionInsideClass() throws Exception {
             runTest("../../../idea/tests/testData/quickfix/companionBlocksAndObjects/removeReceiverCompanionExtensionInsideClass.kt");
@@ -11276,6 +11286,11 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
                 runTest("../../../idea/tests/testData/quickfix/modifiers/removeSupertype4.kt");
             }
 
+            @TestMetadata("removeSupertypeValueClassCannotExtendIdentityClass.kt")
+            public void testRemoveSupertypeValueClassCannotExtendIdentityClass() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/modifiers/removeSupertypeValueClassCannotExtendIdentityClass.kt");
+            }
+
             @TestMetadata("visibilityModifer1.kt")
             public void testVisibilityModifer1() throws Exception {
                 runTest("../../../idea/tests/testData/quickfix/modifiers/visibilityModifer1.kt");
@@ -13511,6 +13526,11 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
 
+        @TestMetadata("catchParameter.kt")
+        public void testCatchParameter() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/renameToUnderscore/catchParameter.kt");
+        }
+
         @TestMetadata("commonDestructuring.kt")
         public void testCommonDestructuring() throws Exception {
             runTest("../../../idea/tests/testData/quickfix/renameToUnderscore/commonDestructuring.kt");
@@ -14533,6 +14553,11 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
         @TestMetadata("emptyTest.kt")
         public void testEmptyTest() throws Exception {
             runTest("../../../idea/tests/testData/quickfix/addVarianceModifier/emptyTest.kt");
+        }
+
+        @TestMetadata("selfReferentialBound.kt")
+        public void testSelfReferentialBound() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/addVarianceModifier/selfReferentialBound.kt");
         }
     }
 
