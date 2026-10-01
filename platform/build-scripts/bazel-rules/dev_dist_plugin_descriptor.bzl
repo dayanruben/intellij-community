@@ -16,6 +16,7 @@ that both caches keep is the property ADR 0006 asks for.
 load("@rules_java//java:defs.bzl", "JavaInfo")
 load("//build:dev_launch_dependencies.bzl", "HOST_PLATFORMS", "platform_parts")
 load(":content_module_jar.bzl", "library_entries")
+load(":dev_dist_build_date.bzl", "DEV_DIST_PINNED_BUILD_DATE_IN_SECONDS")
 
 DevDistPluginDescriptorInfo = provider(
     doc = """One plugin's patched descriptor, and the plugin it belongs to.
@@ -37,17 +38,20 @@ DevDistPluginDescriptorInfo = provider(
 )
 
 DevDistProductInfo = provider(
-    doc = """The product scalars every plugin's descriptor stamp needs.
+    doc = """The product facts every plugin's descriptor stamp needs.
 
-    A configuration and not four attributes on the leaf rule. One plugin's patched descriptor differs between two
+    A configuration and not attributes on the leaf rule. One plugin's patched descriptor differs between two
     products only in these values, so a leaf that stated them would be a leaf per (plugin, product). Read through
     a `label_flag` that the consumer of a plugin component sets, so one leaf per plugin answers every product that
     bundles the plugin. The exception is a plugin two products state differently. The later product gets a leaf of
-    its own, and that leaf still reads its stamps here.""",
+    its own, and that leaf still reads its stamps here.
+
+    The stamps name the application info source and never its values. The descriptor writer reads the EAP flag, the
+    release date and the release version from it, so an edit of that file changes no generated file.""",
     fields = {
-        "eap": "The `eap` attribute of the product's `ApplicationInfo.xml`.",
-        "release_date": "`ApplicationInfoProperties.majorReleaseDate`.",
-        "release_version": "`ApplicationInfoProperties.releaseVersionForLicensing`.",
+        "application_info": "The product's application info source as a `File`, or None in the flag's default.",
+        "host_application_info": "The application info of the host product as a `File`, for a frontend. None for every other product.",
+        "replacements": "The markers of the application info as `KEY=VALUE`, in the order that the writer replaces them.",
         "marketplace_names": "`OsFamily.osId` and `JvmArchitecture.marketplaceName`, keyed by the token `HOST_PLATFORMS` spells.",
         "platform_prefix": "The product's platform prefix, `idea` for example. Empty in the flag's default.",
         "mode": "The product mode in lower case, `monolith` or `frontend` for example. Empty in the flag's default.",
@@ -57,9 +61,9 @@ DevDistProductInfo = provider(
 
 def _dev_dist_product_info_impl(ctx):
     return [DevDistProductInfo(
-        eap = ctx.attr.eap,
-        release_date = ctx.attr.release_date,
-        release_version = ctx.attr.release_version,
+        application_info = ctx.file.application_info,
+        host_application_info = ctx.file.host_application_info,
+        replacements = tuple(ctx.attr.replacements),
         marketplace_names = ctx.attr.marketplace_names,
         platform_prefix = ctx.attr.platform_prefix,
         mode = ctx.attr.mode,
@@ -74,9 +78,17 @@ dev_dist_product_info = rule(
     implementation = _dev_dist_product_info_impl,
     fragments = ["platform"],
     attrs = {
-        "eap": attr.bool(doc = "The `eap` attribute of the product's `ApplicationInfo.xml`."),
-        "release_date": attr.string(doc = "`ApplicationInfoProperties.majorReleaseDate`. Empty in the flag's default."),
-        "release_version": attr.string(doc = "`ApplicationInfoProperties.releaseVersionForLicensing`. Empty in the flag's default."),
+        "application_info": attr.label(
+            doc = "The product's application info source, the `source` of its `DEV_DIST_APPLICATION_INFOS` entry. None in the flag's default.",
+            allow_single_file = [".xml"],
+        ),
+        "host_application_info": attr.label(
+            doc = "The application info of the host product, the `host` of that entry. Set for a frontend only.",
+            allow_single_file = [".xml"],
+        ),
+        "replacements": attr.string_list(
+            doc = "The markers of the application info as `KEY=VALUE`, the `replacements` of that entry.",
+        ),
         "marketplace_names": attr.string_dict(
             doc = """`OsFamily.osId` and `JvmArchitecture.marketplaceName`, keyed by the token `HOST_PLATFORMS` spells.
 
@@ -231,14 +243,18 @@ def _descriptor_request(ctx, module_name, embed_content_modules = None, reserial
     parameters = [
         ("--main-module", module_name, "formatted"),
         ("--build-number-file", ctx.file._build_number_file, "formatted"),
-        ("--release-date", product.release_date, "formatted"),
-        ("--release-version", product.release_version, "formatted"),
-        ("--eap", str(product.eap).lower(), "literal"),
+        ("--application-info-source", product.application_info, "formatted"),
+    ]
+    if product.host_application_info != None:
+        parameters.append(("--host-application-info-source", product.host_application_info, "formatted"))
+    parameters.extend([
+        ("--replacement", list(product.replacements), "repeated"),
+        ("--build-date-seconds", DEV_DIST_PINNED_BUILD_DATE_IN_SECONDS, "literal"),
         ("--exact-version", str(ctx.attr.exact_version).lower(), "literal"),
         ("--retain-product-descriptor", str(ctx.attr.retain_product_descriptor).lower(), "literal"),
         ("--embed-content-modules", str(embed_content_modules).lower(), "literal"),
         ("--reserialize-before-content-embedding", str(reserialize_before_content_embedding).lower(), "literal"),
-    ]
+    ])
 
     # The distribution places no jar of a module the product's mode refuses, so a descriptor that embeds no body
     # still embeds the body of such a module. The run time reads it there and excludes the module.
@@ -261,11 +277,15 @@ def _descriptor_request(ctx, module_name, embed_content_modules = None, reserial
 
     source_file = source if source != None else source_jar
     source_label = ctx.attr.descriptor.label if source != None else jars.descriptor_jar_label
-    inputs = [source_file, ctx.file._build_number_file]
+    inputs = [source_file, ctx.file._build_number_file, product.application_info]
     sources = [
         _descriptor_source_binding("descriptor" if source != None else "descriptor_jar", source_label, ctx.attr.descriptor_entry if source_jar != None else None, [source_file]),
         _descriptor_source_binding("build_number", ctx.attr._build_number_file.label, None, [ctx.file._build_number_file]),
+        _descriptor_source_binding("application_info", product.application_info.owner, None, [product.application_info]),
     ]
+    if product.host_application_info != None:
+        inputs.append(product.host_application_info)
+        sources.append(_descriptor_source_binding("host_application_info", product.host_application_info.owner, None, [product.host_application_info]))
 
     # One answer per load path. The writer seeds the files first and puts a jar entry in only when the path is
     # absent. So a load path two declarations answer is refused here, where every declaration is visible.
@@ -448,9 +468,7 @@ def _descriptor_declaration_json(declaration):
         "product": {
             "producer": declaration.product._producer,
             "dependency_label": str(declaration.product_dependency_label),
-            "eap": declaration.product.eap,
-            "release_date": declaration.product.release_date,
-            "release_version": declaration.product.release_version,
+            "replacements": list(declaration.product.replacements),
             "marketplace_names": declaration.product.marketplace_names,
         },
         "scope": declaration.scope,
@@ -478,21 +496,16 @@ def _descriptor_declaration_json(declaration):
     }) + "\n"
 
 def _dev_dist_plugin_descriptor_impl(ctx):
-    if ctx.attr.unresolved_descriptor_modules:
-        fail("Missing selected descriptors for %s: %s. Regenerate the dev sections." % (
-            ctx.attr.main_module,
-            ctx.attr.unresolved_descriptor_modules,
-        ), attr = "unresolved_descriptor_modules")
     module_name = ctx.attr.main_module
     if not module_name:
         fail("The plugin must state its main module", attr = "main_module")
 
-    # Fail closed. The flag's default states no product, and a descriptor stamped from it would carry an empty release
-    # date and an empty release version. The consumer of a plugin component sets the flag on the way down. A leaf built on its own
-    # has to set the flag itself, and the failure below says which flag that is.
+    # Fail closed. The flag's default states no product, and a descriptor stamped from it would have no application
+    # info to read. The consumer of a plugin component sets the flag on the way down. A leaf built on its own has to set
+    # the flag itself, and the failure below says which flag that is.
     product = ctx.attr._product_info[DevDistProductInfo]
-    if not product.release_date or not product.release_version:
-        fail("%s states no release date and no release version, so no product asked for this descriptor. Point %s at one" % (
+    if product.application_info == None:
+        fail("%s states no application info, so no product asked for this descriptor. Point %s at one" % (
             ctx.attr._product_info.label,
             _PRODUCT_INFO_FLAG,
         ))
@@ -538,7 +551,7 @@ def _dev_dist_plugin_descriptor_impl(ctx):
 
     platforms = _resolved_platforms(ctx)
     declaration = struct(
-        version = 1,
+        version = 2,
         producer = _descriptor_producer_identity(ctx),
         product = product,
         product_dependency_label = ctx.attr._product_info.label,
@@ -600,11 +613,6 @@ _dev_dist_plugin_descriptor = rule(
         "main_module": attr.string(
             doc = "The main JPS module that identifies this descriptor.",
             mandatory = True,
-        ),
-        "unresolved_descriptor_modules": attr.string_list(
-            doc = """The descriptor modules the dev section names but no descriptor target answers.
-
-The macro writes the list. A non-empty list fails analysis and asks for a regeneration of the dev sections.""",
         ),
         "descriptor": attr.label(
             doc = """The plugin's own `META-INF/plugin.xml`, as the exported source file.
@@ -696,7 +704,7 @@ critical path of the build.""",
             cfg = "exec",
         ),
         "_product_info": attr.label(
-            doc = """The product the stamps come from, as a flag rather than three attributes.
+            doc = """The product the stamps come from, as a flag rather than attributes.
 
 The default states nothing, so a leaf reached by no product's consumer fails at analysis. See `DevDistProductInfo`.""",
             default = Label("//build:dev_dist_product_info"),
@@ -801,9 +809,10 @@ def dev_dist_plugin_descriptor_target_name(main_module, variant = ""):
 def dev_dist_plugin_descriptor(
         main_module,
         descriptor = "",
-        descriptor_module = "",
         descriptor_jar = None,
         descriptor_entry = "",
+        content_modules = [],
+        descriptor_index = {},
         variant = "",
         tags = [],
         visibility = ["//visibility:public"],
@@ -811,14 +820,21 @@ def dev_dist_plugin_descriptor(
     """`_dev_dist_plugin_descriptor` with what every plugin says the same way filled in.
 
     Three things the macro derives rather than have them restated once per plugin. `name` comes from `main_module`, the
-    way `content_module_jar` derives its own. The descriptor's label comes from the module target's own package, which
-    is where `exportDescriptorFiles` put the `exports_files` entry. And `manual` is added, for `content_module_jar`'s
-    reason: these are per-plugin targets of a measurement, and `bazel build //...` must not run all of them.
+    way `content_module_jar` derives its own. The conventional `descriptors` rows come from `descriptor_index`. And
+    `manual` is added, for `content_module_jar`'s reason: these are per-plugin targets of a measurement, and
+    `bazel build //...` must not run all of them.
+
+    A row is derived for each name in `content_modules` that the index knows. A name the index does not know is a
+    merged member, a `sub/module` name or a module whose row the caller states. The macro skips it. An explicit row wins
+    by label and by load path, because the descriptor writer refuses a load path declared twice.
 
     Args:
         main_module: the plugin's main JPS module, which names the target.
-        descriptor_module: The main target label, used only to resolve the descriptor's package.
-        descriptor: the descriptor's path inside that module's Bazel package, normally `<resource root>/META-INF/plugin.xml`.
+        descriptor: the label of the plugin's `META-INF/plugin.xml`, package-relative or full.
+        descriptor_jar: the jar that holds the plugin descriptor, in place of `descriptor`.
+        descriptor_entry: the plugin descriptor path inside `descriptor_jar`.
+        content_modules: the module names whose conventional descriptors the patch can reach.
+        descriptor_index: the conventional descriptor label of each module, from the JPS bridge of this half.
         variant: the layout variant, which joins the target's name and the output's directory.
         tags: extra tags. `manual` is added.
         visibility: public by default.
@@ -826,7 +842,17 @@ def dev_dist_plugin_descriptor(
     """
     if bool(descriptor) == bool(descriptor_jar):
         fail("dev_dist_plugin_descriptor requires exactly one descriptor source")
-    source = descriptor_module.rpartition(":")[0] + ":" + descriptor if descriptor else None
+    source = descriptor or None
+
+    descriptors = dict(kwargs.pop("descriptors", {}))
+    stated_load_paths = {path: True for path in descriptors.values()}
+    for module_name in content_modules:
+        label = descriptor_index.get(module_name)
+        if label == None or label in descriptors or (module_name + ".xml") in stated_load_paths:
+            continue
+        descriptors[label] = module_name + ".xml"
+    if descriptors:
+        kwargs["descriptors"] = {label: descriptors[label] for label in sorted(descriptors)}
     name = dev_dist_plugin_descriptor_target_name(main_module, variant)
     descriptor_jars = kwargs.pop("descriptor_jars", {})
     library_descriptors = kwargs.pop("library_descriptors", {})

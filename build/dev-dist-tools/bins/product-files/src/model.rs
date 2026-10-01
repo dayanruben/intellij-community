@@ -6,6 +6,10 @@
 //!
 //! The model has no `jbr17`, `xBootClassPathJarNames` or `cdsArchiveFileName`, because no dev-dist model sets them.
 //! Thus the parser refuses a model that sets one as an unknown field.
+//!
+//! The model states no fact of the application info and no build number. The tool reads them from the declared
+//! sources, so the parser also refuses a model that states `version`, `versionSuffix` or `linuxStartupWmClass`. The
+//! EAP flag decides the fatal error block of `idea.properties`, so the parser refuses its old field `suffix` too.
 
 use std::collections::HashMap;
 
@@ -15,16 +19,8 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct LaunchModel {
     pub product_code: String,
-    pub build_number: String,
-    pub product_name: String,
-    pub version: String,
-    pub version_suffix: Option<String>,
     pub env_var_base_name: String,
     pub data_directory_name: String,
-    #[serde(default)]
-    pub svg_icon: bool,
-    pub product_vendor: String,
-    pub major_version_release_date: String,
     pub min_required_java_version: i32,
     #[serde(default)]
     pub custom_properties: Vec<LaunchProperty>,
@@ -36,7 +32,7 @@ pub(crate) struct LaunchModel {
     pub launch: LaunchCommand,
     #[serde(default)]
     pub custom_commands: Vec<CustomCommand>,
-    /// The lines of the vmoptions file, keyed by `OsFamily.osName`.
+    /// The lines of the vmoptions file of a release build, keyed by `OsFamily.osName`. An EAP build inserts one line.
     pub vm_options: HashMap<String, Vec<String>>,
     pub idea_properties: IdeaProperties,
 }
@@ -56,7 +52,6 @@ pub(crate) struct LaunchCommand {
     pub boot_class_path_jar_names: Vec<String>,
     pub jvm_arguments: JvmArguments,
     pub stdio_redirect_arg: Option<String>,
-    pub linux_startup_wm_class: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -90,12 +85,12 @@ pub(crate) struct JvmArguments {
     pub class_loader: Option<String>,
     pub vendor_name: String,
     pub paths_selector: String,
-    #[serde(default)]
-    pub jna: bool,
-    #[serde(default)]
-    pub pty4j: bool,
-    #[serde(default)]
-    pub skiko: bool,
+    /// The JNA native tree relative to the IDE home, when the product bundles the JNA plugin.
+    pub jna_native_dir: Option<String>,
+    /// The pty4j native tree relative to the IDE home, when the product bundles the pty4j plugin.
+    pub pty4j_native_dir: Option<String>,
+    /// The Skiko native tree relative to the IDE home, when the product bundles the Skiko plugin.
+    pub skiko_native_dir: Option<String>,
     #[serde(default)]
     pub runtime_module_repository: bool,
     pub root_module: Option<String>,
@@ -110,7 +105,7 @@ pub(crate) struct JvmArguments {
 }
 
 /// The parts of `bin/idea.properties`: the base file, then each addition after a newline, with `@@settings_dir@@`
-/// replaced by `settings_dir`, then `suffix`.
+/// replaced by `settings_dir`, then the fatal error block when `fatal_error_notification` is set.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct IdeaProperties {
@@ -122,8 +117,9 @@ pub(crate) struct IdeaProperties {
     #[serde(default)]
     pub additions: Vec<String>,
     pub settings_dir: String,
+    /// Appends the fatal error block, whose text follows the EAP flag of the application info.
     #[serde(default)]
-    pub suffix: String,
+    pub fatal_error_notification: bool,
 }
 
 pub(crate) fn parse_launch_model(text: &[u8]) -> anyhow::Result<LaunchModel> {

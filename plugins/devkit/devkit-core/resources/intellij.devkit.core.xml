@@ -761,6 +761,12 @@
                      implementationClass="org.jetbrains.idea.devkit.inspections.ContentModuleWithoutDedicatedJpsModuleInspection"
                      key="inspection.content.module.without.dedicated.jps.module.name"/>
 
+    <localInspection language="" projectType="INTELLIJ_PLUGIN"
+                     groupPathKey="inspections.group.path" groupKey="inspections.group.descriptor"
+                     enabledByDefault="true" level="WARNING"
+                     implementationClass="org.jetbrains.idea.devkit.inspections.ToolWindowStripeTitleInspection"
+                     key="inspection.tool.window.stripe.title.display.name"/>
+
     <localInspection language="XML" applyToDialects="false"
                      projectType="INTELLIJ_PLUGIN"
                      groupPathKey="inspections.group.path" groupKey="inspections.group.descriptor"
@@ -1219,6 +1225,8 @@
       <action id="DevKit.AnalyzePersistentSyntaxTreeOverhead" internal="true"
               class="org.jetbrains.idea.devkit.hprof.AnalyzePersistentSyntaxTreeOverheadAction"/>
       <action id="AnalyzeUnloadablePlugins" internal="true" class="org.jetbrains.idea.devkit.internal.AnalyzeUnloadablePluginsAction"/>
+      <action id="PluginPermissionServiceDemo" internal="true"
+              class="org.jetbrains.idea.devkit.plugins.PluginPermissionServiceDemoAction"/>
       <add-to-group group-id="Internal" anchor="last"/>
     </group>
 

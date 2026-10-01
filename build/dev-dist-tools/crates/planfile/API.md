@@ -9,7 +9,7 @@ The crate depends on `serde`, `serde_json` and `thiserror` only.
 
 ## The subset rule
 
-The crate ports only the shapes that the 92 checked-in `*.dev-plan.json` files use. It refuses every other shape with
+The crate ports only the shapes that the checked-in `*.dev-plan.json` files use. It refuses every other shape with
 an error that names it. The table lists what the Go code supports and the port refuses.
 
 `testdata/corpus/` holds a copy of each of these files, without the Starlark test fixture. The corpus test reads and
@@ -19,13 +19,15 @@ generated catalogue does. A plan author who needs a new shape updates the corpus
 
 | Refused input | Error |
 | --- | --- |
-| an asset with `symlinkTarget` or `normalizeTreeModes`, or of the kind `directory` | unknown field, or the kind |
+| an asset with `symlinkTarget`, `normalizeTreeModes` or `scope`, or of the kind `directory` | unknown field, or the kind |
 | an asset mode other than 0644 and 0755 | the mode |
 | a recipe asset that also states `inputs` | inputs and a recipe |
-| a `distribution` asset that is not a reused native tree | only a reused native tree has the distribution scope |
+| a plan file of the retired version 3, or a version other than the one of its assets | stale execution version |
+| a tree `native-tree:<module>` whose module has no reused natives jar | requires its reused natives jar |
 | a jar source of the kind `zip`, or a kind with another filter than its one filter | the kind, or the filter |
 | a source option other than `patch`, and a `file` source without `patch` and an entry | the entry and the options |
 | `preparedManifest`, and the writer keys `rewriteBootClassPath` and `outputName` | unknown field |
+| the writer key `directoryEntries` with `true`; `false`, `null` and an absent key pass | the destination and `directoryEntries` |
 | a writer manifest other than `single-meaningful-source`, `keep` and `drop` | unknown variant |
 | `preparationRoots`, `alwaysRun`, and every field of a Kotlin-executed operation | unknown field |
 | an operation kind other than `layout-assets`, for example the retired `module-filter` | the kind |
@@ -42,10 +44,10 @@ generated catalogue does. A plan author who needs a new shape updates the corpus
 - `Error`: one refusal or I/O failure. `Display` gives the message. `Error::message(&self) -> &str`.
 - `DEFAULT_MODE: u32 = 0o644`, `EXECUTABLE_MODE: u32 = 0o755`: the two asset modes.
 - `PlanFile { version: u32, plugin, layout_signature, assets: Vec<Asset>, preparations: Vec<Preparation>, operations: Vec<Operation> }`: one decoded plan file in its full form.
-- `Asset { destination, inputs: Vec<String>, recipe: Option<JarRecipe>, mode: u32, kind, class_path: bool, scope }`: one plan asset. `kind` is `file` or `tree`. `scope` is `plugin` or `distribution`. The inputs of a jar asset are the inputs of its recipe sources.
+- `Asset { destination, inputs: Vec<String>, recipe: Option<JarRecipe>, mode: u32, kind, class_path: bool }`: one plan asset below the plugin directory. `kind` is `file` or `tree`. The native tree of a reused natives jar is a tree next to its jar. The inputs of a jar asset are the inputs of its recipe sources.
 - `JarRecipe { sources: Vec<JarSource>, writer: JarWriter }`: the canonical recipe of one jar.
 - `JarSource { input, kind, entry }`: one ordered jar source. `kind` is `module`, `library`, `archive`, `file` or `prepared`. Only a `file` source has an entry, and the jar writer patches that file into the jar.
-- `JarWriter { manifest: ManifestPolicy, merge_entities: bool, directory_entries: bool, native_lib }`: the writer options. An empty `native_lib` means none.
+- `JarWriter { manifest: ManifestPolicy, merge_entities: bool, native_lib }`: the writer options. An empty `native_lib` means none. A plan jar has no directory entries.
 - `ManifestPolicy::{SingleMeaningfulSource, Keep, Drop}`: the manifest policy of a jar writer. The default is `SingleMeaningfulSource`.
 - `Preparation { id, inputs, outputs, model_signature }`: one preparation definition.
 - `Operation { id, kind, inputs: Vec<contract::Reference>, output, layout_assets: LayoutAssetPreparation }`: one preparation operation. `kind` is `layout-assets`, the one kind. The packer keeps the manifest of every operation output.
@@ -70,17 +72,16 @@ The plan-file types derive `Clone`, `Debug`, `PartialEq`, `Eq`. Only `read` and 
 The recipe stays in the process, so it has no JSON form. The asset rows go to `assets.json`, and Starlark writes the
 catalogue.
 
-- `VERSION: u32 = 1`, `TREE_VERSION: u32 = 2`, `SCOPED_VERSION: u32 = 3`: the execution versions. Version 3 has a reused native tree of the distribution scope. The remainder writes only plugin files in every version, so no transport root exists.
-- `PLUGIN_SCOPE = "plugin"`, `DISTRIBUTION_SCOPE = "distribution"`.
+- `VERSION: u32 = 1`, `TREE_VERSION: u32 = 2`: the execution versions. Version 2 has a tree, and a reused native tree is such a tree. The retired version 3 had the distribution scope. The remainder writes only plugin files, so no transport root exists.
 - `Recipe { version: u32, plugin, layout_signature, assets: Vec<Asset>, operations: Vec<Operation> }`.
-- `Asset { destination, producer, artifact, kind, class_path: Option<bool>, scope }`: one row of `assets.json` (`Serialize`, `Deserialize`). `producer` is `remainder` or `independent`. An empty `kind` is `file`, an empty `scope` is `plugin`. `serde_json::to_vec(&rows)` writes the bytes of Go `json.Marshal`, because no plan file holds `<`, `>`, `&`, U+2028 or U+2029.
+- `Asset { destination, producer, artifact, kind, class_path: Option<bool> }`: one row of `assets.json` (`Serialize`, `Deserialize`). `producer` is `remainder` or `independent`. An empty `kind` is `file`. A row has no scope, because every asset is below the plugin directory. `serde_json::to_vec(&rows)` writes the bytes of Go `json.Marshal`, because no plan file holds `<`, `>`, `&`, U+2028 or U+2029.
 - `Catalogue { version: u32, artifacts: Vec<Artifact>, libraries: Vec<Library> }` (`Deserialize`).
 - `Artifact { id, kind, root }`: `kind` is `file` or `directory`.
 - `Library { id, files: Vec<Reference> }`.
 - `Reference { artifact, path }`: `path` is empty for a whole artifact. It is `Hash` and `Eq`.
   `Reference::artifact(id: impl Into<String>) -> Reference` makes the reference of a whole artifact.
 - `enum Operation`: one remainder operation at its destination in the plugin directory. `Operation::destination(&self) -> &str`.
-  - `Jar { destination, mode: u32, sources: Vec<Source>, merge_entities: bool, directory_entries: bool }`.
+  - `Jar { destination, mode: u32, sources: Vec<Source>, merge_entities: bool }`: the packer writes no directory entries into the jar.
   - `Copy { destination, mode: u32, input: Reference }`: one declared file.
   - `CopyTree { destination, input: Reference }`: one declared directory with its source modes.
   - `LayoutTree { destination, layout: LayoutAssets }`: the layout assets under the destination, with their source modes.

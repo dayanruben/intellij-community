@@ -1,11 +1,11 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.soundSignals
 
+import com.intellij.ide.GeneralSettings
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.command.CommandProcessor
-import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.getOrLogException
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.Document
@@ -22,18 +22,18 @@ import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.registry.RegistryManager
 import com.intellij.openapi.util.registry.RegistryValue
 import com.intellij.openapi.util.registry.RegistryValueListener
-import com.intellij.util.asDisposable
 import com.intellij.util.ui.UIUtil
-import com.intellij.util.ui.accessibility.ScreenReader
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.TestOnly
 import java.lang.ref.WeakReference
 import kotlin.streams.asSequence
 import kotlin.time.Duration
@@ -43,10 +43,11 @@ import kotlin.time.TimeSource
 @ApiStatus.Internal
 @OptIn(FlowPreview::class)
 class EditorSoundSignalsManager internal constructor(
-  scope: CoroutineScope,
+  private val scope: CoroutineScope,
   private val settleDelay: Duration,
   private val editAdjacentSettleDelay: Duration,
 ) {
+  @Suppress("unused")
   constructor(scope: CoroutineScope) : this(
     scope,
     settleDelay = RegistryManager.getInstance()
@@ -71,7 +72,6 @@ class EditorSoundSignalsManager internal constructor(
       editor.editorKind == EditorKind.MAIN_EDITOR || editor.editorKind == EditorKind.DIFF || editor.editorKind == EditorKind.CONSOLE
   }
 
-  private val settings = service<SoundSignalsSettings>()
   private val managerJob = scope.coroutineContext.job
   private val caretPositionRequests =
     MutableSharedFlow<CaretPositionRequest>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
@@ -123,24 +123,27 @@ class EditorSoundSignalsManager internal constructor(
     RegistryManager.getInstance().get(SOUND_SIGNALS_ENABLED_REGISTRY_KEY).addListener(object : RegistryValueListener {
       override fun afterValueChanged(value: RegistryValue) = refreshSoundSignalsState()
     }, scope)
-    ScreenReader.addPropertyChangeListener(ScreenReader.SCREEN_READER_ACTIVE_PROPERTY, scope.asDisposable()) { refreshSoundSignalsState() }
+    scope.launch {
+      GeneralSettings.getInstance().propertyChangedFlow
+        .filter { it == GeneralSettings.PropertyNames.supportScreenReaders }
+        .collect { refreshSoundSignalsState() }
+    }
+    EditorSoundSignalDetector.EP_NAME.addChangeListener(scope) { updateListenersState() }
     managerJob.invokeOnCompletion { updateListenersState() }
     updateListenersState()
-
-    scope.launch {
-      caretPositionRequests
-        .debounce { if (it.editAdjacent) editAdjacentSettleDelay else settleDelay }
-        .collectLatest { runCatching { processCaretPosition(it) }.getOrLogException(LOG) }
-    }
   }
 
   internal fun updateListenersState() {
     updateListenersDisposable()?.let(Disposer::dispose)
   }
 
+  @get:TestOnly
+  internal val isListening: Boolean
+    @Synchronized get() = listenersDisposable != null
+
   @Synchronized
   private fun updateListenersDisposable(): Disposable? {
-    if (!managerJob.isActive || !settings.isEnabled) {
+    if (!managerJob.isActive || !isSoundSignalsOn() || EditorSoundSignalDetector.EP_NAME.findFirstSafe { it.hasEnabledSignal() } == null) {
       return listenersDisposable.also { listenersDisposable = null }
     }
     if (listenersDisposable != null) return null
@@ -149,9 +152,17 @@ class EditorSoundSignalsManager internal constructor(
     val multicaster = EditorFactory.getInstance().eventMulticaster
     multicaster.addCaretListener(caretListener, disposable)
     multicaster.addDocumentListener(documentListener, disposable)
+    val collector = scope.launch {
+      caretPositionRequests
+        .debounce { if (it.editAdjacent) editAdjacentSettleDelay else settleDelay }
+        .collectLatest { runCatching { processCaretPosition(it) }.getOrLogException(LOG) }
+    }
+    Disposer.register(disposable) { collector.cancel() }
     listenersDisposable = disposable
     return null
   }
+
+  private fun EditorSoundSignalDetector.hasEnabledSignal(): Boolean = signals.any(::isSoundSignalOn)
 
   private suspend fun processCaretPosition(request: CaretPositionRequest) {
     val editor = request.editorRef.get() ?: return
@@ -166,7 +177,7 @@ class EditorSoundSignalsManager internal constructor(
     val scoped = if (newLine) signals else signals.filter { it.lineCounterpart != null }
     val toPlay = scoped.filterNot { detected ->
       val counterpart = detected.lineCounterpart ?: return@filterNot false
-      scoped.any { it.signal === counterpart } && settings.isSignalEnabled(counterpart)
+      scoped.any { it.signal === counterpart } && isSoundSignalOn(counterpart)
     }
     if (toPlay.isNotEmpty()) SoundSignalPlayer.getInstance().play(*toPlay.map { it.signal }.toTypedArray())
   }
@@ -178,7 +189,9 @@ class EditorSoundSignalsManager internal constructor(
     if (caretOffset < 0 || caretOffset > document.textLength) return emptySet()
 
     val signals = mutableSetOf<EditorSoundSignal>()
-    EditorSoundSignalDetector.EP_NAME.forEachExtensionSafe { signals += it.detect(editor, line, caretOffset) }
+    EditorSoundSignalDetector.EP_NAME.forEachExtensionSafe {
+      if (it.hasEnabledSignal()) signals += it.detect(editor, line, caretOffset)
+    }
     return signals
   }
 

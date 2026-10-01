@@ -7,15 +7,14 @@ import com.intellij.platform.eel.channels.EelReceiveChannel
 import com.intellij.platform.eel.channels.EelSendChannel
 import com.intellij.platform.eel.channels.PeekableEelReceiveChannel
 import com.intellij.platform.eel.channels.peekable
-import com.intellij.platform.eel.map
 import com.intellij.platform.eel.provider.utils.asEelChannel
 import com.intellij.platform.eel.provider.utils.consumeAsEelChannel
-import com.intellij.platform.ijent.IJENT_DEAD_SESSION_SAFE_DEFERRED_MAPPER
 import com.intellij.platform.ijent.IjentChildProcessAdapter
 import com.intellij.platform.ijent.IjentLogger
 import com.intellij.platform.ijent.IjentScope
 import com.intellij.platform.ijent.IjentUnavailableException
 import com.intellij.platform.ijent.ParentOfIjentScopes
+import com.intellij.platform.ijent.asyncSafeInParent
 import com.intellij.platform.ijent.coroutineNameAppended
 import com.intellij.platform.ijent.spi.IjentSessionProcessMediator.ProcessExitPolicy.CHECK_CODE
 import com.intellij.platform.ijent.spi.IjentSessionProcessMediator.ProcessExitPolicy.NORMAL
@@ -26,7 +25,6 @@ import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -114,13 +112,13 @@ class IjentSessionProcessMediator private constructor(
     // the moment leak detection runs (e.g. an IDE Starter test on WSL where the manager
     // scope outlives the test). `IjentThreadPool-` is whitelisted, and `runInterruptible`
     // still delivers a thread interrupt on cancellation.
-    override val exitCode: SafeDeferred<Int> = SafeDeferred(ijentProcessScope.parent.s.async {
+    override val exitCode: SafeDeferred<Int> = ijentProcessScope.asyncSafeInParent {
       runInterruptible(IjentThreadPool.coroutineContext) {
         @Suppress("UsePlatformProcessAwaitExit")
         process.waitFor()
       }
       process.exitValue()
-    }, IJENT_DEAD_SESSION_SAFE_DEFERRED_MAPPER)
+    }
     override val isAlive: Boolean get() = process.isAlive
 
     override val destroyIsGraceful: Boolean =
@@ -252,9 +250,8 @@ class IjentSessionProcessMediator private constructor(
       }
 
       awaiterScope.invokeOnCompletion { err ->
-        val exitReason = ijentProcessScope.s.coroutineContext[IjentScope.IjentContext.Key]
-          ?.exitReason
-          ?.takeIf { it.isCompleted }
+        val exitReason = ijentProcessScope.exitReason
+          .takeIf { it.isCompleted }
           ?.getCompleted()
         if (exitReason is IjentUnavailableException.ClosedByApplication) {
           ijentProcessScope.destroy(exitReason, isRootCause = true)

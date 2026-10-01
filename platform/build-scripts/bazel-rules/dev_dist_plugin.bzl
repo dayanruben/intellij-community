@@ -45,7 +45,6 @@ def dev_dist_plugin(
         main_module,
         module_targets,
         descriptor_index = {},
-        descriptor_modules = [],
         content_modules = [],
         descriptor = "",
         variants = [],
@@ -56,9 +55,9 @@ def dev_dist_plugin(
         embedded_separate_jar = [],
         frontend_application_info = "",
         frontend_product_application_info = "",
-        frontend_build_number = "",
         jars = {},
         module_jar_paths = {},
+        content_module_jar_labels = {},
         classpath_jars = [],
         files = {},
         file_prefixes = {},
@@ -71,17 +70,20 @@ def dev_dist_plugin(
         main_module: The main JPS module. It identifies every leaf.
         module_targets: The production map from the applicable JPS bridge. Entries contain one jar output label. The
             bridge's own `dev_dist_plugin` binds it, so a generated section states neither map.
-        descriptor_index: The conventional descriptor index from that bridge. A content-only plugin ignores it.
-        descriptor_modules: The exact conventional descriptor modules selected by the generator.
+        descriptor_index: The conventional descriptor index from that bridge. The descriptor leaf derives a row for the
+            main module and every member it knows, unless `descriptors` states the label or the load path.
         content_modules: The complete ordered list of plugin member JPS module names.
-        descriptor: The main descriptor path inside the main module's package.
+        descriptor: The main descriptor label, package-relative.
         variants: Layout variants. An empty list selects the common variant.
         jars: The packed jars of a simple plugin, keyed by destination relative to the plugin directory and valued by
             source tokens in merge order. A token is a JPS module name or a library container label. A content module
             no jar merges ships its own `content_module_jar` jar as `lib/modules/<module>.jar`. Empty for a
-            plugin the plan driven chain packs.
+            plugin the plan driven chain packs. A test-only module is declared in a cross-half `dev_plugin`.
         module_jar_paths: The destination of a reused content module jar when it is not `lib/modules/<module>.jar`,
             keyed by module name.
+        content_module_jar_labels: The `content_module_jar` label of a reused content module whose call is not in the
+            package of the module, keyed by module name. The generator states it for a call it relocates. Any other
+            reused module takes the label the package of the module gives.
         classpath_jars: The classpath order of every jar of a simple plugin, when the default order is not the plan's
             order. The default order is the `jars` keys, then the reused content module jars in `content_modules` order.
         files: The plain copies of a simple plugin, keyed by destination relative to the plugin directory and valued by
@@ -97,10 +99,9 @@ def dev_dist_plugin(
         embedded_library_descriptors: Ordered Java containers mapped to space-separated resolver load paths.
         embedded_modules: The embedded descriptor search scope by JPS module name.
         embedded_separate_jar: Embedded content modules packed into separate jars.
-        frontend_application_info: The application info template of the embedded frontend. Stated together with the two
-            other `frontend_` labels by the plugin that packs the JetBrains Client, and empty for every other plugin.
+        frontend_application_info: The application info template of the embedded frontend. Stated together with the other
+            `frontend_` label by the plugin that packs the JetBrains Client, and empty for every other plugin.
         frontend_product_application_info: The application info of the product the frontend takes its names and version from.
-        frontend_build_number: The build number file the frontend build number is stamped from.
         directory_name: The plugin directory, when the layout does not take the derived one. Only the packed component
             reads it.
         **descriptor_attrs: Other descriptor attributes. Shared leaf attributes are refused.
@@ -112,9 +113,9 @@ def dev_dist_plugin(
         fail("dev_dist_plugin: %s states shared leaf attributes: %s" % (main_module, shared))
     if not embedded_descriptor_source and (embedded_descriptors or embedded_library_descriptors or embedded_modules or embedded_separate_jar):
         fail("dev_dist_plugin: %s states embedded descriptor inputs without an embedded descriptor" % main_module)
-    frontend_labels = [frontend_application_info, frontend_product_application_info, frontend_build_number]
+    frontend_labels = [frontend_application_info, frontend_product_application_info]
     if any(frontend_labels) and not all(frontend_labels):
-        fail("dev_dist_plugin: %s states some of the three frontend application info labels, and a frontend states all of them" % main_module)
+        fail("dev_dist_plugin: %s states one of the two frontend application info labels, and a frontend states both" % main_module)
     if frontend_application_info and not embedded_descriptor_source:
         fail("dev_dist_plugin: %s states a frontend application info without an embedded descriptor" % main_module)
     if jars and variants:
@@ -126,6 +127,10 @@ def dev_dist_plugin(
     for destination in file_prefixes:
         if destination not in files:
             fail("dev_dist_plugin: %s states a file prefix for '%s', which `files` does not copy" % (main_module, destination))
+    jar_tokens = [token for tokens in jars.values() for token in tokens]
+    for module in content_module_jar_labels:
+        if module not in content_modules or module in jar_tokens:
+            fail("dev_dist_plugin: %s states a content_module_jar label for '%s', which it does not reuse" % (main_module, module))
     for destination in executable_files:
         if destination not in files:
             fail("dev_dist_plugin: %s marks '%s' executable, which `files` does not copy" % (main_module, destination))
@@ -133,18 +138,16 @@ def dev_dist_plugin(
             fail("dev_dist_plugin: %s marks the directory copy '%s' executable, and only a single file has a stated mode" % (main_module, destination))
 
     if not descriptor:
-        if variants or descriptor_attrs or descriptor_modules:
+        if variants or descriptor_attrs:
             fail("dev_dist_plugin: %s states descriptor attributes and no descriptor" % main_module)
         if not content_modules:
             fail("dev_dist_plugin: %s states neither content modules nor a descriptor" % main_module)
 
-    unresolved = []
     stale = {}
     owner = module_rule_label(main_module, module_targets)
     if owner == None:
         _warn_stale(main_module, {main_module: True})
         return
-    descriptor_module = ":" + owner.rpartition(":")[2]
 
     # Nothing reads the labels. The resolution fills `stale`, and the `if jars and not stale` guard below reads it.
     _module_labels(content_modules, module_targets, stale)
@@ -166,34 +169,26 @@ def dev_dist_plugin(
             elif label not in packed_modules:
                 packed_modules[label] = token
     _warn_stale(main_module, stale)
-    descriptors = dict(descriptor_attrs.get("descriptors", {}))
-    for name in descriptor_modules:
-        label = descriptor_index.get(name)
-        if label == None:
-            unresolved.append(name)
-        elif label not in descriptors:
-            descriptors[label] = name + ".xml"
-    if descriptors:
-        descriptor_attrs["descriptors"] = {label: descriptors[label] for label in sorted(descriptors)}
 
     if descriptor:
         for variant in variants if variants else [""]:
             dev_dist_plugin_descriptor(
                 main_module = main_module,
-                descriptor_module = descriptor_module,
                 descriptor = descriptor,
+                content_modules = [main_module] + content_modules,
+                descriptor_index = descriptor_index,
                 variant = variant,
-                unresolved_descriptor_modules = unresolved,
                 **descriptor_attrs
             )
     if jars and not stale:
         # A content module no jar merges is reused from its own packing target. Its label follows from the module's
-        # label, and a module without such a target fails when Bazel analyses the component.
+        # label unless `content_module_jar_labels` states it, and a module without such a target fails when Bazel
+        # analyses the component.
         content_module_jars = []
         for name in content_modules:
             label = module_rule_label(name, module_targets)
             if label not in packed_modules and label != None:
-                content_module_jars.append(_content_module_jar_label(label))
+                content_module_jars.append(content_module_jar_labels.get(name) or _content_module_jar_label(label))
         dev_plugin(
             name = dev_dist_plugin_component_target_name(main_module),
             main_module = main_module,
@@ -224,5 +219,4 @@ def dev_dist_plugin(
             main_module = main_module,
             client_application_info = frontend_application_info,
             product_application_info = frontend_product_application_info,
-            build_number = frontend_build_number,
         )

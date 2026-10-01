@@ -3,9 +3,7 @@
 use std::fs;
 use std::path::Path;
 
-use planfile::contract::{
-    Asset, Catalogue, DISTRIBUTION_SCOPE, Filter, Manifest, Operation, Recipe, Reference, SCOPED_VERSION, Source, VERSION,
-};
+use planfile::contract::{Asset, Catalogue, Filter, Manifest, Operation, Recipe, Reference, Source, VERSION};
 
 use super::planning::{jar_sources, sample_plan};
 use super::*;
@@ -87,20 +85,71 @@ fn independent_destinations_collide_with_remainder_tree_entries() {
     }
 }
 
-/// The Go test wrote a distribution-scope copy beside a plugin copy of the same destination. The remainder writes only
-/// plugin files now, so the plan refuses a remainder asset of the distribution scope.
+/// The native tree of a reused natives jar reserves its directory. The remainder can write beside
+/// the tree, but not in it.
 #[test]
-fn distribution_scope_is_refused_for_a_remainder_asset() {
+fn plugin_native_tree_collides_with_remainder_tree_entries() {
+    for (name, entry, want) in [
+        (
+            "entry in the native tree",
+            "native/libx.so",
+            r#"conflicting output destination "lib/native""#,
+        ),
+        ("entry beside the native tree", "other.txt", ""),
+    ] {
+        let root = temp();
+        let tree = root.path().join("tree");
+        write_test_file(&tree.join(entry), b"entry");
+        let recipe = Recipe {
+            version: TREE_VERSION,
+            plugin: "natives".to_owned(),
+            layout_signature: "natives-v2".to_owned(),
+            assets: vec![
+                tree_asset("lib"),
+                independent("lib/modules/demo.natives.jar", "demo.natives"),
+                Asset {
+                    kind: "tree".to_owned(),
+                    class_path: Some(false),
+                    ..independent("lib/native", "demo.natives")
+                },
+            ],
+            operations: vec![Operation::CopyTree {
+                destination: "lib".to_owned(),
+                input: Reference::artifact("tree"),
+            }],
+        };
+        let catalogue = catalogue(vec![directory_artifact("tree", &tree)]);
+        if want.is_empty() {
+            let written = write_execution(&recipe, &catalogue);
+            assert_content(&written.output.join("lib/other.txt"), "entry");
+            assert!(
+                !exists(&written.output.join("lib/native")),
+                "{name}: the remainder wrote the native tree"
+            );
+            continue;
+        }
+        let execution = plan(&recipe, &catalogue).unwrap_or_else(|error| panic!("{name}: plan: {error}"));
+        let error = execution
+            .write(&root.path().join("output"), &root.path().join("inventory.json"))
+            .unwrap_err();
+        assert!(error.message().contains(want), "{name}: expected {want:?}, got {error}");
+        assert_no_published_outputs(root.path());
+    }
+}
+
+/// The Go test wrote a distribution-scope copy beside a plugin copy of the same destination. The distribution scope and
+/// its version 3 are retired, so the plan refuses a recipe of version 3.
+#[test]
+fn version_three_is_refused() {
     let root = temp();
     let input = root.path().join("input");
     write_test_file(&input, b"distribution");
     let recipe = Recipe {
-        version: SCOPED_VERSION,
+        version: 3,
         plugin: "scoped".to_owned(),
         layout_signature: "scoped-v3".to_owned(),
         assets: vec![Asset {
             class_path: Some(false),
-            scope: DISTRIBUTION_SCOPE.to_owned(),
             ..remainder("lib/native.bin")
         }],
         operations: vec![Operation::Copy {
@@ -112,7 +161,7 @@ fn distribution_scope_is_refused_for_a_remainder_asset() {
     expect_plan_error(
         &recipe,
         &catalogue(vec![file_artifact("input", &input)]),
-        "the remainder writes only plugin files",
+        "the recipe must use version 1 or 2",
     );
 }
 
@@ -630,7 +679,6 @@ fn batch_writes_only_its_assets_in_layout_order() {
                 manifest: Manifest::Keep,
             }],
             merge_entities: false,
-            directory_entries: true,
         },
     ]);
     let written = write_execution(&recipe, &catalogue);
@@ -667,11 +715,7 @@ fn batch_writes_only_its_assets_in_layout_order() {
     assert_eq!(text(&entries["shared.txt"]), "first wins");
     assert_eq!(text(&entries["META-INF/listOfEntities.txt"]), "First\nSecond\nModule\nModule");
     let (custom, _) = read_archive(&written.output.join("lib/nested/custom.jar"));
-    assert_eq!(
-        custom,
-        ["custom/Value.class", "custom/", "__index__"],
-        "the directory entries of a test plugin"
-    );
+    assert_eq!(custom, ["custom/Value.class", "__index__"], "a plan jar has no directory entries");
     let reference = root.path().join("reference/library.jar");
     jarpack::MergeSpec {
         output: reference.clone(),

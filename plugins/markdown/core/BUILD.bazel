@@ -88,6 +88,7 @@ jvm_library(
         "//platform/execution-impl",
         "//libraries/miglayout-swing",
         "//platform/platform-api:ide",
+        "//platform/progress/shared:ide-progress",
         "//platform/statistics",
         "//platform/util/jdom",
         "//libraries/kotlinx/coroutines/core",
@@ -107,6 +108,7 @@ jvm_library(
         "//platform/util/text-matching",
         "//platform/usageView-impl",
         "//platform/usageView",
+        "//libraries/snakeyaml",
     ],
 )
 
@@ -163,6 +165,7 @@ jvm_library(
         "//platform/execution-impl:execution-impl_test_lib",
         "//libraries/miglayout-swing:miglayout-swing_test_lib",
         "//platform/platform-api:ide_test_lib",
+        "//platform/progress/shared:ide-progress_test_lib",
         "//platform/statistics:statistics_test_lib",
         "//platform/util/jdom:jdom_test_lib",
         "//libraries/kotlinx/coroutines/core:core_test_lib",
@@ -181,6 +184,7 @@ jvm_library(
         "//platform/util/text-matching:text-matching_test_lib",
         "//platform/usageView-impl:usageView-impl_test_lib",
         "//platform/usageView:usageView_test_lib",
+        "//libraries/snakeyaml:snakeyaml_test_lib",
     ],
 )
 ### auto-generated section `build intellij.markdown` end

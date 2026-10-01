@@ -67,6 +67,7 @@ intellij.kotlin.gradle.tooling.impl.tests
 intellij.kotlin.jvm.debugger.eval4j.tests
 intellij.kotlin.onboarding.gradle.tests
 intellij.kotlin.onboarding.tests
+intellij.lombok.tests
 intellij.markdown.tests
 intellij.maven.groovy.tests
 intellij.maven.jps.tests
@@ -85,6 +86,7 @@ intellij.platform.backend.observation.tests
 intellij.platform.buildScripts.productDsl.tests
 intellij.platform.buildScripts.runtimeModuleRepository.tests
 intellij.platform.buildScripts.usages.tests
+intellij.platform.buildView.tests
 intellij.platform.builtInServer.tests
 intellij.platform.collaborationTools.tests
 intellij.platform.completion.common.tests

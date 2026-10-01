@@ -3,13 +3,10 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use planfile::contract::{
-    Asset, Catalogue, DISTRIBUTION_SCOPE, Filter, Library, Manifest, Operation, Recipe, Reference, SCOPED_VERSION, Source, TREE_VERSION,
-    VERSION,
-};
+use planfile::contract::{Asset, Catalogue, Filter, Library, Manifest, Operation, Recipe, Reference, Source, TREE_VERSION, VERSION};
 
 use super::*;
-use crate::plan::{validate_link_graph, validate_scoped_links};
+use crate::plan::{validate_link_graph, validate_plugin_links};
 
 fn tree_plan(root: &Path) -> (Recipe, Catalogue) {
     let recipe = Recipe {
@@ -39,7 +36,6 @@ pub(crate) fn sample_plan(root: &Path) -> (Recipe, Catalogue) {
             mode: 0o644,
             sources: vec![archive_source(Reference::artifact("module"), Filter::Module, Manifest::Drop)],
             merge_entities: true,
-            directory_entries: false,
         }],
     };
     (recipe, catalogue(vec![file_artifact("module", root.join("module.jar"))]))
@@ -76,7 +72,8 @@ fn tree_planning_is_versioned_and_does_not_read_directories() {
     let (mut recipe, catalogue) = tree_plan(&root.path().join("missing"));
     let execution = plan(&recipe, &catalogue).unwrap();
     assert_eq!(execution.inputs, catalogue.artifacts, "tree planning changed the ownership");
-    for version in [VERSION, SCOPED_VERSION] {
+    // Version 3 is retired, so a tree has only version 2.
+    for version in [VERSION, 3] {
         recipe.version = version;
         assert!(plan(&recipe, &catalogue).is_err(), "accepted tree version {version}");
     }
@@ -145,68 +142,60 @@ fn tree_plan_rejects_unsafe_ownership_and_operation_options() {
     assert!(plan(&recipe, &catalogue).is_err(), "accepted an independent input");
 }
 
-/// The Go test reserved the transport root `.distribution-root` for version 3. The remainder writes only plugin
-/// files, so no transport root exists, and a distribution asset is the native tree of a reused natives jar.
+/// The Go test reserved the transport root `.distribution-root` for version 3. The remainder writes only plugin files,
+/// so no transport root exists. The native tree of a reused natives jar lies below the plugin directory. Such a plan
+/// has version 2, and the tree requires an independent jar of the same module.
 #[test]
-fn plan_accepts_only_a_reused_native_tree_in_the_distribution_scope() {
+fn plan_accepts_a_reused_native_tree_next_to_its_jar() {
     let native_tree = Asset {
         kind: "tree".to_owned(),
         class_path: Some(false),
-        scope: DISTRIBUTION_SCOPE.to_owned(),
         ..independent("lib/native", "demo.natives")
     };
-    let scoped = |assets: Vec<Asset>| Recipe {
-        version: SCOPED_VERSION,
-        plugin: "scoped".to_owned(),
-        layout_signature: "scoped-v3".to_owned(),
+    let recipe = |version: u32, assets: Vec<Asset>| Recipe {
+        version,
+        plugin: "natives".to_owned(),
+        layout_signature: "natives-v2".to_owned(),
         assets,
         operations: Vec::new(),
     };
+    let jar = independent("lib/modules/demo.natives.jar", "demo.natives");
     plan(
-        &scoped(vec![
-            independent("lib/modules/demo.natives.jar", "demo.natives"),
-            native_tree.clone(),
-        ]),
+        &recipe(TREE_VERSION, vec![native_tree.clone(), jar.clone()]),
         &catalogue(Vec::new()),
     )
     .unwrap();
-    plan(
-        &scoped(vec![
-            Asset {
-                destination: ".distribution-root".to_owned(),
-                ..native_tree.clone()
-            },
-            independent(".distribution-root", "plugin"),
-        ]),
+    expect_plan_error(
+        &recipe(VERSION, vec![jar.clone(), native_tree.clone()]),
         &catalogue(Vec::new()),
-    )
-    .unwrap();
-    let distribution_file = Asset {
-        kind: String::new(),
-        ..native_tree.clone()
+        r#"tree "lib/native" requires version 2,"#,
+    );
+    expect_plan_error(
+        &recipe(3, vec![jar.clone(), native_tree.clone()]),
+        &catalogue(Vec::new()),
+        "the recipe must use version 1 or 2",
+    );
+    expect_plan_error(
+        &recipe(TREE_VERSION, vec![native_tree.clone()]),
+        &catalogue(Vec::new()),
+        "remainder or native tree ownership",
+    );
+    expect_plan_error(
+        &recipe(
+            TREE_VERSION,
+            vec![independent("lib/modules/other.jar", "other"), native_tree.clone()],
+        ),
+        &catalogue(Vec::new()),
+        "remainder or native tree ownership",
+    );
+    let class_path = Asset {
+        class_path: None,
+        ..native_tree
     };
     expect_plan_error(
-        &scoped(vec![distribution_file]),
+        &recipe(TREE_VERSION, vec![jar, class_path]),
         &catalogue(Vec::new()),
-        "must be the native tree of a reused natives jar",
-    );
-    let remainder_tree = Asset {
-        producer: "remainder".to_owned(),
-        artifact: String::new(),
-        ..native_tree.clone()
-    };
-    expect_plan_error(
-        &scoped(vec![remainder_tree]),
-        &catalogue(Vec::new()),
-        "the remainder writes only plugin files",
-    );
-    let mut version_two = scoped(vec![native_tree]);
-    version_two.version = TREE_VERSION;
-    expect_plan_error(&version_two, &catalogue(Vec::new()), "requires version 3");
-    expect_plan_error(
-        &scoped(vec![independent("lib/x.jar", "x")]),
-        &catalogue(Vec::new()),
-        "version 3 requires a distribution asset",
+        "and classPath false",
     );
 }
 
@@ -506,7 +495,7 @@ fn link_graph_uses_raw_components_and_known_directories() {
             .map(|(link, target)| ((*link).to_owned(), (*target).to_owned()))
             .collect();
         nodes.extend(links.keys().map(|link| (link.clone(), false)));
-        let result = validate_scoped_links(&nodes, &links);
+        let result = validate_plugin_links(&nodes, &links);
         match (result, want) {
             (Ok(()), "") => {}
             (Ok(()), want) => panic!("{name}: expected {want:?}"),

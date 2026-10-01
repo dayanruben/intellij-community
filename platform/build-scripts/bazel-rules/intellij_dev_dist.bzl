@@ -1,7 +1,7 @@
 """Composes a dev-mode IDE distribution from components, and declares the reference fragments of the gates.
 
 A component names the files it places, and the composer copies them into the distribution. A reference fragment
-runs the Kotlin assembler, which produces the same files a second time, so a gate can compare the two producers. No
+runs the reference assembler, which produces the same files a second time, so a gate can compare the two producers. No
 distribution composes a reference.
 
 Split assembly deliberately supports only builds with scrambling disabled. Platform co-scrambling and per-plugin
@@ -11,20 +11,9 @@ scrambling require both component layouts in one process.
 load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
 load("@community//build:project_model_manifest.bzl", "write_project_model_manifest")
 load("//build:dev_launch_dependencies.bzl", "platform_parts")
+load(":dev_dist_build_date.bzl", "DEV_DIST_PINNED_BUILD_DATE_IN_SECONDS")
 load(":dev_dist_content.bzl", "DevDistContentInfo", "DevDistPlatformPayloadInfo")
 load(":dev_dist_plugin_descriptor.bzl", "DevDistProductInfo", "dev_dist_product_info_transition")
-
-# Pinned so the fragments of one distribution agree and an assembly does not carry the wall clock into its outputs. It
-# dates archive entries and the `.SNAPSHOT` plugin version suffix, and both would otherwise differ between fragments
-# assembled minutes apart.
-#
-# Deliberately *not* the product build date. A dev distribution stamps none, so the IDE resolves its build time at
-# startup and no EAP expiration period can run out on a cached distribution. See `computeAppInfoXml`. A far-future date
-# chosen to outrun that period makes every dev IDE start expired, because a build date over a day ahead of the wall
-# clock is expired too.
-#
-# `dev_dist_plugin_descriptor` stamps the same date. It reads the product's own value out of `dev_dist_product_info.bzl`.
-DEV_DIST_PINNED_BUILD_DATE_IN_SECONDS = "1767225600"  # 2026-01-01T00:00:00Z
 
 IntellijDevBuildInputsInfo = provider(
     doc = "The exact Bazel inputs and label-to-path manifest made available to one dev-build fragment.",
@@ -208,7 +197,7 @@ def _composer_resources(_os, _inputs):
     return {"cpu": 4, "memory": 256}
 
 def _assembler_resources(_os, _inputs):
-    """The fragment assembler: `-Xmx8g`, G1 with a few worker threads."""
+    """The reference assembler: `-Xmx8g`, G1 with a few worker threads."""
     return {"cpu": 2, "memory": 9216}
 
 # The switch that turns span output on, carried by every rule here that runs a packaging tool.
@@ -225,7 +214,8 @@ _TRACE_SPANS_ATTR = {
     ),
 }
 
-# The switch that turns the executed packaging recipe on, carried by the one rule here that runs the assembler.
+# The switch that turns the executed packaging recipe on, carried by the one rule here that runs the reference
+# assembler.
 #
 # A sibling of the above with the same shape rather than a reuse of it: a recipe and a measurement are wanted at
 # different times, and `trace_spans` has a protocol - hold it constant across a comparison, read it only from a cold
@@ -436,7 +426,8 @@ def _fragment_impl(ctx):
         )
     runtime_module_repository_layout = None
     if ctx.attr.runtime_module_repository:
-        # The assembler lays the platform and the bundled plugins out without files, then writes only `modules/`.
+        # The reference assembler lays the platform and the bundled plugins out without files, then writes only
+        # `modules/`.
         args.add("--runtime-module-repository")
 
         # The layout the repository is generated from, the reference of `./build/dev-dist.cmd runtime-repo`. Not in the
@@ -495,7 +486,8 @@ def _fragment_impl(ctx):
     ]
 
 intellij_dev_fragment = rule(
-    doc = """A reference fragment: files of a dev distribution that the Kotlin assembler packs a second time for a gate.
+    doc = """A reference fragment: files of a dev distribution that the reference assembler packs a second time for a
+    gate.
 
     It publishes `IntellijDevReferenceInfo`, so no distribution can compose it. What the fragment owns is a selector
     over names, not a file list. `platform = "only"` owns the `lib/` jars that a generated jar-name set names.
@@ -600,35 +592,28 @@ def _metadata_catalogue(ctx, records):
     ]))
     return catalogue
 
-def _jar_destinations(ctx, records, core_classpath = []):
+def _jar_destinations(ctx, records):
     """Where each packed jar goes within the plugin's `lib/`, which its own file name states only when it is flat.
 
-    A native tree goes to `lib/<native_lib_dir>/`, as a `tree` entry. A jar of `core_classpath` is a `coreClassPath`
-    entry, and every jar that list names must be placed. Sorted by source, so the file the action reads is the same file
-    for the same set of jars.
+    A native tree goes to `lib/<native_lib_dir>/`, as a `tree` entry. A jar that the payload puts on the core classpath
+    is a `coreClassPath` entry. Sorted by source, so the file the action reads is the same file for the same set of jars.
     """
-    on_core_classpath = {jar: True for jar in core_classpath}
-    placed = {}
     by_source = {}
     for record in records:
         for source in _packed_sources(record):
             relative_path = record.native_lib_dir if source.tree else record.relative_path
             entry = {"source": source.file.path, "relativePath": relative_path} | ({"tree": True} if source.tree else {})
-            if not source.tree and relative_path in on_core_classpath:
+            if not source.tree and record.core_classpath:
                 entry["coreClassPath"] = True
-                placed[relative_path] = True
             previous = by_source.get(source.file.path)
             if previous != None and previous != entry:
                 fail("%s: %s is placed at both %s and %s" % (ctx.label, source.file.path, previous["relativePath"], relative_path))
             by_source[source.file.path] = entry
-    missing = [jar for jar in core_classpath if jar not in placed]
-    if missing:
-        fail("%s: the core classpath names jars that the payload does not pack: %s" % (ctx.label, ", ".join(missing)))
     return [by_source[source] for source in sorted(by_source.keys())]
 
 def _packed_jars_component_impl(ctx):
-    if (ctx.attr.plugin_classpath_prefix or ctx.attr.core_classpath) and not ctx.attr.platform_payload:
-        fail("%s: plugin_classpath_prefix and core_classpath need platform_payload" % ctx.label)
+    if ctx.attr.plugin_classpath_prefix and not ctx.attr.platform_payload:
+        fail("%s: plugin_classpath_prefix needs platform_payload" % ctx.label)
     if ctx.attr.platform_payload:
         if ctx.attr.files or ctx.attr.executable_files:
             fail("%s: files and executable_files cannot be combined with platform_payload" % ctx.label)
@@ -637,7 +622,7 @@ def _packed_jars_component_impl(ctx):
         trees = [record.native_tree for record in records if record.native_tree]
         catalogue = _metadata_catalogue(ctx, records)
         jar_list = ctx.actions.declare_file(ctx.label.name + ".jars.json")
-        ctx.actions.write(jar_list, json.encode(_jar_destinations(ctx, records, ctx.attr.core_classpath)))
+        ctx.actions.write(jar_list, json.encode(_jar_destinations(ctx, records)))
         args = ctx.actions.args()
         args.add("--metadata-catalogue=" + catalogue.path)
         args.add("--jars-file=" + jar_list.path)
@@ -691,7 +676,7 @@ intellij_dev_packed_jars_component = rule(
     doc = """Collect packed platform jars or explicitly placed files into a distribution component.
 
     Set platform_payload to collect its packed jars at lib/<filename>, and the native tree of a content module jar at
-    lib/<native_lib_dir>/. Alternatively, set files and executable_files to map source labels to distribution paths;
+    lib/<native_lib_dir>/. The manifest marks the jars that the payload puts on the core classpath. Alternatively, set files and executable_files to map source labels to distribution paths;
     the composer gives a file of executable_files the executable bit. The modes cannot be combined. The action reads
     only these sources and writes one manifest. The composer copies the files directly from their sources.
     """,
@@ -706,9 +691,6 @@ intellij_dev_packed_jars_component = rule(
         "plugin_classpath_prefix": attr.label(
             allow_single_file = True,
             doc = "The `plugin-classpath.txt` prefix that `dev_dist_product_descriptor` writes. Only with `platform_payload`.",
-        ),
-        "core_classpath": attr.string_list(
-            doc = "The `lib/`-relative packed jars of the core classpath, from the generated `DEV_DIST_CORE_CLASSPATH`. Only with `platform_payload`.",
         ),
         "main_class": attr.string(
             doc = "The IDE main class the component declares, from the launch model. The `platform_resources` component states it. Empty for none.",

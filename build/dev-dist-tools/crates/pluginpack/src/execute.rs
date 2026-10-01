@@ -7,12 +7,12 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use jarpack::{DirectoryMode, ManifestMode, MergeSpec};
-use planfile::contract::{Manifest, Operation, PLUGIN_SCOPE, Reference, Source};
+use planfile::contract::{Asset, Manifest, Operation, Reference, Source};
 
 use crate::error::{Error, IoContext, Result, fail};
 use crate::layout::LayoutScratch;
 use crate::paths::{self, FileId};
-use crate::plan::{Execution, asset_scope, identity, source_filter, validate_relative_path, validate_scoped_links};
+use crate::plan::{Execution, asset_kind, identity, source_filter, validate_plugin_links, validate_relative_path};
 
 /// What one resolved operation writes at its destination.
 pub(crate) enum Action {
@@ -218,15 +218,11 @@ impl Execution {
                     mode,
                     sources,
                     merge_entities,
-                    directory_entries,
                 } => {
                     let mut spec = MergeSpec {
                         merge_entities: *merge_entities,
-                        directory_mode: if *directory_entries {
-                            DirectoryMode::All
-                        } else {
-                            DirectoryMode::None
-                        },
+                        // The simple tier writes the directory entries of a test jar through the flag file.
+                        directory_mode: DirectoryMode::None,
                         validate_entry_names: true,
                         ..MergeSpec::default()
                     };
@@ -256,17 +252,18 @@ impl Execution {
                 }
             }
         }
-        let independent: Vec<&str> = (self.recipe.assets.iter())
-            .filter(|asset| asset.producer == "independent" && asset_scope(asset) == PLUGIN_SCOPE)
-            .map(|asset| asset.destination.as_str())
+        let independent: Vec<&Asset> = (self.recipe.assets.iter())
+            .filter(|asset| asset.producer == "independent")
             .collect();
-        check_independent_namespace(&independent, &operations)?;
+        let destinations: Vec<&str> = independent.iter().map(|asset| asset.destination.as_str()).collect();
+        check_independent_namespace(&destinations, &operations)?;
         let mut nodes: Vec<(String, bool)> = operations
             .iter()
             .map(|resolved| (resolved.destination.clone(), resolved.is_directory()))
             .collect();
-        nodes.extend(independent.iter().map(|destination| ((*destination).to_owned(), false)));
-        validate_scoped_links(&nodes, &links_of(&operations))?;
+        // An independent jar is a file node. The native tree of a reused natives jar is a directory node.
+        nodes.extend((independent.iter()).map(|asset| (asset.destination.clone(), asset_kind(asset) == "tree")));
+        validate_plugin_links(&nodes, &links_of(&operations))?;
         Ok((operations, backing_roots))
     }
 
@@ -303,8 +300,7 @@ const fn manifest_mode(manifest: Manifest) -> ManifestMode {
     }
 }
 
-/// Refuses a remainder entry that collides with an independent file of the plugin scope, as Go `checkAssetNamespace`
-/// did. A tree operation writes entries that the asset table does not name, so the plan cannot make this check.
+/// Refuses a remainder entry that collides with an independent file or native tree, as Go `checkAssetNamespace` did. A tree operation writes entries that the asset table does not name, so the plan cannot make this check.
 ///
 /// The composer writes each independent file beside the remainder. The check compares the case identities of the names,
 /// so the result does not depend on the file system of the build.
@@ -501,7 +497,7 @@ pub(crate) fn resolve_directory_tree(destination: &str, tree_root: &Path) -> Res
             action,
         });
     }
-    validate_scoped_links(&nodes, &links)?;
+    validate_plugin_links(&nodes, &links)?;
     Ok((operations, backing_root))
 }
 

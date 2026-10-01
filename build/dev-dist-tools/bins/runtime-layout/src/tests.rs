@@ -875,6 +875,25 @@ fn plan_part_leaves_out_the_jars_of_refused_modules() {
     );
 }
 
+/// The native tree of the reused natives jar is not a jar, so the part is the same with and without the tree.
+#[test]
+fn plan_part_skips_the_native_tree() {
+    let independent = r#"{"version": 1, "libraries": [{"library": "@lib//:natives", "jars": ["external/lib+/natives.jar"]}]}"#;
+    let native_tree = r#"{"destination": "lib/native", "inputs": ["native-tree:p.natives"], "kind": "tree", "classPath": false"#;
+    let part = |plan: &str| {
+        let files = Files::new();
+        let output = files.path("part.json").display().to_string();
+        let result = run_tool(&plan_part_args(&files, plan, independent, "plugin.xml", &output));
+        assert_eq!(result.code, 0, "{}", result.errors);
+        std::fs::read_to_string(&output).unwrap()
+    };
+    let expected = part(TEST_PLAN);
+    let tree_anchor = r#"    {"destination": "js","#;
+    let with_tree = TEST_PLAN.replacen(tree_anchor, &format!("    {native_tree}}},\n{tree_anchor}"), 1);
+    assert_ne!(with_tree, TEST_PLAN);
+    assert_eq!(part(&with_tree), expected, "a native tree");
+}
+
 #[test]
 fn plan_part_refusals() {
     let independent = r#"{"version": 1, "libraries": [{"library": "@lib//:natives", "jars": ["external/lib+/natives.jar"]}]}"#;
@@ -923,7 +942,8 @@ fn plan_part_refusals() {
                 r#"{"scope": "distribution", "destination": "lib/p.jar","#,
                 1,
             ),
-            "lib/p.jar: only a reused native tree has the distribution scope",
+            // The plan file reader refuses the retired scope as an unknown key.
+            "unknown field `scope`",
         ),
         (
             TEST_PLAN.replacen(r#"{"destination": "lib/p.jar","#, r#"{"destination": "p.jar","#, 1),

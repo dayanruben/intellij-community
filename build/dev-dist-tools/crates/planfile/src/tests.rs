@@ -74,9 +74,9 @@ const FILTERED_JAR: &str = r#"{"destination": "lib/main.jar", "recipe": {"source
 const RT_RECIPE: &str =
     r#"{"sources": [{"input": "demo.rt", "kind": "module", "filter": "module-v1"}], "writer": {"mergeEntities": true}}"#;
 
-/// A reused natives jar and its native tree of the distribution scope.
+/// A reused natives jar and its native tree next to the jar.
 const NATIVES: &str = r#"{"destination": "lib/modules/demo.natives.jar", "recipe": {"sources": [{"input": "demo.natives", "kind": "module", "filter": "module-v1"}], "writer": {"mergeEntities": true, "nativeLib": "native"}}},
-  {"destination": "lib/native", "inputs": ["native-tree:demo.natives"], "kind": "tree", "classPath": false, "scope": "distribution"}"#;
+  {"destination": "lib/native", "inputs": ["native-tree:demo.natives"], "kind": "tree", "classPath": false}"#;
 
 fn derive_plan(text: &str, inputs: &Catalogue, version: u32, independent_modules: &[&str]) -> Result<Derivation, Error> {
     derive_refusing(text, inputs, version, independent_modules, &[])
@@ -128,13 +128,12 @@ fn tree_row(destination: &str, producer: &str, artifact: &str) -> contract::Asse
     }
 }
 
-fn jar(destination: &str, directory_entries: bool, sources: Vec<Source>) -> contract::Operation {
+fn jar(destination: &str, sources: Vec<Source>) -> contract::Operation {
     contract::Operation::Jar {
         destination: destination.to_owned(),
         mode: DEFAULT_MODE,
         sources,
         merge_entities: false,
-        directory_entries,
     }
 }
 
@@ -185,11 +184,11 @@ fn transform(kind: LayoutTransformKind) -> LayoutTransform {
 #[test]
 fn read_expands_the_compact_forms() {
     let file = must_read_plan(&plan(
-        3,
+        2,
         r#"{"module": "demo.content"},
     {"destination": "lib/demo.jar", "recipe": {"sources": [{"input": "demo.main", "kind": "module", "filter": "module-v1"}], "writer": {"mergeEntities": true}}},
     {"destination": "bin/tool", "inputs": ["native"], "mode": 493, "classPath": false},
-    {"destination": "lib/native", "inputs": ["native-tree:demo.natives"], "kind": "tree", "classPath": false, "scope": "distribution"}"#,
+    {"destination": "lib/native", "inputs": ["native-tree:demo.natives"], "kind": "tree", "classPath": false}"#,
         &[&format!(r#""operations": [{ENTRIES_OPERATION}]"#)],
     ));
     let content = module_jar_asset("demo.content");
@@ -198,8 +197,8 @@ fn read_expands_the_compact_forms() {
     assert_eq!(content.destination, "lib/modules/demo.content.jar");
     assert_eq!(content.inputs, ["demo.content"]);
     assert_eq!(
-        (content.mode, content.kind.as_str(), content.class_path, content.scope.as_str()),
-        (DEFAULT_MODE, "file", true, "plugin")
+        (content.mode, content.kind.as_str(), content.class_path),
+        (DEFAULT_MODE, "file", true)
     );
     assert_eq!(
         (writer.manifest, writer.merge_entities),
@@ -208,21 +207,15 @@ fn read_expands_the_compact_forms() {
 
     let demo = &file.assets[1];
     assert_eq!(demo.inputs, ["demo.main"], "the inputs of a recipe asset repeat its sources");
-    assert_eq!(
-        (demo.mode, demo.kind.as_str(), demo.class_path, demo.scope.as_str()),
-        (DEFAULT_MODE, "file", true, "plugin")
-    );
+    assert_eq!((demo.mode, demo.kind.as_str(), demo.class_path), (DEFAULT_MODE, "file", true));
 
     let tool = &file.assets[2];
     assert_eq!(tool.inputs, ["native"]);
-    assert_eq!(
-        (tool.mode, tool.class_path, tool.scope.as_str()),
-        (EXECUTABLE_MODE, false, "plugin")
-    );
+    assert_eq!((tool.mode, tool.class_path), (EXECUTABLE_MODE, false));
     assert!(tool.recipe.is_none());
 
     let native = &file.assets[3];
-    assert_eq!((native.kind.as_str(), native.scope.as_str()), ("tree", "distribution"));
+    assert_eq!((native.kind.as_str(), native.class_path), ("tree", false));
 
     let operation = &file.operations[0];
     assert_eq!(operation.kind, LAYOUT_ASSETS_KIND);
@@ -303,9 +296,14 @@ fn read_refuses_malformed_forms() {
             r#"has the kind "directory"; the packer writes only file and tree assets"#,
         ),
         (
-            "another scope",
-            asset(r#"{"destination": "bin/tool", "inputs": ["x"], "scope": "product"}"#),
-            r#"has the scope "product""#,
+            "the retired distribution scope",
+            asset(r#"{"destination": "bin/tool", "inputs": ["x"], "scope": "distribution"}"#),
+            "unknown field `scope`",
+        ),
+        (
+            "the plugin scope",
+            asset(r#"{"destination": "bin/tool", "inputs": ["x"], "scope": "plugin"}"#),
+            "unknown field `scope`",
         ),
         (
             "another mode",
@@ -379,6 +377,11 @@ fn read_refuses_malformed_forms() {
             "unknown variant `coverage-agent`",
         ),
         ("an empty native library", writer(r#"{"nativeLib": ""}"#), "empty native library"),
+        (
+            "directory entries",
+            writer(r#"{"directoryEntries": true}"#),
+            "lib/x.jar: a jar writer states directoryEntries; the packer writes no directory entries into a plan jar",
+        ),
         (
             "a Kotlin operation kind",
             operation(r#"{"id": "n", "kind": "native-archive", "output": "o", "manifest": "keep"}"#),
@@ -521,7 +524,7 @@ fn read_treats_null_as_absent_for_an_optional_field() {
         1,
         r#"{"module": null, "destination": "bin/tool", "inputs": null,
       "recipe": {"sources": [{"input": "x", "kind": "module", "filter": "module-v1", "entry": null}], "writer": null},
-      "mode": null, "kind": null, "classPath": null, "scope": null},
+      "mode": null, "kind": null, "classPath": null},
     {"destination": "lib/y.jar", "recipe": {"sources": [{"input": "y", "kind": "module", "filter": "module-v1"}],
       "writer": {"manifest": null, "mergeEntities": null, "directoryEntries": null, "nativeLib": null}}}"#,
         &[
@@ -531,10 +534,7 @@ fn read_treats_null_as_absent_for_an_optional_field() {
     ));
     let tool = &file.assets[0];
     assert_eq!(tool.inputs, ["x"]);
-    assert_eq!(
-        (tool.mode, tool.kind.as_str(), tool.class_path, tool.scope.as_str()),
-        (DEFAULT_MODE, "file", true, "plugin")
-    );
+    assert_eq!((tool.mode, tool.kind.as_str(), tool.class_path), (DEFAULT_MODE, "file", true));
     assert_eq!(tool.recipe.as_ref().unwrap().writer, JarWriter::default());
     assert_eq!(file.assets[1].recipe.as_ref().unwrap().writer, JarWriter::default());
     let layout = &file.operations[0].layout_assets;
@@ -662,10 +662,10 @@ fn derive_requires_the_execution_version_of_the_assets() {
             &[][..],
         ),
         (
-            "a native tree of the distribution scope",
-            plan(3, NATIVES, &[]),
+            "a native tree",
+            plan(2, NATIVES, &[]),
             catalogue(Vec::new()),
-            3,
+            2,
             &["demo.natives"][..],
         ),
     ] {
@@ -683,19 +683,31 @@ fn derive_requires_the_execution_version_of_the_assets() {
         ),
         "stale execution version",
     );
+    // Version 3 is retired. A plan file of version 3 and a chain that declares it are stale.
+    expect_error(
+        derive_plan(&plan(3, NATIVES, &[]), &catalogue(Vec::new()), 3, &["demo.natives"]),
+        "stale execution version: file=3 declared=3 required=2",
+    );
 
-    let derivation = must_derive(&plan(3, NATIVES, &[]), &catalogue(Vec::new()), 3, &["demo.natives"]);
+    let derivation = must_derive(&plan(2, NATIVES, &[]), &catalogue(Vec::new()), 2, &["demo.natives"]);
     assert_eq!(
         derivation.assets,
         [
             row("lib/modules/demo.natives.jar", "independent", "demo.natives"),
-            contract::Asset {
-                scope: "distribution".to_owned(),
-                ..tree_row("lib/native", "independent", "demo.natives")
-            },
+            tree_row("lib/native", "independent", "demo.natives"),
         ]
     );
-    assert!(derivation.recipe.operations.is_empty(), "the remainder writes no distribution file");
+    assert!(derivation.recipe.operations.is_empty(), "the remainder writes no native file");
+
+    // The tree names a reused jar without a native library, so it is not a native tree.
+    let not_native = format!(
+        r#"{{"destination": "lib/rt.jar", "recipe": {RT_RECIPE}}},
+  {{"destination": "lib/native", "inputs": ["native-tree:demo.rt"], "kind": "tree", "classPath": false}}"#
+    );
+    expect_error(
+        derive_plan(&plan(2, &not_native, &[]), &catalogue(Vec::new()), 2, &["demo.rt"]),
+        r#"lib/native: the native tree of "demo.rt" requires its reused natives jar"#,
+    );
 }
 
 fn jar_manifests(derivation: &Derivation, destination: &str) -> Vec<Manifest> {
@@ -754,7 +766,6 @@ fn derive_counts_meaningful_sources_for_the_manifest() {
         derivation.recipe.operations[1],
         jar(
             "lib/library.jar",
-            false,
             vec![
                 archive("@lib//:two/a.jar", Filter::Library, Manifest::Drop),
                 archive("@lib//:two/b.jar", Filter::Library, Manifest::Drop),
@@ -821,7 +832,6 @@ fn derive_resolves_a_library_input_to_its_members() {
         let derivation = must_derive(&plan(1, jar_asset, &[entries]), &catalogue, 1, &[]);
         let want = vec![jar(
             "lib/x.jar",
-            false,
             vec![layout_source(
                 inputs,
                 sources
@@ -852,7 +862,7 @@ fn derive_compiles_every_operation_kind() {
         &plan(
             2,
             r#"{"destination": "lib/main.jar", "recipe": {"sources": [{"input": "filtered", "kind": "prepared", "filter": "prepared"},
-        {"input": "descriptor", "kind": "file", "filter": "none", "entry": "META-INF/plugin.xml", "options": ["patch"]}], "writer": {"manifest": "drop", "directoryEntries": true}}},
+        {"input": "descriptor", "kind": "file", "filter": "none", "entry": "META-INF/plugin.xml", "options": ["patch"]}], "writer": {"manifest": "drop"}}},
       {"destination": "lib/l10n.jar", "recipe": {"sources": [{"input": "entries:output", "kind": "prepared", "filter": "prepared"}], "writer": {"manifest": "keep"}}},
       {"destination": "payload", "inputs": ["tree:output"], "kind": "tree", "classPath": false},
       {"destination": "lib/standardDsls", "inputs": ["dsls"], "kind": "tree", "classPath": false},
@@ -877,7 +887,6 @@ fn derive_compiles_every_operation_kind() {
     let want = vec![
         jar(
             "lib/main.jar",
-            true,
             vec![
                 layout_source(&["raw"], vec![raw_entry()]),
                 Source::Patch {
@@ -887,7 +896,7 @@ fn derive_compiles_every_operation_kind() {
                 },
             ],
         ),
-        jar("lib/l10n.jar", false, vec![layout_source(&["properties"], vec![plain_copy])]),
+        jar("lib/l10n.jar", vec![layout_source(&["properties"], vec![plain_copy])]),
         contract::Operation::LayoutTree {
             destination: "payload".to_owned(),
             layout: LayoutAssets {
@@ -1098,26 +1107,10 @@ fn derive_refuses_what_the_packer_does_not_execute() {
             r#"preparation "filter" reads the output "filtered" of a preparation; the packer executes no preparation chain"#,
         ),
         (
-            "a distribution file of the remainder",
-            plan(
-                3,
-                r#"{"destination": "bin/run", "inputs": ["run"], "classPath": false, "scope": "distribution"}"#,
-                &[],
-            ),
-            catalogue(vec![file_artifact("run")]),
-            "only a reused native tree has the distribution scope",
-        ),
-        (
             "a native tree without its jar",
-            plan(3, &format!(r#"{native_tree}, "scope": "distribution"}}"#), &[]),
-            catalogue(Vec::new()),
-            "requires the distribution scope and its reused natives jar",
-        ),
-        (
-            "a native tree of the plugin scope",
             plan(2, &format!("{native_tree}}}"), &[]),
             catalogue(Vec::new()),
-            "requires the distribution scope and its reused natives jar",
+            "requires its reused natives jar",
         ),
     ];
     for (name, text, inputs, message) in scenarios {

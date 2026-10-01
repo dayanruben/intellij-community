@@ -1,6 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.soundSignals
 
+import com.intellij.accessibility.AccessibilitySettings
 import com.intellij.internal.statistic.FUCollectorTestCase
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
@@ -8,7 +9,6 @@ import com.intellij.testFramework.junit5.RegistryKey
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.junit5.TestDisposable
 import com.intellij.testFramework.replaceService
-import com.intellij.util.ui.accessibility.ScreenReader
 import com.jetbrains.fus.reporting.model.lion3.LogEvent
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
@@ -49,7 +49,7 @@ class SoundSignalPlayedEventTest {
 
   @Test
   fun `a muted signal is not reported`() = collectorTest { settings ->
-    settings.setSignalEnabled(IdeSoundSignals.WARNING_LINE, false)
+    settings.setSignal(IdeSoundSignals.WARNING_LINE, false)
 
     val events = collect { SoundSignalPlayer.getInstance().play(IdeSoundSignals.WARNING_LINE, IdeSoundSignals.ERROR_LINE) }
 
@@ -58,36 +58,29 @@ class SoundSignalPlayedEventTest {
 
   @Test
   fun `nothing is reported while the feature is off`() = collectorTest { settings ->
-    settings.setMode(SoundSignalsMode.OFF)
+    settings.setPlaySignals(false)
 
     val events = collect { SoundSignalPlayer.getInstance().play(IdeSoundSignals.ERROR_LINE) }
 
     assertThat(events).isEmpty()
   }
 
-  /** [ScreenReader.setActive] is a process-wide static with no restore API, so its prior value is saved by hand. */
   @Test
-  fun `nothing is reported in AUTO without a screen reader`() = collectorTest { settings ->
-    val screenReaderBefore = ScreenReader.isActive()
-    try {
-      ScreenReader.setActive(false)
-      settings.setMode(SoundSignalsMode.AUTO)
+  fun `nothing is reported under the calculated default without screen reader support`(): Unit = withSoundSignalsSettings {
+    ApplicationManager.getApplication().replaceService(SoundSignalPlayer::class.java, SilentPlayer(), disposable)
+    setSupportScreenReaders(false)
 
-      val events = collect { SoundSignalPlayer.getInstance().play(IdeSoundSignals.ERROR_LINE) }
+    val events = collect { SoundSignalPlayer.getInstance().play(IdeSoundSignals.ERROR_LINE) }
 
-      assertThat(events).isEmpty()
-    }
-    finally {
-      ScreenReader.setActive(screenReaderBefore)
-    }
+    assertThat(events).isEmpty()
   }
 
   private fun collect(action: () -> Unit): List<LogEvent> =
     FUCollectorTestCase.collectLogEvents(disposable, action)
       .filter { it.group.id == "accessibility" && it.event.id == "sound.signal.played" }
 
-  private fun collectorTest(body: (SoundSignalsSettings) -> Unit) = withSoundSignalsSettings { settings ->
-    settings.setMode(SoundSignalsMode.ON)
+  private fun collectorTest(body: (AccessibilitySettings) -> Unit) = withSoundSignalsSettings { settings ->
+    settings.setPlaySignals(true)
     ApplicationManager.getApplication().replaceService(SoundSignalPlayer::class.java, SilentPlayer(), disposable)
     body(settings)
   }

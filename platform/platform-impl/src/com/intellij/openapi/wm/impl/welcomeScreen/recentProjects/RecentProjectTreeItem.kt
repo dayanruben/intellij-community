@@ -74,6 +74,11 @@ internal data class RecentProjectItem(
   @NlsSafe val projectName: String,
   @NlsSafe val displayName: String,
   @NlsSafe val branchName: String? = null,
+  /**
+   * Whether the welcome screen offers VCS actions for this project: the feature is enabled and the project is under version control.
+   * Not the same as having a [branchName], which a display setting or a detached HEAD hides for a project under version control all the same.
+   */
+  val vcsActionsEnabled: Boolean = false,
   val projectGroup: ProjectGroup?,
   val activationTimestamp: Long?,
 ) : RecentProjectTreeItem {
@@ -84,6 +89,9 @@ internal data class RecentProjectItem(
   companion object {
     fun openProjectAndLogRecent(file: Path, options: OpenProjectTask, projectGroup: ProjectGroup?) {
       service<CoreUiCoroutineScopeHolder>().coroutineScope.launch(ClientId.coroutineContext()) {
+        // Dispose the frameless projects the welcome screen holds before opening the real project, so a held instance does not collide with it
+        // (for example on the VCS log). Disposing during or after the open is too late.
+        RecentProjectsService.getInstance().disposeHeldProjects()
         RecentProjectsManagerBase.getInstanceEx().openProject(file, options)
         for (extension in ProjectDetector.EXTENSION_POINT_NAME.extensions) {
           extension.logRecentProjectOpened(projectGroup)

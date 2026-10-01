@@ -313,7 +313,6 @@
     <module name="intellij.platform.ide.concurrency" loading="embedded"/>
     <module name="intellij.platform.builtInServer" loading="embedded"/>
     <module name="intellij.platform.discoverability" loading="embedded"/>
-    <module name="intellij.platform.externalSystem"/>
     <module name="intellij.platform.eel.impl" loading="embedded"/>
     <module name="intellij.platform.eel.nioFs.impl" loading="embedded"/>
     <module name="intellij.platform.eel.impl.base" loading="embedded"/>
@@ -380,7 +379,7 @@
     <module name="intellij.platform.pluginManager.shared"/>
     <module name="intellij.platform.pluginManager.backend"/>
     <module name="intellij.platform.pluginManager.frontend"/>
-    <module name="intellij.platform.ide.updateChecker" loading="embedded"/>
+    <module name="intellij.platform.ide.updateChecker"/>
     <module name="intellij.platform.execution.impl.frontend"/>
     <module name="intellij.platform.execution.impl.backend"/>
     <module name="intellij.platform.eel.tcp"/>
@@ -390,6 +389,7 @@
     <module name="intellij.platform.polySymbols" loading="embedded"/>
     <module name="intellij.platform.polySymbols.web"/>
     <module name="intellij.platform.builtInServer.impl" loading="embedded"/>
+    <module name="intellij.platform.externalSystem"/>
     <module name="intellij.platform.externalSystem.dependencyUpdater"/>
     <module name="intellij.platform.externalSystem.impl"/>
     <module name="intellij.platform.externalProcessAuthHelper"/>

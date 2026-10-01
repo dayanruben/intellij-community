@@ -11629,6 +11629,11 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
 
+            @TestMetadata("removeCallableReferenceStaticLhsNullable.kt")
+            public void testRemoveCallableReferenceStaticLhsNullable() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/nullables/removeCallableReferenceStaticLhsNullable.kt");
+            }
+
             @TestMetadata("removeCompanionExtensionNullableReceiver.kt")
             public void testRemoveCompanionExtensionNullableReceiver() throws Exception {
                 runTest("../../../idea/tests/testData/quickfix/nullables/removeCompanionExtensionNullableReceiver.kt");
@@ -15208,6 +15213,11 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
 
+        @TestMetadata("removeCallableReferenceStaticLhsTypeArguments.kt")
+        public void testRemoveCallableReferenceStaticLhsTypeArguments() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/supercalls/removeCallableReferenceStaticLhsTypeArguments.kt");
+        }
+
         @TestMetadata("typeArgumentsRedundantInSuperQualifier.kt")
         public void testTypeArgumentsRedundantInSuperQualifier() throws Exception {
             runTest("../../../idea/tests/testData/quickfix/supercalls/typeArgumentsRedundantInSuperQualifier.kt");
@@ -18457,6 +18467,11 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
         public static class RemoveValVarFromParameter extends AbstractHighLevelQuickFixTest {
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+            }
+
+            @TestMetadata("abstractValueClassConstructorParameter.kt")
+            public void testAbstractValueClassConstructorParameter() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/variables/removeValVarFromParameter/abstractValueClassConstructorParameter.kt");
             }
 
             @TestMetadata("catchParameter.kt")

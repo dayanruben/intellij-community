@@ -118,7 +118,6 @@ class MPSProperties : JetBrainsProductProperties() {
 
             layout.excludeFromModule("intellij.platform.testFramework", "mockito-extensions/**")
 
-            layout.withModule("intellij.java.rt", "idea_rt.jar")
             layout.withProjectLibrary("Eclipse", "lib.jar", "withProjectLibrary")
             // the JPS build process reads the library from lib/; the wrapper module itself ships with the aether dependency resolver plugin
             layout.withModuleLibrary("maven-resolver-provider", "intellij.libraries.maven.resolver.provider", "")
@@ -191,6 +190,8 @@ class MPSProperties : JetBrainsProductProperties() {
         include(CommunityProductFragments.platformCoreFragment())
 
         moduleSet(CommunityModuleSets.ideCommon())
+        // the bundled Compose plugin needs the Compose runtime
+        moduleSet(CommunityModuleSets.composeRuntime())
         moduleSet(CommunityModuleSets.platformResourceDefaults())
 
         module("intellij.platform.whatsNew")
@@ -201,6 +202,15 @@ class MPSProperties : JetBrainsProductProperties() {
         // `productImplementationModules` holds `intellij.platform.jps.build.javac.rt`, which depends on this wrapper.
         // The declaration keeps the plugin model the only truth for packaging, so `validateImplicitPlatformModule` passes.
         embeddedModule("intellij.libraries.jps.javac.extension")
+
+        // The platform layout holds `intellij.tools.testsBootstrap`, which depends on these wrappers. The same rule applies.
+        embeddedModule("intellij.libraries.hamcrest")
+        embeddedModule("intellij.libraries.junit4")
+        embeddedModule("intellij.libraries.junit6")
+        embeddedModule("intellij.libraries.junit6.jupiter")
+        embeddedModule("intellij.libraries.junit6.launcher")
+        embeddedModule("intellij.libraries.junit6.vintage")
+        embeddedModule("intellij.libraries.opentest4j")
 
         module("intellij.platform.customization.min")
         module("intellij.idea.customization.base")

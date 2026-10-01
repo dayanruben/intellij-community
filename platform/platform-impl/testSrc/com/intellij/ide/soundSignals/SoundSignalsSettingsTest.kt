@@ -1,9 +1,12 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.soundSignals
 
+import com.intellij.accessibility.AccessibilitySettingsState
+import com.intellij.configurationStore.deserialize
+import com.intellij.configurationStore.serialize
+import com.intellij.openapi.util.JDOMUtil
 import com.intellij.testFramework.junit5.RegistryKey
 import com.intellij.testFramework.junit5.TestApplication
-import com.intellij.util.ui.accessibility.ScreenReader
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 
@@ -11,69 +14,73 @@ import org.junit.jupiter.api.Test
 @RegistryKey(key = SOUND_SIGNALS_ENABLED_REGISTRY_KEY, value = "true")
 class SoundSignalsSettingsTest {
   @Test
-  fun `the explicit modes ignore the screen reader`() = settingsTest { settings ->
-    for (active in listOf(false, true)) {
-      ScreenReader.setActive(active)
+  fun `the calculated defaults follow screen reader support`(): Unit = withSoundSignalsSettings {
+    setSupportScreenReaders(false)
+    assertThat(isSoundSignalsOn()).isFalse()
 
-      settings.setMode(SoundSignalsMode.ON)
-      assertThat(settings.isEnabled).isTrue()
+    setSupportScreenReaders(true)
+    assertThat(isSoundSignalsOn()).isTrue()
+    assertThat(isSoundSignalOn(IdeSoundSignals.ERROR_LINE)).isTrue()
+  }
 
-      settings.setMode(SoundSignalsMode.OFF)
-      assertThat(settings.isEnabled).isFalse()
+  @Test
+  fun `an explicit play choice wins over screen reader support`(): Unit = withSoundSignalsSettings { settings ->
+    setSupportScreenReaders(true)
+    settings.setPlaySignals(false)
+    assertThat(isSoundSignalsOn()).isFalse()
+    assertThat(isSoundSignalOn(IdeSoundSignals.ERROR_LINE)).isFalse()
+
+    setSupportScreenReaders(false)
+    settings.setPlaySignals(true)
+    assertThat(isSoundSignalsOn()).isTrue()
+  }
+
+  @Test
+  fun `a muted signal stays muted while play is on`(): Unit = withSoundSignalsSettings { settings ->
+    settings.setPlaySignals(true)
+    settings.setSignal(IdeSoundSignals.WARNING_LINE, false)
+
+    assertThat(isSoundSignalOn(IdeSoundSignals.WARNING_LINE)).isFalse()
+    assertThat(isSoundSignalOn(IdeSoundSignals.ERROR_LINE)).isTrue()
+  }
+
+  @Test
+  fun `the sound signals are stored in their own tag of the accessibility state`() {
+    val state = AccessibilitySettingsState(SoundSignalsSettingsState(playSignals = true, signals = mapOf("error.line" to false)))
+
+    assertThat(JDOMUtil.write(serialize(state)!!)).isEqualTo("""
+      <AccessibilitySettingsState>
+        <soundSignals>
+          <option name="playSignals" value="true" />
+          <signals>
+            <signal id="error.line" enabled="false" />
+          </signals>
+        </soundSignals>
+      </AccessibilitySettingsState>
+    """.trimIndent())
+  }
+
+  @Test
+  fun `absent, On and Off survive a round trip`() {
+    assertThat(serialize(AccessibilitySettingsState())).isNull()
+
+    for (soundSignals in listOf(
+      SoundSignalsSettingsState(playSignals = true, signals = mapOf("error.line" to true)),
+      SoundSignalsSettingsState(playSignals = false, signals = mapOf("error.line" to false, "folded.line" to true)),
+      SoundSignalsSettingsState(signals = mapOf("error.line" to false)),
+    )) {
+      val state = AccessibilitySettingsState(soundSignals)
+      val element = serialize(state)!!
+      assertThat(element.deserialize(AccessibilitySettingsState::class.java)).isEqualTo(state)
     }
-  }
-
-  @Test
-  fun `AUTO follows the screen reader`() = settingsTest { settings ->
-    settings.setMode(SoundSignalsMode.AUTO)
-
-    ScreenReader.setActive(false)
-    assertThat(settings.isEnabled).isFalse()
-
-    ScreenReader.setActive(true)
-    assertThat(settings.isEnabled).isTrue()
-
-    ScreenReader.setActive(false)
-    assertThat(settings.isEnabled).isFalse()
-  }
-
-  @Test
-  fun `a muted signal stays muted while the mode is on`() = settingsTest { settings ->
-    settings.setMode(SoundSignalsMode.ON)
-    settings.setSignalEnabled(IdeSoundSignals.WARNING_LINE, false)
-
-    assertThat(settings.isSignalEnabled(IdeSoundSignals.WARNING_LINE)).isFalse()
-    assertThat(settings.isSignalEnabled(IdeSoundSignals.ERROR_LINE)).isTrue()
-  }
-
-  @Test
-  fun `a muted id with no declaration survives a round trip`() = settingsTest { settings ->
-    settings.loadState(SoundSignalsSettingsState(disabledSignals = setOf("plugin.only.signal")))
-
-    settings.setSignalEnabled(IdeSoundSignals.ERROR_LINE, false)
-    assertThat(settings.state.disabledSignals).containsExactlyInAnyOrder("plugin.only.signal", "error.line")
-
-    settings.setSignalEnabled(IdeSoundSignals.ERROR_LINE, true)
-    assertThat(settings.state.disabledSignals).containsExactly("plugin.only.signal")
   }
 
   @Test
   @RegistryKey(key = SOUND_SIGNALS_ENABLED_REGISTRY_KEY, value = "false")
-  fun `the registry key overrides the ON mode`() = settingsTest { settings ->
-    settings.setMode(SoundSignalsMode.ON)
+  fun `the registry key overrides an explicit On`(): Unit = withSoundSignalsSettings { settings ->
+    settings.setPlaySignals(true)
 
-    assertThat(settings.isEnabled).isFalse()
-    assertThat(settings.isSignalEnabled(IdeSoundSignals.ERROR_LINE)).isFalse()
-  }
-
-  /** [ScreenReader.setActive] is a process-wide static with no restore API, so its prior value is saved by hand. */
-  private fun settingsTest(body: (SoundSignalsSettings) -> Unit) {
-    val screenReaderBefore = ScreenReader.isActive()
-    try {
-      withSoundSignalsSettings(body)
-    }
-    finally {
-      ScreenReader.setActive(screenReaderBefore)
-    }
+    assertThat(isSoundSignalsOn()).isFalse()
+    assertThat(isSoundSignalOn(IdeSoundSignals.ERROR_LINE)).isFalse()
   }
 }

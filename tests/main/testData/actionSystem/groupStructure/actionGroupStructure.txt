@@ -878,13 +878,14 @@
         DumpGroovyControlFlowAction
       DetectProjectLeaks
       TestJbProtocolCommand
-      PythonPsiInternalGroup
-        PyTypeBenchmarkAction
+      ShowUpdateDialogAction
       FeatureUsage.Internal
         OpenStatisticsEventLogAction
         RecordStateCollectors
         AddGroupToTestSchemeAction
         CollectFUStatisticsAction
+      PythonPsiInternalGroup
+        PyTypeBenchmarkAction
       Vcs.Internal
         Vcs.Log.Internal
           Vcs.Log.InvalidateCaches
@@ -912,7 +913,6 @@
           LaggingMode
           TypingLatencyReport
           RetypeFile
-        ShowUpdateDialogAction
         ShortDumbMode
         DumbModeTremble
         IoFlooding
@@ -975,6 +975,7 @@
         ShowHelpPageById
         DevKit.AnalyzePersistentSyntaxTreeOverhead
         AnalyzeUnloadablePlugins
+        PluginPermissionServiceDemo
       tasks.internal
         show.certificate
         deadlock.with.certificate.dialog

@@ -9,7 +9,7 @@ use std::path::Path;
 
 use serde::Deserialize;
 
-use crate::contract::{DISTRIBUTION_SCOPE, LayoutAsset, PLUGIN_SCOPE, Reference};
+use crate::contract::{LayoutAsset, Reference};
 use crate::{Error, fail, json};
 
 /// The mode of a plan asset that states none: 0644, or 420 in the plan file.
@@ -31,8 +31,8 @@ pub struct PlanFile {
     pub operations: Vec<Operation>,
 }
 
-/// One plan asset. The kind is `file` or `tree`, the scope is `plugin` or `distribution`, and the mode is
-/// [`DEFAULT_MODE`] or [`EXECUTABLE_MODE`]. The inputs of a jar asset are the inputs of its recipe sources.
+/// One plan asset below the plugin directory. The kind is `file` or `tree`, and the mode is [`DEFAULT_MODE`] or
+/// [`EXECUTABLE_MODE`]. The inputs of a jar asset are the inputs of its recipe sources.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Asset {
     pub destination: String,
@@ -41,7 +41,6 @@ pub struct Asset {
     pub mode: u32,
     pub kind: String,
     pub class_path: bool,
-    pub scope: String,
 }
 
 /// The canonical recipe of one jar. An asset whose recipe and mode are the plain module jar of a reused module is
@@ -67,7 +66,6 @@ pub struct JarSource {
 pub struct JarWriter {
     pub manifest: ManifestPolicy,
     pub merge_entities: bool,
-    pub directory_entries: bool,
     /// The presigned native library whose native entries the jar leaves out, or empty. Only a reused
     /// `content_module_jar` packs such a jar.
     pub native_lib: String,
@@ -146,7 +144,6 @@ struct RawAsset {
     mode: Option<u32>,
     kind: Option<String>,
     class_path: Option<bool>,
-    scope: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -172,6 +169,7 @@ struct RawJarSource {
 struct RawJarWriter {
     manifest: Option<ManifestPolicy>,
     merge_entities: Option<bool>,
+    /// The reader keeps the key to refuse `true`. No plan file states it.
     directory_entries: Option<bool>,
     native_lib: Option<String>,
 }
@@ -256,7 +254,6 @@ pub fn module_jar_asset(module: &str) -> Asset {
         mode: DEFAULT_MODE,
         kind: "file".to_owned(),
         class_path: true,
-        scope: PLUGIN_SCOPE.to_owned(),
     }
 }
 
@@ -269,7 +266,6 @@ impl RawAsset {
                 || self.mode.is_some()
                 || self.kind.is_some()
                 || self.class_path.is_some()
-                || self.scope.is_some()
             {
                 fail!("the module jar asset {module:?} states more than its module");
             }
@@ -281,10 +277,6 @@ impl RawAsset {
         let kind = self.kind.unwrap_or_else(|| "file".to_owned());
         if kind != "file" && kind != "tree" {
             fail!("asset {destination:?} has the kind {kind:?}; the packer writes only file and tree assets");
-        }
-        let scope = self.scope.unwrap_or_else(|| PLUGIN_SCOPE.to_owned());
-        if scope != PLUGIN_SCOPE && scope != DISTRIBUTION_SCOPE {
-            fail!("asset {destination:?} has the scope {scope:?}; the scopes are plugin and distribution");
         }
         let mode = self.mode.unwrap_or(DEFAULT_MODE);
         if mode != DEFAULT_MODE && mode != EXECUTABLE_MODE {
@@ -309,7 +301,6 @@ impl RawAsset {
             mode,
             kind,
             class_path: self.class_path.unwrap_or(true),
-            scope,
         })
     }
 }
@@ -320,6 +311,9 @@ impl RawJarRecipe {
             fail!("a jar recipe requires ordered sources");
         }
         let writer = self.writer.unwrap_or_default();
+        if writer.directory_entries == Some(true) {
+            fail!("a jar writer states directoryEntries; the packer writes no directory entries into a plan jar");
+        }
         let native_lib = match writer.native_lib {
             Some(native_lib) if native_lib.is_empty() => fail!("a jar writer states an empty native library"),
             native_lib => native_lib.unwrap_or_default(),
@@ -329,7 +323,6 @@ impl RawJarRecipe {
             writer: JarWriter {
                 manifest: writer.manifest.unwrap_or_default(),
                 merge_entities: writer.merge_entities == Some(true),
-                directory_entries: writer.directory_entries == Some(true),
                 native_lib,
             },
         })

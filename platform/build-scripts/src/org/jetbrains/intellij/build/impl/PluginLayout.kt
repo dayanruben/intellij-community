@@ -23,6 +23,7 @@ import org.jetbrains.intellij.build.OsFamily
 import org.jetbrains.intellij.build.PluginBundlingRestrictions
 import org.jetbrains.intellij.build.CompatibleBuildRange
 import org.jetbrains.intellij.build.dev.DevPluginLayoutAssetOwner
+import org.jetbrains.intellij.build.dev.DevPluginLayoutAssetSource
 import org.jetbrains.intellij.build.dev.DevPluginLayoutAssetSpec
 import org.jetbrains.intellij.build.impl.BuildUtils.checkedReplace
 import java.nio.file.Files
@@ -118,6 +119,14 @@ class PluginLayout(val mainModule: String, @Internal @JvmField val auto: Boolean
     private set
 
   var scrambleClasspathFilter: (BuildContext, Path) -> Boolean = { _, _ -> true }
+
+  /**
+   * The checkout directories of modules that a dev-distribution target of another layout reads, see
+   * [PluginLayoutSpec.withDevDistSourceTree]. Production packs none of them.
+   */
+  @Internal
+  var devDistSourceTrees: PersistentList<DevPluginLayoutAssetSource.ModuleDirectory> = persistentListOf()
+    private set
 
   /**
    * See [org.jetbrains.intellij.build.impl.PluginLayout.PluginLayoutSpec.zkmScriptStub]
@@ -279,12 +288,14 @@ class PluginLayout(val mainModule: String, @Internal @JvmField val auto: Boolean
     }
 
     // we cannot break compatibility / risk to change the existing plugin dir name
+    @Deprecated("A new plugin takes the directory name of its main module. Use `pluginAuto`.")
     @Suppress("DEPRECATION")
     fun pluginAutoWithCustomDirName(mainModuleName: String, body: (PluginLayoutSpec) -> Unit): PluginLayout {
       return plugin(mainModuleName = mainModuleName, auto = true, body = body)
     }
 
     // we cannot break compatibility / risk to change the existing plugin dir name
+    @Deprecated("A new plugin takes the directory name of its main module. Use `pluginAuto`.")
     @Suppress("DEPRECATION")
     fun pluginAutoWithCustomDirName(mainModuleName: String, dirName: String, body: (PluginLayoutSpec) -> Unit): PluginLayout {
       return plugin(mainModuleName, auto = true) { spec ->
@@ -411,6 +422,17 @@ class PluginLayout(val mainModule: String, @Internal @JvmField val auto: Boolean
       layout.resourceGenerators += DeclaredPluginLayoutResourceGenerator(layoutAssetSpec, generator, run)
     }
 
+    /**
+     * Declares the checkout directory [tree] as a source tree that a dev-distribution target of another layout reads.
+     * Its path is relative to the first content root of the module. The dev-distribution generator declares the
+     * filegroup of the directory in the package of the module. Production packs nothing for it.
+     */
+    @Internal
+    fun withDevDistSourceTree(tree: DevPluginLayoutAssetSource.ModuleDirectory) {
+      require(tree.exclusions.isEmpty()) { "A dev-distribution source tree states no exclusions: $tree" }
+      layout.devDistSourceTrees += tree
+    }
+
     /** Copies a module resource tree through the same declaration in production and development. */
     fun withResourceTree(
       moduleName: String,
@@ -519,6 +541,7 @@ class PluginLayout(val mainModule: String, @Internal @JvmField val auto: Boolean
        * (with stripped `intellij` prefix and dots replaced by dashes).
        * **Don't set this property for new plugins**; it is temporarily added to keep the layout of old plugins unchanged.
        */
+      @Deprecated("A new plugin takes the directory name of its main module.")
       set(value) {
         field = value
         directoryNameSetExplicitly = true

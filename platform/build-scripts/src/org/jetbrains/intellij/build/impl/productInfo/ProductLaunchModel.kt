@@ -17,18 +17,19 @@ import org.jetbrains.intellij.build.impl.SnapshotBuildNumber
 import org.jetbrains.intellij.build.impl.generateVmOptions
 import org.jetbrains.intellij.build.impl.getBundledPluginModules
 import org.jetbrains.intellij.build.impl.hasIcnsForFrontendMacApp
-import org.jetbrains.intellij.build.impl.ideaPropertiesFatalErrorNotification
 import org.jetbrains.intellij.build.impl.ideaPropertiesSettingsDir
-import org.jetbrains.intellij.build.impl.linuxFrameClass
 import org.jetbrains.intellij.build.impl.osVmOptions
 import org.jetbrains.intellij.build.impl.stdioMcpRunner.STDIO_MCP_RUNNER_BOOT_CLASS_PATH_JAR_NAMES
 import org.jetbrains.intellij.build.impl.stdioMcpRunner.STDIO_MCP_RUNNER_COMMAND
 import org.jetbrains.intellij.build.impl.stdioMcpRunner.STDIO_MCP_RUNNER_MAIN_CLASS
 import org.jetbrains.intellij.build.impl.stdioMcpRunner.stdioMcpRunnerVmOptionsFilePath
 import org.jetbrains.intellij.build.loadDevDistributionApplicationInfo
+import org.jetbrains.intellij.build.productLayout.COMPOSE_PLUGIN_MODULE
+import org.jetbrains.intellij.build.productLayout.JNA_NATIVE_DIR
 import org.jetbrains.intellij.build.productLayout.JNA_PLUGIN_MODULE
+import org.jetbrains.intellij.build.productLayout.PTY4J_NATIVE_DIR
 import org.jetbrains.intellij.build.productLayout.PTY4J_PLUGIN_MODULE
-import org.jetbrains.intellij.build.productLayout.SKIKO_PLUGIN_MODULE
+import org.jetbrains.intellij.build.productLayout.SKIKO_NATIVE_DIR
 import org.jetbrains.jps.model.java.JpsJavaExtensionService
 import java.nio.file.Files
 
@@ -39,22 +40,18 @@ import java.nio.file.Files
  * It needs no build context. [computeProductLaunchModel] derives it. The dev distribution plan generator writes the
  * model of each split product as JSON, and the tool `product-files` renders the four files of one OS and
  * architecture from it. They must be the files that the production writers write, byte for byte.
+ *
+ * The model states no value that the version, the suffix, the release date or the EAP flag of the application info decide.
+ * It keeps the product code, the vendor, the environment variable name and the data directory name. Product Kotlin can
+ * override each, and only a major bump changes them. The tool reads the application info sources and `build.txt` for the
+ * names, the version, the suffix, the icon, the release date, the EAP flag and the Linux window class.
  */
 @ApiStatus.Internal
 @Serializable
 data class ProductLaunchModel(
   @JvmField val productCode: String,
-  @JvmField val buildNumber: String,
-  @JvmField val productName: String,
-  @JvmField val version: String,
-  @JvmField val versionSuffix: String? = null,
   @JvmField val envVarBaseName: String,
   @JvmField val dataDirectoryName: String,
-  /** Whether the product states an SVG icon, which `product-info.json` names as `bin/<baseFileName>.svg`. */
-  @JvmField val svgIcon: Boolean = false,
-  @JvmField val productVendor: String,
-  /** The major release date as `yyyyMMdd`. */
-  @JvmField val majorVersionReleaseDate: String,
   @JvmField val minRequiredJavaVersion: Int,
   @JvmField val customProperties: List<ProductLaunchProperty> = emptyList(),
   /** The flavors of the product. A launch that bundles a runtime lists `jbr17` before them when [jbr17] is set. */
@@ -65,7 +62,10 @@ data class ProductLaunchModel(
   @JvmField val languageServer: Boolean = false,
   @JvmField val launch: ProductLaunchCommand,
   @JvmField val customCommands: List<ProductLaunchCustomCommand> = emptyList(),
-  /** The lines of the vmoptions file, keyed by [OsFamily.osName]. */
+  /**
+   * The lines of the vmoptions file of a release build, keyed by [OsFamily.osName]. The tool inserts the line of an EAP
+   * build, see [org.jetbrains.intellij.build.impl.insertEapVmOptions].
+   */
   @JvmField val vmOptions: Map<String, List<String>>,
   @JvmField val ideaProperties: ProductLaunchIdeaProperties,
 )
@@ -82,7 +82,6 @@ data class ProductLaunchCommand(
   @JvmField val bootClassPathJarNames: List<String>,
   @JvmField val jvmArguments: ProductJvmArguments,
   @JvmField val stdioRedirectArg: String? = null,
-  @JvmField val linuxStartupWmClass: String,
 )
 
 /**
@@ -123,9 +122,12 @@ data class ProductJvmArguments(
   @JvmField val classLoader: String? = null,
   @JvmField val vendorName: String,
   @JvmField val pathsSelector: String,
-  @JvmField val jna: Boolean = false,
-  @JvmField val pty4j: Boolean = false,
-  @JvmField val skiko: Boolean = false,
+  /** The JNA native tree relative to the IDE home, when the product bundles the JNA plugin. See [JNA_NATIVE_DIR]. */
+  @JvmField val jnaNativeDir: String? = null,
+  /** The pty4j native tree relative to the IDE home, when the product bundles the pty4j plugin. See [PTY4J_NATIVE_DIR]. */
+  @JvmField val pty4jNativeDir: String? = null,
+  /** The Skiko native tree relative to the IDE home, when the product bundles the Skiko plugin. See [SKIKO_NATIVE_DIR]. */
+  @JvmField val skikoNativeDir: String? = null,
   @JvmField val runtimeModuleRepository: Boolean = false,
   /** The root module of the modular loader, when the product starts through it. */
   @JvmField val rootModule: String? = null,
@@ -138,7 +140,7 @@ data class ProductJvmArguments(
 
 /**
  * The parts of `bin/idea.properties`: the base file, then each of [additions] after a newline, with
- * `@@settings_dir@@` replaced by [settingsDir], then [suffix].
+ * `@@settings_dir@@` replaced by [settingsDir].
  */
 @ApiStatus.Internal
 @Serializable
@@ -147,7 +149,8 @@ data class ProductLaunchIdeaProperties(
   @JvmField val languageServerBase: Boolean = false,
   @JvmField val additions: List<String> = emptyList(),
   @JvmField val settingsDir: String,
-  @JvmField val suffix: String = "",
+  /** When set, the tool appends `ideaPropertiesFatalErrorNotification(isEAP)` with the EAP flag of the application info. */
+  @JvmField val fatalErrorNotification: Boolean = false,
 )
 
 /** One product as a build context sees it, which [computeProductLaunchModel] reads instead of the context. */
@@ -204,7 +207,11 @@ fun computeProductLaunchModel(
   val applicationInfo = product.applicationInfo
   val bundledRuntimeVersion = bundledRuntimeBuild.takeWhile { it != '.' }.toInt()
   val jvmArguments = productJvmArguments(product, bundledRuntimeVersion)
-  val frontendMacIcon = hasIcnsForFrontendMacApp(properties.imagesDirectoryPath, applicationInfo.isEAP)
+  val frontendMacIcon = hasIcnsForFrontendMacApp(properties.imagesDirectoryPath, isEap = false)
+  check(frontendMacIcon == hasIcnsForFrontendMacApp(properties.imagesDirectoryPath, isEap = true)) {
+    "${properties.imagesDirectoryPath} must hold both product_frontend.icns and product_frontend_EAP.icns or neither, " +
+    "because the launch model states no EAP flag"
+  }
 
   fun frontendCommand(commands: List<String>, frontend: ProductLaunchInputs, extraJvmArguments: List<String>): ProductLaunchCustomCommand {
     return ProductLaunchCustomCommand(
@@ -249,15 +256,8 @@ fun computeProductLaunchModel(
 
   return ProductLaunchModel(
     productCode = applicationInfo.productCode,
-    buildNumber = product.buildNumber,
-    productName = applicationInfo.fullProductName,
-    version = applicationInfo.fullVersion,
-    versionSuffix = applicationInfo.versionSuffix,
     envVarBaseName = properties.getEnvironmentVariableBaseName(applicationInfo),
     dataDirectoryName = product.systemSelector,
-    svgIcon = applicationInfo.svgRelativePath != null,
-    productVendor = applicationInfo.shortCompanyName,
-    majorVersionReleaseDate = applicationInfo.majorReleaseDate,
     minRequiredJavaVersion = minRequiredJavaVersion,
     customProperties = properties.generateCustomPropertiesForProductInfo().map { ProductLaunchProperty(it.key, it.value) },
     flavors = properties.getProductFlavors(),
@@ -269,12 +269,11 @@ fun computeProductLaunchModel(
       bootClassPathJarNames = product.bootClassPathJarNames,
       jvmArguments = jvmArguments,
       stdioRedirectArg = properties.stdioRedirectArg,
-      linuxStartupWmClass = linuxFrameClass(applicationInfo.productNameWithEdition),
     ),
     customCommands = customCommands,
     vmOptions = OsFamily.ALL.associate { os ->
       os.osName to generateVmOptions(
-        isEAP = applicationInfo.isEAP,
+        isEAP = false,
         customMemoryVmOptions = properties.customJvmMemoryOptions,
         additionalVmOptions = buildList {
           addAll(properties.additionalVmOptions)
@@ -289,7 +288,7 @@ fun computeProductLaunchModel(
       languageServerBase = product.isLanguageServer,
       additions = properties.additionalIDEPropertiesFilePaths.map { Files.readString(it) },
       settingsDir = ideaPropertiesSettingsDir(product.systemSelector),
-      suffix = if (product.isLanguageServer) "" else ideaPropertiesFatalErrorNotification(applicationInfo.isEAP),
+      fatalErrorNotification = !product.isLanguageServer,
     ),
   )
 }
@@ -305,9 +304,9 @@ internal fun productJvmArguments(product: ProductLaunchInputs, bundledRuntimeVer
     classLoader = if (properties.enableCds) null else properties.classLoader,
     vendorName = product.applicationInfo.shortCompanyName,
     pathsSelector = product.systemSelector,
-    jna = bundledPluginModules.contains(JNA_PLUGIN_MODULE),
-    pty4j = bundledPluginModules.contains(PTY4J_PLUGIN_MODULE),
-    skiko = bundledPluginModules.contains(SKIKO_PLUGIN_MODULE),
+    jnaNativeDir = JNA_NATIVE_DIR.takeIf { bundledPluginModules.contains(JNA_PLUGIN_MODULE) },
+    pty4jNativeDir = PTY4J_NATIVE_DIR.takeIf { bundledPluginModules.contains(PTY4J_PLUGIN_MODULE) },
+    skikoNativeDir = SKIKO_NATIVE_DIR.takeIf { bundledPluginModules.contains(COMPOSE_PLUGIN_MODULE) },
     runtimeModuleRepository = product.useModularLoader || product.generateRuntimeModuleRepository,
     rootModule = if (product.useModularLoader) properties.rootModuleForModularLoader else null,
     productMode = if (product.useModularLoader) properties.productMode.id else null,

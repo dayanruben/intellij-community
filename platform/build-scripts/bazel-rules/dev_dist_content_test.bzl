@@ -21,6 +21,9 @@ load(
     "intellij_dev_packed_jars_component",
 )
 
+# The application info of the fixture product, an EAP product without a release date.
+_FIXTURE_APPLICATION_INFO = Label("//platform/build-scripts/bazel-rules:testdata/ApplicationInfo.xml")
+
 _EMPTY_JAR = "PK\005\006" + ("\000" * 18)
 _TRACE_SPANS = str(Label("//platform/build-scripts/bazel-rules:trace_spans"))
 _ZIPPER = attr.label(default = "@bazel_tools//tools/zip:zipper", executable = True, cfg = "exec")
@@ -222,22 +225,26 @@ def _platform_payload_test_impl(ctx):
     # Jars only, because the byte gate reads this set. The native tree of the payload's platform travels in the jar's
     # record, with its own metadata. A jar without one says so with `None` and an empty directory.
     asserts.equals(env, [packed.jar, nested.jar, natives.jar], payload.packed_jars.to_list())
+
+    # The core classpath: a direct child of `lib/` that the module system does not load. The module system loads the
+    # jar with natives, and the nested jar is never on it.
     records = {record.jar: record for record in payload.packed_metadata.to_list()}
     asserts.equals(
         env,
-        struct(jar = packed.jar, metadata = packed.metadata, relative_path = packed.relative_path, native_tree = None, native_metadata = None, native_lib_dir = ""),
+        struct(jar = packed.jar, metadata = packed.metadata, relative_path = packed.relative_path, native_tree = None, native_metadata = None, native_lib_dir = "", core_classpath = True),
         records[packed.jar],
     )
     asserts.equals(
         env,
-        struct(jar = nested.jar, metadata = nested.metadata, relative_path = nested.relative_path, native_tree = None, native_metadata = None, native_lib_dir = ""),
+        struct(jar = nested.jar, metadata = nested.metadata, relative_path = nested.relative_path, native_tree = None, native_metadata = None, native_lib_dir = "", core_classpath = False),
         records[nested.jar],
     )
     asserts.equals(
         env,
-        struct(jar = natives.jar, metadata = natives.metadata, relative_path = natives.relative_path, native_tree = native.tree, native_metadata = native.metadata, native_lib_dir = natives.native_lib_dir),
+        struct(jar = natives.jar, metadata = natives.metadata, relative_path = natives.relative_path, native_tree = native.tree, native_metadata = native.metadata, native_lib_dir = natives.native_lib_dir, core_classpath = False),
         records[natives.jar],
     )
+    asserts.equals(env, [packed.relative_path], payload.core_classpath_jar_names)
 
     # What each packed jar merges, sorted by destination. The runtime module repository orders it by the platform jar order.
     asserts.equals(
@@ -453,6 +460,12 @@ def _packed_component_test_impl(ctx):
     }
     destinations = written[target.label.name + ".jars.json"]
     catalogue = written[target.label.name + ".metadata-catalogue.json"]
+
+    # The manifest marks the jars that the payload puts on the core classpath, and no other jar.
+    packed = ctx.attr.packed[ContentModuleJarInfo]
+    nested = ctx.attr.nested[DevDistPlatformJarInfo]
+    asserts.true(env, {"source": packed.jar.path, "relativePath": packed.relative_path, "coreClassPath": True} in destinations)
+    asserts.true(env, {"source": nested.jar.path, "relativePath": nested.relative_path} in destinations)
     asserts.true(env, {"source": natives.jar.path, "relativePath": natives.relative_path} in destinations)
     asserts.true(env, {"source": native.tree.path, "relativePath": natives.native_lib_dir, "tree": True} in destinations)
     asserts.true(env, {"source": natives.jar.path, "metadata": natives.metadata.path, "relativePath": natives.jar.basename} in catalogue)
@@ -465,7 +478,11 @@ def _packed_component_test_impl(ctx):
 
 _packed_component_test = analysistest.make(
     _packed_component_test_impl,
-    attrs = {"natives": attr.label(mandatory = True, providers = [ContentModuleJarInfo])},
+    attrs = {
+        "packed": attr.label(mandatory = True, providers = [ContentModuleJarInfo]),
+        "nested": attr.label(mandatory = True, providers = [DevDistPlatformJarInfo]),
+        "natives": attr.label(mandatory = True, providers = [ContentModuleJarInfo]),
+    },
     config_settings = {_TRACE_SPANS: False},
 )
 
@@ -549,6 +566,47 @@ def _plugin_macro_tests(name):
         ]),
     )
 
+    # The descriptor leaf derives a row for the main module and each member the index knows. A module outside the plugin
+    # gets no row. An explicit row wins by load path, so the second member keeps its own label.
+    indexed = {
+        role: name + "_macro_indexed_" + role
+        for role in ["owner", "first", "second", "source", "main_xml", "first_xml", "second_xml", "explicit_xml", "stranger_xml"]
+    }
+    _fake_module(name = indexed["owner"], module_name = "test.indexed")
+    _fake_module(name = indexed["first"], module_name = "test.indexed.first")
+    _fake_module(name = indexed["second"], module_name = "test.indexed.second")
+    for role in ["source", "main_xml", "first_xml", "second_xml", "explicit_xml", "stranger_xml"]:
+        _fake_descriptor(name = indexed[role])
+    dev_dist_plugin(
+        main_module = "test.indexed",
+        module_targets = {
+            "test.indexed": [":" + indexed["owner"] + ".jar"],
+            "test.indexed.first": [":" + indexed["first"] + ".jar"],
+            "test.indexed.second": [":" + indexed["second"] + ".jar"],
+        },
+        descriptor_index = {
+            "test.indexed": ":" + indexed["main_xml"],
+            "test.indexed.first": ":" + indexed["first_xml"],
+            "test.indexed.second": ":" + indexed["second_xml"],
+            "test.stranger": ":" + indexed["stranger_xml"],
+        },
+        content_modules = ["test.indexed.first", "test.indexed.second"],
+        descriptor = indexed["source"],
+        descriptors = {":" + indexed["explicit_xml"]: "test.indexed.second.xml"},
+    )
+    indexed_descriptors = native.existing_rule(dev_dist_plugin_descriptor_target_name("test.indexed"))["descriptors"]
+    indexed_test = name + "_plugin_macro_indexed_test"
+    _declaration_test(
+        name = indexed_test,
+        # The target names only: `existing_rule` returns a label key in its canonical form.
+        actual = json.encode([[str(label).rpartition(":")[2], path] for label, path in indexed_descriptors.items()]),
+        expected = json.encode(sorted([
+            [indexed["main_xml"], "test.indexed.xml"],
+            [indexed["first_xml"], "test.indexed.first.xml"],
+            [indexed["explicit_xml"], "test.indexed.second.xml"],
+        ])),
+    )
+
     # A plugin that states `jars` also declares a packed component: the main module and the merged modules go in as
     # `modules`, a content module no jar merges is reused from its own packing target, and the library token passes
     # through unchanged.
@@ -606,9 +664,43 @@ def _plugin_macro_tests(name):
         ]),
     )
 
+    # A reused content module whose call is relocated takes the label `content_module_jar_labels` states. Any other
+    # reused module takes the label of its own package.
+    relocated_owner = name + "_macro_relocated_owner"
+    relocated_member = name + "_macro_relocated_member"
+    relocated_kept = name + "_macro_relocated_kept"
+    relocated_source = name + "_macro_relocated_descriptor"
+    relocated_jar = name + "_macro_relocated_jar"
+    _fake_module(name = relocated_jar, module_name = "intellij.test.relocated.member")
+    _fake_module(name = relocated_owner, module_name = "intellij.test.relocated")
+    _fake_module(name = relocated_member, module_name = "intellij.test.relocated.member")
+    _fake_module(name = relocated_kept, module_name = "intellij.test.relocated.kept")
+    _fake_descriptor(name = relocated_source)
+    dev_dist_plugin(
+        main_module = "intellij.test.relocated",
+        module_targets = {
+            "intellij.test.relocated": [":" + relocated_owner + ".jar"],
+            "intellij.test.relocated.kept": [":" + relocated_kept + ".jar"],
+            "intellij.test.relocated.member": [":" + relocated_member + ".jar"],
+        },
+        content_modules = ["intellij.test.relocated.member", "intellij.test.relocated.kept"],
+        content_module_jar_labels = {"intellij.test.relocated.member": ":" + relocated_jar},
+        descriptor = relocated_source,
+        jars = {"lib/test-relocated.jar": ["intellij.test.relocated"]},
+    )
+    relocated_test = name + "_plugin_macro_relocated_test"
+    _declaration_test(
+        name = relocated_test,
+        actual = json.encode(native.existing_rule("intellij.test.relocated_dev_plugin_inputs")["content_module_jars"]),
+        expected = json.encode([
+            ":" + relocated_jar,
+            ":" + relocated_kept + "_content_module_jar",
+        ]),
+    )
+
     # The stale-module case of the macro lives in `dev_plugin_test.bzl`: its warning must not print in a dist analysis,
     # and every dist loads this package for `:trace_spans`.
-    return [test, packed_test]
+    return [test, indexed_test, packed_test, relocated_test]
 
 def dev_dist_content_test_suite(name):
     library = name + "_library"
@@ -631,6 +723,7 @@ def dev_dist_content_test_suite(name):
     dev_dist_platform_payload(
         name = payload,
         packed = [":" + packed, ":" + nested, ":" + natives],
+        module_system_loaded = [":" + natives],
         native_platform = _PAYLOAD_PLATFORM,
     )
     tests.append(name + "_platform_payload_test")
@@ -647,16 +740,19 @@ def dev_dist_content_test_suite(name):
     for duplicate in duplicate_natives:
         _fake_packed(name = duplicate, member = ":" + natives_owner, native_lib_dir = "shared")
 
-    # A payload with natives needs its platform, and a jar needs a tree of that platform.
-    for case, packed_jars, native_platform, expected_message in [
-        ("duplicate_natives", duplicate_natives, _PAYLOAD_PLATFORM, "lib/shared/ receives the native tree of both"),
-        ("no_platform", [natives], "", "so the payload needs native_platform"),
-        ("unknown_platform", [natives], "windows_x64", "has no native tree for 'windows_x64'"),
+    # A payload with natives needs its platform, and a jar needs a tree of that platform. The module system can load
+    # only a jar that the payload packs.
+    for case, packed_jars, module_system_loaded, native_platform, expected_message in [
+        ("duplicate_natives", duplicate_natives, [], _PAYLOAD_PLATFORM, "lib/shared/ receives the native tree of both"),
+        ("no_platform", [natives], [], "", "so the payload needs native_platform"),
+        ("unknown_platform", [natives], [], "windows_x64", "has no native tree for 'windows_x64'"),
+        ("unpacked_module_system_loaded", [packed], [natives], _PAYLOAD_PLATFORM, "module_system_loaded names jars that packed does not name"),
     ]:
         failing_payload = name + "_" + case + "_payload"
         dev_dist_platform_payload(
             name = failing_payload,
             packed = [":" + jar for jar in packed_jars],
+            module_system_loaded = [":" + jar for jar in module_system_loaded],
             native_platform = native_platform,
             tags = ["manual"],
         )
@@ -672,8 +768,7 @@ def dev_dist_content_test_suite(name):
     product_info = name + "_product_info"
     dev_dist_product_info(
         name = product_info,
-        release_date = "20260101",
-        release_version = "2026300",
+        application_info = _FIXTURE_APPLICATION_INFO,
         platform_prefix = "idea",
     )
     second_library = name + "_second_library"
@@ -797,7 +892,13 @@ def dev_dist_content_test_suite(name):
         tags = ["manual"],
     )
     tests.append(packed_component + "_test")
-    _packed_component_test(name = tests[-1], target_under_test = ":" + packed_component, natives = ":" + natives)
+    _packed_component_test(
+        name = tests[-1],
+        target_under_test = ":" + packed_component,
+        packed = ":" + packed,
+        nested = ":" + nested,
+        natives = ":" + natives,
+    )
 
     build_txt = name + "_build_txt"
     native.genrule(name = build_txt, outs = [build_txt + ".txt"], cmd = "echo IU > $@", tags = ["manual"])

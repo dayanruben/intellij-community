@@ -1494,6 +1494,8 @@
       <module fileurl="file://$PROJECT_DIR$/platform/build-scripts/codeOptimizer/intellij.platform.buildScripts.codeOptimizer.iml" filepath="$PROJECT_DIR$/platform/build-scripts/codeOptimizer/intellij.platform.buildScripts.codeOptimizer.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/build-scripts/concurrency/intellij.platform.buildScripts.concurrency.iml" filepath="$PROJECT_DIR$/platform/build-scripts/concurrency/intellij.platform.buildScripts.concurrency.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/build-scripts/dev-server-legacy/intellij.platform.buildScripts.devBuildServer.legacy.iml" filepath="$PROJECT_DIR$/platform/build-scripts/dev-server-legacy/intellij.platform.buildScripts.devBuildServer.legacy.iml" />
+      <module fileurl="file://$PROJECT_DIR$/platform/build-scripts/dev-dist-generator/intellij.platform.buildScripts.devDistGenerator.iml" filepath="$PROJECT_DIR$/platform/build-scripts/dev-dist-generator/intellij.platform.buildScripts.devDistGenerator.iml" />
+      <module fileurl="file://$PROJECT_DIR$/platform/build-scripts/dev-dist-generator/intellij.platform.buildScripts.devDistGenerator.tests.iml" filepath="$PROJECT_DIR$/platform/build-scripts/dev-dist-generator/intellij.platform.buildScripts.devDistGenerator.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/build-scripts/dev-launch/intellij.platform.buildScripts.devLaunch.iml" filepath="$PROJECT_DIR$/platform/build-scripts/dev-launch/intellij.platform.buildScripts.devLaunch.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/build-scripts/downloader/intellij.platform.buildScripts.downloader.iml" filepath="$PROJECT_DIR$/platform/build-scripts/downloader/intellij.platform.buildScripts.downloader.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/build-scripts/downloader/intellij.platform.buildScripts.downloader.tests.iml" filepath="$PROJECT_DIR$/platform/build-scripts/downloader/intellij.platform.buildScripts.downloader.tests.iml" />
@@ -1515,6 +1517,7 @@
       <module fileurl="file://$PROJECT_DIR$/platform/buildView/intellij.platform.buildView.iml" filepath="$PROJECT_DIR$/platform/buildView/intellij.platform.buildView.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/buildView/backend/intellij.platform.buildView.backend.iml" filepath="$PROJECT_DIR$/platform/buildView/backend/intellij.platform.buildView.backend.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/buildView/frontend/intellij.platform.buildView.frontend.iml" filepath="$PROJECT_DIR$/platform/buildView/frontend/intellij.platform.buildView.frontend.iml" />
+      <module fileurl="file://$PROJECT_DIR$/platform/buildView/intellij.platform.buildView.tests.iml" filepath="$PROJECT_DIR$/platform/buildView/intellij.platform.buildView.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/built-in-server-api/intellij.platform.builtInServer.iml" filepath="$PROJECT_DIR$/platform/built-in-server-api/intellij.platform.builtInServer.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/built-in-server/intellij.platform.builtInServer.impl.iml" filepath="$PROJECT_DIR$/platform/built-in-server/intellij.platform.builtInServer.impl.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/built-in-server/intellij.platform.builtInServer.tests.iml" filepath="$PROJECT_DIR$/platform/built-in-server/intellij.platform.builtInServer.tests.iml" />
@@ -1533,6 +1536,7 @@
       <module fileurl="file://$PROJECT_DIR$/platform/compose/intellij.platform.compose.iml" filepath="$PROJECT_DIR$/platform/compose/intellij.platform.compose.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/compose/compiler-plugin/intellij.platform.compose.compilerPlugin.iml" filepath="$PROJECT_DIR$/platform/compose/compiler-plugin/intellij.platform.compose.compilerPlugin.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/compose/markdown/intellij.platform.compose.markdown.iml" filepath="$PROJECT_DIR$/platform/compose/markdown/intellij.platform.compose.markdown.iml" />
+      <module fileurl="file://$PROJECT_DIR$/platform/compose/plugin/intellij.platform.compose.plugin.iml" filepath="$PROJECT_DIR$/platform/compose/plugin/intellij.platform.compose.plugin.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/compose/swing-ui/intellij.platform.compose.swing.iml" filepath="$PROJECT_DIR$/platform/compose/swing-ui/intellij.platform.compose.swing.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/compose/swing-ui/intellij.platform.compose.swing.tests.iml" filepath="$PROJECT_DIR$/platform/compose/swing-ui/intellij.platform.compose.swing.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/compose/intellij.platform.compose.tests.iml" filepath="$PROJECT_DIR$/platform/compose/intellij.platform.compose.tests.iml" />
@@ -2231,7 +2235,6 @@
       <module fileurl="file://$PROJECT_DIR$/plugins/sh/terminal/intellij.sh.terminal.iml" filepath="$PROJECT_DIR$/plugins/sh/terminal/intellij.sh.terminal.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/sh/terminal/frontend/intellij.sh.terminal.frontend.iml" filepath="$PROJECT_DIR$/plugins/sh/terminal/frontend/intellij.sh.terminal.frontend.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/sh/core/intellij.sh.tests.iml" filepath="$PROJECT_DIR$/plugins/sh/core/intellij.sh.tests.iml" />
-      <module fileurl="file://$PROJECT_DIR$/plugins/skiko/plugin/intellij.skiko.plugin.iml" filepath="$PROJECT_DIR$/plugins/skiko/plugin/intellij.skiko.plugin.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/smart-update/intellij.smart.update.iml" filepath="$PROJECT_DIR$/platform/smart-update/intellij.smart.update.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/space/jps-plugin/intellij.space.java.jps.iml" filepath="$PROJECT_DIR$/plugins/space/jps-plugin/intellij.space.java.jps.iml" />
       <module fileurl="file://$PROJECT_DIR$/spellchecker/intellij.spellchecker.iml" filepath="$PROJECT_DIR$/spellchecker/intellij.spellchecker.iml" />
