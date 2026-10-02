@@ -1,6 +1,7 @@
-# The Rust workspace of the dev-distribution tools. One crate per shared concern, one binary per Bazel tool.
+# The Rust workspace of the dev-distribution tools. One crate per concern that two tools share, one binary per Bazel tool.
 # Bazel builds the binaries through rules_rs; `cargo` serves the edit-test loop and rust-analyzer.
-# Bazel reads this file and `Cargo.lock`; a dependency change inside a member manifest needs a hub refresh (README).
+# Bazel reads only this file and `Cargo.lock`. A dependency that moves inside a member manifest needs an edit here and a
+# hub refresh (README).
 [workspace]
 resolver = "3"
 members = ["crates/*", "bins/*"]
@@ -12,7 +13,7 @@ rust-version = "1.93"
 publish = false
 license = "Apache-2.0"
 
-# BEGIN rust-lints: generated from community/build/rust-lints/lints.toml by sync.mjs. Edit that file.
+# BEGIN rust-tools: generated from community/build/rust-tools/lints.toml by sync.mjs. Edit that file.
 [workspace.lints.rust]
 rust_2018_idioms = { level = "warn", priority = -1 }
 meta_variable_misuse = "warn"
@@ -119,49 +120,49 @@ unnecessary_safety_comment = "warn"
 unnecessary_safety_doc = "warn"
 unused_result_ok = "warn"
 verbose_file_reads = "warn"
-# END rust-lints
+# END rust-tools
 
 [workspace.dependencies]
-anyhow = "1"
-crc32fast = "1"
-filetime = "0.2"
-flate2 = "1"
-getrandom = "0.4"
-httpdate = "1"
-indexmap = "2"
-java-properties = "2"
-lexopt = "0.3"
-libc = "0.2"
-memmap2 = "0.9"
-quick-xml = "0.42"
-rayon = "1"
-regex = { version = "1", default-features = false, features = ["std", "perf", "unicode-perl"] }
-ruzstd = "0.9"
-same-file = "1"
+anyhow = "1.0.104"
+crc32fast = "1.5.2"
+flate2 = "1.1.10"
+getrandom = "0.4.3"
+httpdate = "1.0.3"
+indexmap = "2.14.2"
+java-properties = "2.0.0"
+libc = "0.2.189"
+memmap2 = "0.9.11"
+quick-xml = "0.42.0"
+rayon = "1.12.0"
+regex = { version = "1.13.1", default-features = false, features = ["std", "perf", "unicode-perl"] }
+ruzstd = "0.9.0"
+same-file = "1.0.6"
 saphyr = "0.0.12"
-serde = { version = "1", features = ["derive"] }
-serde_json = { version = "1", features = ["preserve_order", "raw_value"] }
-sha2 = "0.11"
-tar = "0.4"
-tempfile = "3"
-thiserror = "2"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "std"] }
-walkdir = "2"
-xxhash-rust = { version = "0.8", features = ["xxh3"] }
-zip = { version = "8", default-features = false, features = ["deflate-flate2"] }
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Threading"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.151", features = ["preserve_order", "raw_value"] }
+sha2 = "0.11.0"
+tar = "0.4.46"
+tempfile = "3.27.0"
+walkdir = "2.5.0"
+xxhash-rust = { version = "0.8.19", features = ["xxh3"] }
+zip = { version = "8.6.0", default-features = false, features = ["deflate-flate2"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Threading"] }
 
 # Local crates
 appinfo = { path = "crates/appinfo" }
+cli = { path = "crates/cli" }
 component = { path = "crates/component" }
+distpath = { path = "crates/distpath" }
 filemeta = { path = "crates/filemeta" }
 fscopy = { path = "crates/fscopy" }
 jarpack = { path = "crates/jarpack" }
 javaglob = { path = "crates/javaglob" }
 planfile = { path = "crates/planfile" }
 pluginpack = { path = "crates/pluginpack" }
+# Dev-only: only `[dev-dependencies]` name it.
+testkit = { path = "crates/testkit" }
 trace = { path = "crates/trace" }
+xxh3 = { path = "crates/xxh3" }
 
 [profile.release]
 opt-level = 3

@@ -30,7 +30,6 @@ const TEST_PLAN: &str = r#"{
   "version": 2,
   "plugin": "p.main",
   "variant": "",
-  "layoutSignature": "signature",
   "assets": [
     {"module": "p.content"},
     {"destination": "lib/modules/p.natives.jar", "recipe": {"sources": [
@@ -50,9 +49,6 @@ const TEST_PLAN: &str = r#"{
       {"input": "layout-assets:0:output", "kind": "prepared", "filter": "prepared"}
     ], "writer": {"manifest": "drop", "mergeEntities": true}}},
     {"destination": "js", "inputs": ["module-resource:0:source"], "kind": "tree", "classPath": false}
-  ],
-  "preparations": [
-    {"id": "layout-assets:0", "inputs": ["p.main"], "outputs": ["layout-assets:0:output"], "modelSignature": "m"}
   ],
   "operations": [
     {"id": "layout-assets:0", "kind": "layout-assets", "inputs": [{"artifact": "p.main"}], "output": "layout-assets:0:output", "manifest": "keep",
@@ -651,19 +647,24 @@ fn invalid_input() {
             ],
             "ERROR: --bazel-targets must be specified at most once\n",
         ),
-        (vec!["--unknown=x".to_owned()], "ERROR: unknown option \"--unknown\"\n"),
         (
-            vec!["part.json".to_owned()],
-            "ERROR: expected an option in the '--key=value' form, but got \"part.json\"\n",
+            vec![
+                format!("--bazel-targets={targets}"),
+                "--output=out.json".to_owned(),
+                "--unknown=x".to_owned(),
+            ],
+            "ERROR: unknown option: --unknown\n",
         ),
         (
-            vec!["--part=".to_owned()],
-            "ERROR: expected an option in the '--key=value' form, but got \"--part=\"\n",
+            vec![
+                format!("--bazel-targets={targets}"),
+                "--output=out.json".to_owned(),
+                "part.json".to_owned(),
+            ],
+            "ERROR: expected an option in the form --key=value, but got \"part.json\"\n",
         ),
-        (
-            vec!["--part".to_owned()],
-            "ERROR: expected an option in the '--key=value' form, but got \"--part\"\n",
-        ),
+        (vec!["--part=".to_owned()], "ERROR: --part must not be empty\n"),
+        (vec!["--part".to_owned()], "ERROR: --part takes a value, as in --part=<value>\n"),
     ] {
         let result = run_tool(&args);
         assert_eq!((result.code, result.errors.as_str()), (1, message), "{args:?}");

@@ -24,11 +24,12 @@
 pub mod areas;
 pub mod bep;
 pub mod catalog;
+pub mod details;
+pub mod exit;
 pub mod fake;
 pub mod lanes;
 pub mod os_runtime;
 pub mod paths;
-pub mod refusal;
 pub mod result;
 pub mod runtime;
 pub mod scan;
@@ -41,9 +42,7 @@ macro_rules! regex {
     ($pattern:literal) => {{
         static PATTERN: std::sync::LazyLock<$crate::__regex::Regex> =
             // An invariant: the pattern is a literal, and every one is exercised by a test.
-            std::sync::LazyLock::new(|| {
-                    $crate::__regex::Regex::new($pattern).expect("a literal pattern compiles")
-                });
+            std::sync::LazyLock::new(|| $crate::__regex::Regex::new($pattern).expect("a literal pattern compiles"));
         &*PATTERN
     }};
 }
@@ -53,16 +52,17 @@ macro_rules! regex {
 pub use regex as __regex;
 
 pub use areas::{AREAS_FILE, Area, Areas};
+pub use details::WithDetails;
+pub use exit::{fail_infra, fail_usage};
 pub use lanes::{LaneSpec, Lanes, bazel_command};
 pub use os_runtime::{OsRuntime, Spawner};
-pub use refusal::{Refusal, exit, fail_infra, fail_usage};
+pub use refusal::Refusal;
 pub use runtime::{Platform, Runtime};
 pub use scan::ResolutionInputs;
 pub use selector::{Selector, SelectorKind, resolve_selector};
 pub use suites::{
-    Affected, AffectedSuite, CHANGED_PATHS_SUBJECT, LaneCount, REASON_NO_SUITE_TESTS_FLOW,
-    ScenarioFlows, UnmappedPath, VIA_MODULE, affected_text, choose_lane, classes_of_lane,
-    counted_lane_names, describe_named, lane_counts, lane_counts_text, named_suites,
+    Affected, AffectedSuite, CHANGED_PATHS_SUBJECT, LaneCount, REASON_NO_SUITE_TESTS_FLOW, ScenarioFlows, UnmappedPath, VIA_MODULE,
+    affected_text, choose_lane, classes_of_lane, counted_lane_names, describe_named, lane_counts, lane_counts_text, named_suites,
     reached_by_module_only, suite_class_filters,
 };
 

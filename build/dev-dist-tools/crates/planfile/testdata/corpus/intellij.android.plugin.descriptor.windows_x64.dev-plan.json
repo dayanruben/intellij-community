@@ -2,7 +2,6 @@
     "version": 2,
     "plugin": "intellij.android.plugin.descriptor",
     "variant": "windows_x64",
-    "layoutSignature": "elvkrjog7jz2ih3z1kje9i79t",
     "assets": [
         {
             "destination": "lib/intellij.libraries.ffmpeg.jar",
@@ -1117,18 +1116,6 @@
             ],
             "kind": "tree",
             "classPath": false
-        }
-    ],
-    "preparations": [
-        {
-            "id": "layout-assets:resource:3",
-            "inputs": [
-                "module-resource:3:source"
-            ],
-            "outputs": [
-                "layout-assets:resource:3:output"
-            ],
-            "modelSignature": "2x9je1fco4o9lazaembjqtjq1"
         }
     ],
     "operations": [

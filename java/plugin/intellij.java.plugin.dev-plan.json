@@ -2,7 +2,6 @@
     "version": 1,
     "plugin": "intellij.java.plugin",
     "variant": "",
-    "layoutSignature": "4t0z3v43u6vbco5z8xc9j4scv",
     "assets": [
         {
             "destination": "lib/intellij.java.syntax.jar",
@@ -576,18 +575,6 @@
                 }
             },
             "classPath": false
-        }
-    ],
-    "preparations": [
-        {
-            "id": "layout-assets:resource:0",
-            "inputs": [
-                "module-resource:0:source"
-            ],
-            "outputs": [
-                "layout-assets:resource:0:output"
-            ],
-            "modelSignature": "46hv095kevag1u3mloywj2lfu"
         }
     ],
     "operations": [

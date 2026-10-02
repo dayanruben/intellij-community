@@ -2,7 +2,6 @@
     "version": 2,
     "plugin": "intellij.rider.plugins.verse",
     "variant": "",
-    "layoutSignature": "3tax6ewvb79x7f0ac0uv1umiu",
     "assets": [
         {
             "destination": "lib/rider-plugins-verse.jar",
@@ -35,18 +34,6 @@
             ],
             "kind": "tree",
             "classPath": false
-        }
-    ],
-    "preparations": [
-        {
-            "id": "layout-assets:resource-generator:0",
-            "inputs": [
-                "optional-local-directory:out/bundle-plugins/rider-verse"
-            ],
-            "outputs": [
-                "layout-assets:resource-generator:0:output"
-            ],
-            "modelSignature": "4oal8bksv13crn9yl4m7q01zd"
         }
     ],
     "operations": [

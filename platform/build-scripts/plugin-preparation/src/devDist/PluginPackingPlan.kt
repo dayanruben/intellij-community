@@ -6,6 +6,7 @@ import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.intellij.build.dev.DevPluginPreparationOperation
 import org.jetbrains.intellij.build.dev.devBuildPathIdentity
 import org.jetbrains.intellij.build.dev.validateDevBuildDirectorySpellings
 import java.nio.file.Path
@@ -55,7 +56,6 @@ data class JarSourceRecipe(
 data class JarWriterRecipe(
   @JvmField val manifest: String = "single-meaningful-source",
   @JvmField val mergeEntities: Boolean = false,
-  @JvmField val directoryEntries: Boolean = false,
   @JvmField val rewriteBootClassPath: Boolean = false,
   @JvmField val outputName: String = "",
   /**
@@ -138,45 +138,27 @@ fun pluginPackingExecutionVersion(assets: List<PluginPackingAsset>): Int {
 }
 
 @ApiStatus.Internal
-@OptIn(ExperimentalSerializationApi::class)
-@Serializable
-data class PluginPackingPreparation(
-  @JvmField val id: String,
-  @JvmField val inputs: List<String>,
-  @JvmField val outputs: List<String>,
-  @JvmField val modelSignature: String,
-  /** Runs the validation action even when it produces no file outputs. */
-  @EncodeDefault(EncodeDefault.Mode.NEVER) @JvmField val alwaysRun: Boolean = false,
-)
-
-@ApiStatus.Internal
 data class PlannedPluginAsset(
   @JvmField val asset: PluginPackingAsset,
   @JvmField val artifact: ReusableJarArtifact?,
 )
 
+/** [operations] are the operations that the assets and the preparation roots require, in the order a producer leads its consumer. */
 @ApiStatus.Internal
 class PluginPackingPlan internal constructor(
   @JvmField val plugin: String,
   @JvmField val variant: String,
-  @JvmField val layoutSignature: String,
   @JvmField val assets: List<PlannedPluginAsset>,
-  @JvmField val preparations: List<PluginPackingPreparation>,
+  @JvmField val operations: List<DevPluginPreparationOperation>,
   @JvmField val requiredInputs: List<String>,
-) {
-  fun validateLayout(signature: String) {
-    check(layoutSignature == signature) {
-      "Plugin '$plugin' has a stale layout plan: stored=$signature computed=$layoutSignature. Regenerate the dev distribution declarations."
-    }
-  }
-}
+)
 
 @ApiStatus.Internal
 fun planPluginPacking(
   plugin: String,
   variant: String,
   assets: List<PluginPackingAsset>,
-  preparations: List<PluginPackingPreparation>,
+  operations: List<DevPluginPreparationOperation>,
   preparationRoots: List<String>,
   artifacts: Collection<ReusableJarArtifact>,
 ): PluginPackingPlan {
@@ -253,35 +235,36 @@ fun planPluginPacking(
     }
     PlannedPluginAsset(asset = asset, artifact = artifact)
   }
-  val producers = HashMap<String, PluginPackingPreparation>()
-  val preparationIds = HashSet<String>()
-  for (preparation in preparations) {
-    require(preparation.id.isNotEmpty() && preparation.modelSignature.isNotEmpty() && preparationIds.add(preparation.id)) {
-      "Plugin '$plugin' has an invalid or repeated preparation '${preparation.id}'"
+  // An operation produces its one output. An input that no operation produces is a raw input of the plan.
+  val producers = HashMap<String, DevPluginPreparationOperation>()
+  val operationIds = HashSet<String>()
+  for (operation in operations) {
+    require(operation.id.isNotEmpty() && operationIds.add(operation.id)) {
+      "Plugin '$plugin' has an invalid or repeated operation '${operation.id}'"
     }
-    for (output in preparation.outputs) {
-      require(output.isNotEmpty() && producers.putIfAbsent(output, preparation) == null) {
-        "Plugin '$plugin' has conflicting preparation output '$output'"
-      }
+    require(operation.output.isNotEmpty() && producers.putIfAbsent(operation.output, operation) == null) {
+      "Plugin '$plugin' has conflicting operation output '${operation.output}'"
     }
   }
   val requiredInputs = LinkedHashSet<String>()
-  val requiredPreparations = LinkedHashSet<PluginPackingPreparation>()
+  val requiredOperations = LinkedHashMap<String, DevPluginPreparationOperation>()
   val visiting = HashSet<String>()
   fun requireInput(input: String) {
-    require(input.isNotEmpty()) { "Plugin '$plugin' has an empty preparation input" }
-    val preparation = producers.get(input)
-    if (preparation == null) {
+    require(input.isNotEmpty()) { "Plugin '$plugin' has an empty input" }
+    val operation = producers.get(input)
+    if (operation == null) {
       requiredInputs.add(input)
       return
     }
-    if (preparation in requiredPreparations) {
+    if (requiredOperations.containsKey(operation.id)) {
       return
     }
-    require(visiting.add(preparation.id)) { "Plugin '$plugin' has a preparation cycle at '${preparation.id}'" }
-    preparation.inputs.forEach(::requireInput)
-    visiting.remove(preparation.id)
-    requiredPreparations.add(preparation)
+    require(visiting.add(operation.id)) { "Plugin '$plugin' has an operation cycle at '${operation.id}'" }
+    for (reference in operation.inputs) {
+      requireInput(reference.artifact)
+    }
+    visiting.remove(operation.id)
+    requiredOperations.put(operation.id, operation)
   }
   for (asset in planned) {
     if (asset.artifact == null && !isNativeTreeAsset(asset.asset)) {
@@ -289,87 +272,13 @@ fun planPluginPacking(
     }
   }
   preparationRoots.forEach(::requireInput)
-  for (preparation in preparations.filter { it.alwaysRun }) {
-    preparation.inputs.forEach(::requireInput)
-    requiredPreparations.add(preparation)
-  }
   return PluginPackingPlan(
     plugin = plugin,
     variant = variant,
-    layoutSignature = pluginPackingLayoutSignature(plugin, variant, assets, preparations, preparationRoots),
     assets = planned,
-    preparations = requiredPreparations.toList(),
+    operations = requiredOperations.values.toList(),
     requiredInputs = requiredInputs.toList(),
   )
-}
-
-@ApiStatus.Internal
-fun pluginPackingLayoutSignature(
-  plugin: String,
-  variant: String,
-  assets: List<PluginPackingAsset>,
-  preparations: List<PluginPackingPreparation>,
-  preparationRoots: List<String>,
-): String {
-  return devDistSignature {
-    fun texts(values: List<String>) {
-      putInt(values.size)
-      for (value in values) putString(value)
-    }
-
-    val trees = assets.any { it.kind == "tree" }
-    val preparedManifests = trees || assets.any { asset -> asset.recipe?.sources?.any { it.preparedManifest != null } == true }
-    val classPathFacts = preparedManifests || assets.any { !it.classPath }
-    val directories = classPathFacts || assets.any { it.kind != "file" } || preparations.any { it.alwaysRun }
-    putInt(if (trees) 5 else if (preparedManifests) 4 else if (classPathFacts) 3 else if (directories) 2 else 1)
-    putString(plugin)
-    putString(variant)
-    putInt(assets.size)
-    for (asset in assets) {
-      putString(asset.destination)
-      if (directories) putString(asset.kind)
-      if (classPathFacts) putBoolean(asset.classPath)
-      putInt(asset.mode)
-      putBoolean(asset.symlinkTarget != null)
-      asset.symlinkTarget?.let { putString(it) }
-      texts(asset.inputs)
-      val recipe = asset.recipe
-      putBoolean(recipe != null)
-      if (recipe != null) {
-        putInt(recipe.sources.size)
-        for (source in recipe.sources) {
-          putString(source.input)
-          putString(source.kind)
-          putString(source.filter)
-          putString(source.entry)
-          texts(source.options)
-          if (preparedManifests) {
-            val manifest = source.preparedManifest
-            putBoolean(manifest != null)
-            if (manifest != null) {
-              putInt(manifest.version)
-              putInt(manifest.originalMeaningfulSourceCount ?: -1)
-              texts(manifest.sourceManifestPolicies)
-            }
-          }
-        }
-        putString(recipe.writer.manifest)
-        putBoolean(recipe.writer.mergeEntities)
-        putBoolean(recipe.writer.directoryEntries)
-        putBoolean(recipe.writer.rewriteBootClassPath)
-        putString(recipe.writer.outputName)
-      }
-    }
-    putInt(preparations.size)
-    for (preparation in preparations) {
-      putString(preparation.id)
-      texts(preparation.inputs)
-      texts(preparation.outputs)
-      putString(preparation.modelSignature)
-      if (directories) putBoolean(preparation.alwaysRun)
-    }
-    texts(preparationRoots)
-  }
 }
 
 private fun validateDestination(destination: String, allowRoot: Boolean) {

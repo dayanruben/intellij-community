@@ -69,15 +69,15 @@ fn arguments_are_refused_with_the_usage_code() {
             "{case:?}: code={code}, output={output:?}, errors={errors:?}"
         );
     }
-    let (code, _, errors) = run_captured(arguments(&["--recipe=recipe.json"]));
+    let (code, _, errors) = run_captured(arguments(&[ALL.as_slice(), &["--recipe=recipe.json"]].concat()));
     assert_eq!(code, 2);
-    assert!(errors.contains(r#"unknown option "--recipe""#), "{errors}");
+    assert_eq!(errors, "ERROR: unknown option: --recipe\n");
 }
 
 /// A plan file with one remainder jar, one module jar that the chain reuses, and one raw file copy. The chain names the
 /// reused module with `--independent-module`, and the plan states it as a module asset only.
 const PROJECTION_PLAN: &str = r#"{
-  "version": 1, "plugin": "example", "variant": "", "layoutSignature": "signature",
+  "version": 1, "plugin": "example", "variant": "",
   "assets": [
     {"destination": "lib/example.jar", "recipe": {"sources": [{"input": "example.main", "kind": "module", "filter": "module-v1"}], "writer": {"mergeEntities": true}}},
     {"module": "example.content"},
@@ -167,7 +167,6 @@ fn projection_run_refuses_a_kotlin_preparation_and_a_stale_version() {
         .replacen(
             tail,
             r#"  ],
-  "preparations": [{"id": "native", "inputs": ["tool"], "outputs": ["native:output"], "modelSignature": "x"}],
   "operations": [{"id": "native", "kind": "library-layout-patches", "inputs": [{"artifact": "tool"}], "output": "native:output", "manifest": "keep", "libraryLayout": {"any": 1}}]
 }"#,
             1,
@@ -260,11 +259,7 @@ fn projection_run_omits_the_assets_of_a_refused_module() {
             "--refused-module=example.other",
             r#"refused module "example.other" matches no asset of the plan"#,
         ),
-        (
-            "an empty module",
-            "--refused-module=",
-            "expected a nonempty --refused-module=value option",
-        ),
+        ("an empty module", "--refused-module=", "ERROR: --refused-module must not be empty"),
     ] {
         let root = tempfile::tempdir().unwrap();
         let mut values = write_projection_fixture(root.path(), PROJECTION_PLAN);

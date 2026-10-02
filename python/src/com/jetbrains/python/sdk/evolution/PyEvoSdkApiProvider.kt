@@ -51,8 +51,6 @@ import com.intellij.python.pyproject.PY_PROJECT_TOML
 import com.intellij.python.pyproject.PyProjectToml
 import com.intellij.python.pyproject.model.evolution.EvoPyProjectModel
 import com.intellij.python.sdk.backend.asInterpreterRef
-import com.intellij.python.sdk.backend.flavor
-import com.intellij.python.sdk.backend.name
 import com.intellij.python.pytools.backend.PyTool
 import com.intellij.python.pytools.backend.performToolInstallation
 import com.intellij.python.sdk.backend.PySdkBundle
@@ -544,17 +542,13 @@ private object PyEvoSdkApiImpl : PyEvoSdkApi {
     // any other. Nothing below reads the interpreter's machine — the presentation is the label the classic widget
     // shows, and the dependency file is resolved from the module.
     val item = interpreter.asItem()
-    // `PythonPackageManager.forSdk` reads `sdk.pySdkAdditionalData`, which throws on an SDK created without any —
-    // "buggy code" per its own message. Test the precondition instead of catching: an IllegalStateException cannot be
-    // caught safely here, since ProcessCanceledException is one. Such an SDK has no dependency file to offer anyway.
-    // A null flavor means no additional data.
-    val manager = if (interpreter.flavor != null) PythonPackageManager.forPythonInterpreter(project, interpreter) else null
+    val manager = PythonPackageManager.forPythonInterpreter(project, interpreter)
     return PyInterpreterDto(
       title = item.shortName,
       description = item.description,
       icon = item.icon,
       ref = item.ref,
-      dependencyFileUrl = manager?.getRootDependenciesFile()?.virtualFile?.url,
+      dependencyFileUrl = manager.getRootDependenciesFile()?.virtualFile?.url,
       // Which node's tool made this interpreter, so the popup can promote that one tool and fold the rest away. Null
       // when no node claims its flavor, and the popup then lists them all.
       activeNodeId = providers.nodeIdFor(interpreter),
@@ -886,7 +880,7 @@ private object PyEvoSdkApiImpl : PyEvoSdkApi {
     val updated = withContext(Dispatchers.IO) {
       PythonSdkUpdater.updateVersionAndPathsSynchronouslyAndScheduleRemaining(pythonInterpreter.getSdkAPI(), project)
     }
-    if (!updated) LOG.warn("Evo: rebuilt '${pythonInterpreter.name}', but could not re-read its version and paths")
+    if (!updated) LOG.warn("Evo: rebuilt ${pythonInterpreter.pythonBinaryPath ?: pythonInterpreter}, but could not re-read its version and paths")
   }
 
   /**
@@ -1085,7 +1079,8 @@ private object PyEvoSdkApiImpl : PyEvoSdkApi {
       val actionId = actionManager.getId(action) ?: return@mapNotNull null
       val presentation = action.templatePresentation.clone()
       val event = AnActionEvent.createEvent(context, presentation, ActionPlaces.POPUP, ActionUiKind.POPUP, null)
-      ActionUtil.updateAction(action, event)
+      // A BGT update runs in a read action, and `update()` relies on it.
+      readAction { ActionUtil.updateAction(action, event) }
       if (!presentation.isVisible) return@mapNotNull null
       EvoLeafDto(
         title = presentation.text ?: actionId,
@@ -1108,9 +1103,6 @@ private object PyEvoSdkApiImpl : PyEvoSdkApi {
   private suspend fun EvoTarget.dependencyFileContext(): DataContext? {
     val project = workspace.project
     val interpreter = pyProject.interpreter ?: return null
-    // `PythonPackageManager.forSdk` reads `sdk.pySdkAdditionalData`, which throws on an SDK created without any.
-    // Test the precondition instead of catching, as getCurrentInterpreter does for the same call.
-    if (interpreter.flavor == null) return null
     val file = PythonPackageManager.forPythonInterpreter(project, interpreter).getRootDependenciesFile()?.virtualFile ?: return null
     // PythonPackageManagerAction.actionPerformed bails out without a PSI file (it restarts the daemon on it).
     val psiFile = readAction { PsiManager.getInstance(project).findFile(file) }
@@ -1187,9 +1179,9 @@ private object PyEvoSdkApiImpl : PyEvoSdkApi {
     // Each "no" below is logged, because the user is shown one line saying the environment cannot be rebuilt and the
     // reasons are not alike: an interpreter no node owns, a remote one, and a tool that declined all read the same.
     val binary = interpreter.pythonBinaryPath
-                 ?: return null.also { LOG.info("Evo: no rebuild for '${interpreter.name}', which has no interpreter path") }
+                 ?: return null.also { LOG.info("Evo: no rebuild for $interpreter, which has no interpreter path") }
     val nodeId = providers.nodeIdFor(interpreter)
-                 ?: return null.also { LOG.info("Evo: no rebuild for '${interpreter.name}', whose flavor no node claims") }
+                 ?: return null.also { LOG.info("Evo: no rebuild for $binary, whose flavor no node claims") }
     val toolId = providers.firstOrNull { it.toolId.id == nodeId }?.toolId ?: return null
     val (provider, context) = toolContextFor(toolId, target, eelFileSystem(target.workspace)) ?: return null
     val title = interpreter.asItem().shortName
@@ -1303,7 +1295,7 @@ private object PyEvoSdkApiImpl : PyEvoSdkApi {
     val context = dependencyFileContext() ?: return failed()
     val presentation = action.templatePresentation.clone()
     val event = AnActionEvent.createEvent(context, presentation, ActionPlaces.POPUP, ActionUiKind.POPUP, null)
-    ActionUtil.updateAction(action, event)
+    readAction { ActionUtil.updateAction(action, event) }
     if (!presentation.isVisible || !presentation.isEnabled) return failed()
     withContext(Dispatchers.EDT) { ActionUtil.performAction(action, event) }
     PyEvoWidgetCollector.backendActionPerformed(project, stats, PyEvoWidgetCollector.Outcome.OK)

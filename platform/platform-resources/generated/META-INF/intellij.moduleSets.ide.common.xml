@@ -170,6 +170,7 @@
     <!-- endregion -->
 
     <!-- region direct modules -->
+    <module name="intellij.platform.productMode" loading="embedded"/>
     <module name="intellij.platform.runtime.product" loading="embedded"/>
     <module name="intellij.platform.bazel.runfiles" loading="embedded"/>
     <module name="intellij.platform.buildScripts.concurrency"/>
@@ -495,6 +496,7 @@
     <module name="intellij.regexp"/>
     <module name="intellij.platform.langInjection"/>
     <module name="intellij.platform.langInjection.backend"/>
+    <module name="intellij.platform.versionDownloadManager"/>
     <module name="intellij.libraries.cglib" loading="embedded"/>
     <!-- endregion -->
   </content>

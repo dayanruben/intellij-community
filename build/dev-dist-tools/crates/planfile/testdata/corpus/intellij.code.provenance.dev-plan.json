@@ -2,7 +2,6 @@
     "version": 2,
     "plugin": "intellij.code.provenance",
     "variant": "{platform}",
-    "layoutSignature": "{platform:layoutSignature}",
     "assets": [
         {
             "module": "intellij.code.provenance.dev"
@@ -59,18 +58,6 @@
             ],
             "kind": "tree",
             "classPath": false
-        }
-    ],
-    "preparations": [
-        {
-            "id": "layout-assets:platform-custom-asset:0",
-            "inputs": [
-                "layout-source:platform-custom-asset:0:0"
-            ],
-            "outputs": [
-                "layout-assets:platform-custom-asset:0:output"
-            ],
-            "modelSignature": "{platform:modelSignature}"
         }
     ],
     "operations": [

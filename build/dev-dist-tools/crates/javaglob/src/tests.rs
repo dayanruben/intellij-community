@@ -3,6 +3,8 @@
 use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 
+use testkit::testdata_dir;
+
 use super::*;
 
 /// One line of `testdata/java-path-matcher.txt`, which `testdata/RecordPathMatcher.java` wrote with the JDK.
@@ -12,23 +14,12 @@ struct RecordedCase {
     matches: bool,
 }
 
-/// The `testdata` directory: `DDT_TESTDATA_DIR` under Bazel, the crate directory under `cargo test`.
-fn testdata_directory() -> PathBuf {
-    std::env::var_os("DDT_TESTDATA_DIR").map_or_else(
-        || {
-            let crate_directory = std::env::var_os("CARGO_MANIFEST_DIR").expect("cargo test sets CARGO_MANIFEST_DIR");
-            PathBuf::from(crate_directory).join("testdata")
-        },
-        PathBuf::from,
-    )
-}
-
 /// Every distinct glob of the plan file corpus of the planfile crate. The packer compiles the includes, executables and
 /// mapping patterns of a layout transform as globs. An include loses its leading `!`, and an empty mapping pattern is
 /// `**`.
 fn corpus_patterns() -> BTreeSet<String> {
     // The corpus is in the testdata of the sibling crate. The lexical path holds in the Bazel runfiles too.
-    let corpus = testdata_directory()
+    let corpus = testdata_dir()
         .parent()
         .and_then(Path::parent)
         .expect("the testdata directory is under crates/javaglob")
@@ -65,7 +56,7 @@ fn corpus_patterns() -> BTreeSet<String> {
 }
 
 fn testdata(name: &str) -> PathBuf {
-    testdata_directory().join(name)
+    testdata_dir().join(name)
 }
 
 /// Reverses the quoting of `RecordPathMatcher.quote`: `\\`, `\"` and `\uXXXX`.
@@ -121,7 +112,7 @@ fn match_agrees_with_the_recorded_path_matcher() {
     let mut failures = Vec::new();
     for recorded in record {
         match JavaGlob::compile(&recorded.pattern) {
-            Err(error) => failures.push(error.to_string()),
+            Err(error) => failures.push(format!("{error:#}")),
             Ok(glob) if glob.matches(&recorded.name) != recorded.matches => failures.push(format!(
                 "{:?} {:?}: the JDK answers {}",
                 recorded.pattern, recorded.name, recorded.matches
@@ -139,7 +130,7 @@ fn every_corpus_pattern_compiles_and_has_a_recorded_case() {
     let mut failures = Vec::new();
     for pattern in corpus_patterns() {
         if let Err(error) = JavaGlob::compile(&pattern) {
-            failures.push(error.to_string());
+            failures.push(format!("{error:#}"));
         } else if !recorded.contains(&pattern) {
             failures.push(format!("the record has no case for {pattern:?}"));
         }
@@ -165,7 +156,7 @@ fn translate_keeps_the_structure_of_each_construct() {
 #[test]
 fn compile_refuses_the_constructs_outside_the_subset() {
     assert_eq!(
-        JavaGlob::compile("a?c").unwrap_err().to_string(),
+        format!("{:#}", JavaGlob::compile("a?c").unwrap_err()),
         r#"glob "a?c": the dev-dist plan supports only *, ** and {a,b}, but the pattern has '?' at 1"#
     );
     for (pattern, problem) in [
@@ -176,8 +167,8 @@ fn compile_refuses_the_constructs_outside_the_subset() {
         ("{a,{b}}", "a nested '{' at 3"),
         ("a}b", "a '}' with no '{' at 1"),
     ] {
-        let error = JavaGlob::compile(pattern).unwrap_err();
-        assert_eq!(error.problem, problem, "{pattern}");
+        let error = format!("{:#}", JavaGlob::compile(pattern).unwrap_err());
+        assert!(error.ends_with(&format!("but the pattern has {problem}")), "{pattern}: {error}");
     }
 }
 

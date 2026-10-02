@@ -2,7 +2,7 @@
 package com.intellij.internal.statistic.eventLog.validator.storage
 
 import com.fasterxml.jackson.annotation.JsonInclude
-import com.intellij.ide.plugins.ProductLoadingStrategy
+import com.intellij.ide.plugins.CurrentProductMode
 import com.intellij.idea.AppMode
 import com.intellij.internal.statistic.StatisticsServiceScope
 import com.intellij.internal.statistic.config.EventLogOptions
@@ -41,7 +41,7 @@ import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.components.service
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.text.StringUtil
-import com.intellij.platform.runtime.product.ProductMode
+import com.intellij.platform.productMode.ProductMode
 import com.intellij.util.PlatformUtils
 import com.jetbrains.fus.reporting.DICTIONARY_LIST_LOAD_FAILED_TOPIC
 import com.jetbrains.fus.reporting.DICTIONARY_LIST_UPDATE_FAILED_TOPIC
@@ -251,10 +251,10 @@ object FusComponentProvider {
     // Inputs for the dispatcher's preEventWrite hook (system-field injection, moved out of StatisticsFileEventLogger).
     val isHeadless = ApplicationManager.getApplication()?.isHeadlessEnvironment == true
     val ideMode = if (AppMode.isRemoteDevHost()) "RDH" else null
-    val currentProductModeId = ProductLoadingStrategy.strategy.currentModeId
+    val currentProductMode = CurrentProductMode.value
     val productMode = when {
       PlatformUtils.isQodana() -> null
-      currentProductModeId != ProductMode.MONOLITH.id -> currentProductModeId
+      currentProductMode != ProductMode.MONOLITH -> currentProductMode.id
       else -> null
     }
     val systemEventIdProvider = UsageStatisticsPersistenceComponent.getInstance()

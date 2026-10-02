@@ -2,7 +2,6 @@
     "version": 2,
     "plugin": "intellij.rider.plugins.fsharp",
     "variant": "",
-    "layoutSignature": "37no1tdgzmyob1c6m38csltkc",
     "assets": [
         {
             "destination": "lib/rider-plugins-fsharp.jar",
@@ -48,18 +47,6 @@
             ],
             "kind": "tree",
             "classPath": false
-        }
-    ],
-    "preparations": [
-        {
-            "id": "layout-assets:resource-generator:0",
-            "inputs": [
-                "optional-local-directory:out/bundle-plugins/rider-plugins-fsharp"
-            ],
-            "outputs": [
-                "layout-assets:resource-generator:0:output"
-            ],
-            "modelSignature": "28tyh7n5abey5zmmwx6nwqps8"
         }
     ],
     "operations": [

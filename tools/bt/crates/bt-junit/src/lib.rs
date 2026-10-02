@@ -7,10 +7,11 @@
 //! enough to be authoritative. A truncated document is the normal case for the runs this reader exists to
 //! explain. The tag boundaries and nesting rules are ours; attributes and entities are quick-xml's.
 //!
-//! `bt` and the Air UI-lane tooling read documents through this crate. The lane tooling links it through a path
-//! dependency and re-exports it as `avl_wire::junit`, so `avl_wire::report`, the host's report builder and
-//! aggregates read the same documents. [`simple_class_name_pattern`] is the class-name filter `bt` and the
-//! controller's `/run` request both build, so it is spelled here once.
+//! `bt` and the Air UI-lane tooling read documents through this crate. Three crates of the lane tooling link it
+//! directly through a path dependency: `avl-report` for the run reports and their aggregates, `air-trace` for the
+//! trace bundles, and `avl-vm`, the `vm` controller. So they all read a document the same way. The guest agent does
+//! not link it. [`simple_class_name_pattern`] is the class-name filter that `bt` and the `/run` request of the
+//! controller both build, so it is spelled here once.
 
 use std::borrow::Cow;
 use std::cmp::Ordering;
@@ -251,9 +252,7 @@ impl<'a> Tag<'a> {
             Some(rest) => (true, rest),
             None => (false, inner),
         };
-        let name_end = body
-            .find(|char: char| char.is_whitespace() || char == '/')
-            .unwrap_or(body.len());
+        let name_end = body.find(|char: char| char.is_whitespace() || char == '/').unwrap_or(body.len());
         Tag {
             closing,
             name: &body[..name_end],
@@ -283,9 +282,7 @@ impl<'a> Tag<'a> {
     }
 
     fn count(&self, name: &str) -> u32 {
-        self.attribute(name)
-            .and_then(|value| value.trim().parse().ok())
-            .unwrap_or(0)
+        self.attribute(name).and_then(|value| value.trim().parse().ok()).unwrap_or(0)
     }
 
     fn seconds(&self, name: &str) -> f64 {
@@ -298,10 +295,7 @@ impl<'a> Tag<'a> {
 
 fn scan(xml: &str) -> (Vec<Suite>, Integrity) {
     // `str::trim` does not strip a byte-order mark; a document of nothing else is still empty.
-    if xml
-        .trim_matches(|char: char| char.is_whitespace() || char == '\u{feff}')
-        .is_empty()
-    {
+    if xml.trim_matches(|char: char| char.is_whitespace() || char == '\u{feff}').is_empty() {
         return (
             Vec::new(),
             Integrity {
@@ -451,15 +445,8 @@ fn scan(xml: &str) -> (Vec<Suite>, Integrity) {
             let message = tag.attribute("message");
             // Bazel's synthesized wrapper suite reports the runner's own exit code in a failure whose case
             // carries no class name. It is the only place that number appears.
-            let unnamed_case = state
-                .pending
-                .as_ref()
-                .is_none_or(|case| case.class_name.is_empty());
-            if let (Some(code), Some(suite), true) = (
-                message.as_deref().and_then(wrapper_exit_code),
-                &mut state.current,
-                unnamed_case,
-            ) {
+            let unnamed_case = state.pending.as_ref().is_none_or(|case| case.class_name.is_empty());
+            if let (Some(code), Some(suite), true) = (message.as_deref().and_then(wrapper_exit_code), &mut state.current, unnamed_case) {
                 suite.wrapper_exit_code = Some(code);
             }
             let Some(case) = &mut state.pending else {
@@ -502,9 +489,7 @@ fn wrapper_exit_code(message: &str) -> Option<i32> {
     const MARKER: &str = "exited with error code ";
     let digits_start = message.find(MARKER)? + MARKER.len();
     let rest = &message[digits_start..];
-    let digits = &rest[..rest
-        .find(|char: char| !char.is_ascii_digit())
-        .unwrap_or(rest.len())];
+    let digits = &rest[..rest.find(|char: char| !char.is_ascii_digit()).unwrap_or(rest.len())];
     digits.parse().ok()
 }
 
@@ -547,10 +532,7 @@ struct OpaqueSkip {
 /// Advances past a region that must not be interpreted: a CDATA section, a comment, or a captured-output body.
 fn skip_opaque(text: &str, index: usize) -> Option<OpaqueSkip> {
     let rest = &text[index..];
-    for (open, close, description) in [
-        ("<![CDATA[", "]]>", "CDATA section"),
-        ("<!--", "-->", "comment"),
-    ] {
+    for (open, close, description) in [("<![CDATA[", "]]>", "CDATA section"), ("<!--", "-->", "comment")] {
         if rest.starts_with(open) {
             return Some(match rest.find(close) {
                 Some(end) => OpaqueSkip {
@@ -565,10 +547,7 @@ fn skip_opaque(text: &str, index: usize) -> Option<OpaqueSkip> {
         }
     }
     for element in ["system-out", "system-err"] {
-        if !rest
-            .strip_prefix('<')
-            .is_some_and(|name| name.starts_with(element))
-        {
+        if !rest.strip_prefix('<').is_some_and(|name| name.starts_with(element)) {
             continue;
         }
         let Some(tag_end) = find_tag_end(text, index) else {
@@ -613,10 +592,7 @@ fn element_text(text: &str, from: usize, element: &str) -> ElementText {
     loop {
         let rest = &text[index..];
         let close = rest.find(&closing);
-        if let Some(cdata) = rest
-            .find("<![CDATA[")
-            .filter(|cdata| close.is_none_or(|close| *cdata < close))
-        {
+        if let Some(cdata) = rest.find("<![CDATA[").filter(|cdata| close.is_none_or(|close| *cdata < close)) {
             content.push_str(&unescape(&rest[..cdata]));
             let section = &rest[cdata + "<![CDATA[".len()..];
             let Some(end) = section.find("]]>") else {

@@ -753,7 +753,6 @@
             JEditorPaneDemoAction
             JBTabsDemo
             TestTooltipsAction
-            ShowInlineBanner
             ToolbarDemo
             TreeViewModelDemo
           WriteActionUnderProgress
@@ -1877,10 +1876,8 @@
   CompareClipboardWithSelection
   Code.Review.Editor.Show.Diff
   Code.Review.Editor.New.Comment
-  Gradle.ImportExternalProject
   XmlGenerateToolsGroup
   OpenInSceneBuilder
-  Maven.AddFileAsMavenProject
   Maven.GlobalProjectMenu
   Git.Stage.Index.File.Menu
   GitLab.Create.Snippet

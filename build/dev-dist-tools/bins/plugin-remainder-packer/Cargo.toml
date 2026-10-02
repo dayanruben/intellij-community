@@ -10,8 +10,10 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+anyhow.workspace = true
+cli.workspace = true
+filemeta.workspace = true
 fscopy.workspace = true
-lexopt.workspace = true
 planfile.workspace = true
 pluginpack.workspace = true
 serde_json.workspace = true
@@ -19,5 +21,6 @@ serde_json.workspace = true
 [dev-dependencies]
 filemeta.workspace = true
 tempfile.workspace = true
+testkit.workspace = true
 walkdir.workspace = true
 zip.workspace = true

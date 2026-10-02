@@ -2,7 +2,6 @@
     "version": 2,
     "plugin": "intellij.grid.loader.xls",
     "variant": "",
-    "layoutSignature": "bllkgk6p02hjmlzpsho3vwmgg",
     "assets": [
         {
             "destination": "lib/grid-loader-xls.jar",
@@ -43,18 +42,6 @@
             ],
             "kind": "tree",
             "classPath": false
-        }
-    ],
-    "preparations": [
-        {
-            "id": "layout-assets:resource-generator:1",
-            "inputs": [
-                "layout-source:resource-generator:1:0"
-            ],
-            "outputs": [
-                "layout-assets:resource-generator:1:output"
-            ],
-            "modelSignature": "45t7xz07ph5c0hs5vgyng9yhy"
         }
     ],
     "operations": [

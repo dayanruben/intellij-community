@@ -2,7 +2,6 @@
     "version": 2,
     "plugin": "intellij.rustrover.plugin",
     "variant": "windows_aarch64",
-    "layoutSignature": "eyimzjqkw73fptppyketnb8wt",
     "assets": [
         {
             "destination": "lib/intellij.rustrover.common.jar",
@@ -190,18 +189,6 @@
             ],
             "kind": "tree",
             "classPath": false
-        }
-    ],
-    "preparations": [
-        {
-            "id": "layout-assets:resource-generator:1",
-            "inputs": [
-                "rust-native-helper"
-            ],
-            "outputs": [
-                "layout-assets:resource-generator:1:output"
-            ],
-            "modelSignature": "2wo6wdsjo9kbgbh57vhlwg075"
         }
     ],
     "operations": [

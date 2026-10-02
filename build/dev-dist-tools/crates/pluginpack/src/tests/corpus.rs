@@ -3,16 +3,17 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-use planfile::contract::{Artifact, Catalogue, Library, Reference, VERSION};
-use planfile::{PlanFile, derive};
+use planfile::contract::{Artifact, ArtifactKind, AssetKind, Catalogue, Library, Reference, VERSION};
+use planfile::validate::validate_assets;
+use planfile::{PlanFile, SourceKind, derive};
 
-use super::testdata;
-use crate::{plan, validate_assets};
+use super::testdata_dir;
+use crate::plan;
 
 /// `testdata/corpus` of the `planfile` crate. Bazel puts the `planfile_testdata` filegroup beside the test data of this
 /// crate in the runfiles.
 fn corpus_dir() -> PathBuf {
-    let crates = testdata().parent().and_then(|crate_dir| crate_dir.parent()).map(PathBuf::from);
+    let crates = testdata_dir().parent().and_then(|crate_dir| crate_dir.parent()).map(PathBuf::from);
     crates
         .expect("the test data is below crates/pluginpack")
         .join("planfile/testdata/corpus")
@@ -62,15 +63,10 @@ fn directory_inputs(file: &PlanFile) -> HashSet<&str> {
 }
 
 /// The catalogue that Starlark writes for the remainder: the raw inputs of the remainder assets and of their
-/// preparations. Each library has one member. A root is a clean relative path, as a Bazel path is.
+/// operations. Each library has one member. A root is a clean relative path, as a Bazel path is.
 fn catalogue(file: &PlanFile) -> Catalogue {
-    let producers: HashMap<&str, &[String]> = (file.preparations.iter())
-        .flat_map(|preparation| {
-            preparation
-                .outputs
-                .iter()
-                .map(|output| (output.as_str(), preparation.inputs.as_slice()))
-        })
+    let producers: HashMap<&str, &[Reference]> = (file.operations.iter())
+        .map(|operation| (operation.output.as_str(), operation.inputs.as_slice()))
         .collect();
     let layout_inputs = (file.operations.iter())
         .flat_map(|operation| &operation.inputs)
@@ -78,7 +74,7 @@ fn catalogue(file: &PlanFile) -> Catalogue {
     let libraries: HashSet<&str> = (file.assets.iter())
         .filter_map(|asset| asset.recipe.as_ref())
         .flat_map(|recipe| &recipe.sources)
-        .filter(|source| source.kind == "library")
+        .filter(|source| source.kind == SourceKind::Library)
         .map(|source| source.input.as_str())
         .chain(layout_inputs.filter(|input| input.starts_with('@') && input.split_once("//:").is_some_and(|(_, name)| !name.contains('/'))))
         .collect();
@@ -91,12 +87,19 @@ fn catalogue(file: &PlanFile) -> Catalogue {
     let mut seen = HashSet::new();
     for asset in file.assets.iter().filter(|asset| !is_independent(asset)) {
         for input in &asset.inputs {
-            let raw: Vec<(&str, &str)> = match producers.get(input.as_str()) {
-                Some(inputs) => inputs.iter().map(|input| (input.as_str(), "file")).collect(),
-                None => vec![(input.as_str(), if asset.kind == "tree" { "directory" } else { "file" })],
+            let raw: Vec<(&str, ArtifactKind)> = match producers.get(input.as_str()) {
+                Some(inputs) => inputs.iter().map(|input| (input.artifact.as_str(), ArtifactKind::File)).collect(),
+                None => vec![(
+                    input.as_str(),
+                    if asset.kind == AssetKind::Tree {
+                        ArtifactKind::Directory
+                    } else {
+                        ArtifactKind::File
+                    },
+                )],
             };
             for (id, kind) in raw.into_iter().filter(|(id, _)| seen.insert(*id)) {
-                let kind = if directories.contains(id) { "directory" } else { kind };
+                let kind = if directories.contains(id) { ArtifactKind::Directory } else { kind };
                 if libraries.contains(id) {
                     let member = format!("{id}/member.jar");
                     catalogue.libraries.push(Library {
@@ -106,12 +109,12 @@ fn catalogue(file: &PlanFile) -> Catalogue {
                     catalogue.artifacts.push(Artifact {
                         root: root(&member),
                         id: member,
-                        kind: "file".to_owned(),
+                        kind: ArtifactKind::File,
                     });
                 } else {
                     catalogue.artifacts.push(Artifact {
                         id: id.to_owned(),
-                        kind: kind.to_owned(),
+                        kind,
                         root: root(id),
                     });
                 }
@@ -134,9 +137,9 @@ fn every_checked_in_plan_file_plans() {
     assert!(paths.len() >= 86, "the corpus holds only {} plan files", paths.len());
     for path in &paths {
         let text = expand_platform(&std::fs::read_to_string(path).unwrap());
-        let file = planfile::from_slice(text.as_bytes()).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+        let file = planfile::from_slice(text.as_bytes()).unwrap_or_else(|error| panic!("{}: {error:#}", path.display()));
         let independent_modules: Vec<String> = (file.assets.iter())
-            .filter(|asset| asset.kind == "file" && is_independent(asset))
+            .filter(|asset| asset.kind == AssetKind::File && is_independent(asset))
             .map(|asset| asset.inputs[0].clone())
             .collect();
         let derivation = derive(
@@ -151,6 +154,6 @@ fn every_checked_in_plan_file_plans() {
         .unwrap_or_else(|error| panic!("{}: derive: {error}", path.display()));
         validate_assets(file.version, &derivation.assets, true)
             .unwrap_or_else(|error| panic!("{}: validate_assets: {error}", path.display()));
-        plan(&derivation.recipe, &derivation.catalogue).unwrap_or_else(|error| panic!("{}: plan: {error}", path.display()));
+        plan(&derivation.recipe, &derivation.catalogue).unwrap_or_else(|error| panic!("{}: plan: {error:#}", path.display()));
     }
 }

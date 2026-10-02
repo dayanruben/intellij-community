@@ -6,12 +6,11 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 
 use crate::MANIFEST_ENTRY_NAME;
-use crate::error::{Result, bail};
-use crate::writer::DirectoryMode;
-use filemeta::xxh3::{hash_bytes, hash_chars};
+use anyhow::{Result, bail};
+use xxh3::{hash_bytes, hash_chars};
 
-/// Collects the `__index__` entry. It follows `PackageIndexBuilder` and `IkvIndexBuilder` in `zip/src`. The default
-/// mode puts the directories into the index and writes no zip entry for them.
+/// Collects the `__index__` entry. It follows `PackageIndexBuilder` and `IkvIndexBuilder` in `zip/src`. It puts the
+/// directories into the index, and the writer writes no zip entry for them.
 ///
 /// Two things here decide bytes, and each use site states them. One is the hash form of each field. The other is the
 /// sort order of the arrays.
@@ -30,7 +29,6 @@ pub(crate) struct IndexBuilder {
     pub(crate) resource_packages: HashSet<i64>,
     pub(crate) dirs_to_register: HashSet<String>,
     pub(crate) dir_order: Vec<String>,
-    pub(crate) directory_mode: DirectoryMode,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -51,7 +49,6 @@ impl IndexBuilder {
             resource_packages: HashSet::new(),
             dirs_to_register: HashSet::new(),
             dir_order: Vec::new(),
-            directory_mode: DirectoryMode::None,
         }
     }
 
@@ -77,18 +74,15 @@ impl IndexBuilder {
     }
 
     /// Records the package of an entry. The key is the hash of the *bytes*, and the package is the hash of the *chars*.
-    /// See `filemeta::xxh3` for why those are different inputs to one function.
+    /// See the `xxh3` crate for why those are different inputs to one function.
     pub(crate) fn add_file(&mut self, name: &str) {
         let package_hash = match name.rfind('/') {
             Some(slash) => hash_chars(&name[..slash]),
             None => 0,
         };
         if name.ends_with(".class") {
-            self.class_packages.insert(package_hash);
-            if self.directory_mode == DirectoryMode::All {
-                self.register_dirs(name);
-            }
             // `AddDirEntriesMode.NONE` never registers a class directory, so there is nothing else to do.
+            self.class_packages.insert(package_hash);
             return;
         }
         self.resource_packages.insert(package_hash);
@@ -209,3 +203,6 @@ fn sorted_signed(set: &HashSet<i64>) -> Vec<i64> {
 pub(crate) fn compare_java_string(a: &str, b: &str) -> Ordering {
     a.encode_utf16().cmp(b.encode_utf16())
 }
+
+#[cfg(test)]
+mod tests;

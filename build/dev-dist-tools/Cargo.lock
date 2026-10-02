@@ -65,16 +65,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
+name = "cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+]
+
+[[package]]
 name = "component"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "filemeta",
- "fscopy",
- "planfile",
  "serde",
  "serde_json",
- "tempfile",
- "thiserror",
+ "testkit",
 ]
 
 [[package]]
@@ -87,13 +92,13 @@ checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
 name = "content-module-packer"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "cli",
+ "filemeta",
  "jarpack",
- "lexopt",
- "rayon",
  "serde_json",
  "tempfile",
  "trace",
- "tracing",
  "zip",
 ]
 
@@ -101,9 +106,10 @@ dependencies = [
 name = "contentreport"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "saphyr",
  "tempfile",
- "thiserror",
+ "testkit",
  "walkdir",
 ]
 
@@ -170,32 +176,36 @@ name = "dev-dist-collector"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cli",
  "component",
+ "distpath",
  "filemeta",
- "lexopt",
  "planfile",
- "pluginpack",
  "serde",
  "serde_json",
  "tempfile",
+ "testkit",
  "trace",
- "tracing",
+ "xxh3",
 ]
 
 [[package]]
 name = "dev-dist-composer"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "cli",
  "component",
+ "distpath",
  "filemeta",
  "fscopy",
- "lexopt",
  "libc",
  "rayon",
+ "serde",
  "serde_json",
- "tempfile",
+ "testkit",
  "trace",
- "tracing",
+ "xxh3",
 ]
 
 [[package]]
@@ -203,7 +213,10 @@ name = "dev-launcher"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cli",
  "component",
+ "distpath",
+ "filemeta",
  "fscopy",
  "indexmap",
  "java-properties",
@@ -213,6 +226,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+ "testkit",
  "windows-sys",
 ]
 
@@ -225,6 +239,13 @@ dependencies = [
  "block-buffer",
  "const-oid",
  "crypto-common",
+]
+
+[[package]]
+name = "distpath"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
 ]
 
 [[package]]
@@ -273,13 +294,14 @@ checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
 name = "filemeta"
 version = "0.1.0"
 dependencies = [
- "fscopy",
+ "anyhow",
+ "distpath",
  "serde",
  "serde_json",
  "tempfile",
- "thiserror",
+ "testkit",
  "walkdir",
- "xxhash-rust",
+ "xxh3",
 ]
 
 [[package]]
@@ -313,7 +335,6 @@ checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 name = "fscopy"
 version = "0.1.0"
 dependencies = [
- "filetime",
  "tempfile",
 ]
 
@@ -381,15 +402,14 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 name = "jarpack"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "crc32fast",
- "filemeta",
+ "distpath",
  "flate2",
- "fscopy",
  "memmap2",
- "regex",
  "sha2",
  "tempfile",
- "thiserror",
+ "xxh3",
  "zip",
 ]
 
@@ -408,9 +428,10 @@ dependencies = [
 name = "javaglob"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "planfile",
  "regex",
- "thiserror",
+ "testkit",
 ]
 
 [[package]]
@@ -418,12 +439,6 @@ name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
-
-[[package]]
-name = "lexopt"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "803ec87c9cfb29b9d2633f20cba1f488db3fd53f2158b1024cbefb47ba05d413"
 
 [[package]]
 name = "libc"
@@ -493,19 +508,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "pin-project-lite"
-version = "0.2.17"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
-
-[[package]]
 name = "planfile"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "distpath",
  "serde",
  "serde_json",
  "tempfile",
- "thiserror",
+ "testkit",
 ]
 
 [[package]]
@@ -514,11 +525,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "appinfo",
- "flate2",
- "fscopy",
- "lexopt",
- "memmap2",
- "tempfile",
+ "cli",
+ "jarpack",
+ "testkit",
  "zip",
 ]
 
@@ -526,13 +535,15 @@ dependencies = [
 name = "plugin-remainder-packer"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "cli",
  "filemeta",
  "fscopy",
- "lexopt",
  "planfile",
  "pluginpack",
  "serde_json",
  "tempfile",
+ "testkit",
  "walkdir",
  "zip",
 ]
@@ -541,6 +552,8 @@ dependencies = [
 name = "pluginpack"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "distpath",
  "filemeta",
  "flate2",
  "fscopy",
@@ -554,9 +567,8 @@ dependencies = [
  "sha2",
  "tar",
  "tempfile",
- "thiserror",
+ "testkit",
  "walkdir",
- "xxhash-rust",
  "zip",
 ]
 
@@ -575,10 +587,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "appinfo",
- "lexopt",
+ "cli",
  "serde",
  "serde_json",
  "tempfile",
+ "testkit",
 ]
 
 [[package]]
@@ -586,12 +599,11 @@ name = "project-model-tree"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cli",
  "fscopy",
- "lexopt",
  "rayon",
  "tempfile",
  "trace",
- "tracing",
 ]
 
 [[package]]
@@ -672,9 +684,9 @@ name = "runtime-layout"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "lexopt",
+ "appinfo",
+ "cli",
  "planfile",
- "quick-xml",
  "serde",
  "serde_json",
  "tempfile",
@@ -773,7 +785,7 @@ checksum = "e7a5d71263a5a7d47b41f6b3f06ba276f10cc18b0931f1799f710578e2309348"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.6",
+ "syn",
 ]
 
 [[package]]
@@ -802,15 +814,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sharded-slab"
-version = "0.1.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f40ca3c46823713e0d4209592e8d6e826aa57e928f09752619fc696c499637f6"
-dependencies = [
- "lazy_static",
-]
-
-[[package]]
 name = "simd-adler32"
 version = "0.3.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -821,17 +824,6 @@ name = "simdutf8"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
-
-[[package]]
-name = "syn"
-version = "2.0.119"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "872831b642d1a07999a962a351ed35b955ea2cfc8f3862091e2a240a84f17297"
-dependencies = [
- "proc-macro2",
- "quote",
- "unicode-ident",
-]
 
 [[package]]
 name = "syn"
@@ -869,6 +861,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "testkit"
+version = "0.1.0"
+dependencies = [
+ "fscopy",
+ "tempfile",
+]
+
+[[package]]
 name = "thiserror"
 version = "2.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -885,16 +885,7 @@ checksum = "fe5197923287db20a58125f0bc85c062f7f2c892de97b18c356f9efb14b28524"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.6",
-]
-
-[[package]]
-name = "thread_local"
-version = "1.1.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1ad99c4c6d32803332c548b1af0540b357b3f5fc0be8f6c6bfe8b2e6ae784070"
-dependencies = [
- "cfg-if",
+ "syn",
 ]
 
 [[package]]
@@ -906,50 +897,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "tracing"
-version = "0.1.44"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "63e71662fa4b2a2c3a26f570f037eb95bb1f85397f3cd8076caed2f026a6d100"
-dependencies = [
- "pin-project-lite",
- "tracing-attributes",
- "tracing-core",
-]
-
-[[package]]
-name = "tracing-attributes"
-version = "0.1.31"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7490cfa5ec963746568740651ac6781f701c9c5ea257c58e057f3ba8cf69e8da"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "tracing-core"
-version = "0.1.36"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "db97caf9d906fbde555dd62fa95ddba9eecfd14cb388e4f491a66d74cd5fb79a"
-dependencies = [
- "once_cell",
-]
-
-[[package]]
-name = "tracing-subscriber"
-version = "0.3.23"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb7f578e5945fb242538965c2d0b04418d38ec25c79d160cd279bf0731c8d319"
-dependencies = [
- "sharded-slab",
- "thread_local",
- "tracing-core",
 ]
 
 [[package]]
@@ -1021,10 +968,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "xxh3"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+ "xxhash-rust",
+]
+
+[[package]]
 name = "xxhash-rust"
-version = "0.8.18"
+version = "0.8.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aee1b19627c7c60102ab80d3a9cbe18de90bfe03bfa6c3715447681f0e8c8af6"
+checksum = "550a2b930b62486a393c52d5c3b84bff264b28aa437ed64694d31e93b1757af7"
 
 [[package]]
 name = "zip"

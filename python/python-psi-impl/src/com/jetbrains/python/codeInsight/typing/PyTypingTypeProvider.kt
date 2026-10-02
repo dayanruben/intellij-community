@@ -131,7 +131,7 @@ import com.jetbrains.python.psi.types.PyTypeChecker.collectGenerics
 import com.jetbrains.python.psi.types.PyTypeFormType
 import com.jetbrains.python.psi.types.PyTypeParameterMapping
 import com.jetbrains.python.psi.types.PyTypeParameterType
-import com.jetbrains.python.psi.types.PyTypeParser
+import com.jetbrains.python.psi.types.PyLegacyDocstringTypeParser
 import com.jetbrains.python.psi.types.PyTypeUtil
 import com.jetbrains.python.psi.types.PyTypeUtil.convertToType
 import com.jetbrains.python.psi.types.PyTypeUtil.derefOrUnknown
@@ -824,6 +824,9 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
     const val SELF_EXT: String = "typing_extensions.Self"
 
     val TYPE_IGNORE_PATTERN: Pattern = Pattern.compile("#\\s*type:\\s*ignore\\s*(\\[[^]#]*])?($|(\\s.*))", Pattern.CASE_INSENSITIVE)
+
+    /** A `# type: ignore` comment whose code list is still open, as in `# type: ignore[attr-defined, un`. */
+    val TYPE_IGNORE_UNCLOSED_PATTERN: Pattern = Pattern.compile("#\\s*type:\\s*ignore\\s*\\[[^]#]*", Pattern.CASE_INSENSITIVE)
 
     const val ASSERT_TYPE: String = "typing.assert_type"
     const val REVEAL_TYPE: String = "typing.reveal_type"
@@ -2762,10 +2765,10 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
       val typingName: String? = element.getQualifiedName()
 
       val builtinName: String? = BUILTIN_COLLECTION_CLASSES[typingName]
-      if (builtinName != null) return PyTypeParser.getTypeByName(element, builtinName, context)
+      if (builtinName != null) return PyLegacyDocstringTypeParser.getTypeByName(element, builtinName, context)
 
       val collectionName: String? = COLLECTIONS_CLASSES[typingName]
-      if (collectionName != null) return PyTypeParser.getTypeByName(element, collectionName, context)
+      if (collectionName != null) return PyLegacyDocstringTypeParser.getTypeByName(element, collectionName, context)
 
       return null
     }

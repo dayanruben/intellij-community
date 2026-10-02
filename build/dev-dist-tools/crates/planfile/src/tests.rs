@@ -4,15 +4,15 @@
 mod corpus;
 
 use crate::contract::{
-    self, Artifact, Catalogue, Filter, LayoutAsset, LayoutAssets, LayoutTransform, LayoutTransformKind, Library, Manifest, Reference,
-    Source,
+    self, Artifact, ArtifactKind, AssetKind, Catalogue, Filter, LayoutAsset, LayoutAssets, LayoutTransform, LayoutTransformKind, Library,
+    Manifest, Producer, Reference, Source,
 };
-use crate::plan::LAYOUT_ASSETS_KIND;
 use crate::{
-    DEFAULT_MODE, Derivation, EXECUTABLE_MODE, Error, JarWriter, ManifestPolicy, PlanFile, classpath, derive, module_jar_asset, read,
+    DEFAULT_MODE, Derivation, EXECUTABLE_MODE, JarWriter, ManifestPolicy, OperationKind, PlanFile, classpath, derive, module_jar_asset,
+    read,
 };
 
-fn read_plan(text: &str) -> Result<PlanFile, Error> {
+fn read_plan(text: &str) -> anyhow::Result<PlanFile> {
     let directory = tempfile::tempdir().unwrap();
     let file = directory.path().join("plan.json");
     std::fs::write(&file, text).unwrap();
@@ -25,8 +25,7 @@ fn must_read_plan(text: &str) -> PlanFile {
 
 /// Wraps the assets and the optional sections into one neutral plan file text.
 fn plan(version: u32, assets: &str, sections: &[&str]) -> String {
-    let mut text =
-        format!(r#"{{"version": {version}, "plugin": "demo", "variant": "", "layoutSignature": "signature", "assets": [{assets}]"#);
+    let mut text = format!(r#"{{"version": {version}, "plugin": "demo", "variant": "", "assets": [{assets}]"#);
     for section in sections {
         text.push_str(", ");
         text.push_str(section);
@@ -38,7 +37,7 @@ fn plan(version: u32, assets: &str, sections: &[&str]) -> String {
 fn file_artifact(id: &str) -> Artifact {
     Artifact {
         id: id.to_owned(),
-        kind: "file".to_owned(),
+        kind: ArtifactKind::File,
         root: format!("inputs/{}", id.replace('/', "_")),
     }
 }
@@ -46,7 +45,7 @@ fn file_artifact(id: &str) -> Artifact {
 fn directory_artifact(id: &str) -> Artifact {
     Artifact {
         id: id.to_owned(),
-        kind: "directory".to_owned(),
+        kind: ArtifactKind::Directory,
         root: format!("inputs/{id}"),
     }
 }
@@ -66,8 +65,7 @@ fn strings(values: &[&str]) -> Vec<String> {
 /// A layout-assets entries operation over the raw input. Its output is the one prepared source of [`FILTERED_JAR`].
 const ENTRIES_OPERATION: &str = r#"{"id": "filter", "kind": "layout-assets", "inputs": [{"artifact": "raw"}], "output": "filtered", "manifest": "keep", "layoutAssets": {"format": "entries", "assets": [{"destination": "raw.txt", "sources": [0]}]}}"#;
 
-const ENTRIES_SECTION: &str = r#""preparations": [{"id": "filter", "inputs": ["raw"], "outputs": ["filtered"], "modelSignature": "x"}],
-  "operations": [{"id": "filter", "kind": "layout-assets", "inputs": [{"artifact": "raw"}], "output": "filtered", "manifest": "keep", "layoutAssets": {"format": "entries", "assets": [{"destination": "raw.txt", "sources": [0]}]}}]"#;
+const ENTRIES_SECTION: &str = r#""operations": [{"id": "filter", "kind": "layout-assets", "inputs": [{"artifact": "raw"}], "output": "filtered", "manifest": "keep", "layoutAssets": {"format": "entries", "assets": [{"destination": "raw.txt", "sources": [0]}]}}]"#;
 
 const FILTERED_JAR: &str = r#"{"destination": "lib/main.jar", "recipe": {"sources": [{"input": "filtered", "kind": "prepared", "filter": "prepared"}], "writer": {"manifest": "drop"}}}"#;
 
@@ -78,7 +76,7 @@ const RT_RECIPE: &str =
 const NATIVES: &str = r#"{"destination": "lib/modules/demo.natives.jar", "recipe": {"sources": [{"input": "demo.natives", "kind": "module", "filter": "module-v1"}], "writer": {"mergeEntities": true, "nativeLib": "native"}}},
   {"destination": "lib/native", "inputs": ["native-tree:demo.natives"], "kind": "tree", "classPath": false}"#;
 
-fn derive_plan(text: &str, inputs: &Catalogue, version: u32, independent_modules: &[&str]) -> Result<Derivation, Error> {
+fn derive_plan(text: &str, inputs: &Catalogue, version: u32, independent_modules: &[&str]) -> anyhow::Result<Derivation> {
     derive_refusing(text, inputs, version, independent_modules, &[])
 }
 
@@ -88,7 +86,7 @@ fn derive_refusing(
     version: u32,
     independent_modules: &[&str],
     refused_modules: &[&str],
-) -> Result<Derivation, Error> {
+) -> anyhow::Result<Derivation> {
     derive(
         &must_read_plan(text),
         inputs,
@@ -104,25 +102,25 @@ fn must_derive(text: &str, inputs: &Catalogue, version: u32, independent_modules
     derive_plan(text, inputs, version, independent_modules).unwrap_or_else(|error| panic!("{error}"))
 }
 
-fn expect_error(result: Result<Derivation, Error>, message: &str) {
+fn expect_error(result: anyhow::Result<Derivation>, message: &str) {
     match result {
         Ok(_) => panic!("expected {message:?}, got a derivation"),
-        Err(error) => assert!(error.message().contains(message), "expected {message:?}, got {error}"),
+        Err(error) => assert!(format!("{error:#}").contains(message), "expected {message:?}, got {error:#}"),
     }
 }
 
-fn row(destination: &str, producer: &str, artifact: &str) -> contract::Asset {
+fn row(destination: &str, producer: Producer, artifact: &str) -> contract::Asset {
     contract::Asset {
         destination: destination.to_owned(),
-        producer: producer.to_owned(),
+        producer,
         artifact: artifact.to_owned(),
         ..contract::Asset::default()
     }
 }
 
-fn tree_row(destination: &str, producer: &str, artifact: &str) -> contract::Asset {
+fn tree_row(destination: &str, producer: Producer, artifact: &str) -> contract::Asset {
     contract::Asset {
-        kind: "tree".to_owned(),
+        kind: AssetKind::Tree,
         class_path: Some(false),
         ..row(destination, producer, artifact)
     }
@@ -197,8 +195,8 @@ fn read_expands_the_compact_forms() {
     assert_eq!(content.destination, "lib/modules/demo.content.jar");
     assert_eq!(content.inputs, ["demo.content"]);
     assert_eq!(
-        (content.mode, content.kind.as_str(), content.class_path),
-        (DEFAULT_MODE, "file", true)
+        (content.mode, content.kind, content.class_path),
+        (DEFAULT_MODE, AssetKind::File, true)
     );
     assert_eq!(
         (writer.manifest, writer.merge_entities),
@@ -207,7 +205,7 @@ fn read_expands_the_compact_forms() {
 
     let demo = &file.assets[1];
     assert_eq!(demo.inputs, ["demo.main"], "the inputs of a recipe asset repeat its sources");
-    assert_eq!((demo.mode, demo.kind.as_str(), demo.class_path), (DEFAULT_MODE, "file", true));
+    assert_eq!((demo.mode, demo.kind, demo.class_path), (DEFAULT_MODE, AssetKind::File, true));
 
     let tool = &file.assets[2];
     assert_eq!(tool.inputs, ["native"]);
@@ -215,10 +213,10 @@ fn read_expands_the_compact_forms() {
     assert!(tool.recipe.is_none());
 
     let native = &file.assets[3];
-    assert_eq!((native.kind.as_str(), native.class_path), ("tree", false));
+    assert_eq!((native.kind, native.class_path), (AssetKind::Tree, false));
 
     let operation = &file.operations[0];
-    assert_eq!(operation.kind, LAYOUT_ASSETS_KIND);
+    assert_eq!(operation.kind, OperationKind::LayoutAssets);
     assert_eq!(operation.inputs, [Reference::artifact("raw")]);
     assert_eq!(operation.layout_assets.root, "", "an entries operation has no tree root");
     assert_eq!(operation.layout_assets.assets[0].destination, "raw.txt");
@@ -246,7 +244,6 @@ fn read_refuses_malformed_forms() {
         )
     };
     let operation = |text: &str| plan(1, one_module, &[&format!(r#""operations": [{text}]"#)]);
-    let preparation = |text: &str| plan(1, one_module, &[&format!(r#""preparations": [{text}]"#)]);
     for (name, text, message) in [
         (
             "a module asset with another field",
@@ -380,7 +377,12 @@ fn read_refuses_malformed_forms() {
         (
             "directory entries",
             writer(r#"{"directoryEntries": true}"#),
-            "lib/x.jar: a jar writer states directoryEntries; the packer writes no directory entries into a plan jar",
+            "unknown field `directoryEntries`",
+        ),
+        (
+            "false directory entries",
+            writer(r#"{"directoryEntries": false}"#),
+            "unknown field `directoryEntries`",
         ),
         (
             "a Kotlin operation kind",
@@ -461,23 +463,23 @@ fn read_refuses_malformed_forms() {
             "must not declare a tree root for its entries",
         ),
         (
-            "a preparation without signature",
-            preparation(r#"{"id": "p", "inputs": [], "outputs": ["o"]}"#),
-            "missing field `modelSignature`",
+            "preparations",
+            plan(1, one_module, &[r#""preparations": []"#]),
+            "unknown field `preparations`",
         ),
         (
-            "an always-run preparation",
-            preparation(r#"{"id": "p", "inputs": [], "outputs": ["o"], "modelSignature": "x", "alwaysRun": true}"#),
-            "unknown field `alwaysRun`",
+            "a layout signature",
+            r#"{"version": 1, "plugin": "demo", "variant": "", "layoutSignature": "s", "assets": []}"#.to_owned(),
+            "unknown field `layoutSignature`",
         ),
         (
             "no version",
-            r#"{"plugin": "demo", "variant": "", "layoutSignature": "s", "assets": []}"#.to_owned(),
+            r#"{"plugin": "demo", "variant": "", "assets": []}"#.to_owned(),
             "missing field `version`",
         ),
         (
             "a duplicate key",
-            r#"{"version": 1, "version": 1, "plugin": "demo", "variant": "", "layoutSignature": "s", "assets": []}"#.to_owned(),
+            r#"{"version": 1, "version": 1, "plugin": "demo", "variant": "", "assets": []}"#.to_owned(),
             "duplicate field `version`",
         ),
         (
@@ -492,13 +494,16 @@ fn read_refuses_malformed_forms() {
         ),
         (
             "null for a list",
-            plan(1, one_module, &[r#""preparations": null"#]),
+            plan(1, one_module, &[r#""operations": null"#]),
             "invalid type: null, expected a sequence",
         ),
     ] {
         match read_plan(&text) {
             Ok(_) => panic!("{name}: accepted {text}"),
-            Err(error) => assert!(error.message().contains(message), "{name}: expected {message:?}, got {error}"),
+            Err(error) => assert!(
+                format!("{error:#}").contains(message),
+                "{name}: expected {message:?}, got {error:#}"
+            ),
         }
     }
 }
@@ -512,7 +517,7 @@ fn read_names_the_file_and_the_operation() {
     ))
     .unwrap_err();
     assert!(
-        error.message().contains("plan.json: operation 0: "),
+        format!("{error:#}").contains("plan.json: operation 0: "),
         "the refusal names the file and the operation: {error}"
     );
 }
@@ -526,7 +531,7 @@ fn read_treats_null_as_absent_for_an_optional_field() {
       "recipe": {"sources": [{"input": "x", "kind": "module", "filter": "module-v1", "entry": null}], "writer": null},
       "mode": null, "kind": null, "classPath": null},
     {"destination": "lib/y.jar", "recipe": {"sources": [{"input": "y", "kind": "module", "filter": "module-v1"}],
-      "writer": {"manifest": null, "mergeEntities": null, "directoryEntries": null, "nativeLib": null}}}"#,
+      "writer": {"manifest": null, "mergeEntities": null, "nativeLib": null}}}"#,
         &[
             r#""operations": [{"id": "n", "kind": "layout-assets", "inputs": [{"artifact": "a"}], "output": "o", "manifest": "keep",
           "layoutAssets": {"format": "tree", "root": null, "assets": [{"destination": "", "sources": [0], "transform": null}]}}]"#,
@@ -534,7 +539,7 @@ fn read_treats_null_as_absent_for_an_optional_field() {
     ));
     let tool = &file.assets[0];
     assert_eq!(tool.inputs, ["x"]);
-    assert_eq!((tool.mode, tool.kind.as_str(), tool.class_path), (DEFAULT_MODE, "file", true));
+    assert_eq!((tool.mode, tool.kind, tool.class_path), (DEFAULT_MODE, AssetKind::File, true));
     assert_eq!(tool.recipe.as_ref().unwrap().writer, JarWriter::default());
     assert_eq!(file.assets[1].recipe.as_ref().unwrap().writer, JarWriter::default());
     let layout = &file.operations[0].layout_assets;
@@ -557,9 +562,9 @@ fn derive_reuses_a_module_jar_that_merges_libraries() {
     assert_eq!(
         derivation.assets,
         [
-            row("lib/modules/demo.rt.jar", "independent", "demo.rt"),
-            row("lib/rt-first.jar", "remainder", ""),
-            row("lib/rt-kept.jar", "remainder", ""),
+            row("lib/modules/demo.rt.jar", Producer::Independent, "demo.rt"),
+            row("lib/rt-first.jar", Producer::Remainder, ""),
+            row("lib/rt-kept.jar", Producer::Remainder, ""),
         ]
     );
 }
@@ -591,10 +596,10 @@ fn derive_matches_ownership_by_recipe_and_mode() {
         &["demo.content", "demo.rt"],
     );
     let want = [
-        row("lib/modules/demo.content.jar", "independent", "demo.content"),
-        row("lib/rt.jar", "independent", "demo.rt"),
-        row("lib/rt-exec.jar", "remainder", ""),
-        row("lib/rt-kept.jar", "remainder", ""),
+        row("lib/modules/demo.content.jar", Producer::Independent, "demo.content"),
+        row("lib/rt.jar", Producer::Independent, "demo.rt"),
+        row("lib/rt-exec.jar", Producer::Remainder, ""),
+        row("lib/rt-kept.jar", Producer::Remainder, ""),
     ];
     assert_eq!(derivation.assets, want);
     assert_eq!(derivation.recipe.assets, want);
@@ -638,7 +643,10 @@ fn derive_matches_ownership_by_recipe_and_mode() {
         let result = derive_plan(&plan(1, assets, &[]), &catalogue(vec![file_artifact("demo.rt")]), 1, modules);
         match result {
             Ok(_) => panic!("{name}: expected {message:?}"),
-            Err(error) => assert!(error.message().contains(message), "{name}: expected {message:?}, got {error}"),
+            Err(error) => assert!(
+                format!("{error:#}").contains(message),
+                "{name}: expected {message:?}, got {error:#}"
+            ),
         }
     }
 }
@@ -693,8 +701,8 @@ fn derive_requires_the_execution_version_of_the_assets() {
     assert_eq!(
         derivation.assets,
         [
-            row("lib/modules/demo.natives.jar", "independent", "demo.natives"),
-            tree_row("lib/native", "independent", "demo.natives"),
+            row("lib/modules/demo.natives.jar", Producer::Independent, "demo.natives"),
+            tree_row("lib/native", Producer::Independent, "demo.natives"),
         ]
     );
     assert!(derivation.recipe.operations.is_empty(), "the remainder writes no native file");
@@ -808,8 +816,7 @@ fn library_catalogue(libraries: &[(&str, &[&str])]) -> Catalogue {
 /// for every member, and the asset sources follow the expanded positions.
 #[test]
 fn derive_resolves_a_library_input_to_its_members() {
-    let entries = r#""preparations": [{"id": "entries", "inputs": ["@lib//:one", "raw"], "outputs": ["entries:output"], "modelSignature": "e"}],
-    "operations": [{"id": "entries", "kind": "layout-assets", "inputs": [{"artifact": "@lib//:one"}, {"artifact": "raw"}], "output": "entries:output", "manifest": "keep",
+    let entries = r#""operations": [{"id": "entries", "kind": "layout-assets", "inputs": [{"artifact": "@lib//:one"}, {"artifact": "raw"}], "output": "entries:output", "manifest": "keep",
       "layoutAssets": {"format": "entries", "assets": [{"destination": "", "sources": [1], "transform": {"kind": "archive-tree"}},
         {"destination": "", "sources": [0], "transform": {"kind": "archive-tree"}}]}}]"#;
     let jar_asset = r#"{"destination": "lib/x.jar", "recipe": {"sources": [{"input": "entries:output", "kind": "prepared", "filter": "prepared"}], "writer": {"manifest": "keep"}}}"#;
@@ -867,12 +874,7 @@ fn derive_compiles_every_operation_kind() {
       {"destination": "payload", "inputs": ["tree:output"], "kind": "tree", "classPath": false},
       {"destination": "lib/standardDsls", "inputs": ["dsls"], "kind": "tree", "classPath": false},
       {"destination": "bin/tool", "inputs": ["native"], "mode": 493}"#,
-            &[
-                r#""preparations": [{"id": "filter", "inputs": ["raw"], "outputs": ["filtered"], "modelSignature": "x"},
-          {"id": "tree", "inputs": ["archive"], "outputs": ["tree:output"], "modelSignature": "y"},
-          {"id": "entries", "inputs": ["properties"], "outputs": ["entries:output"], "modelSignature": "z"}]"#,
-                &operations,
-            ],
+            &[&operations],
         ),
         &inputs,
         2,
@@ -923,11 +925,11 @@ fn derive_compiles_every_operation_kind() {
     assert_eq!(derivation.recipe.operations, want);
 
     let rows = vec![
-        row("lib/main.jar", "remainder", ""),
-        row("lib/l10n.jar", "remainder", ""),
-        tree_row("payload", "remainder", ""),
-        tree_row("lib/standardDsls", "remainder", ""),
-        row("bin/tool", "remainder", ""),
+        row("lib/main.jar", Producer::Remainder, ""),
+        row("lib/l10n.jar", Producer::Remainder, ""),
+        tree_row("payload", Producer::Remainder, ""),
+        tree_row("lib/standardDsls", Producer::Remainder, ""),
+        row("bin/tool", Producer::Remainder, ""),
     ];
     assert_eq!(derivation.assets, rows);
     // The asset rows are the `assets.json` of the packer: Go `json.Marshal` of the rows.
@@ -990,17 +992,7 @@ fn derive_refuses_what_the_packer_does_not_execute() {
             "an operation no asset needs",
             plan(1, r#"{"destination": "bin/tool", "inputs": ["raw"]}"#, &[ENTRIES_SECTION]),
             filter_inputs(),
-            "unexpected preparation operation",
-        ),
-        (
-            "a preparation without operation",
-            plan(
-                1,
-                FILTERED_JAR,
-                &[r#""preparations": [{"id": "filter", "inputs": ["raw"], "outputs": ["filtered"], "modelSignature": "x"}]"#],
-            ),
-            filter_inputs(),
-            "missing preparation operation",
+            "unexpected operation",
         ),
         (
             "stale preparation inputs",
@@ -1015,26 +1007,12 @@ fn derive_refuses_what_the_packer_does_not_execute() {
             "stale preparation inputs",
         ),
         (
-            "a definition with other inputs",
-            plan(
-                1,
-                FILTERED_JAR,
-                &[&format!(
-                    r#""preparations": [{{"id": "filter", "inputs": ["raw", "more"], "outputs": ["filtered"], "modelSignature": "x"}}],
-          "operations": [{ENTRIES_OPERATION}]"#
-                )],
-            ),
-            filter_inputs(),
-            r#"must declare exactly the inputs ["raw"]"#,
-        ),
-        (
             "a tree with another root",
             plan(
                 2,
                 r#"{"destination": "other", "inputs": ["layout:output"], "kind": "tree", "classPath": false}"#,
                 &[
-                    r#""preparations": [{"id": "layout", "inputs": ["source"], "outputs": ["layout:output"], "modelSignature": "x"}],
-          "operations": [{"id": "layout", "kind": "layout-assets", "inputs": [{"artifact": "source"}], "output": "layout:output", "manifest": "keep",
+                    r#""operations": [{"id": "layout", "kind": "layout-assets", "inputs": [{"artifact": "source"}], "output": "layout:output", "manifest": "keep",
             "layoutAssets": {"format": "tree", "root": "payload", "assets": [{"destination": "", "sources": [0], "transform": {"kind": "archive-tree"}}]}}]"#,
                 ],
             ),
@@ -1078,8 +1056,7 @@ fn derive_refuses_what_the_packer_does_not_execute() {
                 1,
                 layout_jar,
                 &[
-                    r#""preparations": [{"id": "layout", "inputs": ["source"], "outputs": ["layout:output"], "modelSignature": "x"}],
-          "operations": [{"id": "layout", "kind": "layout-assets", "inputs": [{"artifact": "source"}], "output": "layout:output", "manifest": "keep",
+                    r#""operations": [{"id": "layout", "kind": "layout-assets", "inputs": [{"artifact": "source"}], "output": "layout:output", "manifest": "keep",
             "layoutAssets": {"format": "entries", "assets": [{"destination": "", "sources": [1], "transform": {"kind": "archive-tree"}}]}}]"#,
                 ],
             ),
@@ -1097,14 +1074,39 @@ fn derive_refuses_what_the_packer_does_not_execute() {
             "a jar with a native library must be a reused content_module_jar",
         ),
         (
-            "a preparation chain",
+            "an operation chain",
             plan(
                 1,
                 FILTERED_JAR,
-                &[r#""preparations": [{"id": "filter", "inputs": ["filtered"], "outputs": ["filtered"], "modelSignature": "x"}]"#],
+                &[
+                    r#""operations": [{"id": "filter", "kind": "layout-assets", "inputs": [{"artifact": "filtered"}], "output": "filtered", "manifest": "keep", "layoutAssets": {"format": "entries", "assets": [{"destination": "raw.txt", "sources": [0]}]}}]"#,
+                ],
             ),
             filter_inputs(),
-            r#"preparation "filter" reads the output "filtered" of a preparation; the packer executes no preparation chain"#,
+            r#"operation "filter" reads the output "filtered" of an operation; the packer executes no operation chain"#,
+        ),
+        (
+            "a repeated operation",
+            plan(
+                1,
+                FILTERED_JAR,
+                &[&format!(r#""operations": [{ENTRIES_OPERATION}, {ENTRIES_OPERATION}]"#)],
+            ),
+            filter_inputs(),
+            r#"invalid or repeated operation "filter""#,
+        ),
+        (
+            "a conflicting operation output",
+            plan(
+                1,
+                FILTERED_JAR,
+                &[&format!(
+                    r#""operations": [{ENTRIES_OPERATION}, {}]"#,
+                    ENTRIES_OPERATION.replacen(r#""id": "filter""#, r#""id": "other""#, 1)
+                )],
+            ),
+            filter_inputs(),
+            r#"conflicting operation output "filtered""#,
         ),
         (
             "a native tree without its jar",
@@ -1117,7 +1119,10 @@ fn derive_refuses_what_the_packer_does_not_execute() {
         let version = must_read_plan(&text).version;
         match derive_plan(&text, &inputs, version, &[]) {
             Ok(_) => panic!("{name}: expected {message:?}"),
-            Err(error) => assert!(error.message().contains(message), "{name}: expected {message:?}, got {error}"),
+            Err(error) => assert!(
+                format!("{error:#}").contains(message),
+                "{name}: expected {message:?}, got {error:#}"
+            ),
         }
     }
 }
@@ -1147,7 +1152,10 @@ fn derive_refuses_an_invalid_plugin_directory() {
             &[],
             &[],
         );
-        assert!(result.unwrap_err().message().contains("is not plugins/<name>"), "{directory:?}");
+        assert!(
+            format!("{:#}", result.unwrap_err()).contains("is not plugins/<name>"),
+            "{directory:?}"
+        );
     }
 }
 
@@ -1186,10 +1194,10 @@ fn derive_omits_an_asset_whose_every_module_is_refused() {
     assert_eq!(
         derivation.assets,
         [
-            row("lib/modules/demo.shared.jar", "independent", "demo.shared"),
-            row("lib/demo.jar", "remainder", ""),
-            row("lib/demo-lib.jar", "remainder", ""),
-            row("lib/main.jar", "remainder", ""),
+            row("lib/modules/demo.shared.jar", Producer::Independent, "demo.shared"),
+            row("lib/demo.jar", Producer::Remainder, ""),
+            row("lib/demo-lib.jar", Producer::Remainder, ""),
+            row("lib/main.jar", Producer::Remainder, ""),
         ]
     );
     assert_eq!(derivation.recipe.assets, derivation.assets);
@@ -1236,7 +1244,10 @@ fn derive_omits_an_asset_whose_every_module_is_refused() {
         let result = derive_refusing(&text, &inputs, 1, &["demo.content", "demo.shared"], refused);
         match result {
             Ok(_) => panic!("{name}: expected {message:?}"),
-            Err(error) => assert!(error.message().contains(message), "{name}: expected {message:?}, got {error}"),
+            Err(error) => assert!(
+                format!("{error:#}").contains(message),
+                "{name}: expected {message:?}, got {error:#}"
+            ),
         }
     }
 }

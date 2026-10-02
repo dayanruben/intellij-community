@@ -59,46 +59,24 @@ mod stamps;
 mod structural;
 
 #[cfg(test)]
-mod application_info_tests;
-#[cfg(test)]
-mod embedded_product_tests;
-#[cfg(test)]
-mod main_tests;
-#[cfg(test)]
-mod product_descriptor_tests;
-#[cfg(test)]
-mod rule_inputs_tests;
-#[cfg(test)]
-mod stamp_application_info_tests;
-#[cfg(test)]
 mod test_support;
+#[cfg(test)]
+mod tests;
 
-use std::collections::{BTreeMap, BTreeSet, HashSet};
-use std::fs::File;
-use std::io::{Cursor, Read};
-use std::path::Path;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::ffi::OsString;
+use std::io;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
 use appinfo::{ApplicationInfo, Replacement, descriptorxml};
-use lexopt::{Arg, ValueExt};
-use memmap2::Mmap;
-use zip::ZipArchive;
+use jarpack::Jar;
 
 use crate::stamps::CompatibleBuildRange;
 use crate::structural::{Cache, ContentRequest};
 
 fn main() {
-    let mut arguments = Vec::new();
-    for argument in std::env::args_os().skip(1) {
-        match argument.into_string() {
-            Ok(argument) => arguments.push(argument),
-            Err(argument) => {
-                eprintln!("ERROR: the argument {} is not valid UTF-8", argument.display());
-                std::process::exit(2);
-            }
-        }
-    }
-    let code = run(&arguments);
+    let code = run(std::env::args_os().skip(1));
     if code != 0 {
         std::process::exit(code);
     }
@@ -106,101 +84,36 @@ fn main() {
 
 /// Runs one request and returns the exit code. The code is 0 for success and 2 for a request that the rule cannot
 /// state. The code is 1 for a request that the inputs cannot satisfy.
-fn run(arguments: &[String]) -> i32 {
-    let lines = match read_request(arguments) {
-        Ok(lines) => lines,
-        Err(error) => return report(2, &error),
-    };
-    let mode = match select_operation(&lines) {
-        Ok(mode) => mode,
+fn run(arguments: impl IntoIterator<Item = OsString>) -> i32 {
+    let (mode, options) = match read_request(arguments) {
+        Ok(request) => request,
         Err(error) => return report(2, &error),
     };
     match mode {
-        Some(Mode::EmbeddedProduct) => embedded_product::run(&lines),
-        Some(Mode::ProductDescriptor) => product_descriptor::run(&lines),
-        Some(Mode::ApplicationInfo) => application_info::run(&lines),
-        Some(Mode::StampApplicationInfo) => stamp_application_info::run(&lines),
-        None => run_plugin_descriptor(&lines),
+        Some(Mode::EmbeddedProduct) => embedded_product::run(options),
+        Some(Mode::ProductDescriptor) => product_descriptor::run(options),
+        Some(Mode::ApplicationInfo) => application_info::run(options),
+        Some(Mode::StampApplicationInfo) => stamp_application_info::run(options),
+        None => run_plugin_descriptor(options),
     }
 }
 
 fn report(code: i32, error: &anyhow::Error) -> i32 {
-    eprintln!("ERROR: {error:#}");
+    cli::report(&mut io::stderr(), error);
     code
 }
 
-/// One option of the request: the name up to the first `=`, and the value after it. `None` is an option with no `=`,
-/// which only a mode flag is.
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct OptionLine {
-    name: String,
-    value: Option<String>,
-}
-
-impl OptionLine {
-    /// Returns the value. Every option but a mode flag states one, because the rules write `--name=value`.
-    fn value(&self) -> Result<&str> {
-        self.value
-            .as_deref()
-            .ok_or_else(|| anyhow!("{} takes a value, as {}=<value>", self.name, self.name))
-    }
-}
-
-/// Reads the request from the one argument that every rule passes, `--flagfile=<file>`.
+/// Reads the request from the one argument that every rule passes, `--flagfile=<file>`, and takes its mode flag.
 ///
-/// `use_param_file("--flagfile=%s", use_always = True)` of the rules writes a multiline file, one option per line.
-fn read_request(arguments: &[String]) -> Result<Vec<OptionLine>> {
-    let [argument] = arguments else {
-        bail!(
-            "the request is one --flagfile=<file> argument, and {} arguments were passed",
-            arguments.len()
-        );
-    };
-    let Some(file) = argument.strip_prefix("--flagfile=") else {
-        bail!("the request is one --flagfile=<file> argument, and '{argument}' is not one");
-    };
-    let content = read_text(file)?;
-    parse_option_lines(content.lines().map(str::to_owned).collect())
-}
-
-/// Splits the lines of the flag file into [`OptionLine`]s.
-///
-/// A line is `--name=value` or `--name`. The value never comes from the next line. A short option, a bare value, an
-/// empty line and a bare `--` are refused, because no rule writes one.
-fn parse_option_lines(lines: Vec<String>) -> Result<Vec<OptionLine>> {
-    // lexopt reads a bare `--` as the end of the options and reports nothing for it, so the check comes first.
-    if lines.iter().any(|line| line == "--") {
-        bail!("the flag file states a bare '--', which is not an option");
-    }
-    let mut parser = lexopt::Parser::from_args(lines);
-    let mut result = Vec::new();
-    while let Some(argument) = parser.next()? {
-        let name = match argument {
-            Arg::Long(name) => format!("--{name}"),
-            Arg::Short(name) => bail!("the flag file states the short option '-{name}', which is not an option"),
-            Arg::Value(value) => bail!("the flag file states the line '{}', which is not an option", value.string()?),
-        };
-        let value = parser.optional_value().map(ValueExt::string).transpose()?;
-        result.push(OptionLine { name, value });
-    }
-    Ok(result)
-}
-
-fn assign(slot: &mut String, line: &OptionLine) -> Result<()> {
-    line.value()?.clone_into(slot);
-    Ok(())
-}
-
-/// Refuses an option that the request states twice, unless it is one of the list options. The rules state every other
-/// option once, so a second one has no meaning to keep.
-fn refuse_repeated_options(lines: &[OptionLine], list_options: &[&str]) -> Result<()> {
-    let mut stated = HashSet::new();
-    for line in lines {
-        if !list_options.contains(&line.name.as_str()) && !stated.insert(line.name.as_str()) {
-            bail!("{} is stated more than once", line.name);
-        }
-    }
-    Ok(())
+/// `use_param_file("--flagfile=%s", use_always = True)` of the rules writes a multiline file, one option per line. A
+/// line is `--name=value` or a mode flag. The value never comes from the next line, and no rule writes an empty line.
+fn read_request(arguments: impl IntoIterator<Item = OsString>) -> Result<(Option<Mode>, cli::Options)> {
+    let mut arguments = cli::parse(arguments)?;
+    let file = arguments.require("--flagfile")?;
+    arguments.finish()?;
+    let mut options = cli::parse(read_text(Path::new(&file))?.lines().map(OsString::from))?;
+    let mode = take_mode(&mut options)?;
+    Ok((mode, options))
 }
 
 /// The four mode flags. A request with none of them patches a plugin descriptor.
@@ -230,67 +143,40 @@ impl Mode {
     }
 }
 
-/// Returns the mode of the request. A request without a mode flag stays on the plugin patching path.
-fn select_operation(lines: &[OptionLine]) -> Result<Option<Mode>> {
+/// Takes the mode flag of the request. A request without a mode flag stays on the plugin patching path.
+fn take_mode(options: &mut cli::Options) -> Result<Option<Mode>> {
     let mut mode: Option<Mode> = None;
-    for line in lines {
-        let Some(found) = Mode::ALL.into_iter().find(|mode| mode.flag() == line.name) else {
+    for candidate in Mode::ALL {
+        if !options.flag(candidate.flag())? {
             continue;
-        };
-        if line.value.is_some() {
-            bail!("{} is a flag and takes no value", line.name);
         }
         if let Some(selected) = mode {
-            bail!("only one mode flag is allowed, got {} and {}", selected.flag(), line.name);
+            bail!("only one mode flag is allowed, got {} and {}", selected.flag(), candidate.flag());
         }
-        mode = Some(found);
+        mode = Some(candidate);
     }
     Ok(mode)
-}
-
-/// Fails unless the request selects exactly this mode.
-fn require_mode(lines: &[OptionLine], want: Mode) -> Result<()> {
-    if select_operation(lines)? != Some(want) {
-        bail!("{} is required", want.flag());
-    }
-    Ok(())
-}
-
-/// Reports whether the line is the flag of this mode, which the parser of the mode skips.
-fn is_mode_line(line: &OptionLine, mode: Mode) -> bool {
-    line.name == mode.flag() && line.value.is_none()
-}
-
-/// Fails for the first option in the list whose value is empty.
-fn require_options(required: &[(&str, &str)]) -> Result<()> {
-    for (option, value) in required {
-        if value.is_empty() {
-            bail!("{option} is required");
-        }
-    }
-    Ok(())
 }
 
 /// The request of one plugin, as the rule states it.
 ///
 /// Every field is a string, a boolean, a path or a list of those. Nothing here can reach a layout or a build context.
 /// `dev_dist_plugin_descriptor` states the request, and [`parse_plugin_request`] is its one reader.
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 #[expect(
     clippy::struct_excessive_bools,
     reason = "each field is one switch of the request that the rule states"
 )]
 struct PluginRequest {
-    output: String,
+    output: PathBuf,
     main_module: String,
-    source: String,
-    source_entry: String,
-    build_number_file: String,
+    source: DescriptorSource,
+    build_number_file: PathBuf,
     /// The application info of the product. The stamps take the EAP flag, the release date and the release version
     /// from it.
-    application_info: String,
-    /// The application info of the host product, for a frontend. Empty for every other product.
-    host_application_info: String,
+    application_info: PathBuf,
+    /// The application info of the host product, for a frontend.
+    host_application_info: Option<PathBuf>,
     /// The markers of the application info, in the order that the writer replaces them.
     replacements: Vec<Replacement>,
     /// The pinned build date. An EAP product without a release date takes its date.
@@ -307,11 +193,11 @@ struct PluginRequest {
     embedded_content_modules: BTreeSet<String>,
     separate_jar: BTreeSet<String>,
     /// The descriptors that the patch can reach, keyed by load path.
-    plugin_descriptors: BTreeMap<String, String>,
+    plugin_descriptors: BTreeMap<String, PathBuf>,
     /// The descriptors that no production source root holds, keyed by load path and valued by the jars of the library
     /// container that answers it. The load path is also the zip entry, because `toLoadPath` strips the leading `/`.
     /// The rule declares a container and not a jar, so the jar that holds the entry is found here.
-    plugin_descriptors_in_jar: BTreeMap<String, Vec<String>>,
+    plugin_descriptors_in_jar: BTreeMap<String, Vec<PathBuf>>,
     /// The raw text patch of the layout as marker-table rows, in the order it applies them.
     markers: Vec<String>,
     /// What the layout appends to the IDE build version. Empty for a layout that stamps the version unchanged.
@@ -320,11 +206,18 @@ struct PluginRequest {
     compatible_build_range: Option<CompatibleBuildRange>,
     /// When set, receives the final descriptor after one more [`descriptorxml`] round trip. That is the form that the
     /// plugin classpath record embeds (`generatePluginClassPathFromOrderedAssets` of `orderedAssets.kt`).
-    reserialized_output: String,
+    reserialized_output: Option<PathBuf>,
 }
 
-fn run_plugin_descriptor(lines: &[OptionLine]) -> i32 {
-    let parsed = match parse_plugin_request(lines) {
+/// The source of the plugin descriptor: a declared file, or an entry of a declared jar.
+#[derive(Debug, PartialEq, Eq)]
+enum DescriptorSource {
+    File(PathBuf),
+    JarEntry { jar: PathBuf, entry: String },
+}
+
+fn run_plugin_descriptor(options: cli::Options) -> i32 {
+    let parsed = match parse_plugin_request(options) {
         Ok(parsed) => parsed,
         Err(error) => return report(2, &error),
     };
@@ -335,10 +228,10 @@ fn run_plugin_descriptor(lines: &[OptionLine]) -> i32 {
             return report(1, &error);
         }
     };
-    let mut outputs = vec![(parsed.output.as_str(), content.clone())];
-    if !parsed.reserialized_output.is_empty() {
+    let mut outputs = vec![(parsed.output.as_path(), content.clone())];
+    if let Some(reserialized_output) = &parsed.reserialized_output {
         match reserialize(&content) {
-            Ok(reserialized) => outputs.push((parsed.reserialized_output.as_str(), reserialized)),
+            Ok(reserialized) => outputs.push((reserialized_output.as_path(), reserialized)),
             Err(error) => {
                 let error = error.context(format!("could not reserialize the descriptor (module={})", parsed.main_module));
                 return report(1, &error);
@@ -373,14 +266,14 @@ fn patch(parsed: &PluginRequest) -> Result<String> {
     });
     let (since_build, until_build) = stamps::compatible_platform_version_range(compatible_build_range, &build_number);
 
-    let source = if parsed.source_entry.is_empty() {
-        read_file(&parsed.source)?
-    } else {
-        read_first_zip_entry(std::slice::from_ref(&parsed.source), &parsed.source_entry)?
+    let mut jars = Jars::default();
+    let (source, source_name) = match &parsed.source {
+        DescriptorSource::File(path) => (read_file(path)?, path),
+        DescriptorSource::JarEntry { jar, entry } => (jars.read_first_entry(std::slice::from_ref(jar), entry)?, jar),
     };
-    let source = String::from_utf8(source).with_context(|| format!("{} is not valid UTF-8", parsed.source))?;
+    let source = String::from_utf8(source).with_context(|| format!("{} is not valid UTF-8", source_name.display()))?;
     let patched = markers::apply(&source, &parsed.markers)?;
-    let cache = seed_cache(&parsed.plugin_descriptors, &parsed.plugin_descriptors_in_jar)?;
+    let cache = seed_cache(&parsed.plugin_descriptors, &parsed.plugin_descriptors_in_jar, &mut jars)?;
 
     let mut element = descriptorxml::read(&patched)?;
     stamps::apply(
@@ -415,128 +308,96 @@ fn patch(parsed: &PluginRequest) -> Result<String> {
     Ok(descriptorxml::write(&element))
 }
 
-/// Reads the facts of the application info: the markers first, then the XML. A frontend reads its host too, as the
-/// product files tool does.
+/// Reads the facts of the application info. A frontend reads its host too, as the product files tool does.
 fn read_application_info(parsed: &PluginRequest) -> Result<ApplicationInfo> {
-    let content = appinfo::replace_markers(&read_text(&parsed.application_info)?, &parsed.replacements);
-    if parsed.host_application_info.is_empty() {
-        return ApplicationInfo::read(&content, &parsed.application_info, parsed.build_date_seconds);
-    }
-    let host_content = read_text(&parsed.host_application_info)?;
-    ApplicationInfo::read_frontend(
-        &content,
+    ApplicationInfo::load(
         &parsed.application_info,
-        &host_content,
-        &parsed.host_application_info,
+        &parsed.replacements,
+        parsed.host_application_info.as_deref(),
         parsed.build_date_seconds,
     )
-}
-
-/// Reads one `--replacement=KEY=VALUE`. The key must be new and not empty. The value can be empty.
-fn parse_replacement(value: &str, stated: &[Replacement]) -> Result<Replacement> {
-    let Some((key, replacement)) = value.split_once('=').filter(|(key, _)| !key.is_empty()) else {
-        bail!("a replacement is '<key>=<value>', and '{value}' is not");
-    };
-    if stated.iter().any(|stated| stated.key == key) {
-        bail!("the replacement '{key}' is stated more than once");
-    }
-    Ok(Replacement::new(key, replacement))
 }
 
 /// Reads the parameter file that `dev_dist_plugin_descriptor` writes, one option per line.
 ///
 /// An option that the parser does not know fails the run. That is the rule of the platform too. It keeps the rule and
 /// this binary on one spelling: a rule that grows an option reaches this parser or fails here.
-fn parse_plugin_request(lines: &[OptionLine]) -> Result<PluginRequest> {
-    refuse_repeated_options(
-        lines,
-        &[
-            "--marker",
-            "--refused-content-module",
-            "--embed-content-module",
-            "--separate-jar",
-            "--plugin-descriptor",
-            "--plugin-descriptor-in-jar",
-            "--replacement",
-        ],
-    )?;
-    let mut parsed = PluginRequest {
-        embeds_content: true,
-        ..PluginRequest::default()
-    };
-    let mut build_date_seconds = None;
-    for line in lines {
-        match line.name.as_str() {
-            "--out" => assign(&mut parsed.output, line)?,
-            "--main-module" => assign(&mut parsed.main_module, line)?,
-            "--source" => assign(&mut parsed.source, line)?,
-            "--source-in-jar" => {
-                let (entry, jar) = parse_descriptor_jar(line.value()?)?;
-                entry.clone_into(&mut parsed.source_entry);
-                jar.clone_into(&mut parsed.source);
+fn parse_plugin_request(mut options: cli::Options) -> Result<PluginRequest> {
+    let output = options.require("--out")?.into();
+    let main_module = options.require("--main-module")?;
+    let source = match (options.take("--source")?, options.take("--source-in-jar")?) {
+        (Some(_), Some(_)) => bail!("the descriptor source is declared more than once"),
+        (_, Some(value)) => {
+            let (entry, jar) = parse_descriptor_jar(&value)?;
+            DescriptorSource::JarEntry {
+                jar: jar.into(),
+                entry: entry.to_owned(),
             }
-            "--build-number-file" => assign(&mut parsed.build_number_file, line)?,
-            "--application-info-source" => assign(&mut parsed.application_info, line)?,
-            "--host-application-info-source" => assign(&mut parsed.host_application_info, line)?,
-            "--replacement" => {
-                let replacement = parse_replacement(line.value()?, &parsed.replacements)?;
-                parsed.replacements.push(replacement);
-            }
-            "--build-date-seconds" => {
-                let value = line.value()?;
-                let Ok(seconds) = value.parse::<i64>() else {
-                    bail!("--build-date-seconds is not a number of seconds: '{value}'");
-                };
-                build_date_seconds = Some(seconds);
-            }
-            "--exact-version" => parsed.exact_version = parse_boolean_strict(line.value()?)?,
-            "--retain-product-descriptor" => parsed.retain_product = parse_boolean_strict(line.value()?)?,
-            "--embed-content-modules" => parsed.embeds_content = parse_boolean_strict(line.value()?)?,
-            "--reserialize-before-content-embedding" => {
-                parsed.reserialize_before_content_embedding = parse_boolean_strict(line.value()?)?;
-            }
-            "--refused-content-module" => parsed.refused_content_modules.push(line.value()?.to_owned()),
-            "--embed-content-module" => {
-                parsed.embedded_content_modules.insert(line.value()?.to_owned());
-            }
-            "--separate-jar" => {
-                parsed.separate_jar.insert(line.value()?.to_owned());
-            }
-            "--plugin-descriptor" => put_descriptor(&mut parsed.plugin_descriptors, line.value()?)?,
-            "--plugin-descriptor-in-jar" => {
-                append_descriptor_jar(&mut parsed.plugin_descriptors_in_jar, line.value()?)?;
-            }
-            "--marker" => parsed.markers.push(line.value()?.to_owned()),
-            "--version-suffix" => assign(&mut parsed.version_suffix, line)?,
-            // The layouts state one range. `EXACT` and `RESTRICTED_TO_SAME_RELEASE` still come from the two flags.
-            "--compatible-build-range" => match line.value()? {
-                "NEWER_WITH_SAME_BASELINE" => {
-                    parsed.compatible_build_range = Some(CompatibleBuildRange::NewerWithSameBaseline);
-                }
-                other => {
-                    bail!("the compatible build range '{other}' is not supported, only NEWER_WITH_SAME_BASELINE is")
-                }
-            },
-            "--reserialized-output" => assign(&mut parsed.reserialized_output, line)?,
-            option => bail!("unknown option '{option}'"),
         }
-    }
-    if lines.iter().any(|line| line.name == "--source") && lines.iter().any(|line| line.name == "--source-in-jar") {
-        bail!("the descriptor source is declared more than once");
-    }
+        (Some(source), None) if !source.is_empty() => DescriptorSource::File(source.into()),
+        (_, None) => bail!("--source is required"),
+    };
     // The rule states the application info of every product, so a request without it is one that the rule cannot state.
-    require_options(&[
-        ("--out", &parsed.output),
-        ("--main-module", &parsed.main_module),
-        ("--source", &parsed.source),
-        ("--build-number-file", &parsed.build_number_file),
-        ("--application-info-source", &parsed.application_info),
-    ])?;
-    parsed.build_date_seconds = build_date_seconds.context("--build-date-seconds is required")?;
-    if lines.iter().any(|line| line.name == "--host-application-info-source") && parsed.host_application_info.is_empty() {
-        bail!("--host-application-info-source must not be empty");
+    let build_number_file = options.require("--build-number-file")?.into();
+    let application_info = options.require("--application-info-source")?.into();
+    let host_application_info = non_empty_path(&mut options, "--host-application-info-source")?;
+    let replacements = Replacement::parse_all(&options.take_all("--replacement")?)?;
+    let build_date_seconds = options.require("--build-date-seconds")?;
+    let Ok(build_date_seconds) = build_date_seconds.parse::<i64>() else {
+        bail!("--build-date-seconds is not a number of seconds: '{build_date_seconds}'");
+    };
+    let mut plugin_descriptors = BTreeMap::new();
+    for value in options.take_all("--plugin-descriptor")? {
+        put_descriptor(&mut plugin_descriptors, &value)?;
     }
-    Ok(parsed)
+    let mut plugin_descriptors_in_jar = BTreeMap::new();
+    for value in options.take_all("--plugin-descriptor-in-jar")? {
+        append_descriptor_jar(&mut plugin_descriptors_in_jar, &value)?;
+    }
+    // The layouts state one range. `EXACT` and `RESTRICTED_TO_SAME_RELEASE` still come from the two flags.
+    let compatible_build_range = match options.take("--compatible-build-range")?.as_deref() {
+        None => None,
+        Some("NEWER_WITH_SAME_BASELINE") => Some(CompatibleBuildRange::NewerWithSameBaseline),
+        Some(other) => bail!("the compatible build range '{other}' is not supported, only NEWER_WITH_SAME_BASELINE is"),
+    };
+    let request = PluginRequest {
+        output,
+        main_module,
+        source,
+        build_number_file,
+        application_info,
+        host_application_info,
+        replacements,
+        build_date_seconds,
+        exact_version: boolean_option(&mut options, "--exact-version", false)?,
+        retain_product: boolean_option(&mut options, "--retain-product-descriptor", false)?,
+        embeds_content: boolean_option(&mut options, "--embed-content-modules", true)?,
+        reserialize_before_content_embedding: boolean_option(&mut options, "--reserialize-before-content-embedding", false)?,
+        refused_content_modules: options.take_all("--refused-content-module")?,
+        embedded_content_modules: options.take_all("--embed-content-module")?.into_iter().collect(),
+        separate_jar: options.take_all("--separate-jar")?.into_iter().collect(),
+        plugin_descriptors,
+        plugin_descriptors_in_jar,
+        markers: options.take_all("--marker")?,
+        version_suffix: options.take("--version-suffix")?.unwrap_or_default(),
+        compatible_build_range,
+        reserialized_output: non_empty_path(&mut options, "--reserialized-output")?,
+    };
+    options.finish()?;
+    Ok(request)
+}
+
+/// Reads an optional path option. The rules never write an empty value, so this function refuses one.
+fn non_empty_path(options: &mut cli::Options, name: &str) -> Result<Option<PathBuf>> {
+    match options.take(name)? {
+        Some(value) if value.is_empty() => bail!("{name} must not be empty"),
+        value => Ok(value.map(PathBuf::from)),
+    }
+}
+
+/// Reads an optional boolean option with Kotlin's `String.toBooleanStrict`, which accepts exactly `true` and `false`.
+fn boolean_option(options: &mut cli::Options, name: &str, default: bool) -> Result<bool> {
+    options.take(name)?.map_or(Ok(default), |value| parse_boolean_strict(&value))
 }
 
 /// Reads `<entry>=<jar>`.
@@ -558,11 +419,11 @@ fn parse_boolean_strict(value: &str) -> Result<bool> {
 
 /// Records a declared file by its load path. The rules refuse a load path that two declarations answer, and so does
 /// this function.
-fn put_descriptor(into: &mut BTreeMap<String, String>, value: &str) -> Result<()> {
+fn put_descriptor(into: &mut BTreeMap<String, PathBuf>, value: &str) -> Result<()> {
     let Some((load_path, file)) = value.split_once('=').filter(|(load_path, _)| !load_path.is_empty()) else {
         bail!("a descriptor is '<load path>=<file>', and '{value}' is not");
     };
-    if into.insert(load_path.to_owned(), file.to_owned()).is_some() {
+    if into.insert(load_path.to_owned(), file.into()).is_some() {
         bail!("the load path '{load_path}' is declared twice");
     }
     Ok(())
@@ -572,10 +433,10 @@ fn put_descriptor(into: &mut BTreeMap<String, String>, value: &str) -> Result<()
 ///
 /// One option for each (load path, jar), because the rule declares a library container and states every jar of it.
 /// The order is the order of the container, and the first jar that has the entry answers.
-fn append_descriptor_jar(into: &mut BTreeMap<String, Vec<String>>, value: &str) -> Result<()> {
+fn append_descriptor_jar(into: &mut BTreeMap<String, Vec<PathBuf>>, value: &str) -> Result<()> {
     match value.split_once('=') {
         Some((load_path, jar)) if !load_path.is_empty() => {
-            into.entry(load_path.to_owned()).or_default().push(jar.to_owned());
+            into.entry(load_path.to_owned()).or_default().push(jar.into());
             Ok(())
         }
         _ => bail!("a descriptor is '<load path>=<file>', and '{value}' is not"),
@@ -588,68 +449,82 @@ fn append_descriptor_jar(into: &mut BTreeMap<String, Vec<String>>, value: &str) 
 /// load path. The rule declares the container. The writer checks its jars in order and uses the first matching entry.
 /// When no jar has the entry, the action fails and names every jar it checked. A load path that both a file and a jar
 /// answer fails, as the rules refuse it.
-fn seed_cache(files: &BTreeMap<String, String>, jars: &BTreeMap<String, Vec<String>>) -> Result<Cache> {
+fn seed_cache(files: &BTreeMap<String, PathBuf>, jars: &BTreeMap<String, Vec<PathBuf>>, opened: &mut Jars) -> Result<Cache> {
     let mut cache = Cache::default();
     for (load_path, file) in files {
         cache.insert(load_path.clone(), read_file(file)?)?;
     }
     for (load_path, candidates) in jars {
-        cache.insert(load_path.clone(), read_first_zip_entry(candidates, load_path)?)?;
+        cache.insert(load_path.clone(), opened.read_first_entry(candidates, load_path)?)?;
     }
     Ok(cache)
 }
 
-/// Returns the entry of the first jar that has it.
-fn read_first_zip_entry(jars: &[String], name: &str) -> Result<Vec<u8>> {
-    for jar in jars {
-        if let Some(data) = read_zip_entry(jar, name)? {
-            return Ok(data);
-        }
-    }
-    bail!("no declared jar has the entry '{name}': {}", jars.join(", "))
+/// The declared jars of one request. A container states many load paths over the same jars, so each jar opens once, at
+/// its first lookup, and stays open for the request.
+#[derive(Default)]
+struct Jars {
+    opened: HashMap<PathBuf, Jar>,
 }
 
-/// Returns the entry of the jar, or `None` when the jar has no entry of that name.
-fn read_zip_entry(jar: &str, name: &str) -> Result<Option<Vec<u8>>> {
-    let file = File::open(jar).with_context(|| format!("open {jar}"))?;
-    let length = file.metadata().with_context(|| format!("open {jar}"))?.len();
-    let map;
-    let bytes: &[u8] = if length == 0 {
-        &[]
-    } else {
-        // SAFETY: the jar is a declared input of the action, and no process changes it while the action runs.
-        map = unsafe { Mmap::map(&file) }.with_context(|| format!("map {jar}"))?;
-        &map
-    };
-    let mut archive = ZipArchive::new(Cursor::new(bytes)).map_err(|error| anyhow!("{jar}: not a valid zip file: {error}"))?;
-    let Some(index) = archive.index_for_name(name) else {
-        return Ok(None);
-    };
-    let mut entry = archive
-        .by_index(index)
-        .with_context(|| format!("{jar}: cannot open the entry '{name}'"))?;
-    let mut data = Vec::with_capacity(usize::try_from(entry.size()).unwrap_or_default());
-    entry
-        .read_to_end(&mut data)
-        .with_context(|| format!("{jar}: cannot read the entry '{name}'"))?;
-    Ok(Some(data))
+impl Jars {
+    /// Returns the entry of the first jar that has it.
+    fn read_first_entry(&mut self, jars: &[PathBuf], name: &str) -> Result<Vec<u8>> {
+        for jar in jars {
+            if let Some(data) = self.read_entry(jar, name)? {
+                return Ok(data);
+            }
+        }
+        let names: Vec<String> = jars.iter().map(|jar| jar.display().to_string()).collect();
+        bail!("no declared jar has the entry '{name}': {}", names.join(", "))
+    }
+
+    /// Returns the entry of the jar, or `None` when the jar has no entry of that name. The first record of the name
+    /// answers.
+    fn read_entry(&mut self, path: &Path, name: &str) -> Result<Option<Vec<u8>>> {
+        if !self.opened.contains_key(path) {
+            self.opened.insert(path.to_path_buf(), open_jar(path)?);
+        }
+        let jar = &self.opened[path];
+        let Some(entry) = jar.entries().find(|entry| entry.name == name) else {
+            return Ok(None);
+        };
+        let data = jar
+            .data(&entry)
+            .with_context(|| format!("{}: cannot read the entry '{name}'", path.display()))?;
+        Ok(Some(data.into_owned()))
+    }
+}
+
+/// Opens a declared jar with the reader of the packer. An I/O error names the jar. Every other error is a jar that the
+/// reader refuses.
+fn open_jar(path: &Path) -> Result<Jar> {
+    Jar::open(path).map_err(|error| {
+        if error.downcast_ref::<io::Error>().is_some() {
+            error
+        } else {
+            anyhow!("not a valid zip file: {error:#}")
+        }
+    })
 }
 
 /// Reads a declared input. The error names the file.
-fn read_file(path: &str) -> Result<Vec<u8>> {
-    std::fs::read(path).with_context(|| format!("open {path}"))
+fn read_file(path: &Path) -> Result<Vec<u8>> {
+    std::fs::read(path).with_context(|| format!("open {}", path.display()))
 }
 
 /// Reads a declared text input. A file that is not UTF-8 fails, because the platform reads every input as UTF-8.
-fn read_text(path: &str) -> Result<String> {
-    String::from_utf8(read_file(path)?).with_context(|| format!("{path} is not valid UTF-8"))
+fn read_text(path: &Path) -> Result<String> {
+    String::from_utf8(read_file(path)?).with_context(|| format!("{} is not valid UTF-8", path.display()))
 }
 
 /// Writes one output, and creates its directory first.
-fn write_output(file: &str, content: &[u8]) -> Result<()> {
-    let path = Path::new(file);
+///
+/// The directory gets the mode of [`std::fs::create_dir_all`] under the umask, because Bazel creates the directory of a
+/// declared output before the action runs, and no inventory records the mode of a directory of the writer.
+fn write_output(path: &Path, content: &[u8]) -> Result<()> {
     if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
-        fscopy::create_dirs_0755(parent)?;
+        std::fs::create_dir_all(parent).with_context(|| parent.display().to_string())?;
     }
-    std::fs::write(path, content).with_context(|| format!("open {file}"))
+    std::fs::write(path, content).with_context(|| format!("open {}", path.display()))
 }

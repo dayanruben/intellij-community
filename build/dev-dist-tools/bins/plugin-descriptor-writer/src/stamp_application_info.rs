@@ -2,12 +2,12 @@
 
 //! The `--stamp-application-info` mode: the executor of `dev_dist_product_application_info`.
 
-use anyhow::{Result, bail};
+use std::path::PathBuf;
 
-use crate::application_info::{Replacement, replace_markers};
-use crate::{
-    Mode, OptionLine, assign, is_mode_line, read_text, refuse_repeated_options, report, require_mode, require_options, write_output,
-};
+use anyhow::{Result, bail};
+use appinfo::{Replacement, replace_markers};
+
+use crate::{read_text, report, write_output};
 
 /// The declared inputs of the application info of a product. The application-info module ships it as
 /// `idea/<prefix>ApplicationInfo.xml`.
@@ -16,21 +16,24 @@ use crate::{
 /// unknown options.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct StampApplicationInfoRequest {
-    pub output: String,
-    pub source: String,
+    pub output: PathBuf,
+    pub source: PathBuf,
     /// `ProductProperties.appInfoXmlReplacements`, in their order. The request states at least one.
     pub replacements: Vec<Replacement>,
 }
 
-pub(crate) fn run(lines: &[OptionLine]) -> i32 {
-    let parsed = match parse_stamp_application_info_request(lines) {
+pub(crate) fn run(options: cli::Options) -> i32 {
+    let parsed = match parse_stamp_application_info_request(options) {
         Ok(parsed) => parsed,
         Err(error) => return report(2, &error),
     };
     let content = match stamp_application_info(&parsed) {
         Ok(content) => content,
         Err(error) => {
-            let error = error.context(format!("could not replace the markers of the application info ({})", parsed.source));
+            let error = error.context(format!(
+                "could not replace the markers of the application info ({})",
+                parsed.source.display()
+            ));
             return report(1, &error);
         }
     };
@@ -51,35 +54,19 @@ pub(crate) fn stamp_application_info(parsed: &StampApplicationInfoRequest) -> Re
     Ok(replace_markers(&source, &parsed.replacements))
 }
 
-pub(crate) fn parse_stamp_application_info_request(lines: &[OptionLine]) -> Result<StampApplicationInfoRequest> {
-    require_mode(lines, Mode::StampApplicationInfo)?;
-    refuse_repeated_options(lines, &["--replacement"])?;
-    let mut parsed = StampApplicationInfoRequest::default();
-    for line in lines {
-        if is_mode_line(line, Mode::StampApplicationInfo) {
-            continue;
-        }
-        let slot = match line.name.as_str() {
-            "--out" => &mut parsed.output,
-            "--source" => &mut parsed.source,
-            "--replacement" => {
-                let value = line.value()?;
-                let Some((key, text)) = value.split_once('=').filter(|(key, _)| !key.is_empty()) else {
-                    bail!("a replacement is '<key>=<value>', and '{value}' is not");
-                };
-                if parsed.replacements.iter().any(|replacement| replacement.key == key) {
-                    bail!("the replacement '{key}' is stated more than once");
-                }
-                parsed.replacements.push(Replacement::new(key, text));
-                continue;
-            }
-            option => bail!("unknown application info stamp option '{option}'"),
-        };
-        assign(slot, line)?;
-    }
-    require_options(&[("--out", &parsed.output), ("--source", &parsed.source)])?;
-    if parsed.replacements.is_empty() {
+pub(crate) fn parse_stamp_application_info_request(mut options: cli::Options) -> Result<StampApplicationInfoRequest> {
+    let replacements = Replacement::parse_all(&options.take_all("--replacement")?)?;
+    let request = StampApplicationInfoRequest {
+        output: options.require("--out")?.into(),
+        source: options.require("--source")?.into(),
+        replacements,
+    };
+    options.finish()?;
+    if request.replacements.is_empty() {
         bail!("--replacement is required, because a product without replacements has no application info action");
     }
-    Ok(parsed)
+    Ok(request)
 }
+
+#[cfg(test)]
+mod tests;

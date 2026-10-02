@@ -2,7 +2,6 @@
     "version": 2,
     "plugin": "intellij.gateway.plugin",
     "variant": "",
-    "layoutSignature": "1wuh1iamunkgzjikbfoikshtl",
     "assets": [
         {
             "module": "intellij.gateway.core"
@@ -130,18 +129,6 @@
             ],
             "mode": 493,
             "classPath": false
-        }
-    ],
-    "preparations": [
-        {
-            "id": "layout-assets:resource-generator:0",
-            "inputs": [
-                "layout-source:resource-generator:0:0"
-            ],
-            "outputs": [
-                "layout-assets:resource-generator:0:output"
-            ],
-            "modelSignature": "a9f0735xblbroenxna68l0bzn"
         }
     ],
     "operations": [

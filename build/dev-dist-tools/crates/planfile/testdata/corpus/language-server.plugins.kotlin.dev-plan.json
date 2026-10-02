@@ -2,7 +2,6 @@
     "version": 1,
     "plugin": "language-server.plugins.kotlin",
     "variant": "",
-    "layoutSignature": "5r4vsirobmo5wrw8yabubik9y",
     "assets": [
         {
             "module": "language-server.analyzer.kotlin"
@@ -1390,18 +1389,6 @@
                     "mergeEntities": true
                 }
             }
-        }
-    ],
-    "preparations": [
-        {
-            "id": "layout-assets:layout-patcher:0",
-            "inputs": [
-                "@lib//:libraries-kotlinc-kotlin-compiler-common-kotlinc-kotlin-compiler-common"
-            ],
-            "outputs": [
-                "layout-assets:layout-patcher:0:output"
-            ],
-            "modelSignature": "9rrjhjkhq9mupnbiblcj6344c"
         }
     ],
     "operations": [

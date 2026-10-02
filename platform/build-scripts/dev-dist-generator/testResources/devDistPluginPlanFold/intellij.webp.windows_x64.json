@@ -2,7 +2,6 @@
     "version": 2,
     "plugin": "intellij.webp",
     "variant": "windows_x64",
-    "layoutSignature": "b2c72303eeb4719af87be052fb89f87c99323b8c8c6173802acd2eef9c1f0b60",
     "assets": [
         {
             "destination": "lib/webp.jar",
@@ -53,18 +52,6 @@
             ],
             "kind": "tree",
             "classPath": false
-        }
-    ],
-    "preparations": [
-        {
-            "id": "layout-assets:platform-resource-generator:0",
-            "inputs": [
-                "layout-source:platform-resource-generator:0:0"
-            ],
-            "outputs": [
-                "layout-assets:platform-resource-generator:0:output"
-            ],
-            "modelSignature": "af9e3e774cf11f9b49485cf3a2cff02a2274d7be74218c8b12f16926c33a7d64"
         }
     ],
     "operations": [

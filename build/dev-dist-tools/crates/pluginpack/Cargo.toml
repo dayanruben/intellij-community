@@ -10,6 +10,8 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+anyhow.workspace = true
+distpath.workspace = true
 filemeta.workspace = true
 flate2.workspace = true
 fscopy.workspace = true
@@ -17,15 +19,16 @@ jarpack.workspace = true
 javaglob.workspace = true
 planfile.workspace = true
 ruzstd.workspace = true
-same-file.workspace = true
 tar.workspace = true
 tempfile.workspace = true
-thiserror.workspace = true
 walkdir.workspace = true
 zip.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+same-file.workspace = true
 
 [dev-dependencies]
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
-xxhash-rust.workspace = true
+testkit.workspace = true

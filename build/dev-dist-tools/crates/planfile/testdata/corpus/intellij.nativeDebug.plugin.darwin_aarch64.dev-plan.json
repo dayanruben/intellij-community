@@ -2,7 +2,6 @@
     "version": 2,
     "plugin": "intellij.nativeDebug.plugin",
     "variant": "darwin_aarch64",
-    "layoutSignature": "5zqdgj8zj0m78hbg2pyu14xmk",
     "assets": [
         {
             "module": "intellij.nativeDebug.backend"
@@ -173,30 +172,6 @@
             ],
             "kind": "tree",
             "classPath": false
-        }
-    ],
-    "preparations": [
-        {
-            "id": "layout-assets:resource-generator:0",
-            "inputs": [
-                "cidr-dependency:LLDBFrontend:mac:aarch64",
-                "cidr-dependency:LLDBFrontend:mac:x64"
-            ],
-            "outputs": [
-                "layout-assets:resource-generator:0:output"
-            ],
-            "modelSignature": "5n28zfaej4e9d0wfyx0482r4k"
-        },
-        {
-            "id": "layout-assets:resource-generator:1",
-            "inputs": [
-                "cidr-dependency:LLDB:mac:aarch64",
-                "cidr-dependency:gdb:mac:aarch64"
-            ],
-            "outputs": [
-                "layout-assets:resource-generator:1:output"
-            ],
-            "modelSignature": "ewyrr8rord4r92l6nhr4gg99a"
         }
     ],
     "operations": [

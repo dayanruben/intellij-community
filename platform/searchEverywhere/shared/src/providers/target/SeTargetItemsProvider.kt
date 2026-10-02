@@ -2,7 +2,6 @@
 package com.intellij.platform.searchEverywhere.providers.target
 
 import com.intellij.ide.actions.GotoActionBase
-import com.intellij.ide.actions.searcheverywhere.AbstractGotoSEContributor
 import com.intellij.ide.actions.searcheverywhere.FoundItemDescriptor
 import com.intellij.ide.actions.searcheverywhere.PSIPresentationBgRendererWrapper
 import com.intellij.ide.actions.searcheverywhere.PersistentSearchEverywhereContributorFilter
@@ -52,6 +51,8 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.backend.presentation.TargetPresentation
 import com.intellij.platform.scopes.SearchScopeData
 import com.intellij.platform.scopes.SearchScopesInfo
+import com.intellij.platform.searchEverywhere.SeComposedWeight
+import com.intellij.platform.searchEverywhere.SeComposedWeightItem
 import com.intellij.platform.searchEverywhere.SeExtendedInfo
 import com.intellij.platform.searchEverywhere.SeItem
 import com.intellij.platform.searchEverywhere.SeItemsProvider
@@ -93,6 +94,7 @@ import kotlinx.coroutines.flow.takeWhile
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.Nls
 import java.awt.event.InputEvent
+import java.util.IdentityHashMap
 import java.util.UUID
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicInteger
@@ -103,7 +105,24 @@ import kotlin.coroutines.cancellation.CancellationException
  * A raw search result, with the matchers that decide which parts of its presentation the UI highlights.
  */
 @ApiStatus.Experimental
-class SeTargetRawItem(val rawItem: Any, val rawWeight: Int?, val matchers: ItemMatchers?)
+class SeTargetRawItem(
+  val rawItem: Any,
+  val rawWeight: Int?,
+  val matchers: ItemMatchers?,
+  val composedWeight: SeComposedWeight?,
+)
+
+/**
+ * A [FoundItemDescriptor] with a [composedWeight]. A goto item provider returns it, so that [SeTargetItemsProvider] keeps all components.
+ *
+ * The plain weight is the first component, for code that reads only [getWeight].
+ */
+@ApiStatus.Internal
+class SeComposedWeightFoundItemDescriptor<I>(item: I, val composedWeight: SeComposedWeight)
+  : FoundItemDescriptor<I>(item, composedWeight.components.first().weight)
+
+private val FoundItemDescriptor<*>.composedWeight: SeComposedWeight?
+  get() = (this as? SeComposedWeightFoundItemDescriptor<*>)?.composedWeight
 
 @ApiStatus.Experimental
 class SeTargetPresentableItem(rawItem: Any,
@@ -112,10 +131,12 @@ class SeTargetPresentableItem(rawItem: Any,
                               private val presentation: TargetPresentation,
                               val extendedInfo: SeExtendedInfo,
                               val isMultiSelectionSupported: Boolean,
-                              val isExactMatch: Boolean): SeItem {
+                              val isExactMatch: Boolean,
+                              private val composedWeight: SeComposedWeight?): SeItem, SeComposedWeightItem {
 
   override val rawObject: Any = PSIPresentationBgRendererWrapper.ItemWithPresentation(rawItem, presentation)
   override fun weight(): Int = weight
+  override fun composedWeight(): SeComposedWeight = composedWeight ?: SeComposedWeight(weight)
   override suspend fun presentation(): SeItemPresentation = SeTargetItemPresentationBuilder()
     .withTargetPresentation(presentation, matchers, extendedInfo, isMultiSelectionSupported)
     .build()
@@ -127,12 +148,13 @@ class SeTargetItemsProvider<T> private constructor(
   private val psiContext: SmartPsiElementPointer<PsiElement?>?,
   private val operationDisposable: Disposable?,
   private val label: String,
-  private val gotoModelProvider: (Project, ScopeDescriptor?, Set<T>) -> (FilteringGotoByModel<*>),
-  private val typeFilterProvider: (Project) -> List<PersistentSearchEverywhereContributorFilter<T>>,
+  private val gotoModelProvider: (Project, ScopeDescriptor?, Map<String, Set<T>>) -> (FilteringGotoByModel<*>),
+  private val typeFilterProvider: (Project) -> Map<String, PersistentSearchEverywhereContributorFilter<out T>>,
   private val extendedInfoCalculator: SeExtendedInfoCalculator,
   private val isFileProvider: Boolean,
   private val acceptsBlankQuery: Boolean,
   private val supportsScopes: Boolean,
+  private val scopesProvider: SeTargetScopesProvider,
 ) : Disposable {
   //region Search
 
@@ -176,6 +198,7 @@ class SeTargetItemsProvider<T> private constructor(
         inputQueryHasNoExtension = inputQueryHasNoExtension,
         isDirectory = PSIPresentationBgRendererWrapper.toPsi(item.rawItem) is PsiDirectory,
       ),
+      composedWeight = item.composedWeight,
     )
   }
 
@@ -231,12 +254,10 @@ class SeTargetItemsProvider<T> private constructor(
 
     persistHiddenTypes(hiddenTypes)
 
-    // The filters of the model know their own elements, so this stays free of any one model.
-    val hiddenTypeRefs = hiddenTypes?.toSet()?.let { hiddenNames ->
-      typeFilters.getValue().flatMap { filter ->
-        filter.allElements.filter { hiddenNames.contains(filter.getElementText(it)) }
-      }
-    }?.toSet() ?: emptySet()
+    val hiddenNamesByFilter = hiddenTypes ?: emptyMap()
+    val hiddenTypeRefs = typeFilters.getValue().mapValues { (key, filter) ->
+      hiddenElements(filter, hiddenNamesByFilter[key].orEmpty().toSet())
+    }
 
     try {
       readAction {
@@ -247,7 +268,10 @@ class SeTargetItemsProvider<T> private constructor(
           }
         }
 
-        val model = stats.measure(stats.modelCreateNanos) { gotoModelProvider(project, scopeDescriptor, hiddenTypeRefs) }
+        val model = stats.measure(stats.modelCreateNanos) {
+          gotoModelProvider(project, scopeDescriptor, hiddenTypeRefs)
+        }
+
         if (operationDisposable != null && model is Disposable) {
           Disposer.register(operationDisposable, model)
         }
@@ -282,20 +306,20 @@ class SeTargetItemsProvider<T> private constructor(
                 provider.filterElementsWithWeights(viewModel, parameters, progressIndicator
                 ) { item: FoundItemDescriptor<*> ->
                   fromModelCount.incrementAndGet()
-                  processElement(progressIndicator, model, item.item, item.weight, defaultMatchers, stats, startedAtNano)
+                  processElement(progressIndicator, model, item.item, item.weight, item.composedWeight, defaultMatchers, stats, startedAtNano)
                 }
               }
               is ChooseByNameWeightedItemProvider -> {
                 provider.filterElementsWithWeights(viewModel, pattern, isEverywhere, progressIndicator
                 ) { item: FoundItemDescriptor<*> ->
                   fromModelCount.incrementAndGet()
-                  processElement(progressIndicator, model, item.item, item.weight, defaultMatchers, stats, startedAtNano)
+                  processElement(progressIndicator, model, item.item, item.weight, item.composedWeight, defaultMatchers, stats, startedAtNano)
                 }
               }
               else -> {
                 provider.filterElements(viewModel, pattern, isEverywhere, progressIndicator) { element: Any ->
                   fromModelCount.incrementAndGet()
-                  processElement(progressIndicator, model, element, null, defaultMatchers, stats, startedAtNano)
+                  processElement(progressIndicator, model, element, null, null, defaultMatchers, stats, startedAtNano)
                 }
               }
             }
@@ -321,6 +345,7 @@ class SeTargetItemsProvider<T> private constructor(
     model: ChooseByNameModel,
     element: Any?,
     weight: Int?,
+    composedWeight: SeComposedWeight?,
     defaultMatchers: ItemMatchers,
     stats: SeFetchStats,
     startedAtNano: Long,
@@ -342,7 +367,7 @@ class SeTargetItemsProvider<T> private constructor(
       }
       // `send` waits for the consumer while the read lock is held, so the wait goes into the log.
       stats.measure(stats.blockedInSendNanos) {
-        send(SeTargetRawItem(element, weight, itemMatchers(defaultMatchers, model, element)))
+        send(SeTargetRawItem(element, weight, itemMatchers(defaultMatchers, model, element), composedWeight))
       }
     }
     stats.sentCount.incrementAndGet()
@@ -398,11 +423,12 @@ class SeTargetItemsProvider<T> private constructor(
 
   private suspend fun createScopes(): SeTargetScopes {
     val descriptors = readAction {
-      collectScopesWithSeparators(AbstractGotoSEContributor.createScopes(project, psiContext))
+      collectScopesWithSeparators(scopesProvider.createDescriptors(project, psiContext))
     }
     if (descriptors.isEmpty()) return SeTargetScopes(null, SeScopeByIdMap(emptyMap(), null, null))
 
     val descriptorByScopeId = mutableMapOf<String, ScopeDescriptor>()
+    val scopeIdByDescriptor = IdentityHashMap<ScopeDescriptor, String>()
 
     val scopeDataList = descriptors.mapNotNull { descriptor ->
       val name = descriptor.displayName ?: return@mapNotNull null
@@ -410,26 +436,27 @@ class SeTargetItemsProvider<T> private constructor(
 
       SearchScopeData.from(descriptor, scopeId)?.also {
         descriptorByScopeId[scopeId] = descriptor
+        scopeIdByDescriptor[descriptor] = scopeId
       }
     }
 
-    fun scopeIdOf(name: @Nls String): String? = scopeDataList.firstOrNull { it.name == name }?.scopeId
-
-    val projectScopeName = GlobalSearchScope.projectScope(project).displayName
-    val everywhereScopeName = GlobalSearchScope.everythingScope(project).displayName
-    val projectScopeId = scopeIdOf(projectScopeName)
-    val everywhereScopeId = scopeIdOf(everywhereScopeName)
+    val everywhereScope = scopesProvider.findEverywhereScope(project, descriptors)
+    val projectScope = scopesProvider.findProjectScope(project, descriptors, everywhereScope)
+    val everywhereScopeId = everywhereScope?.let { scopeIdByDescriptor[it] }
+    val projectScopeId = projectScope?.let { scopeIdByDescriptor[it] }
 
     // The scope chooser can auto toggle to the everywhere scope only when both ids resolve and differ.
     // See SeScopeChooserActionProvider.canToggleEverywhere. A null id disables the auto toggle silently.
     if (projectScopeId == null || everywhereScopeId == null) {
       SeLog.warn("$label: the auto toggle is off, because a scope id is missing. " +
-                 "project='$projectScopeName' -> $projectScopeId, everywhere='$everywhereScopeName' -> $everywhereScopeId. " +
+                 "project='${projectScope?.displayName}' -> $projectScopeId, " +
+                 "everywhere='${everywhereScope?.displayName}' -> $everywhereScopeId. " +
                  "Known scopes: ${scopeDataList.joinToString { it.name }}")
     }
     else {
       SeLog.log(SeLog.SCOPE) {
-        "$label: scopes=${scopeDataList.size}, project='$projectScopeName', everywhere='$everywhereScopeName'"
+        "$label: scopes=${scopeDataList.size}, project='${projectScope.displayName}', " +
+        "everywhere='${everywhereScope.displayName}'"
       }
     }
 
@@ -468,40 +495,46 @@ class SeTargetItemsProvider<T> private constructor(
   //region Type filters
 
   /**
-   * The persistent type filters of the model, in the order that the filter actions appear.
+   * The persistent type filters of the model, by the key that names each one.
    */
-  private val typeFilters: SuspendLazyProperty<List<PersistentSearchEverywhereContributorFilter<T>>> = suspendLazy {
+  private val typeFilters: SuspendLazyProperty<Map<String, PersistentSearchEverywhereContributorFilter<out T>>> = suspendLazy {
     typeFilterProvider(project)
   }
 
   /**
-   * The type list that the filter action at [index] shows, or an empty list when there is no such filter.
+   * The type list that the filter which [key] names shows, or an empty list when there is no such filter.
    */
-  suspend fun getTypeVisibilityStates(index: Int): List<SeTypeVisibilityStatePresentation> =
-    typeFilters.getValue().getOrNull(index)?.let {
+  suspend fun getTypeVisibilityStates(key: String): List<SeTypeVisibilityStatePresentation> =
+    typeFilters.getValue()[key]?.let {
       typeVisibilityStates(it)
     } ?: emptyList()
 
-  private fun typeVisibilityStates(filter: PersistentSearchEverywhereContributorFilter<T>): List<SeTypeVisibilityStatePresentation> =
+  private fun <E> typeVisibilityStates(filter: PersistentSearchEverywhereContributorFilter<E>): List<SeTypeVisibilityStatePresentation> =
     filter.allElements.map { element ->
       SeTypeVisibilityStatePresentation(filter.getElementText(element), filter.getElementIcon(element)?.rpcId(), filter.isSelected(element))
     }
 
   /**
-   * Writes [hiddenTypes] into every persistent type filter.
+   * Writes the hidden types of each key into the persistent type filter that the key names.
+   *
+   * A filter with no matching key hides nothing, and a key with no matching filter is ignored.
    */
-  private suspend fun persistHiddenTypes(hiddenTypes: List<String>?) {
-    val hidden = hiddenTypes?.toSet() ?: return
-    typeFilters.getValue().forEach { filter ->
-      persistHiddenTypes(filter, hidden)
+  private suspend fun persistHiddenTypes(hiddenTypes: Map<String, List<String>>?) {
+    if (hiddenTypes == null) return
+    typeFilters.getValue().forEach { (key, filter) ->
+      persistHiddenTypes(filter, hiddenTypes[key].orEmpty().toSet())
     }
   }
 
-  private fun persistHiddenTypes(filter: PersistentSearchEverywhereContributorFilter<T>, hiddenTypes: Set<String>) {
+  private fun <E> persistHiddenTypes(filter: PersistentSearchEverywhereContributorFilter<E>, hiddenTypes: Set<String>) {
     filter.allElements.forEach { element ->
       filter.setSelected(element, !hiddenTypes.contains(filter.getElementText(element)))
     }
   }
+
+  /** The elements of [filter] that [hiddenNames] hides, by the element text of the filter. */
+  private fun <E : T> hiddenElements(filter: PersistentSearchEverywhereContributorFilter<E>, hiddenNames: Set<String>): Set<T> =
+    filter.allElements.filterTo(HashSet<T>()) { hiddenNames.contains(filter.getElementText(it)) }
 
   //endregion
 
@@ -690,23 +723,30 @@ class SeTargetItemsProvider<T> private constructor(
     /**
      * Builds a provider that drives [gotoModelProvider].
      *
+     * [gotoModelProvider] takes one hidden set per type filter, under the key that
+     * [typeFilterProvider] gave that filter. So a provider reads each of its filters by name.
+     *
      * [acceptsBlankQuery] lets a blank query run. A goto model finds nothing for one, so the default
      * skips the search.
      *
      * [supportsScopes] builds the scope list of the scope chooser. Turn it off for a provider that
      * offers no scope, because the first search of a session pays for the whole list.
+     *
+     * [scopesProvider] builds that scope list. Pass one for a provider whose scope the platform does
+     * not know, such as the data source scope of the DB objects tab.
      */
     suspend fun <T> create(
       project: Project,
       dataContext: DataContext,
       operationDisposable: Disposable?,
       label: String,
-      gotoModelProvider: (Project, ScopeDescriptor?, Set<T>) -> (FilteringGotoByModel<*>),
-      typeFilterProvider: (Project) -> List<PersistentSearchEverywhereContributorFilter<T>> = { emptyList() },
+      gotoModelProvider: (Project, ScopeDescriptor?, Map<String, Set<T>>) -> (FilteringGotoByModel<*>),
+      typeFilterProvider: (Project) -> Map<String, PersistentSearchEverywhereContributorFilter<out T>> = { emptyMap() },
       extendedInfoCalculator: SeExtendedInfoCalculator = SePsiExtendedInfoCalculator(),
       isFileProvider: Boolean = false,
       acceptsBlankQuery: Boolean = false,
       supportsScopes: Boolean = true,
+      scopesProvider: SeTargetScopesProvider = SeTargetScopesProvider.DEFAULT,
     ): SeTargetItemsProvider<T> {
       val psiContext = readAction {
         GotoActionBase.getPsiContext(dataContext)?.let { context ->
@@ -715,7 +755,8 @@ class SeTargetItemsProvider<T> private constructor(
       }
 
       return SeTargetItemsProvider(project, psiContext, operationDisposable, label, gotoModelProvider,
-                                   typeFilterProvider, extendedInfoCalculator, isFileProvider, acceptsBlankQuery, supportsScopes)
+                                   typeFilterProvider, extendedInfoCalculator, isFileProvider, acceptsBlankQuery,
+                                   supportsScopes, scopesProvider)
     }
   }
 }

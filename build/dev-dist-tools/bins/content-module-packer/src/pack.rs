@@ -3,43 +3,73 @@
 //! The packing of the groups of one recipe, and the spans of each jar.
 
 use std::io::Write;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::num::NonZeroUsize;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::thread;
 
-use jarpack::MergeSpec;
-use rayon::prelude::*;
-use tracing::field::Empty;
-use tracing::{Dispatch, Span, info_span};
+use jarpack::{MergeOptions, MergeReport, MergeSpec};
+use trace::Span;
+
+use crate::inventory;
 
 /// Packs each group of the recipe under `root`.
 ///
 /// A Bazel action names one group, and the group runs on the calling thread. A parity run or a profile run names many
-/// groups. They run in parallel on the rayon pool, which has one thread per CPU. After a failure, no new group starts,
-/// and the result is the first error in group order.
+/// groups. They run in parallel on one scoped thread per CPU, and each thread takes the next group from a shared
+/// cursor. After a failure, no new group starts, and the result is the first error in group order.
 ///
 /// A group in parallel writes its report to a buffer. The buffers go to `stderr` in group order after all groups end.
 /// So the lines of two jars do not mix, and the order of the lines does not depend on the timing.
-pub(crate) fn pack_all(specs: &[MergeSpec], root: &Span, dispatch: &Dispatch, stderr: &mut dyn Write) -> jarpack::Result<()> {
+pub(crate) fn pack_all(specs: &[MergeSpec], options: &MergeOptions, root: &Span, stderr: &mut dyn Write) -> anyhow::Result<()> {
     if let [spec] = specs {
-        return pack_one(spec, root, stderr);
+        return pack_one(spec, options, root, stderr);
     }
+    let workers = thread::available_parallelism().map_or(1, NonZeroUsize::get);
+    pack_in_parallel(specs, options, workers, root, stderr)
+}
+
+/// The report and the result of one group that ran.
+type Outcome = (Vec<u8>, anyhow::Result<()>);
+
+/// Packs the groups on `workers` scoped threads, with the output rules of [`pack_all`].
+///
+/// The pool is written by hand, because a crate dependency in the packer re-keys every packing action when the crate
+/// changes. A panic of a group ends the run with the same panic, after the other threads end.
+pub(crate) fn pack_in_parallel(
+    specs: &[MergeSpec],
+    options: &MergeOptions,
+    workers: usize,
+    root: &Span,
+    stderr: &mut dyn Write,
+) -> anyhow::Result<()> {
+    let cursor = AtomicUsize::new(0);
     let failed = AtomicBool::new(false);
-    let outcomes: Vec<_> = specs
-        .par_iter()
-        .map(|spec| {
-            if failed.load(Ordering::Relaxed) {
-                return None;
+    let worker = || {
+        let mut outcomes = Vec::new();
+        while !failed.load(Ordering::Relaxed) {
+            let index = cursor.fetch_add(1, Ordering::Relaxed);
+            let Some(spec) = specs.get(index) else {
+                break;
+            };
+            let mut report = Vec::new();
+            let result = pack_one(spec, options, root, &mut report);
+            if result.is_err() {
+                failed.store(true, Ordering::Relaxed);
             }
-            // The dispatcher of the run is the default of the calling thread only, so each group sets it again.
-            tracing::dispatcher::with_default(dispatch, || {
-                let mut report = Vec::new();
-                let result = pack_one(spec, root, &mut report);
-                if result.is_err() {
-                    failed.store(true, Ordering::Relaxed);
-                }
-                Some((report, result))
-            })
-        })
-        .collect();
+            outcomes.push((index, (report, result)));
+        }
+        outcomes
+    };
+    let mut outcomes: Vec<Option<Outcome>> = specs.iter().map(|_| None).collect();
+    thread::scope(|scope| {
+        let threads: Vec<_> = (0..workers.clamp(1, specs.len().max(1))).map(|_| scope.spawn(worker)).collect();
+        for thread in threads {
+            let packed = thread.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+            for (index, outcome) in packed {
+                outcomes[index] = Some(outcome);
+            }
+        }
+    });
     let mut first_error = None;
     for (report, result) in outcomes.into_iter().flatten() {
         let _ = stderr.write_all(&report);
@@ -56,63 +86,62 @@ pub(crate) fn pack_all(specs: &[MergeSpec], root: &Span, dispatch: &Dispatch, st
 /// A duplicate is not a failure. Two merged libraries can hold the same service file or licence stub, and the first
 /// source wins. The report makes a real collision visible in the action log, for example two module outputs with the
 /// same class.
-fn pack_one(spec: &MergeSpec, parent: &Span, out: &mut dyn Write) -> jarpack::Result<()> {
+fn pack_one(spec: &MergeSpec, options: &MergeOptions, parent: &Span, out: &mut dyn Write) -> anyhow::Result<()> {
     let jar_name = spec.jar_name();
-    let span = info_span!(
-        parent: parent,
-        "pack jar",
-        jar = jar_name.as_str(),
-        sources = spec.sources.len(),
-        bytes = Empty,
-        duplicates = Empty
-    );
-    let merged = match spec.pack() {
+    let span = parent.child("pack jar");
+    span.tag("jar", jar_name.as_str());
+    span.tag("sources", spec.sources.len());
+    let merged = match create_directories(spec).and_then(|()| spec.pack(options)) {
         Ok(merged) => merged,
         Err(error) => {
-            trace::fail(&span, &error);
+            span.fail(&format!("{error:#}"));
             return Err(error);
         }
     };
     let result = match spec.metadata_file {
-        Some(_) => write_inventory(spec, &span),
+        Some(_) => write_inventory(spec, &merged, &span),
         None => Ok(()),
     };
     match &result {
         // The size of a jar with a failed inventory tells nothing, so a failed span has no `bytes` tag.
-        Ok(()) => {
-            span.record("bytes", merged.bytes_written);
-        }
-        Err(error) => trace::fail(&span, error),
+        Ok(()) => span.tag("bytes", merged.bytes_written),
+        Err(error) => span.fail(&format!("{error:#}")),
     }
     if let Some(line) = jarpack::duplicate_line(&jar_name, &merged.duplicates) {
-        span.record("duplicates", merged.duplicates.len());
+        span.tag("duplicates", merged.duplicates.len());
         let _ = writeln!(out, "{line}");
     }
     result
 }
 
+/// Creates the parent of the jar and the root of the native tree before the pack. Each new directory gets the mode 0755
+/// under any umask, because the inventory of a tree records the mode of each directory. The pack creates the directories
+/// below the tree root.
+pub(crate) fn create_directories(spec: &MergeSpec) -> anyhow::Result<()> {
+    if let Some(parent) = spec.output.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+        filemeta::create_dir_all_0755(parent)?;
+    }
+    if let Some(tree) = spec.native.as_ref().and_then(|native| native.tree.as_ref()) {
+        filemeta::create_dir_all_0755(&tree.dir)?;
+    }
+    Ok(())
+}
+
 /// Writes the inventory of the group under an `inventory packing output` span with the counters of the inventory.
-fn write_inventory(spec: &MergeSpec, parent: &Span) -> jarpack::Result<()> {
-    let span = info_span!(
-        parent: parent,
-        "inventory packing output",
-        fileCount = Empty,
-        hashedFileCount = Empty,
-        byteCount = Empty,
-        nativeFileCount = Empty
-    );
-    match jarpack::write_inventory(spec) {
+fn write_inventory(spec: &MergeSpec, merged: &MergeReport, parent: &Span) -> anyhow::Result<()> {
+    let span = parent.child("inventory packing output");
+    match inventory::write_inventory(spec, merged) {
         Ok(report) => {
-            span.record("fileCount", report.file_count);
-            span.record("hashedFileCount", report.hashed_file_count);
-            span.record("byteCount", report.byte_count);
+            span.tag("fileCount", report.file_count);
+            span.tag("hashedFileCount", report.hashed_file_count);
+            span.tag("byteCount", report.byte_count);
             if let Some(count) = report.native_file_count {
-                span.record("nativeFileCount", count);
+                span.tag("nativeFileCount", count);
             }
             Ok(())
         }
         Err(error) => {
-            trace::fail(&span, &error);
+            span.fail(&format!("{error:#}"));
             Err(error)
         }
     }

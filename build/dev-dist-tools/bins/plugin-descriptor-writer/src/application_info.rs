@@ -2,16 +2,12 @@
 
 //! The `--application-info` mode: the executor of `dev_dist_frontend_application_info`.
 
-use anyhow::{Result, bail};
-use appinfo::{ApplicationInfoElements, descriptorxml, merge_host_application_info};
+use std::path::PathBuf;
 
-#[cfg(test)]
-pub(crate) use appinfo::APPLICATION_INFO_NAMESPACE;
-pub(crate) use appinfo::{Replacement, replace_markers};
+use anyhow::Result;
+use appinfo::{ApplicationInfoElements, Replacement, descriptorxml, merge_host_application_info, replace_markers};
 
-use crate::{
-    Mode, OptionLine, assign, is_mode_line, read_text, refuse_repeated_options, report, require_mode, require_options, write_output,
-};
+use crate::{read_text, report, write_output};
 
 /// The declared inputs of `dev_dist_frontend_application_info`.
 ///
@@ -20,13 +16,13 @@ use crate::{
 /// options. The rule states no build number either, so this mode refuses `--build-number` too.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct ApplicationInfoRequest {
-    pub output: String,
-    pub client_application_info: String,
-    pub product_application_info: String,
+    pub output: PathBuf,
+    pub client_application_info: PathBuf,
+    pub product_application_info: PathBuf,
 }
 
-pub(crate) fn run(lines: &[OptionLine]) -> i32 {
-    let parsed = match parse_application_info_request(lines) {
+pub(crate) fn run(options: cli::Options) -> i32 {
+    let parsed = match parse_application_info_request(options) {
         Ok(parsed) => parsed,
         Err(error) => return report(2, &error),
     };
@@ -48,7 +44,7 @@ pub(crate) fn resolve_application_info(parsed: &ApplicationInfoRequest) -> Resul
     let product = ApplicationInfoElements::parse(&product_content, &parsed.product_application_info)?;
     let mut client = ApplicationInfoElements::parse(&replaced, &parsed.client_application_info)?;
     merge_host_application_info(&mut client, &product, &parsed.product_application_info)?;
-    Ok(descriptorxml::write(&client.root))
+    Ok(descriptorxml::write(client.root()))
 }
 
 /// The replacement map of `computeAppInfoXml` for the client template of a dev distribution.
@@ -59,26 +55,15 @@ pub(crate) fn application_info_replacements() -> [Replacement; 1] {
     [Replacement::new("BUILTIN_PLUGINS_URL", "")]
 }
 
-pub(crate) fn parse_application_info_request(lines: &[OptionLine]) -> Result<ApplicationInfoRequest> {
-    require_mode(lines, Mode::ApplicationInfo)?;
-    refuse_repeated_options(lines, &[])?;
-    let mut parsed = ApplicationInfoRequest::default();
-    for line in lines {
-        if is_mode_line(line, Mode::ApplicationInfo) {
-            continue;
-        }
-        let slot = match line.name.as_str() {
-            "--out" => &mut parsed.output,
-            "--client-application-info" => &mut parsed.client_application_info,
-            "--product-application-info" => &mut parsed.product_application_info,
-            option => bail!("unknown frontend application info option '{option}'"),
-        };
-        assign(slot, line)?;
-    }
-    require_options(&[
-        ("--out", &parsed.output),
-        ("--client-application-info", &parsed.client_application_info),
-        ("--product-application-info", &parsed.product_application_info),
-    ])?;
-    Ok(parsed)
+pub(crate) fn parse_application_info_request(mut options: cli::Options) -> Result<ApplicationInfoRequest> {
+    let request = ApplicationInfoRequest {
+        output: options.require("--out")?.into(),
+        client_application_info: options.require("--client-application-info")?.into(),
+        product_application_info: options.require("--product-application-info")?.into(),
+    };
+    options.finish()?;
+    Ok(request)
 }
+
+#[cfg(test)]
+mod tests;

@@ -3,6 +3,8 @@
 
 use std::ffi::OsString;
 
+use testkit::{WorkingDirectory, read_text, require_absent, write_file};
+
 use crate::test_support::*;
 
 fn cli_args(extra: &[&str]) -> Vec<String> {
@@ -33,19 +35,19 @@ fn write_cli_fixture(local_launch: bool) {
     write_file(
         "fragments/core.json",
         concat!(
-            r#"{"kind":"platform_core","platformPrefix":"idea","os":"linux","arch":"x64","#,
-            r#""additionalModules":[],"mainClass":"com.intellij.idea.Main","coreClassPath":["lib/util.jar","lib/app.jar"],"entries":["#,
-            r#"{"relativePath":"bin/idea.properties","type":"component-file","hash":1,"source":"fragments/core/bin/idea.properties"},"#,
-            r#"{"relativePath":"lib/app.jar","type":"component-file","hash":4,"source":"fragments/core/lib/app.jar"},"#,
-            r#"{"relativePath":"lib/util.jar","type":"component-file","hash":2,"source":"fragments/core/lib/util.jar"}]}"#
+            r#"{"version":10,"kind":"platform_core","platformPrefix":"idea","os":"linux","arch":"x64","plugin":false,"#,
+            r#""mainClass":"com.intellij.idea.Main","coreClassPath":["lib/util.jar","lib/app.jar"],"entries":["#,
+            r#"{"type":"component-file","relativePath":"bin/idea.properties","hash":1,"source":"fragments/core/bin/idea.properties"},"#,
+            r#"{"type":"component-file","relativePath":"lib/app.jar","hash":4,"source":"fragments/core/lib/app.jar"},"#,
+            r#"{"type":"component-file","relativePath":"lib/util.jar","hash":2,"source":"fragments/core/lib/util.jar"}]}"#
         ),
     );
     write_file(
         "fragments/plugins.json",
         concat!(
-            r#"{"kind":"plugins","platformPrefix":"idea","os":"","arch":"","#,
-            r#""additionalModules":[],"mainClass":null,"coreClassPath":[],"pluginCount":1,"entries":["#,
-            r#"{"relativePath":"plugins/packed/lib/packed.jar","type":"component-file","hash":3,"source":"inputs/packed.jar"}]}"#
+            r#"{"version":10,"kind":"plugins","platformPrefix":"idea","os":"","arch":"","plugin":true,"#,
+            r#""mainClass":null,"coreClassPath":[],"entries":["#,
+            r#"{"type":"component-file","relativePath":"plugins/packed/lib/packed.jar","hash":3,"source":"inputs/packed.jar"}]}"#
         ),
     );
     let bindings = [
@@ -173,22 +175,23 @@ fn compose_cli_rejects_invalid_options() {
     let spec = |args: &[&str]| args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
     for (args, message) in [
         (
-            spec(&["composition.json"]),
-            "ERROR: Expected an option in the '--key=value' form, but got 'composition.json'",
+            cli_args(&["composition.json"]),
+            "ERROR: expected an option in the form --key=value, but got \"composition.json\"",
         ),
         // The Starlark caller writes every option with a value.
         (
-            cli_args(&["--alpha"]),
-            "ERROR: Expected an option in the '--key=value' form, but got '--alpha'",
+            spec(&["--composition-spec"]),
+            "ERROR: --composition-spec takes a value, as in --composition-spec=<value>",
         ),
+        (cli_args(&["--alpha"]), "ERROR: unknown option: --alpha"),
         (
             cli_args(&["--trace-file=a", "--trace-file=b"]),
-            "ERROR: --trace-file must be specified at most once, but got 2 values: [a, b]",
+            "ERROR: --trace-file must be specified at most once",
         ),
-        (cli_args(&["--zeta=1", "--alpha=2"]), "ERROR: Unknown options: --alpha, --zeta"),
+        (cli_args(&["--zeta=1", "--alpha=2"]), "ERROR: unknown options: --alpha, --zeta"),
         (
             spec(&["--composition-spec=composition.json", "--output-dir="]),
-            "ERROR: --output-dir is required (no value and no fallback available)",
+            "ERROR: --output-dir is required",
         ),
         (spec(&["--output-dir=out"]), "ERROR: --composition-spec is required"),
         (spec(&["--composition-spec=absent.json"]), "absent.json"),
@@ -199,7 +202,11 @@ fn compose_cli_rejects_invalid_options() {
     }
     // A bare `--` is not the end of the options, and the other options do not change the error.
     for args in [cli_args(&["--"]), cli_args(&["--", "--zeta=1"])] {
-        assert_eq!(run_cli(&args), (1, "ERROR: Unknown options: --\n".to_owned()), "{args:?}");
+        assert_eq!(
+            run_cli(&args),
+            (1, "ERROR: expected an option in the form --key=value, but got \"--\"\n".to_owned()),
+            "{args:?}"
+        );
     }
     require_absent(directory.path().join("out"));
 }
@@ -235,4 +242,47 @@ fn compose_cli_rejects_a_full_distribution_without_source_bindings() {
     // The span file names the failure.
     let trace = read_text("out/spans.json");
     assert!(trace.contains(r#""key":"error.message""#), "trace = {trace}");
+}
+
+// Only the composer reads a manifest, so a manifest of another version is a stale input. The composer names its version
+// before any other key of the old shape.
+#[test]
+fn compose_cli_refuses_a_version_9_manifest() {
+    let _directory = WorkingDirectory::enter();
+    write_cli_fixture(false);
+    write_file(
+        "fragments/plugins.json",
+        concat!(
+            r#"{"version":9,"kind":"plugins","platformPrefix":"idea","os":"","arch":"","additionalModules":[],"#,
+            r#""mainClass":null,"coreClassPath":[],"pluginCount":1,"entries":["#,
+            r#"{"relativePath":"plugins/packed/lib/packed.jar","type":"component-file","hash":3,"source":"inputs/packed.jar"}]}"#
+        ),
+    );
+    let (code, errors) = run_cli(&cli_args(&[]));
+    assert_eq!(code, 1);
+    let message = format!(
+        "{}: Unsupported dev-build component manifest version 9\n",
+        component::paths::from_slash("fragments/plugins.json")
+    );
+    assert!(errors.starts_with("ERROR: ") && errors.ends_with(&message), "errors = {errors:?}");
+    require_absent("out/dist");
+}
+
+// The reader of a manifest is the one place that checks the entry modes, and the composer reads every manifest before
+// it removes the output of an earlier run.
+#[test]
+fn compose_cli_refuses_an_invalid_manifest_before_it_removes_the_output() {
+    let _directory = WorkingDirectory::enter();
+    write_cli_fixture(false);
+    write_file("out/dist/stale.txt", "stale");
+    let core = read_text("fragments/core.json").replace(r#""hash":1,"#, r#""hash":1,"mode":493,"#);
+    write_file("fragments/core.json", core);
+    let (code, errors) = run_cli(&cli_args(&[]));
+    assert_eq!(code, 1);
+    let message = format!(
+        "{}: Dev-build component entry 'bin/idea.properties' has an invalid or conflicting file mode: 493\n",
+        component::paths::from_slash("fragments/core.json")
+    );
+    assert!(errors.starts_with("ERROR: ") && errors.ends_with(&message), "errors = {errors:?}");
+    assert_eq!(read_text("out/dist/stale.txt"), "stale");
 }

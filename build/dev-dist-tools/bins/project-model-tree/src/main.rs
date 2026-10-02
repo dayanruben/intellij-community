@@ -18,7 +18,7 @@
 //! cannot share code, so a change to the format has to be made in both.
 
 use std::collections::HashSet;
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsString;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -61,76 +61,41 @@ fn run(args: impl IntoIterator<Item = OsString>, output: &mut dyn Write, errors:
     let options = match parse_options(args) {
         Ok(options) => options,
         Err(error) => {
-            let _ = writeln!(errors, "ERROR: {error:#}");
+            cli::report(errors, &error);
             return 2;
         }
     };
-    let tracer = options.trace_file.as_ref().map(|_| trace::Tracer::new(JOB_NAME));
-    let dispatch = tracer.as_ref().map_or_else(tracing::Dispatch::none, trace::Tracer::dispatch);
-    let result = tracing::dispatcher::with_default(&dispatch, || {
-        let root = tracing::info_span!("materialize project model tree", files = tracing::field::Empty);
+    trace::run_traced(JOB_NAME, options.trace_file.as_deref(), 1, errors, |tracer, errors| {
+        let root = tracer.span(JOB_NAME);
         let result = materialize(&options.manifest, &options.output_dir);
         match &result {
-            Ok(count) => {
-                root.record("files", trace::count(*count));
+            Ok(count) => root.tag("files", *count),
+            Err(error) => root.fail(&format_args!("{error:#}")),
+        }
+        root.end();
+        match result {
+            Ok(_) => {
+                let _ = writeln!(output, "Project model tree materialized into {}", options.output_dir.display());
+                0
             }
-            Err(error) => trace::fail(&root, &format_args!("{error:#}")),
+            Err(error) => {
+                cli::report(errors, &error);
+                1
+            }
         }
-        result
-    });
-    let code = match result {
-        Ok(_) => {
-            let _ = writeln!(output, "Project model tree materialized into {}", options.output_dir.display());
-            0
-        }
-        Err(error) => {
-            let _ = writeln!(errors, "ERROR: {error:#}");
-            1
-        }
-    };
-    if let (Some(tracer), Some(trace_file)) = (&tracer, &options.trace_file)
-        && let Err(error) = tracer.write_file(trace_file)
-    {
-        let _ = writeln!(errors, "ERROR: writing the span file: {error}");
-        return 1;
-    }
-    code
+    })
 }
 
 fn parse_options(args: impl IntoIterator<Item = OsString>) -> anyhow::Result<Options> {
-    let form_error = |arg: &OsStr| anyhow::anyhow!("expected an option in the '--key=value' form, but got {:?}", arg.to_string_lossy());
-    let mut manifest = None;
-    let mut output_dir = None;
-    let mut trace_file = None;
-    let mut parser = lexopt::Parser::from_args(args);
-    while let Some(arg) = parser.next()? {
-        let name = match arg {
-            lexopt::Arg::Long(name) => format!("--{name}"),
-            lexopt::Arg::Short(short) => return Err(form_error(OsStr::new(&format!("-{short}")))),
-            lexopt::Arg::Value(value) => return Err(form_error(&value)),
-        };
-        let value = match parser.optional_value() {
-            Some(value) if !value.is_empty() => value,
-            Some(_) => return Err(form_error(OsStr::new(&format!("{name}=")))),
-            None => return Err(form_error(OsStr::new(&name))),
-        };
-        let destination = match name.as_str() {
-            "--project-manifest" => &mut manifest,
-            "--output-dir" => &mut output_dir,
-            "--trace-file" => &mut trace_file,
-            _ => bail!("unknown option {name:?}"),
-        };
-        if destination.is_some() {
-            bail!("{name} must be specified at most once");
-        }
-        *destination = Some(fscopy::absolute_path(Path::new(&value))?);
-    }
-    let Some(manifest) = manifest else {
-        bail!("--project-manifest is required");
+    let mut options = cli::parse(args)?;
+    let manifest = fscopy::absolute_path(Path::new(&options.require("--project-manifest")?))?;
+    let output_dir = fscopy::absolute_path(Path::new(&options.require("--output-dir")?))?;
+    let trace_file = match options.take("--trace-file")? {
+        Some(value) if value.is_empty() => bail!("--trace-file must not be empty"),
+        Some(value) => Some(fscopy::absolute_path(Path::new(&value))?),
+        None => None,
     };
-    let Some(output_dir) = output_dir else {
-        bail!("--output-dir is required");
-    };
+    options.finish()?;
     Ok(Options {
         manifest,
         output_dir,

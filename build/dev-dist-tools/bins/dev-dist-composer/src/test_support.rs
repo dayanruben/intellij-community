@@ -1,79 +1,21 @@
-//! Helpers of the composer tests. Only the tests of the command line change the working directory. They hold
-//! [`WorkingDirectory`], and every other test uses absolute paths.
+//! The fakes of the composer tests: the manifests, the source bindings, the staged trees and the copy steps. Only the
+//! tests of the command line change the working directory. They hold a [`testkit::WorkingDirectory`], and every other
+//! test uses absolute paths in a [`testkit::TempDir`].
 
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard};
 
-use component::compose::{self, ComposeOptions, ComposedBuild, DevBuildComponent};
-use component::manifest::{ComponentEntry, ComponentEntryType, ComponentManifest, MANIFEST_VERSION};
+use component::manifest::{ComponentEntry, ComponentManifest, MANIFEST_VERSION};
 use component::paths;
-use component::spec::{self, ComponentSources, CompositionComponent};
+use testkit::{TempDir, file_symlink, write_file};
 
-/// A test directory whose path has no symbolic link.
-pub(crate) struct TempDir {
-    _directory: tempfile::TempDir,
-    path: PathBuf,
-}
-
-impl TempDir {
-    pub(crate) fn new() -> Self {
-        let directory = tempfile::tempdir().expect("a temporary directory");
-        let path = fscopy::resolve_links(directory.path()).expect("a real path");
-        Self {
-            _directory: directory,
-            path,
-        }
-    }
-
-    pub(crate) fn path(&self) -> &Path {
-        &self.path
-    }
-
-    /// The absolute path of `relative`, a path in slash form, in this directory. The text has native separators.
-    pub(crate) fn join(&self, relative: &str) -> String {
-        let path = self.path.join(paths::from_slash(relative).as_ref());
-        path.to_str().expect("a UTF-8 path").to_owned()
-    }
-}
-
-static WORKING_DIRECTORY_LOCK: Mutex<()> = Mutex::new(());
-
-/// A fresh working directory for one test. The previous one comes back when the value drops.
-pub(crate) struct WorkingDirectory {
-    previous: PathBuf,
-    directory: TempDir,
-    _lock: MutexGuard<'static, ()>,
-}
-
-impl WorkingDirectory {
-    pub(crate) fn enter() -> Self {
-        let lock = WORKING_DIRECTORY_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let previous = std::env::current_dir().expect("the working directory");
-        let directory = TempDir::new();
-        std::env::set_current_dir(directory.path()).expect("a new working directory");
-        Self {
-            previous,
-            directory,
-            _lock: lock,
-        }
-    }
-
-    pub(crate) fn path(&self) -> &Path {
-        self.directory.path()
-    }
-}
-
-impl Drop for WorkingDirectory {
-    fn drop(&mut self) {
-        let _ = std::env::set_current_dir(&self.previous);
-    }
-}
+use crate::compose::{self, ComposeOptions, ComposedBuild, DevBuildComponent};
+use crate::spec::{self, ComponentSources, CompositionComponent};
 
 pub(crate) fn test_manifest(kind: &str) -> ComponentManifest {
     ComponentManifest {
-        version: Some(MANIFEST_VERSION),
+        version: MANIFEST_VERSION,
         kind: kind.to_owned(),
         platform_prefix: "idea".to_owned(),
         os: "linux".to_owned(),
@@ -88,38 +30,37 @@ pub(crate) fn with_entries(mut manifest: ComponentManifest, entries: Vec<Compone
     manifest
 }
 
+/// A file entry with the hash 1 and a source below `inputs/`, for a composition that copies nothing.
 pub(crate) fn file_entry(relative_path: &str) -> ComponentEntry {
-    ComponentEntry {
-        relative_path: relative_path.to_owned(),
-        entry_type: ComponentEntryType::ComponentFile,
-        hash: Some(1),
-        ..ComponentEntry::default()
-    }
+    sourced_entry(relative_path, &format!("inputs/{relative_path}"))
 }
 
 pub(crate) fn sourced_entry(relative_path: &str, source: &str) -> ComponentEntry {
-    ComponentEntry {
-        source: Some(source.to_owned()),
-        ..file_entry(relative_path)
+    file_with_mode(relative_path, source, false, None)
+}
+
+pub(crate) fn file_with_mode(relative_path: &str, source: &str, executable: bool, mode: Option<u32>) -> ComponentEntry {
+    ComponentEntry::ComponentFile {
+        relative_path: relative_path.to_owned(),
+        hash: 1,
+        executable,
+        source: source.to_owned(),
+        mode,
     }
 }
 
 pub(crate) fn link_entry(relative_path: &str, target: &str) -> ComponentEntry {
-    ComponentEntry {
+    ComponentEntry::Symlink {
         relative_path: relative_path.to_owned(),
-        entry_type: ComponentEntryType::Symlink,
-        hash: Some(filemeta::hash_symlink_target(target)),
-        symlink_target: Some(target.to_owned()),
-        ..ComponentEntry::default()
+        hash: filemeta::hash_symlink_target(target),
+        symlink_target: target.to_owned(),
     }
 }
 
 pub(crate) fn directory_entry(relative_path: &str, mode: u32) -> ComponentEntry {
-    ComponentEntry {
+    ComponentEntry::Directory {
         relative_path: relative_path.to_owned(),
-        entry_type: ComponentEntryType::Directory,
-        mode: Some(mode),
-        ..ComponentEntry::default()
+        mode,
     }
 }
 
@@ -130,7 +71,10 @@ pub(crate) fn bound(directory: &TempDir, manifest: ComponentManifest) -> DevBuil
     let sources: Vec<&str> = manifest
         .entries
         .iter()
-        .filter_map(|entry| entry.source.as_deref())
+        .filter_map(|entry| match entry {
+            ComponentEntry::ComponentFile { source, .. } => Some(source.as_str()),
+            _ => None,
+        })
         .filter(|source| paths::host_path(source).is_ok() && Path::new(source).exists())
         .collect();
     let bindings = bind_files(directory, &manifest.kind, &sources);
@@ -192,26 +136,28 @@ pub(crate) fn json(value: &str) -> String {
 
 /// A tree artifact that Bazel stages in a sandbox: each staged member links to the physical output, and the bindings
 /// file describes the tree.
+#[derive(Debug)]
 pub(crate) struct BoundTree {
     pub(crate) physical: PathBuf,
     pub(crate) staged: PathBuf,
     pub(crate) bindings: ComponentSources,
 }
 
-impl BoundTree {
-    pub(crate) fn new(directory: &Path, members: &[&str]) -> Self {
-        let physical = directory.join("physical/trees/plugin");
-        let staged = directory.join("sandbox/trees/plugin");
-        for tree in [&physical, &staged] {
-            fs::create_dir_all(tree.join("lib")).expect("the tree");
-        }
-        write_file(physical.join("lib/native.jar"), "native bytes");
-        file_symlink(physical.join("lib/native.jar"), staged.join("lib/native.jar"));
-        let physical_metadata = directory.join("physical/metadata/bindings.jsonl");
-        let staged_metadata = directory.join("sandbox/metadata/bindings.jsonl");
+/// A staged tree before the composer reads its bindings, so that a test can change the tree first.
+pub(crate) struct StagedTree {
+    pub(crate) physical: PathBuf,
+    pub(crate) staged: PathBuf,
+    directory: PathBuf,
+}
+
+impl StagedTree {
+    /// Writes the bindings file of the tree with `members` and reads it as the composer does.
+    pub(crate) fn bind(self, members: &[&str]) -> anyhow::Result<BoundTree> {
+        let physical_metadata = self.directory.join("physical/metadata/bindings.jsonl");
+        let staged_metadata = self.directory.join("sandbox/metadata/bindings.jsonl");
         let line = binding_line(
             "plugin",
-            staged.to_str().expect("a UTF-8 path"),
+            self.staged.to_str().expect("a UTF-8 path"),
             "../trees/plugin",
             "directory",
             members,
@@ -219,11 +165,37 @@ impl BoundTree {
         write_file(&physical_metadata, line);
         fs::create_dir_all(staged_metadata.parent().expect("a parent")).expect("the directory");
         file_symlink(&physical_metadata, &staged_metadata);
-        let bindings = read_bindings(&staged_metadata, "plugin");
-        Self {
+        let components = [CompositionComponent {
+            manifest: "plugin".to_owned(),
+            plugin_classpath_part: None,
+        }];
+        let mut bindings = spec::read_source_bindings(staged_metadata.to_str().expect("a UTF-8 path"), &components)?;
+        Ok(BoundTree {
+            physical: self.physical,
+            staged: self.staged,
+            bindings: bindings.remove("plugin").expect("the bindings of the component"),
+        })
+    }
+}
+
+impl BoundTree {
+    pub(crate) fn new(directory: &Path, members: &[&str]) -> Self {
+        Self::stage(directory).bind(members).expect("the source bindings")
+    }
+
+    /// Creates the physical tree with `lib/native.jar` and the staged tree that links to it.
+    pub(crate) fn stage(directory: &Path) -> StagedTree {
+        let physical = directory.join("physical/trees/plugin");
+        let staged = directory.join("sandbox/trees/plugin");
+        for tree in [&physical, &staged] {
+            fs::create_dir_all(tree.join("lib")).expect("the tree");
+        }
+        write_file(physical.join("lib/native.jar"), "native bytes");
+        file_symlink(physical.join("lib/native.jar"), staged.join("lib/native.jar"));
+        StagedTree {
             physical,
             staged,
-            bindings,
+            directory: directory.to_path_buf(),
         }
     }
 
@@ -233,62 +205,26 @@ impl BoundTree {
 }
 
 /// Composes a full distribution with the merge step of the composer.
-pub(crate) fn compose(components: &[DevBuildComponent], target: impl AsRef<Path>) -> component::Result<ComposedBuild> {
+pub(crate) fn compose(components: &[DevBuildComponent], target: impl AsRef<Path>) -> anyhow::Result<ComposedBuild> {
     compose_with(components, target, ComposeOptions::default())
 }
 
-/// Composes under a live tracer, as `main` does.
-///
-/// `tracing` caches the interest of each span site for all threads. A thread without a dispatcher can cache the
-/// interest "never", and then a command line test loses its span. A dispatcher on each test thread prevents this.
+/// Composes under a tracer that records, as `main` does with `--trace-file`, so each test also runs the span calls.
 #[expect(clippy::needless_pass_by_value, reason = "the tests build the options inline")]
 pub(crate) fn compose_with(
     components: &[DevBuildComponent],
     target: impl AsRef<Path>,
     options: ComposeOptions,
-) -> component::Result<ComposedBuild> {
-    let dispatch = trace::Tracer::new("dev-dist-composer test").dispatch();
-    tracing::dispatcher::with_default(&dispatch, || {
-        compose::compose_components(components, target.as_ref(), &options, crate::merge::merge_components)
-    })
+) -> anyhow::Result<ComposedBuild> {
+    let root = trace::Tracer::new("dev-dist-composer test").span(crate::JOB_NAME);
+    compose::compose_components(components, target.as_ref(), &options, &root)
 }
 
 pub(crate) fn with_directory_runfiles(directory: impl AsRef<Path>, runfile: &str) -> ComposeOptions {
-    let runfiles = BTreeMap::from([(directory.as_ref().to_str().expect("a UTF-8 path").to_owned(), runfile.to_owned())]);
+    let runfiles = BTreeMap::from([(directory.as_ref().to_path_buf(), runfile.to_owned())]);
     ComposeOptions {
         source_directory_runfiles: Some(runfiles),
         ..ComposeOptions::default()
-    }
-}
-
-pub(crate) fn write_file(path: impl AsRef<Path>, content: impl AsRef<[u8]>) {
-    let path = path.as_ref();
-    if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
-        fs::create_dir_all(parent).expect("the parent directory");
-    }
-    fs::write(path, content).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
-}
-
-pub(crate) fn read_text(path: impl AsRef<Path>) -> String {
-    let path = path.as_ref();
-    fs::read_to_string(path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
-}
-
-#[track_caller]
-pub(crate) fn require_absent(path: impl AsRef<Path>) {
-    let path = path.as_ref();
-    assert!(fs::symlink_metadata(path).is_err(), "{} exists", path.display());
-}
-
-/// Fails unless `result` is an error whose text contains `message`.
-#[track_caller]
-pub(crate) fn require_error<T: std::fmt::Debug, E: std::fmt::Display>(result: Result<T, E>, message: &str) {
-    match result {
-        Ok(value) => panic!("expected an error with {message:?}, got {value:?}"),
-        Err(error) => {
-            let text = error.to_string();
-            assert!(text.contains(message), "error = {text:?}, expected a message with {message:?}");
-        }
     }
 }
 
@@ -315,28 +251,18 @@ pub(crate) fn require_mode(path: impl AsRef<Path>, expected: u32) {
     let _ = (path, expected);
 }
 
-/// Sets the permission bits of a file. It does nothing on Windows.
-pub(crate) fn set_mode(path: impl AsRef<Path>, mode: u32) {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-
-        fs::set_permissions(path.as_ref(), fs::Permissions::from_mode(mode)).expect("the mode");
-    }
-    #[cfg(not(unix))]
-    let _ = (path, mode);
+/// A copy step that must not run, for launch metadata and for the checks before the first write.
+pub(crate) fn no_merge(_: &[DevBuildComponent], _: &Path) -> anyhow::Result<()> {
+    panic!("the composition merged component files")
 }
 
-/// Creates a symbolic link to a file.
-pub(crate) fn file_symlink(target: impl AsRef<Path>, link: impl AsRef<Path>) {
-    create_symlink(target.as_ref(), link.as_ref(), false);
+/// A copy step that copies nothing, for a test of the metadata of a full distribution without payload.
+#[expect(clippy::unnecessary_wraps, reason = "the signature of a copy step")]
+pub(crate) fn skip_merge(_: &[DevBuildComponent], _: &Path) -> anyhow::Result<()> {
+    Ok(())
 }
 
-/// Creates a symbolic link to a directory.
-pub(crate) fn directory_symlink(target: impl AsRef<Path>, link: impl AsRef<Path>) {
-    create_symlink(target.as_ref(), link.as_ref(), true);
-}
-
-fn create_symlink(target: &Path, link: &Path, target_is_directory: bool) {
-    fscopy::symlink(target, link, target_is_directory).unwrap_or_else(|error| panic!("{error}"));
+/// Runfiles keyed by absolute paths, as `compose::absolute_keys` gives them.
+pub(crate) fn runfiles(pairs: &[(&str, &str)]) -> BTreeMap<PathBuf, String> {
+    pairs.iter().map(|(key, value)| (PathBuf::from(key), (*value).to_owned())).collect()
 }

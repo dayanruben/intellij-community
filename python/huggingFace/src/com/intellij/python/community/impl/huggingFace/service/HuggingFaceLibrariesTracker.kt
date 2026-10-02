@@ -1,17 +1,16 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.python.community.impl.huggingFace.service
 
+import com.intellij.python.pyproject.model.evolution.pythonInterpreters
+import com.intellij.python.sdk.backend.PythonInterpreter
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.project.modules
-import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.python.community.impl.huggingFace.cache.HuggingFaceCacheFillService
 import com.intellij.util.messages.MessageBusConnection
 import com.jetbrains.python.packaging.common.PythonPackageManagementListener
 import com.jetbrains.python.packaging.management.PythonPackageManager
 import com.jetbrains.python.packaging.management.hasInstalledPackage
-import com.jetbrains.python.sdk.legacy.PythonSdkUtil
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -41,13 +40,9 @@ class HuggingFaceLibrariesTracker(
 
   private fun setupSdkListener() {
     connection?.subscribe(PythonPackageManager.PACKAGE_MANAGEMENT_TOPIC, object : PythonPackageManagementListener {
-      override fun packagesChanged(sdk: Sdk) {
-        val projectSdk = getProjectPythonSdk()
-
-        if (sdk == projectSdk) {
-          coroutineScope.launch(Dispatchers.IO) {
-            updateHFLibraryInstallStatus()
-          }
+      override fun packagesChanged(interpreter: PythonInterpreter) {
+        coroutineScope.launch(Dispatchers.IO) {
+          updateHFLibraryInstallStatus(interpreter)
         }
       }
     })
@@ -58,22 +53,21 @@ class HuggingFaceLibrariesTracker(
     connection = null
   }
 
-  private fun getProjectPythonSdk(): Sdk? = PythonSdkUtil.findPythonSdk(project.modules.firstOrNull())
-
-  private suspend fun updateHFLibraryInstallStatus() {
+  /** Checks [interpreter] if a Python project of this project uses it. Waits for the first snapshot. */
+  private suspend fun updateHFLibraryInstallStatus(interpreter: PythonInterpreter) {
     if (isAnyHFLibraryInstalled) return  // assuming that if was found once - always relevant
 
-    val sdk = getProjectPythonSdk() ?: return
+    if (interpreter !in project.pythonInterpreters()) return
 
-    if (isAnyHFLibraryInstalledInSdk(sdk)) {
+    if (isAnyHFLibraryInstalledIn(interpreter)) {
       isAnyHFLibraryInstalled = true
       cacheFillService.triggerCacheFillIfNeeded()
       detachSdkListener()
     }
   }
 
-  private suspend fun isAnyHFLibraryInstalledInSdk(sdk: Sdk): Boolean {
-    val packageManager = PythonPackageManager.forSdk(project, sdk)
+  private suspend fun isAnyHFLibraryInstalledIn(interpreter: PythonInterpreter): Boolean {
+    val packageManager = PythonPackageManager.forPythonInterpreter(project, interpreter)
     return relevantLibraries.any { lib ->
       packageManager.hasInstalledPackage(lib)
     }

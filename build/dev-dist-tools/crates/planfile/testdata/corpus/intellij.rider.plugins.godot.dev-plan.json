@@ -2,7 +2,6 @@
     "version": 2,
     "plugin": "intellij.rider.plugins.godot",
     "variant": "",
-    "layoutSignature": "an08xvuaf269xyr7jc8c46yok",
     "assets": [
         {
             "destination": "lib/rider-plugins-godot.jar",
@@ -35,18 +34,6 @@
             ],
             "kind": "tree",
             "classPath": false
-        }
-    ],
-    "preparations": [
-        {
-            "id": "layout-assets:resource-generator:0",
-            "inputs": [
-                "optional-local-directory:out/bundle-plugins/rider-godot"
-            ],
-            "outputs": [
-                "layout-assets:resource-generator:0:output"
-            ],
-            "modelSignature": "ber1cndt4s9yktakdnmrwr6ts"
         }
     ],
     "operations": [

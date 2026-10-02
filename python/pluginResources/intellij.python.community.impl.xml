@@ -437,6 +437,8 @@
     <advancedSetting id="python.pytest.show_summary" default="false" groupKey="group.advanced.settings.python"/>
     <advancedSetting id="python.code.vision.usages.limit" default="500" groupKey="group.advanced.settings.python"/>
     <advancedSetting id="python.debugger.attach.timeout" default="20000" groupKey="group.advanced.settings.python"/>
+    <advancedSetting id="python.type.ignore.suppress.include.code" default="true" groupKey="group.advanced.settings.python"/>
+    <advancedSetting id="python.type.ignore.suppress.pycharm.namespace" default="false" groupKey="group.advanced.settings.python"/>
     <runLineMarkerContributor language="Python"
                               implementationClass="com.jetbrains.python.testing.PyTestLineMarkerContributor"/>
     <toolWindow id="Python Console" anchor="right" icon="com.jetbrains.python.icons.PythonIcons.Python.PythonConsoleToolWindow"
@@ -519,6 +521,14 @@
                      groupPathKey="INSP.GROUP.python" groupKey="INSP.GROUP.python.type.hinting"
                      enabledByDefault="false" level="WARNING"
                      implementationClass="com.jetbrains.python.inspections.typeignore.PyTypeIgnoreWithoutCodeInspection"/>
+    <localInspection language="Python" shortName="PyUnknownIgnoreCodeInspection" suppressId="PyUnknownIgnoreCode"
+                     bundle="messages.PyPsiBundle" key="INSP.NAME.unknown.ignore.code"
+                     groupPathKey="INSP.GROUP.python" groupKey="INSP.GROUP.python.type.hinting"
+                     enabledByDefault="true" level="WARNING"
+                     implementationClass="com.jetbrains.python.inspections.typeignore.PyUnknownIgnoreCodeInspection"/>
+    <completion.contributor language="Python" order="first"
+                            implementationClass="com.jetbrains.python.inspections.typeignore.PyIgnoreCodeCompletionContributor"/>
+    <typedHandler implementation="com.jetbrains.python.inspections.typeignore.PyIgnoreCodeTypedHandler"/>
     <localInspection language="Python" shortName="PyRelativeImportInspection" suppressId="PyPackages"
                      bundle="messages.PyPsiBundle" key="INSP.NAME.relative.import"
                      groupPathKey="INSP.GROUP.python" groupKey="INSP.GROUP.python.general"

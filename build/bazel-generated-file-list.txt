@@ -981,6 +981,7 @@ platform/problemsView/frontend
 platform/problemsView/plugin
 platform/problemsView/shared
 platform/problemsView/ui
+platform/productMode
 platform/progress/backend
 platform/progress/shared
 platform/project-frame
@@ -1139,6 +1140,7 @@ platform/vcs-log/impl
 platform/vcs-log/impl/bookmarks
 platform/vcs-tests
 platform/vcs/plugin
+platform/versionDownloadManager
 platform/warmup
 platform/warmup/performanceTesting
 platform/welcome-screen

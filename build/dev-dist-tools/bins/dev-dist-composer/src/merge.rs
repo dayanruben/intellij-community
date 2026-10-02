@@ -1,21 +1,27 @@
-//! The copy step of a full distribution: the `merge` step of [`compose_components`].
+//! The copy step of a full distribution, which [`compose_components`] calls.
 //!
 //! [`compose_components`] checks every destination and the link graph of all components before it calls this step.
-//! [`ComponentSources::resolve`] checks every source. So this step only refuses the entry shapes that those checks
-//! accept and that no collector writes.
+//! Each copy job checks its source with [`ComponentSources::resolve`]. So this step refuses only a component file of a
+//! component without source bindings, which the Starlark caller never writes.
 //!
-//! [`compose_components`]: component::compose::compose_components
+//! For each component in order, the step creates each directory entry and the missing parents of each file. It accepts
+//! a directory that exists, and it refuses anything else at a directory destination. Then one pool copies the files of
+//! all components, and a copy refuses a destination that exists, so it never replaces a file. Then the step creates the
+//! links and applies the mode of each directory entry, the deepest first. It writes no reserved file.
+//!
+//! [`compose_components`]: crate::compose::compose_components
 
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use component::compose::DevBuildComponent;
-use component::manifest::{ComponentEntry, ComponentEntryType, ComponentManifest};
-use component::spec::ComponentSources;
-use component::{Error, Result, fail, paths};
+use anyhow::{Context as _, Result, bail};
+use component::manifest::ComponentEntry;
+use component::paths;
 use rayon::prelude::*;
-use tracing::field::Empty;
+
+use crate::compose::DevBuildComponent;
+use crate::spec::ComponentSources;
 
 /// The thread count of the copy step. A clone copies only file metadata, and the Bazel rule books four CPUs for the
 /// composer action.
@@ -23,32 +29,42 @@ const COPY_THREADS: usize = 4;
 
 /// Writes the files of every component at `target`, an empty directory. The source bindings give the bytes of each
 /// file.
-pub(crate) fn merge_components(components: &[DevBuildComponent], target: &Path) -> Result<()> {
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(COPY_THREADS)
-        .build()
-        .map_err(Error::msg)?;
+///
+/// The step prepares every component in order: it creates the directory entries and the parents of the files, and it
+/// lists the files and the links. Then one pool copies the files of all components. Each component gets a child span
+/// of `parent` with its file count and its byte count. The spans end after the shared copy, so they overlap.
+pub(crate) fn merge_components(components: &[DevBuildComponent], target: &Path, parent: &trace::Span) -> Result<()> {
+    let pool = rayon::ThreadPoolBuilder::new().num_threads(COPY_THREADS).build()?;
+    let mut jobs = Vec::new();
     let mut links = Vec::new();
-    for component in components {
-        let manifest = &component.manifest;
-        // One span per component, so that a slow composition names the component that made it slow.
-        let span = tracing::info_span!(
-            "merge dev build component",
-            kind = manifest.kind.as_str(),
-            fileCount = Empty,
-            byteCount = Empty
-        );
-        let copied = span.in_scope(|| copy_component(manifest, target, component.source_bindings.as_ref(), &pool, &mut links));
-        match copied {
-            Ok(byte_count) => {
-                span.record("fileCount", manifest.entries.len() as u64);
-                span.record("byteCount", byte_count);
-            }
+    let mut parents = HashSet::new();
+    let mut spans = Vec::with_capacity(components.len());
+    for (index, component) in components.iter().enumerate() {
+        // One span per component, so that a composition names the files and the bytes of each component.
+        let span = parent.child("merge dev build component");
+        span.tag("kind", component.manifest.kind.as_str());
+        if let Err(error) = prepare_component(index, component, target, &mut parents, &mut jobs, &mut links) {
+            span.fail(&format_args!("{error:#}"));
+            return Err(error);
+        }
+        span.tag("fileCount", component.manifest.entries.len());
+        spans.push(span);
+    }
+    // Each copy is independent, and the first failed copy in manifest order names the error.
+    let copied: Vec<Result<u64>> = pool.install(|| jobs.par_iter().map(copy_file).collect());
+    let mut byte_counts = vec![0u64; components.len()];
+    for (job, result) in jobs.iter().zip(copied) {
+        match result {
+            Ok(byte_count) => byte_counts[job.component] += byte_count,
             Err(error) => {
-                trace::fail(&span, &error);
+                spans[job.component].fail(&format_args!("{error:#}"));
                 return Err(error);
             }
         }
+    }
+    for (span, byte_count) in spans.into_iter().zip(byte_counts) {
+        span.tag("byteCount", byte_count);
+        span.end();
     }
     // Every file and directory exists now, so a link on Windows gets the kind of its target. The link graph has no
     // chain, so no link target passes through another link, and the links need no order.
@@ -56,103 +72,89 @@ pub(crate) fn merge_components(components: &[DevBuildComponent], target: &Path) 
         create_link(&link, link_target)?;
     }
     // A directory mode can remove the write permission, so the deepest directory gets its mode first.
-    let mut directories: Vec<&ComponentEntry> = components
+    let mut directories: Vec<(&str, u32)> = components
         .iter()
         .flat_map(|component| &component.manifest.entries)
-        .filter(|entry| entry.entry_type == ComponentEntryType::Directory)
+        .filter_map(|entry| match entry {
+            ComponentEntry::Directory { relative_path, mode } => Some((relative_path.as_str(), *mode)),
+            _ => None,
+        })
         .collect();
-    directories.sort_by(|first, second| paths::compare_utf16(&second.relative_path, &first.relative_path));
-    for entry in directories {
-        fscopy::set_distribution_file_mode(&destination(target, &entry.relative_path), false, entry.mode).map_err(Error::msg)?;
+    directories.sort_by(|first, second| second.0.cmp(first.0));
+    for (relative_path, mode) in directories {
+        fscopy::set_distribution_file_mode(&destination(target, relative_path), false, Some(mode))?;
     }
     Ok(())
 }
 
-/// One file to copy, after all checks of its component.
-struct CopyJob {
-    source: PathBuf,
+/// One file to copy. The copy job resolves the source through the bindings of its component.
+struct CopyJob<'a> {
+    /// The index of the component in the composition.
+    component: usize,
+    bindings: &'a ComponentSources,
+    source: &'a str,
     destination: PathBuf,
     executable: bool,
     mode: Option<u32>,
 }
 
-/// Copies the files of one component from the sources that its manifest names, and adds its declared links to
-/// `links`. It returns the byte count of the files.
+/// Creates the directory entries of one component and the parents of its files, and adds its files to `jobs` and its
+/// declared links to `links`.
 ///
 /// The manifest declares the executable flag, so a source mode never reaches the distribution.
-fn copy_component<'a>(
-    manifest: &'a ComponentManifest,
+fn prepare_component<'a>(
+    index: usize,
+    component: &'a DevBuildComponent,
     target: &Path,
-    bindings: Option<&ComponentSources>,
-    pool: &rayon::ThreadPool,
+    parents: &mut HashSet<PathBuf>,
+    jobs: &mut Vec<CopyJob<'a>>,
     links: &mut Vec<(PathBuf, &'a str)>,
-) -> Result<u64> {
-    let mut byte_count = 0;
-    let mut jobs = Vec::new();
-    let mut parents = HashSet::new();
+) -> Result<()> {
+    let manifest = &component.manifest;
     for entry in &manifest.entries {
-        let name = &entry.relative_path;
+        let name = entry.relative_path();
         let destination = destination(target, name);
-        match entry.entry_type {
-            ComponentEntryType::Directory => create_directory_entry(&destination)?,
-            ComponentEntryType::Symlink => {
-                let (None, Some(link_target)) = (&entry.source, &entry.symlink_target) else {
-                    fail!(
-                        "Dev-build component '{}' must declare the symbolic link '{name}' without a file source",
-                        manifest.kind
-                    );
-                };
-                links.push((destination, link_target.as_str()));
-            }
-            ComponentEntryType::ComponentFile => {
-                let Some(source) = &entry.source else {
-                    fail!(
-                        "Dev-build component '{}' declares no tree, so '{name}' must name where its bytes are",
-                        manifest.kind
-                    );
-                };
-                let Some(bindings) = bindings else {
-                    fail!(
+        match entry {
+            ComponentEntry::Directory { .. } => create_directory_entry(&destination)?,
+            ComponentEntry::Symlink { symlink_target, .. } => links.push((destination, symlink_target.as_str())),
+            ComponentEntry::ComponentFile {
+                source, executable, mode, ..
+            } => {
+                let Some(bindings) = &component.source_bindings else {
+                    bail!(
                         "Dev-build component '{}' has no source bindings, so the composer cannot copy '{name}'",
                         manifest.kind
                     );
                 };
-                // The binding follows the staging link of Bazel to the declared artifact, as the tree walk of the
-                // collector does. A copy of the link would leak the execution root.
-                let source = bindings.resolve(source)?;
-                byte_count += fs::metadata(&source).map_err(|error| Error::io(&source, error))?.len();
                 let parent = destination.parent().expect("a destination is below the target");
                 if parents.insert(parent.to_path_buf()) {
                     create_directories(parent)?;
                 }
                 jobs.push(CopyJob {
-                    source: source.into(),
+                    component: index,
+                    bindings,
+                    source,
                     destination,
-                    executable: entry.executable,
-                    mode: entry.mode,
+                    executable: *executable,
+                    mode: *mode,
                 });
             }
         }
     }
-    // A worker thread has no dispatcher and no current span, so each copy runs under the ones of this thread.
-    let dispatch = tracing::dispatcher::get_default(tracing::Dispatch::clone);
-    let parent = tracing::Span::current();
-    // Each copy is independent, and the first failed copy in manifest order names the error.
-    let copied: Vec<Result<()>> = pool.install(|| {
-        jobs.par_iter()
-            .map(|job| tracing::dispatcher::with_default(&dispatch, || parent.in_scope(|| copy_file(job))))
-            .collect()
-    });
-    copied.into_iter().collect::<Result<()>>()?;
-    Ok(byte_count)
+    Ok(())
 }
 
-/// Copies one file with its modification time, then sets the declared mode.
+/// Resolves the source, copies the file with its modification time, then sets the declared mode. It returns the byte
+/// count of the file.
 ///
-/// The copy is a clone where the file system can make one, for example with `fclonefileat` on APFS.
-fn copy_file(job: &CopyJob) -> Result<()> {
-    fscopy::copy_with_attributes(&job.source, &job.destination).map_err(Error::msg)?;
-    fscopy::set_distribution_file_mode(&job.destination, job.executable, job.mode).map_err(Error::msg)
+/// The binding follows the staging link of Bazel to the declared artifact, as the tree walk of the collector does. A
+/// copy of the link would leak the execution root. The copy is a clone where the file system can make one, for example
+/// with `fclonefileat` on APFS.
+fn copy_file(job: &CopyJob<'_>) -> Result<u64> {
+    let (source, byte_count) = job.bindings.resolve(job.source)?;
+    fscopy::copy_with_attributes(&source, &job.destination)?;
+    fscopy::set_distribution_file_mode(&job.destination, job.executable, job.mode)?;
+    Ok(byte_count)
 }
 
 /// The path of a distribution entry below `target`.
@@ -169,11 +171,11 @@ fn create_link(link: &Path, target: &str) -> Result<()> {
     create_directories(parent)?;
     let target_is_directory =
         cfg!(windows) && fs::metadata(parent.join(paths::from_slash(target).as_ref())).is_ok_and(|metadata| metadata.is_dir());
-    fscopy::symlink(Path::new(target), link, target_is_directory).map_err(Error::msg)
+    Ok(fscopy::symlink(Path::new(target), link, target_is_directory)?)
 }
 
 fn create_directories(directory: &Path) -> Result<()> {
-    fs::create_dir_all(directory).map_err(|error| Error::io(directory, error))
+    fs::create_dir_all(directory).with_context(|| directory.display().to_string())
 }
 
 /// Creates the directory of a directory entry, or accepts the directory that is there.
@@ -182,9 +184,9 @@ fn create_directories(directory: &Path) -> Result<()> {
 fn create_directory_entry(directory: &Path) -> Result<()> {
     create_directories(directory)?;
     // `create_dir_all` accepts a link to a directory, so the entry itself must be a directory.
-    let metadata = fs::symlink_metadata(directory).map_err(|error| Error::io(directory, error))?;
+    let metadata = fs::symlink_metadata(directory).with_context(|| directory.display().to_string())?;
     if !metadata.is_dir() {
-        fail!("Cannot create the directory {}: a symbolic link is there", directory.display());
+        bail!("Cannot create the directory {}: a symbolic link is there", directory.display());
     }
     Ok(())
 }

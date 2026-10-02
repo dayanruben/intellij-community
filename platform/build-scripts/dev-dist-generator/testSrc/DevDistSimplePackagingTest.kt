@@ -9,15 +9,17 @@ import com.intellij.platform.buildScripts.pluginModelTool.PluginSymbolicVariant
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.entry
 import org.jetbrains.intellij.build.PLUGIN_XML_RELATIVE_PATH
+import org.jetbrains.intellij.build.dev.DevPluginLayoutAsset
+import org.jetbrains.intellij.build.dev.DevPluginLayoutAssetPreparation
+import org.jetbrains.intellij.build.dev.DevPluginPreparationOperation
+import org.jetbrains.intellij.build.dev.DevPluginReference
 import org.jetbrains.intellij.build.devDist.CanonicalJarRecipe
 import org.jetbrains.intellij.build.devDist.JarSourceRecipe
 import org.jetbrains.intellij.build.devDist.JarWriterRecipe
 import org.jetbrains.intellij.build.devDist.PluginPackingAsset
-import org.jetbrains.intellij.build.devDist.PluginPackingPreparation
 import org.jetbrains.intellij.build.devDist.PluginPackingProjection
 import org.jetbrains.intellij.build.devDist.ReusableJarArtifact
 import org.jetbrains.intellij.build.devDist.pluginPackingExecutionVersion
-import org.jetbrains.intellij.build.devDist.pluginPackingLayoutSignature
 import org.jetbrains.intellij.build.impl.PluginLayout
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -46,9 +48,6 @@ class DevDistSimplePackagingTest {
 
   /** A test-only module of the synthetic index, in `//plugins/x/stub`, without a test jar. */
   private val testModuleWithoutJar = "intellij.x.stub"
-
-  /** The writer of a jar that merges a test-only module. */
-  private val testOutputWriter = JarWriterRecipe(mergeEntities = true, directoryEntries = true)
 
   private lateinit var index: DevDistBazelIndex
 
@@ -79,7 +78,11 @@ class DevDistSimplePackagingTest {
   }
 
   /** A jar at [destination] that merges the output of [module] alone. */
-  private fun moduleJar(destination: String, module: String, writer: JarWriterRecipe): PluginPackingAsset {
+  private fun moduleJar(
+    destination: String,
+    module: String,
+    writer: JarWriterRecipe = JarWriterRecipe(mergeEntities = true),
+  ): PluginPackingAsset {
     val recipe = CanonicalJarRecipe(sources = listOf(JarSourceRecipe(module, "module", "module-v1")), writer = writer)
     return PluginPackingAsset(destination = destination, inputs = listOf(module), recipe = recipe)
   }
@@ -114,20 +117,18 @@ class DevDistSimplePackagingTest {
     assets: List<PluginPackingAsset>,
     inputs: List<DevDistPluginRawInput>,
     plugin: String = this.plugin,
-    preparations: List<PluginPackingPreparation> = emptyList(),
+    operations: List<DevPluginPreparationOperation> = emptyList(),
     reusable: List<ReusableJarArtifact> = emptyList(),
     testModules: Set<String> = emptySet(),
   ): DevDistPluginPlanEntry {
-    val signature = pluginPackingLayoutSignature(plugin, "", assets, preparations, emptyList())
     val moduleLabel = if (plugin == communityPlugin) "@community//plugins/c:c" else "//plugins/x:x"
     val plan = object : DevDistPluginBuildPlan {
       override val projection = PluginPackingProjection(
         version = pluginPackingExecutionVersion(assets),
         plugin = plugin,
         variant = "",
-        layoutSignature = signature,
         assets = assets,
-        preparations = preparations,
+        operations = operations,
       )
       override val catalogue = PluginSymbolicArtifactCatalogue(
         artifacts = listOf(PluginSymbolicArtifact(id = plugin, kind = "directory", fileName = plugin)),
@@ -138,7 +139,6 @@ class DevDistSimplePackagingTest {
       override val requiredRawInputs = listOf(DevDistPluginRawInput(id = plugin, label = moduleLabel, kind = "directory", fileName = plugin)) + inputs
       override val requiredLibraries = emptyList<String>()
       override val reusableArtifacts = reusable
-      override val layoutSignature = signature
     }
     val record = DevDistPluginPlanRecord(variant = PluginSymbolicVariant(id = ""), plan = plan)
     return DevDistPluginPlanEntry(
@@ -294,10 +294,17 @@ class DevDistSimplePackagingTest {
   @Test
   fun `a transform output keeps the plan tier`() {
     val output = "layout-assets:custom-asset:0:output"
-    val preparation = PluginPackingPreparation(id = "layout-assets:custom-asset:0", inputs = listOf(plugin), outputs = listOf(output), modelSignature = "sig")
+    val operation = DevPluginPreparationOperation(
+      id = "layout-assets:custom-asset:0",
+      kind = "layout-assets",
+      inputs = listOf(DevPluginReference(plugin)),
+      output = output,
+      manifest = "keep",
+      layoutAssets = DevPluginLayoutAssetPreparation(format = "tree", root = "jcef", assets = listOf(DevPluginLayoutAsset(destination = "", sources = listOf(0)))),
+    )
     val assets = listOf(mainJar(), PluginPackingAsset(destination = "jcef", inputs = listOf(output), kind = "tree", classPath = false))
 
-    assertKeepsPlanTier(planEntry(assets = assets, inputs = emptyList(), preparations = listOf(preparation)))
+    assertKeepsPlanTier(planEntry(assets = assets, inputs = emptyList(), operations = listOf(operation)))
   }
 
   @Test
@@ -415,8 +422,8 @@ class DevDistSimplePackagingTest {
   }
 
   @Test
-  fun `a jar of a test-only module with directory entries is simple and cross-half`() {
-    val assets = listOf(mainJar(), moduleJar("lib/tests.jar", testModule, testOutputWriter))
+  fun `a jar of a test-only module with the default writer is simple and cross-half`() {
+    val assets = listOf(mainJar(), moduleJar("lib/tests.jar", testModule))
     val packaging: DevDistSimplePackaging = requireSimple(planEntry(assets = assets, inputs = emptyList(), testModules = setOf(testModule)))
 
     assertThat(packaging.jars).containsExactly(entry("lib/x.jar", listOf(plugin)), entry("lib/tests.jar", listOf(testModule)))
@@ -425,27 +432,22 @@ class DevDistSimplePackagingTest {
   }
 
   @Test
-  fun `a jar of a test-only module with the default writer keeps the plan tier`() {
-    val assets = listOf(mainJar(), moduleJar("lib/tests.jar", testModule, JarWriterRecipe(mergeEntities = true)))
+  fun `a jar of a test-only module with another writer keeps the plan tier`() {
+    val assets = listOf(mainJar(), moduleJar("lib/tests.jar", testModule, JarWriterRecipe(mergeEntities = false)))
 
     assertKeepsPlanTier(planEntry(assets = assets, inputs = emptyList(), testModules = setOf(testModule)))
   }
 
   @Test
-  fun `a production jar with directory entries keeps the plan tier`() {
-    assertKeepsPlanTier(planEntry(assets = listOf(mainJar(writer = testOutputWriter)), inputs = emptyList(), testModules = setOf(testModule)))
-  }
-
-  @Test
   fun `a test-only module without a test jar keeps the plan tier`() {
-    val assets = listOf(mainJar(), moduleJar("lib/stub.jar", testModuleWithoutJar, testOutputWriter))
+    val assets = listOf(mainJar(), moduleJar("lib/stub.jar", testModuleWithoutJar))
 
     assertKeepsPlanTier(planEntry(assets = assets, inputs = emptyList(), testModules = setOf(testModuleWithoutJar)))
   }
 
   @Test
   fun `the cross-half dev_plugin target names a test-only module by its test jar`() {
-    val assets = listOf(mainJar(), moduleJar("lib/tests.jar", testModule, testOutputWriter))
+    val assets = listOf(mainJar(), moduleJar("lib/tests.jar", testModule))
     val packaging: DevDistSimplePackaging = requireSimple(planEntry(assets = assets, inputs = emptyList(), testModules = setOf(testModule)))
 
     val target = renderCrossHalfDevPluginTarget(packaging, descriptorLabel = "//build/dev-dist-descriptors/intellij.x:intellij.x_dev_descriptor", index = index)

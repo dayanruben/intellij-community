@@ -2,7 +2,6 @@
     "version": 2,
     "plugin": "intellij.cidr.clangd",
     "variant": "darwin_x64",
-    "layoutSignature": "9v17pl34l8ogv5t16nrqrhs6b",
     "assets": [
         {
             "module": "intellij.cidr.clangd.core"
@@ -64,28 +63,6 @@
             ],
             "kind": "tree",
             "classPath": false
-        }
-    ],
-    "preparations": [
-        {
-            "id": "layout-assets:resource-generator:0",
-            "inputs": [
-                "cidr-dependency:clang:mac:x64"
-            ],
-            "outputs": [
-                "layout-assets:resource-generator:0:output"
-            ],
-            "modelSignature": "3jz6j09kcl8q25g2k502qjlc7"
-        },
-        {
-            "id": "layout-assets:resource-generator:1",
-            "inputs": [
-                "cidr-dependency:clang-clangTidyDoc:any:any"
-            ],
-            "outputs": [
-                "layout-assets:resource-generator:1:output"
-            ],
-            "modelSignature": "bugmguqr6iufm8phew520hf4z"
         }
     ],
     "operations": [

@@ -10,7 +10,10 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+cli.workspace = true
 component.workspace = true
+distpath.workspace = true
+filemeta.workspace = true
 fscopy.workspace = true
 indexmap.workspace = true
 java-properties.workspace = true
@@ -28,3 +31,4 @@ windows-sys.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+testkit.workspace = true

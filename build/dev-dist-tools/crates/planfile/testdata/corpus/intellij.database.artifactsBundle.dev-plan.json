@@ -2,7 +2,6 @@
     "version": 2,
     "plugin": "intellij.database.artifactsBundle",
     "variant": "",
-    "layoutSignature": "8nnfi7tlpy6xuo87mx5obfsa7",
     "assets": [
         {
             "destination": "lib/database-artifactsBundle.jar",
@@ -35,18 +34,6 @@
             ],
             "kind": "tree",
             "classPath": false
-        }
-    ],
-    "preparations": [
-        {
-            "id": "layout-assets:resource-generator:0",
-            "inputs": [
-                "layout-source:resource-generator:0:0"
-            ],
-            "outputs": [
-                "layout-assets:resource-generator:0:output"
-            ],
-            "modelSignature": "b5ugoy6j43yvg11fbg8w2yowl"
         }
     ],
     "operations": [

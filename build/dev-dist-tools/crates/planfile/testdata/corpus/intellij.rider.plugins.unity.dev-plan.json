@@ -2,7 +2,6 @@
     "version": 2,
     "plugin": "intellij.rider.plugins.unity",
     "variant": "",
-    "layoutSignature": "8qwf344hy02veem12calynoc3",
     "assets": [
         {
             "module": "intellij.rider.plugins.unity.common"
@@ -67,18 +66,6 @@
             ],
             "mode": 493,
             "classPath": false
-        }
-    ],
-    "preparations": [
-        {
-            "id": "layout-assets:resource-generator:0",
-            "inputs": [
-                "optional-local-directory:out/bundle-plugins/rider-unity"
-            ],
-            "outputs": [
-                "layout-assets:resource-generator:0:output"
-            ],
-            "modelSignature": "evmpkmjxst6rh7h23fypu5vy2"
         }
     ],
     "operations": [

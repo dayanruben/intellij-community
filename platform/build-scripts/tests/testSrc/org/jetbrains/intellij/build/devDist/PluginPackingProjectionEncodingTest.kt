@@ -7,7 +7,6 @@ import org.jetbrains.intellij.build.dev.DevPluginLayoutAsset
 import org.jetbrains.intellij.build.dev.DevPluginLayoutAssetPreparation
 import org.jetbrains.intellij.build.dev.DevPluginPreparationOperation
 import org.jetbrains.intellij.build.dev.DevPluginReference
-import org.jetbrains.intellij.build.dev.devPluginPreparationOperationSignature
 import org.junit.jupiter.api.Test
 
 /** The compact projection encoding round-trips, and the full form still decodes; see `PluginPackingProjectionEncoding.kt`. */
@@ -29,7 +28,6 @@ class PluginPackingProjectionEncodingTest {
     version = 2,
     plugin = "intellij.demo",
     variant = "",
-    layoutSignature = "layout",
     assets = listOf(
       moduleJarAsset("intellij.demo.core"),
       PluginPackingAsset(destination = "lib/demo.jar", inputs = listOf("intellij.demo.merged", "@lib//:demo"), recipe = mergedRecipe),
@@ -53,7 +51,7 @@ class PluginPackingProjectionEncodingTest {
   @Test
   fun `the full form still decodes`() {
     val full = """
-      {"version":2,"plugin":"intellij.demo","variant":"","layoutSignature":"layout",
+      {"version":2,"plugin":"intellij.demo","variant":"",
        "assets":[{"destination":"lib/modules/intellij.demo.core.jar","inputs":["intellij.demo.core"],
                   "recipe":{"sources":[{"input":"intellij.demo.core","kind":"module","filter":"module-v1"}],"writer":{"mergeEntities":true}}}]}
     """.trimIndent()
@@ -66,7 +64,7 @@ class PluginPackingProjectionEncodingTest {
   /** The reuse decision is not in the file. A stale plan that still states it fails with the field name. */
   @Test
   fun `a plan with reusableArtifacts is refused`() {
-    val stale = """{"version":1,"plugin":"p","variant":"","layoutSignature":"l","assets":[{"module":"intellij.demo.core"}],
+    val stale = """{"version":1,"plugin":"p","variant":"","assets":[{"module":"intellij.demo.core"}],
       "reusableArtifacts":[{"label":"//demo/core:core_content_module_jar.production.jar","module":"intellij.demo.core"}]}"""
 
     assertThat(runCatching { Json.decodeFromString(PluginPackingProjection.serializer(), stale) }.exceptionOrNull())
@@ -77,14 +75,11 @@ class PluginPackingProjectionEncodingTest {
   /** A reused jar is a module asset of the plan; the chain names the module, and the plan resolves the match by recipe. */
   @Test
   fun `the plan marks the module asset of a reused jar as independent`() {
-    val signed = projection.copy(layoutSignature = pluginPackingLayoutSignature(
-      projection.plugin, projection.variant, projection.assets, projection.preparations, projection.preparationRoots,
-    ))
-    val plan = signed.plan(listOf(ReusableJarArtifact(module = "intellij.demo.core", recipe = moduleJarRecipe("intellij.demo.core"))))
+    val plan = projection.plan(listOf(ReusableJarArtifact(module = "intellij.demo.core", recipe = moduleJarRecipe("intellij.demo.core"))))
 
     assertThat(plan.assets.map { it.artifact?.module }).containsExactly("intellij.demo.core", null, null, null)
     assertThat(plan.requiredInputs).doesNotContain("intellij.demo.core")
-    assertThat(runCatching { signed.plan(listOf(ReusableJarArtifact(module = "intellij.demo.other", recipe = moduleJarRecipe("intellij.demo.other")))) }.exceptionOrNull())
+    assertThat(runCatching { projection.plan(listOf(ReusableJarArtifact(module = "intellij.demo.other", recipe = moduleJarRecipe("intellij.demo.other")))) }.exceptionOrNull())
       .hasMessageContaining("duplicate or unused reusable artifacts")
   }
 
@@ -115,30 +110,65 @@ class PluginPackingProjectionEncodingTest {
     assertThat(decoded.copy(operations = emptyList())).isEqualTo(projection)
   }
 
-  /** The packer mirror of the two signatures pins the same constants in `tests/kotlin.rs` of the `pluginpack` crate. */
+  /** The plan file states each operation once. A stale plan that still states a preparation row fails with the field name. */
   @Test
-  fun `the signatures of the filtered projection are what the packer mirror pins`() {
-    val modelSignature = devPluginPreparationOperationSignature(filterOperation, version = 2)
-    assertThat(modelSignature).isEqualTo("5nm0sqi8af0srealvdtoxpzqm")
+  fun `a plan with preparations is refused`() {
+    val stale = """{"version":1,"plugin":"p","variant":"","assets":[{"module":"intellij.demo.core"}],
+      "preparations":[{"id":"filter","inputs":["raw"],"outputs":["filtered"],"modelSignature":"s"}]}"""
 
-    val signature = pluginPackingLayoutSignature(
-      plugin = "filtered-plugin",
-      variant = "linux",
+    assertThat(runCatching { Json.decodeFromString(PluginPackingProjection.serializer(), stale) }.exceptionOrNull())
+      .isNotNull()
+      .hasMessageContaining("preparations")
+  }
+
+  /** The plan derives the raw inputs of an operation from its references, and the operation from the output an asset reads. */
+  @Test
+  fun `the plan requires an operation through its output`() {
+    val filtered = projection.copy(
+      version = 1,
       assets = listOf(PluginPackingAsset(
         destination = "lib/main.jar",
         inputs = listOf("filtered"),
-        recipe = CanonicalJarRecipe(sources = listOf(JarSourceRecipe("filtered", "prepared", "prepared")), writer = JarWriterRecipe(manifest = "drop")),
+        recipe = CanonicalJarRecipe(listOf(JarSourceRecipe("filtered", "prepared", "prepared")), JarWriterRecipe(manifest = "drop")),
       )),
-      preparations = listOf(PluginPackingPreparation(id = "filter", inputs = listOf("raw"), outputs = listOf("filtered"), modelSignature = modelSignature)),
-      preparationRoots = emptyList(),
+      operations = listOf(filterOperation, filterOperation.copy(id = "unused", output = "unused:output")),
     )
 
-    assertThat(signature).isEqualTo("abd1jj2mitamhwlzozt2d0zlo")
+    val plan = filtered.plan()
+
+    assertThat(plan.operations).containsExactly(filterOperation)
+    assertThat(plan.requiredInputs).containsExactly("raw")
+  }
+
+  @Test
+  fun `an operation that reads its own output is a cycle`() {
+    val cyclic = filterOperation.copy(inputs = listOf(DevPluginReference("filtered")))
+
+    assertThat(runCatching {
+      planPluginPacking(
+        plugin = "p",
+        variant = "",
+        assets = listOf(PluginPackingAsset(destination = "lib/main.jar", inputs = listOf("filtered"))),
+        operations = listOf(cyclic),
+        preparationRoots = emptyList(),
+        artifacts = emptyList(),
+      )
+    }.exceptionOrNull()).hasMessageContaining("operation cycle at 'filter'")
+  }
+
+  /** The plan file states no layout signature. A stale plan that still states it fails with the field name. */
+  @Test
+  fun `a plan with layoutSignature is refused`() {
+    val stale = """{"version":1,"plugin":"p","variant":"","layoutSignature":"l","assets":[{"module":"intellij.demo.core"}]}"""
+
+    assertThat(runCatching { Json.decodeFromString(PluginPackingProjection.serializer(), stale) }.exceptionOrNull())
+      .isNotNull()
+      .hasMessageContaining("layoutSignature")
   }
 
   @Test
   fun `explicit defaults beside the module are accepted`() {
-    val text = """{"version":1,"plugin":"p","variant":"","layoutSignature":"l",
+    val text = """{"version":1,"plugin":"p","variant":"",
       "assets":[{"module":"intellij.demo.core","destination":null,"inputs":null,"recipe":null,"mode":420,"symlinkTarget":null}]}"""
 
     assertThat(json.decodeFromString(PluginPackingProjection.serializer(), text).assets).containsExactly(moduleJarAsset("intellij.demo.core"))

@@ -7,6 +7,8 @@ import com.intellij.ide.ui.laf.darcula.DarculaUIUtil.BW
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.application.asContextElement
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.util.NlsContexts
 import com.intellij.ui.ColoredTreeCellRenderer
@@ -50,6 +52,7 @@ import com.jetbrains.python.packaging.toolwindow.model.WorkspaceMember
 import com.jetbrains.python.packaging.toolwindow.ui.PyChangeVersionPopupLauncher
 import com.jetbrains.python.packaging.toolwindow.ui.PyInstallPackageDialogLauncher
 import com.jetbrains.python.packaging.utils.PyPackageCoroutine
+import com.intellij.python.sdk.backend.pythonInterpreterAsync
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.IOException
@@ -632,11 +635,18 @@ internal class PyPackagesTreePane(
   private fun triggerInstallPackageDialog() {
     val sdkToOpenOn = currentSdk
     val moduleForPreselect = preselectModuleName
-    PyInstallPackageDialogLauncher.open(
-      project = project,
-      sdk = sdkToOpenOn,
-      preselectModuleName = moduleForPreselect,
-    )
+    // Taken at the click, so the dialog opens over a modal Settings window instead of waiting for it to close.
+    val modality = ModalityState.current().asContextElement()
+    PyPackageCoroutine.launch(project) {
+      val interpreterToOpenOn = sdkToOpenOn?.pythonInterpreterAsync()
+      withContext(Dispatchers.EDT + modality) {
+        PyInstallPackageDialogLauncher.open(
+          project = project,
+          interpreter = interpreterToOpenOn,
+          preselectModuleName = moduleForPreselect,
+        )
+      }
+    }
   }
 
   /**

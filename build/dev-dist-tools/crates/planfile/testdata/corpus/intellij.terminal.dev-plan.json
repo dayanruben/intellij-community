@@ -2,7 +2,6 @@
     "version": 2,
     "plugin": "intellij.terminal",
     "variant": "{platform}",
-    "layoutSignature": "{platform:layoutSignature}",
     "assets": [
         {
             "module": "intellij.terminal.backend.split"
@@ -127,18 +126,6 @@
             ],
             "kind": "tree",
             "classPath": false
-        }
-    ],
-    "preparations": [
-        {
-            "id": "layout-assets:platform-resource-generator:0",
-            "inputs": [
-                "layout-source:platform-resource-generator:0:0"
-            ],
-            "outputs": [
-                "layout-assets:platform-resource-generator:0:output"
-            ],
-            "modelSignature": "{platform:modelSignature}"
         }
     ],
     "operations": [
