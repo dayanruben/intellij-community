@@ -32,7 +32,7 @@ import org.jetbrains.intellij.build.impl.PluginLayout
 import org.jetbrains.intellij.build.impl.SUPPORTED_DISTRIBUTIONS
 import org.jetbrains.intellij.build.impl.frontendIncompatibleRootModuleNames
 import org.jetbrains.intellij.build.impl.getLibNameBySourceFile
-import org.jetbrains.intellij.build.isTestOnlyPluginModuleName
+import org.jetbrains.intellij.build.isTestModule
 import org.jetbrains.intellij.build.mapConcurrent
 import org.jetbrains.intellij.build.productLayout.TestPluginSpec
 import org.jetbrains.intellij.build.productLayout.discovery.DiscoveredProduct
@@ -481,7 +481,7 @@ private fun pluginRequestInputs(
 /**
  * Selects the JPS modules of a Product DSL test plugin that are packed from test output.
  *
- * The main module joins by the rule of [isTestOnlyPluginModuleName], as the reference packager applies it.
+ * The main module joins by the rule of [isTestModule], as the reference packager applies it.
  * A content module joins when the plan reads its descriptor from test output. The main module's own descriptor states
  * where the plan reads it, not what is packed, so it adds nothing here.
  */
@@ -494,7 +494,7 @@ internal fun testOutputModules(
 
   val mainModule = request.layout.mainModule
   val result = LinkedHashSet<String>()
-  if (isTestOnlyPluginModuleName(moduleName = mainModule, module = outputProvider.findRequiredModule(mainModule))) {
+  if (outputProvider.findRequiredModule(mainModule).isTestModule()) {
     result.add(mainModule)
   }
   for (descriptor in entry.descriptors) {
@@ -826,7 +826,7 @@ internal fun enumerateGeneratedDevDistPluginRequests(
  *
  * A registry plugin needs a JPS module, see [findModule], and a Bazel package, see [isPlaced]. The descriptor plan cannot
  * place a plugin without a package. A test plugin is planned only when a run configuration names it. A test plugin is a
- * module that [isTestOnlyPluginModuleName] matches, or a module of [testPluginModules], which match a Product DSL test
+ * module that [isTestModule] matches, or a module of [testPluginModules], which match a Product DSL test
  * plugin, see [resolveDevDistTestPlugins].
  */
 internal fun devDistRegistryPlugins(
@@ -844,7 +844,7 @@ internal fun devDistRegistryPlugins(
       return@filter false
     }
     val module = findModule(mainModule) ?: return@filter false
-    !isTestOnlyPluginModuleName(moduleName = mainModule, module = module)
+    !module.isTestModule()
   }
 }
 
@@ -1057,55 +1057,73 @@ private fun devDistPluginCallPackageLabel(mainModule: String, home: DevDistPlugi
 }
 
 /**
- * The standalone embedded frontend helper macros of a divergent product, or the empty string for the baseline product
- * and for every other plugin.
+ * The standalone embedded frontend helper macros of one product, or the empty string for every other plugin.
  *
- * The baseline product keeps the helpers inside the plugin's own `dev_dist_plugin` call. A divergent product cannot
- * share the application info helper, because the product application info differs. So that helper sits beside the
- * product's `dev_dist_complex_plugin` call under a product-suffixed name. The embedded descriptor helper is one per
- * class: only the home of the class declares it, see [EmbeddedProductDescriptorPlan.home].
+ * The embedded descriptor action is one per class: only the home of the class declares it, see
+ * [EmbeddedProductDescriptorPlan.home]. The baseline product keeps the unsuffixed target name. The baseline product keeps
+ * the application info helper inside the plugin's own `dev_dist_plugin` call. A divergent product cannot share that
+ * helper, because the product application info differs. So that helper sits beside the product's
+ * `dev_dist_complex_plugin` call under a product-suffixed name.
  */
 private fun renderEmbeddedFrontendHelpers(
   support: DevDistEmbeddedFrontendSupport,
   entry: DevDistPluginPlanEntry,
   descriptorPlan: PluginDescriptorPlan,
 ): String {
-  if (entry.mainModule != support.pluginMainModule || entry.product == support.baselineProduct) {
+  if (entry.mainModule != support.pluginMainModule) {
     return ""
   }
   val descriptorEntry = descriptorPlan.plugins.first { it.mainModule == support.pluginMainModule }
   // A frontend product packs the plugin without the embedded frontend, so its call has no helper, see `packsEmbeddedFrontend`.
   val embedded = descriptorEntry.embeddedProductDescriptor ?: return ""
-  val frontend = requireNotNull(embedded.frontendApplicationInfo) {
-    "Product '${entry.product}' plans '${support.pluginMainModule}' without a frontend application info"
-  }
   val product = entry.product
-  val frontendCall = Target("dev_dist_frontend_application_info")
-  frontendCall.option("client_application_info", frontend.clientApplicationInfo)
-  frontendCall.option("main_module", support.pluginMainModule)
-  frontendCall.option("product", product)
-  frontendCall.option("product_application_info", frontend.productApplicationInfo)
-  if (embedded.home != product) {
-    return frontendCall.render().trim() + "\n"
+  val isBaseline = product == support.baselineProduct
+  val calls = ArrayList<String>()
+  if (embedded.home == product) {
+    calls.add(renderEmbeddedProductDescriptorCall(support = support, embedded = embedded, product = product.takeUnless { isBaseline }))
   }
-  // Attribute order matches buildifier's alphabetical sort, so a regenerate leaves the section unchanged.
-  val embeddedCall = Target("dev_dist_embedded_product_descriptor")
+  if (!isBaseline) {
+    val frontend = requireNotNull(embedded.frontendApplicationInfo) {
+      "Product '$product' plans '${support.pluginMainModule}' without a frontend application info"
+    }
+    val frontendCall = Target("dev_dist_frontend_application_info")
+    frontendCall.option("client_application_info", frontend.clientApplicationInfo)
+    frontendCall.option("main_module", support.pluginMainModule)
+    frontendCall.option("product", product)
+    frontendCall.option("product_application_info", frontend.productApplicationInfo)
+    calls.add(frontendCall.render().trim())
+  }
+  return calls.joinToString(separator = "\n\n", postfix = if (calls.isEmpty()) "" else "\n")
+}
+
+/**
+ * The `dev_dist_embedded_product_descriptor` call of one class home. [product] is the home, or `null` for the baseline
+ * product, which keeps the unsuffixed target name. The macro composes the content over the module-set table and derives
+ * the conventional descriptor rows, so the call states only the other rows.
+ */
+private fun renderEmbeddedProductDescriptorCall(
+  support: DevDistEmbeddedFrontendSupport,
+  embedded: EmbeddedProductDescriptorPlan,
+  product: String?,
+): String {
+  // The attributes in buildifier's alphabetical order, so a regenerate leaves the section unchanged.
+  val attributes = TreeMap(embedded.content.attributes(DEV_DIST_MODULE_SETS_SYMBOL))
   if (embedded.descriptors.isNotEmpty()) {
-    embeddedCall.option("descriptors", LinkedHashMap(embedded.descriptors))
+    attributes.put("descriptors", LinkedHashMap(embedded.descriptors))
   }
   if (embedded.libraryDescriptors.isNotEmpty()) {
-    embeddedCall.option("library_descriptors", LinkedHashMap(embedded.libraryDescriptors))
+    attributes.put("library_descriptors", LinkedHashMap(embedded.libraryDescriptors))
   }
-  embeddedCall.option("main_module", support.pluginMainModule)
-  if (embedded.modules.isNotEmpty()) {
-    embeddedCall.option("modules", embedded.modules)
-  }
-  embeddedCall.option("product", product)
+  attributes.put("main_module", support.pluginMainModule)
+  product?.let { attributes.put("product", it) }
   if (embedded.separateJar.isNotEmpty()) {
-    embeddedCall.option("separate_jar", embedded.separateJar)
+    attributes.put("separate_jar", embedded.separateJar)
   }
-  embeddedCall.option("source", embedded.source)
-  return embeddedCall.render().trim() + "\n\n" + frontendCall.render().trim() + "\n"
+  val call = Target("dev_dist_embedded_product_descriptor")
+  for ((key, value) in attributes) {
+    call.option(key, value)
+  }
+  return call.render().trim()
 }
 
 /**

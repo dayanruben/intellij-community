@@ -563,7 +563,6 @@ libraries/kotlinc/assignment-compiler-plugin
 libraries/kotlinc/compose-compiler-plugin
 libraries/kotlinc/js-plain-objects-compiler-plugin
 libraries/kotlinc/kotlin-compiler-common
-libraries/kotlinc/kotlin-compiler-fe10
 libraries/kotlinc/kotlin-compiler-fir
 libraries/kotlinc/kotlin-compiler-ir
 libraries/kotlinc/kotlin-dataframe-compiler-plugin
@@ -763,6 +762,8 @@ platform/compose/markdown
 platform/compose/plugin
 platform/compose/swing-ui
 platform/configuration-store-impl
+platform/consoleView
+platform/consoleView/impl
 platform/core-api
 platform/core-impl
 platform/core-nio-fs
@@ -924,7 +925,6 @@ platform/new-users-onboarding
 platform/non-modal-welcome-screen
 platform/non-modal-welcome-screen/backend
 platform/non-modal-welcome-screen/frontend
-platform/non-modal-welcome-screen/terminal
 platform/object-serializer
 platform/observable
 platform/platform-api
@@ -1356,6 +1356,7 @@ plugins/groovy-live-templates
 plugins/groovy-scripting
 plugins/groovy/ant
 plugins/groovy/byteCodeViewer
+plugins/groovy/compiler-tests
 plugins/groovy/git
 plugins/groovy/groovy-psi
 plugins/groovy/groovy-uast-tests
@@ -1832,7 +1833,6 @@ python/common
 python/conda
 python/conda/common
 python/conda/frontend
-python/huggingFace
 python/ide-common/ide-customization
 python/ide/customization.backend
 python/ide/customization.frontend
@@ -1973,6 +1973,7 @@ tools/intellij.tools.ide.starter.product.gateway
 tools/intellij.tools.ide.starter.product.goland
 tools/intellij.tools.ide.starter.product.idea.community
 tools/intellij.tools.ide.starter.product.idea.ultimate
+tools/intellij.tools.ide.starter.product.jetbrains.light
 tools/intellij.tools.ide.starter.product.phpstorm
 tools/intellij.tools.ide.starter.product.pycharm
 tools/intellij.tools.ide.starter.product.pycharm.community

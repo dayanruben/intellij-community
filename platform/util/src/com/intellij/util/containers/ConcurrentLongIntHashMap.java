@@ -15,6 +15,8 @@ package com.intellij.util.containers;
  * http://creativecommons.org/publicdomain/zero/1.0/
  */
 
+import com.intellij.util.ArrayUtil;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import org.jetbrains.annotations.NotNull;
 
 import java.lang.reflect.ParameterizedType;
@@ -875,7 +877,7 @@ final class ConcurrentLongIntHashMap implements ConcurrentLongIntMap {
      * @throws NullPointerException if the specified key or value is null
      */
     public int put(long key, int value) {
-        return putVal(key, value, false);
+        return value == defaultValue ? remove(key) : putVal(key, value, false);
     }
 
     /** Implementation for put and putIfAbsent */
@@ -1080,6 +1082,17 @@ final class ConcurrentLongIntHashMap implements ConcurrentLongIntMap {
         if (delta != 0L)
             addCount(delta, -1);
     }
+
+  @Override
+  public long @NotNull [] keys() {
+    int size = size();
+    if (size == 0) {
+      return ArrayUtil.EMPTY_LONG_ARRAY;
+    }
+    LongArrayList keys = new LongArrayList(size);
+    forEach((key, value) -> keys.add(key));
+    return keys.toLongArray();
+  }
 
     /**
      * Returns a {@link Set} view of the mappings contained in this map.

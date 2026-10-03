@@ -66,7 +66,6 @@
     <module name="intellij.platform.eel.impl"/>
     <module name="intellij.platform.eel.nioFs.impl"/>
     <module name="intellij.platform.eel.provider"/>
-    <module name="intellij.platform.execution"/>
     <module name="intellij.platform.icons"/>
     <module name="intellij.platform.ide"/>
     <module name="intellij.platform.ide.concurrency"/>
@@ -382,8 +381,8 @@
     <extensionPoint qualifiedName="com.intellij.recentProjectsBranchesProvider"
                     interface="com.intellij.ide.vcs.RecentProjectsBranchesProvider"
                     dynamic="true"/>
-    <extensionPoint qualifiedName="com.intellij.recentProjectUpdater"
-                    interface="com.intellij.openapi.wm.impl.welcomeScreen.recentProjects.RecentProjectUpdater"
+    <extensionPoint qualifiedName="com.intellij.recentProjectBrancher"
+                    interface="com.intellij.openapi.wm.impl.welcomeScreen.recentProjects.RecentProjectBrancher"
                     dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.recentProjectsProvider"
                     interface="com.intellij.ide.RecentProjectProvider"
@@ -950,6 +949,8 @@
                         serviceImplementation="com.intellij.openapi.options.advanced.AdvancedSettingsImpl"/>
     <!--    <projectService serviceImplementation="com.intellij.ide.actions.DirectoryPathMatcherService"/>-->
         <projectService serviceImplementation="com.intellij.ide.impl.ProjectUtilService" open="true"/>
+    <projectFrameCapabilitiesProvider
+      implementation="com.intellij.openapi.wm.impl.welcomeScreen.recentProjects.RecentProjectFrameCapabilitiesProvider"/>
     <welcomeFrameProvider implementation="com.intellij.openapi.wm.impl.welcomeScreen.FlatWelcomeFrameProvider"/>
     <welcomeTabFactory id="ProjectsWelcomeTab" implementation="com.intellij.openapi.wm.impl.welcomeScreen.ProjectsTabFactory"/>
     <statistics.counterUsagesCollector

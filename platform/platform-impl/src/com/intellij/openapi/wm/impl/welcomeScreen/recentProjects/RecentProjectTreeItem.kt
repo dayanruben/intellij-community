@@ -69,6 +69,9 @@ sealed interface RecentProjectTreeItem {
   }
 }
 
+/** The item's stored path, or null when it is not a valid path. Stored paths come from disk and outlive the projects they point at. */
+internal fun RecentProjectItem.projectNioPath(): Path? = runCatching { Path.of(projectPath) }.getOrNull()
+
 internal data class RecentProjectItem(
   @JvmField val projectPath: @SystemIndependent String,
   @NlsSafe val projectName: String,
@@ -225,11 +228,26 @@ data class CloneableProjectItem(
   override fun children(): List<RecentProjectTreeItem> = emptyList()
 }
 
-// The root node is required for the filtering tree
+/**
+ * The root item of [RecentProjectFilteringTree]. The filtering tree requires a root node.
+ *
+ * The item keeps the result of the last collection. The first [children] call, and the first call after [invalidate], runs the collectors.
+ * The tree asks for the children many times in one structure update and on each filter change, so the collectors do not run each time.
+ * Use the item only on the EDT.
+ */
 internal class RootItem(private val collectors: List<() -> List<RecentProjectTreeItem>>) : RecentProjectTreeItem {
+  private var children: List<RecentProjectTreeItem>? = null
+
   override fun displayName(): String = "" // Not visible in tree
 
-  override fun children(): List<RecentProjectTreeItem> = collectors.flatMap { collector -> collector() }
+  override fun children(): List<RecentProjectTreeItem> {
+    return children ?: collectors.flatMap { collector -> collector() }.also { children = it }
+  }
+
+  /** Makes the next [children] call run the collectors again. */
+  fun invalidate() {
+    children = null
+  }
 }
 
 @Internal

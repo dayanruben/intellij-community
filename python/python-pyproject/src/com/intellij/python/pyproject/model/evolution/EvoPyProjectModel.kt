@@ -412,6 +412,10 @@ suspend fun Project.evoPyProjects(): Sequence<EvoPyProject> = EvoPyProjectModel.
 @ApiStatus.Internal
 suspend fun Project.pythonInterpreters(): Set<PythonInterpreter> = EvoPyProjectModel.getInstance(this).snapshot().interpreters
 
+/** [pythonInterpreters] without the wait. `null` before the first snapshot. */
+@ApiStatus.Internal
+fun Project.pythonInterpretersIfReady(): Set<PythonInterpreter>? = EvoPyProjectModel.getInstance(this).snapshotOrNull()?.interpreters
+
 /**
  * The Python project every Python surface shows for [file], by the rule of [EvoPyProjectModel.Snapshot.forFile].
  * See there for [mainForOrphans].

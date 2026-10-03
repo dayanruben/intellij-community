@@ -53,7 +53,8 @@ class ConcurrentLongIntHashMapTest {
     assertThat(map.containsKey(1)).isTrue()
     assertThat(map.remove(1)).isZero()
     assertThat(map.get(1)).isEqualTo(-1)
-    assertThatIllegalArgumentException().isThrownBy { map.put(2, -1) }
+    assertThat(map.put(2, -1)).isEqualTo(-1)
+    assertThat(map.containsKey(2)).isFalse()
   }
 
   @Test
@@ -90,6 +91,28 @@ class ConcurrentLongIntHashMapTest {
   fun entries() {
     val map = createFrom(1L to 2, 2L to 3, 3L to 4)
     assertThat(map.entrySet().map { it.key to it.value }).containsExactlyInAnyOrder(1L to 2, 2L to 3, 3L to 4)
+  }
+
+  @Test
+  fun keys() {
+    val map = ConcurrentCollectionFactory.createConcurrentLongIntMap(0)
+    assertThat(map.keys()).isEmpty()
+
+    val keys = longArrayOf(0, -1, Long.MIN_VALUE, Long.MAX_VALUE, 1, 1L + (1L shl 32))
+    for (key in keys) {
+      map.put(key, 1)
+    }
+    val result = map.keys()
+    assertThat(result).containsExactlyInAnyOrder(*keys)
+
+    map.remove(0)
+    assertThat(map.keys()).containsExactlyInAnyOrder(*keys.filter { it != 0L }.toLongArray())
+    for (key in 0L until 1000L) {
+      map.put(key, 1)
+    }
+    map.clear()
+    assertThat(map.keys()).isEmpty()
+    assertThat(result).containsExactlyInAnyOrder(*keys)
   }
 
   @Test
@@ -132,6 +155,49 @@ class ConcurrentLongIntHashMapTest {
     assertThat(map.get(firstKey)).isEqualTo(11)
     assertThat(map.get(secondKey)).isEqualTo(22)
     assertThat(map.size()).isEqualTo(2)
+  }
+  @Test
+  fun `compute with default value must delete key`() {
+    val map: ConcurrentLongIntMap = ConcurrentCollectionFactory.createConcurrentLongIntMap(-5)
+    for (i in 0..1000) {
+      map.put(i.toLong(), i)
+    }
+    for (i in 0..1000) {
+      map.compute(i.toLong()) {
+          _, _-> -5
+      }
+    }
+    assertThat(map.size()).isEqualTo(0)
+  }
+
+  @Test
+  fun `put with default value must not throw`() {
+    val map = ConcurrentCollectionFactory.createConcurrentLongIntMap(-5)
+    for (i in 0..1000) {
+      assertThat(map.put(i.toLong(), -5)).isEqualTo(-5)
+      assertThat(map.containsKey(i.toLong())).isFalse()
+      assertThat(map.getOrDefault(i.toLong(), 1)).isEqualTo(1)
+    }
+    assertThat(map.size()).isZero()
+    assertThat(map.isEmpty).isTrue()
+    assertThat(map.entrySet()).isEmpty()
+  }
+
+  @Test
+  fun `put with default value removes key`() {
+    val map = ConcurrentCollectionFactory.createConcurrentLongIntMap(-5)
+    for (i in 0..1000) {
+      map.put(i.toLong(), i)
+    }
+    for (i in 0..1000) {
+      assertThat(map.put(i.toLong(), -5)).isEqualTo(i)
+      assertThat(map.containsKey(i.toLong())).isFalse()
+      assertThat(map.get(i.toLong())).isEqualTo(-5)
+    }
+    assertThat(map.size()).isZero()
+    assertThat(map.mappingCount()).isZero()
+    assertThat(map.isEmpty).isTrue()
+    assertThat(map.entrySet()).isEmpty()
   }
 
   @Test
