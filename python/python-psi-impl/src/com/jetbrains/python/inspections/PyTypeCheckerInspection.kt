@@ -169,7 +169,7 @@ open class PyTypeCheckerInspection : PyInspection() {
     // A class definition implicitly calls `__init_subclass__` of its base classes with the
     // class-definition keyword arguments; type-check those arguments against its parameters.
     override fun visitPyClass(node: PyClass) {
-      if (node.getArguments(null).isEmpty()) return
+      if (node.getArguments().isEmpty()) return
       checkCallSite(node)
     }
 

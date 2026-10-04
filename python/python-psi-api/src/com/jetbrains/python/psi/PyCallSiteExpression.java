@@ -32,7 +32,6 @@ public interface PyCallSiteExpression extends PyAstCallSiteExpression, PyCallSit
     return (PyExpression)getReceiver((PyAstCallable)resolvedCallee);
   }
 
-  @Override
   default @NotNull List<@NotNull PyExpression> getArguments(@Nullable PyCallable resolvedCallee) {
     // Safe raw cast: the returned list is @Unmodifiable, so no one can insert a non-PyExpression element,
     // and all PyAstExpression instances in the PSI layer are also PyExpression at runtime.

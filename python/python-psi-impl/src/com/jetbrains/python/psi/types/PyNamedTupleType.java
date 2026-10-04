@@ -111,8 +111,15 @@ public class PyNamedTupleType extends PyTupleType implements PyCallableType {
 
   @Override
   public @Nullable PyNamedTupleType getCallType(@NotNull TypeEvalContext context, @NotNull PyCallSiteOwner callSite) {
+    return isDefinition() ? toInstance() : null;
+  }
+
+  @Override
+  public @Nullable PyNamedTupleType getCallType(@NotNull TypeEvalContext context,
+                                                @Nullable PyCallSiteOwner callSite,
+                                                @NotNull List<PyCallableArgument> arguments) {
     if (isDefinition()) {
-      return getCallDefinitionType(callSite, context);
+      return getCallDefinitionType(arguments, context);
     }
 
     return null;
@@ -205,16 +212,15 @@ public class PyNamedTupleType extends PyTupleType implements PyCallableType {
     return this;
   }
 
-  private @NotNull PyNamedTupleType getCallDefinitionType(@NotNull PyCallSiteOwner callSite, @NotNull TypeEvalContext context) {
+  private @NotNull PyNamedTupleType getCallDefinitionType(@NotNull List<PyCallableArgument> arguments,
+                                                          @NotNull TypeEvalContext context) {
     if (!myTyped) {
-      final List<PyExpression> arguments = callSite.getArguments(null);
-
       if (arguments.size() == myFields.size()) {
         final Map<String, PyType> result = new HashMap<>();
 
-        for (Map.Entry<String, PyExpression> entry : StreamEx.ofKeys(myFields).zipWith(StreamEx.of(arguments))) {
+        for (Map.Entry<String, PyCallableArgument> entry : StreamEx.ofKeys(myFields).zipWith(StreamEx.of(arguments))) {
           final String name = entry.getKey();
-          final PyType type = context.getType(entry.getValue());
+          final PyType type = entry.getValue().getType(context);
 
           result.put(name, type);
         }

@@ -120,7 +120,7 @@ public final class PyArgumentListInspection extends PyInspection {
     public void visitPyClass(@NotNull PyClass node) {
       // A class definition implicitly calls `__init_subclass__` of its base classes with the
       // class-definition keyword arguments (e.g. `z="a"` in `class B(A, z="a")`).
-      if (node.getArguments(null).isEmpty()) return;
+      if (node.getArguments().isEmpty()) return;
       final PyArgumentList argumentList = node.getSuperClassExpressionList();
       if (argumentList == null) return;
       final List<PyCallExpression.PyArgumentsMapping> mappings = PyCallExpressionHelper.mapArguments(node, getResolveContext());

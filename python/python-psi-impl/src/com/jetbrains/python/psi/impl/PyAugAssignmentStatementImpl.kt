@@ -33,10 +33,4 @@ class PyAugAssignmentStatementImpl(astNode: ASTNode) : PyElementImpl(astNode), P
   override fun getReference(context: PyResolveContext): PsiPolyVariantReference {
     return PyOperatorReference(this, context)
   }
-
-  override fun getArguments(resolvedCallee: PyCallable?): List<PyExpression> {
-    // `value` may be null for an incomplete statement (e.g. `x +=` with no right-hand side),
-    // mirror PyBinaryExpression and return an empty list instead of throwing (PY-90019).
-    return listOfNotNull(if (isRightOperator(resolvedCallee)) target else value)
-  }
 }

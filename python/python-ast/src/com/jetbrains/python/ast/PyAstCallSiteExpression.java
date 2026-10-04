@@ -42,7 +42,6 @@ public interface PyAstCallSiteExpression extends PyAstCallSiteOwner, PyAstExpres
   @Nullable
   PyAstExpression getReceiver(@Nullable PyAstCallable resolvedCallee);
 
-  @Override
   @NotNull
   @Unmodifiable
   List<PyAstExpression> getArguments(@Nullable PyAstCallable resolvedCallee);

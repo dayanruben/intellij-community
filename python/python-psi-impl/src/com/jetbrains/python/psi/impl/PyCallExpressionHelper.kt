@@ -824,8 +824,8 @@ object PyCallExpressionHelper {
   }
 
   @JvmStatic
-  fun mapArguments(expression: PyCallSiteOwner, callableType: PyCallableType, context: TypeEvalContext): PyArgumentsMapping {
-    return mapArguments(expression, expression.getArguments(callableType.callable), callableType, context)
+  fun mapArguments(call: PyCallExpression, callableType: PyCallableType, context: TypeEvalContext): PyArgumentsMapping {
+    return mapArguments(call, call.arguments.asList(), callableType, context)
   }
 
   @JvmStatic
@@ -857,17 +857,18 @@ object PyCallExpressionHelper {
 
   @JvmStatic
   fun mapArguments(expression: PyCallSiteOwner, resolveContext: PyResolveContext): List<PyArgumentsMapping> {
-    val callableTypes = when (expression) {
+    val context = resolveContext.typeEvalContext
+    return when (expression) {
       is PyCallExpression -> expression.multiResolveCallee(resolveContext)
+        .map { mapArguments(expression, it, context) }
       is PyClass -> expression.resolveInitSubclassCallee(resolveContext)
-      is PyQualifiedExpression -> return multiResolveOperator(expression, resolveContext).flatMap { operator ->
-        PyTypeUtil.getCallableItems(operator.method).map {
-          mapArguments(expression, operator.arguments, it, resolveContext.typeEvalContext)
+        .map { mapArguments(expression, expression.arguments, it, context) }
+      is PyQualifiedExpression -> multiResolveOperator(expression, resolveContext)
+        .flatMap { operator ->
+          PyTypeUtil.getCallableItems(operator.method).map { mapArguments(expression, operator.arguments, it, context) }
         }
-      }
       else -> emptyList()
     }
-    return callableTypes.map { mapArguments(expression, it, resolveContext.typeEvalContext) }
   }
 
   /**
@@ -1610,7 +1611,7 @@ object PyCallExpressionHelper {
 
     val overloadTypes = callExpression.multiResolveCallee(PyResolveContext.defaultContext(context))
       .filter { it.callable in overloads }
-    return selectMatchingOverloads(overloadTypes, callExpression.getArguments(function).map { PyCallableArgument(it) }, context)
+    return selectMatchingOverloads(overloadTypes, callExpression.getArguments().map { PyCallableArgument(it) }, context)
       .singleOrNull()?.callable as? PyFunction
   }
 

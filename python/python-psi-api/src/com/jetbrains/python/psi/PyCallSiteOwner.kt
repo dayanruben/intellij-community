@@ -4,6 +4,4 @@ package com.jetbrains.python.psi
 import org.jetbrains.annotations.ApiStatus
 
 @ApiStatus.Experimental
-interface PyCallSiteOwner : PyElement {
-  fun getArguments(resolvedCallee: PyCallable?): List<PyExpression>
-}
+interface PyCallSiteOwner : PyElement

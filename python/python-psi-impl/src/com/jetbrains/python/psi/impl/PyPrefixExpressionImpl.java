@@ -16,7 +16,6 @@ import com.jetbrains.python.psi.PyPrefixExpression;
 import com.jetbrains.python.psi.impl.references.PyOperatorReference;
 import com.jetbrains.python.psi.resolve.PyResolveContext;
 import com.jetbrains.python.psi.types.PyAnyType;
-import com.jetbrains.python.psi.types.PyCallableArgument;
 import com.jetbrains.python.psi.types.PyClassType;
 import com.jetbrains.python.psi.types.PyNarrowedType;
 import com.jetbrains.python.psi.types.PyType;
@@ -74,8 +73,7 @@ public class PyPrefixExpressionImpl extends PyElementImpl implements PyPrefixExp
       .of(PyCallExpressionHelper.mapArguments(this, PyResolveContext.defaultContext(context)))
       .map(PyCallExpression.PyArgumentsMapping::getCallableType)
       .nonNull()
-      .map(callableType -> callableType.getCallType(context, this,
-                                                   ContainerUtil.map(getArguments(callableType.getCallable()), PyCallableArgument::new)))
+      .map(callableType -> callableType.getCallType(context, this, ContainerUtil.emptyList()))
       .map(callType -> isAwait ? Ref.deref(getGeneratorReturnType(callType)) : callType)
       .collect(PyTypeUtil.toUnion());
   }

@@ -42,11 +42,8 @@ public interface PyClass
   /**
    * A class definition is an implicit call site for {@code __init_subclass__} of its base classes:
    * the keyword arguments in the base classes list (other than {@code metaclass}) are passed to it.
-   *
-   * @see PyCallSiteOwner
    */
-  @Override
-  default @NotNull List<@NotNull PyExpression> getArguments(@Nullable PyCallable resolvedCallee) {
+  default @NotNull List<@NotNull PyExpression> getArguments() {
     final PyArgumentList argumentList = getSuperClassExpressionList();
     if (argumentList == null) {
       return List.of();
