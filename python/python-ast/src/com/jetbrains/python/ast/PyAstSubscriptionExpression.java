@@ -17,19 +17,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-
 @ApiStatus.Experimental
 public interface PyAstSubscriptionExpression extends PyAstQualifiedExpression, PyAstCallSiteExpression, PyAstReferenceOwner {
-
-  @Override
-  default @Nullable PyAstExpression getReceiver(@Nullable PyAstCallable resolvedCallee) {
-    return getOperand();
-  }
-
-  @Override
-  default @NotNull List<@NotNull PyAstExpression> getArguments(@Nullable PyAstCallable resolvedCallee) {
-    return Collections.unmodifiableList(getArguments());
-  }
 
   @ApiStatus.Internal
   default @NotNull List<? extends @NotNull PyAstExpression> getArguments() {

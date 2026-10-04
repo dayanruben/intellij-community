@@ -127,7 +127,9 @@ public class PyOperatorReference extends PyReferenceBase {
       case PyCallExpression call -> call.getCallee() instanceof PyQualifiedExpression callee ? callee.getQualifier() : null;
       case PyPrefixExpression prefixExpr -> prefixExpr.getOperand();
       case PySubscriptionExpression subscription -> subscription.getOperand();
-      case PyBinaryExpression binaryExpr -> binaryExpr.getReceiver(resolvedCallee);
+      case PyBinaryExpression binaryExpr -> binaryExpr.isRightOperator(resolvedCallee)
+                                           ? binaryExpr.getRightExpression()
+                                           : (PyExpression)getChainedComparisonAwareLeftExpression(binaryExpr);
       default -> null;
     };
   }
