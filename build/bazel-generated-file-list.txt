@@ -386,6 +386,7 @@ jps/standalone-builder
 json
 json/backend
 json/backend/regexp
+json/backend/spellchecker
 json/backend/tests
 json/networknt.wrapper
 json/networknt.wrapper/tests
@@ -807,6 +808,7 @@ platform/execution
 platform/execution-impl
 platform/execution-impl/backend
 platform/execution-impl/frontend
+platform/execution-impl/rpc
 platform/execution-process-elevation
 platform/execution-process-mediator/client
 platform/execution-process-mediator/common
@@ -934,6 +936,7 @@ platform/platform-impl/bootstrap
 platform/platform-impl/bootstrap/eel
 platform/platform-impl/bootstrap/kernel
 platform/platform-impl/codeinsight-inline
+platform/platform-impl/color-picker
 platform/platform-impl/concurrency
 platform/platform-impl/designer
 platform/platform-impl/eel
@@ -944,9 +947,11 @@ platform/platform-impl/internal/jcef
 platform/platform-impl/jcef
 platform/platform-impl/os-certificates
 platform/platform-impl/plugin-signature-verifier
+platform/platform-impl/presentation-assistant
 platform/platform-impl/recentProjects
 platform/platform-impl/remote
 platform/platform-impl/rpc
+platform/platform-impl/socket-connection
 platform/platform-impl/ui
 platform/platform-impl/ui-inspector
 platform/platform-impl/update-checker
@@ -1095,6 +1100,8 @@ platform/todo/plugin
 platform/tracing
 platform/tracing-ide
 platform/ui.jcef
+platform/ui.tree
+platform/undo
 platform/usageView
 platform/usageView-impl
 platform/util
@@ -1141,6 +1148,7 @@ platform/vcs-log/impl/bookmarks
 platform/vcs-tests
 platform/vcs/plugin
 platform/versionDownloadManager
+platform/vfs-impl
 platform/warmup
 platform/warmup/performanceTesting
 platform/welcome-screen
@@ -1756,6 +1764,7 @@ plugins/sh/core
 plugins/sh/markdown
 plugins/sh/plugin
 plugins/sh/python
+plugins/sh/spellchecker
 plugins/sh/terminal
 plugins/sh/terminal/frontend
 plugins/space/jps-plugin

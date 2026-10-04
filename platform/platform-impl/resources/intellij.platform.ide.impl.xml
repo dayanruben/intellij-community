@@ -112,6 +112,8 @@
     <module name="intellij.platform.syntax.psi"/>
     <module name="intellij.platform.syntax.tree"/>
     <module name="intellij.platform.syntax.util"/>
+    <module name="intellij.platform.ui.tree"/>
+    <module name="intellij.platform.undo"/>
     <module name="intellij.platform.util.coroutines"/>
     <module name="intellij.platform.util.diff"/>
     <module name="intellij.platform.util.ex"/>
@@ -119,6 +121,7 @@
     <module name="intellij.platform.util.progress"/>
     <module name="intellij.platform.util.text.matching"/>
     <module name="intellij.platform.util.ui"/>
+    <module name="intellij.platform.vfs.impl"/>
     <module name="intellij.platform.welcomeScreen.impl"/>
     <module name="intellij.platform.workspace.jps"/>
     <module name="intellij.platform.workspace.storage"/>
@@ -1606,17 +1609,6 @@
     <applicationService serviceInterface="com.intellij.openapi.wm.impl.headertoolbar.OpenProjectSelectionPredicateSupplier" open="true"
                         serviceImplementation="com.intellij.openapi.wm.impl.headertoolbar.DefaultOpenProjectSelectionPredicateSupplier"/>
     <multiverseEnabler implementation="com.intellij.codeInsight.multiverse.RegistryFlagMultiverseEnabler"/>
-    <!-- Presentation Assistant -->
-    <applicationService serviceImplementation="com.intellij.platform.ide.impl.presentationAssistant.PresentationAssistant"/>
-    <applicationConfigurable groupId="appearance"
-                             key="presentation.assistant.settings"
-                             bundle="messages.IdeBundle"
-                             groupWeight="-15"
-                             instance="com.intellij.platform.ide.impl.presentationAssistant.PresentationAssistantConfigurable"/>
-    <notificationGroup id="Presentation Assistant"
-                       displayType="BALLOON"
-                       bundle="messages.IdeBundle"
-                       key="presentation.assistant.notification"/>
     <actionPromoter implementation="com.intellij.ide.actions.speedSearch.SpeedSearchActionPromoter"/>
     <fileEditorProvider id="learnIde" implementation="com.intellij.openapi.wm.impl.welcomeScreen.learnIde.editorTab.LearnIdeFileEditorProvider"/>
     <interactiveCourseFactory implementation="com.intellij.openapi.wm.impl.welcomeScreen.learnIde.jbAcademy.JBAcademyInteractiveCourse"/>
@@ -1651,8 +1643,6 @@
                         serviceImplementation="com.intellij.ui.EditorTextFieldProviderImpl"/>
     <notificationRouter implementation="com.intellij.notification.impl.LocalNotificationRouter" order="last"/>
     <nonLockedIdeEventQueueDispatcher implementation="com.intellij.ide.ui.laf.LaFMnemonicDispatcher"/>
-    <actionConfigurationCustomizer
-      implementation="com.intellij.platform.ide.impl.presentationAssistant.PresentationAssistantListenerRegistrar"/>
     <applicationService serviceImplementation="com.intellij.ide.browsers.WebBrowserManager" />
     <applicationService serviceImplementation="com.intellij.ide.impl.TrustedPaths" />
     <applicationService serviceImplementation="com.intellij.ide.impl.TrustedPathsSettings" />
@@ -1723,6 +1713,7 @@
     <backgroundPostStartupActivity implementation="com.intellij.openapi.updateSettings.impl.PluginUpdateSourceInitializationActivity"/>
     <registryKey key="update.source.initialization.enabled" defaultValue="true"
                  description="Enable initialization of update plugin update sources once for an IDE" />
+    <troubleInfoCollector implementation="com.intellij.ide.plugins.CustomPluginRepositoriesTroubleInfoCollector"/>
     <universalFileChooserContributor implementation="com.intellij.openapi.fileChooser.universal.LocalFileChooserContributor"/>
     <projectSettings service="com.intellij.openapi.vcs.readOnlyHandler.ReadonlyStatusHandlerImpl"/>
     <projectSettings service="com.intellij.externalDependencies.impl.ExternalDependenciesManagerImpl"/>
@@ -1765,7 +1756,6 @@
     <projectSettings service="com.intellij.ide.util.ProjectPropertyService"/>
     <applicationSettings service="com.intellij.ide.util.AppPropertyService"/>
     <applicationSettings service="com.intellij.openapi.util.registry.RegistryManagerImpl"/>
-    <applicationSettings service="com.intellij.platform.ide.impl.presentationAssistant.PresentationAssistant"/>
     <applicationSettings service="com.intellij.openapi.editor.colors.impl.EditorColorsManagerImpl"/>
     <applicationSettings service="com.intellij.application.options.PathMacrosImpl"/>
     <fileIconProvider implementation="com.intellij.openapi.wm.impl.tabInEditor.ToolWindowEditorTabFileIconProvider"/>

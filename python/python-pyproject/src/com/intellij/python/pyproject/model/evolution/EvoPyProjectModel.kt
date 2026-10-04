@@ -28,9 +28,12 @@ import com.intellij.openapi.util.io.FileUtil
 import com.intellij.platform.backend.workspace.WorkspaceModel
 import com.intellij.platform.workspace.jps.entities.ContentRootEntity
 import com.intellij.platform.workspace.jps.entities.FacetEntity
+import com.intellij.platform.workspace.jps.entities.InheritedSdkDependency
 import com.intellij.platform.workspace.jps.entities.ModuleEntity
+import com.intellij.platform.workspace.jps.entities.ProjectSettingsEntity
 import com.intellij.platform.workspace.storage.VersionedStorageChange
 import com.intellij.platform.workspace.storage.WorkspaceEntity
+import com.intellij.platform.workspace.storage.entities
 import com.intellij.python.pyproject.model.internal.workspaceBridge.affectsWorkspaceLayout
 import com.intellij.python.pyproject.model.internal.workspaceBridge.getWorkspaceLayout
 import com.intellij.python.sdk.backend.evolution.EvoPyProject
@@ -77,7 +80,18 @@ private val PY_PROJECT_ENTITIES: List<Class<out WorkspaceEntity>> =
  * leaves a stale workspace behind.
  */
 private fun VersionedStorageChange.affectsPyProjects(): Boolean =
-  PY_PROJECT_ENTITIES.any { getChanges(it).isNotEmpty() } || affectsWorkspaceLayout()
+  PY_PROJECT_ENTITIES.any { getChanges(it).isNotEmpty() } || changesInheritedInterpreter() || affectsWorkspaceLayout()
+
+/**
+ * Whether this change gives a module that inherits its interpreter another one.
+ *
+ * Such a module has an [InheritedSdkDependency], and [sdkReferenceOf] reads its interpreter from
+ * [ProjectSettingsEntity]. Only that field counts, and only while a module inherits it. So a change of any other
+ * setting, or a project where no module inherits, publishes no snapshot.
+ */
+private fun VersionedStorageChange.changesInheritedInterpreter(): Boolean =
+  getChanges(ProjectSettingsEntity::class.java).any { it.oldEntity?.projectSdk != it.newEntity?.projectSdk } &&
+  storageAfter.entities<ModuleEntity>().any { module -> module.dependencies.any { it is InheritedSdkDependency } }
 
 /**
  * The project's Python structure — every [PyProject], which one is the *main* one, and how they cluster into tool

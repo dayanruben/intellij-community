@@ -156,7 +156,15 @@ abstract class PyLspToolIntegrationProvider : LspIntegrationProvider {
     Disposer.register(listenerDisposable) {
       listenerConnectedForProjects.remove(project)
     }
-    subscribeOnChanges(descriptor.pyTool, project, listenerDisposable)
+    try {
+      subscribeOnChanges(descriptor.pyTool, project, listenerDisposable)
+    }
+    catch (e: Throwable) {
+      // `fileOpened` runs in a read action that a write action cancels, for example while the first
+      // call creates a service. The dispose removes the project again, so the next call subscribes.
+      Disposer.dispose(listenerDisposable)
+      throw e
+    }
     // The Python plugin can unload before the project closes, and the entry must go then too.
     if (!Disposer.tryRegister(PythonPluginDisposable.getInstance(project), Disposable { listenerConnectedForProjects.remove(project) })) {
       Disposer.dispose(listenerDisposable)
@@ -192,10 +200,11 @@ abstract class PyLspToolIntegrationProvider : LspIntegrationProvider {
   /**
    * Whether one server of this tool holds every served module.
    *
-   * Only a tool whose server keeps one workspace for each folder, with its own interpreter, may set
-   * this. [getDescriptor] of such a tool builds its descriptor from [pyLspModulesToServeWith]. A tool
-   * that gives every folder the same interpreter keeps `false` and runs one server for each module,
-   * and its servers never need a restart for a change of the folder set.
+   * Only a tool whose server keeps one workspace for each folder may set this. The server must give
+   * each folder its own interpreter, as ty and pyrefly do, or need no interpreter, as Ruff does.
+   * [getDescriptor] of such a tool builds its descriptor from [pyLspModulesToServeWith]. A tool that
+   * gives every folder the same interpreter keeps `false` and runs one server for each module, and
+   * its servers never need a restart for a change of the folder set.
    */
   open val servesEveryModule: Boolean get() = false
 
@@ -203,16 +212,19 @@ abstract class PyLspToolIntegrationProvider : LspIntegrationProvider {
                                                                ?: lspClient.descriptor.presentableName
 
   protected open fun subscribeOnChanges(pyTool: PyLspTool<*>, project: Project, parentDisposable: Disposable) {
-    val executableChanged = PyToolChangeDebouncer(project.service<PyLspService>().cs) { pyTool.onExecutableChanged(project) }
+    val cs = project.service<PyLspService>().cs
+    val executableChanged = PyToolChangeDebouncer(cs) { pyTool.onExecutableChanged(project) }
+    val interpreterChanged = PyToolChangeDebouncer(cs) { onInterpreterChanged(pyTool, project) }
     val connection = project.messageBus.connect(parentDisposable)
     connection.subscribe(PythonPackageManager.PACKAGE_MANAGEMENT_TOPIC, LspPackageListener(pyTool, project, executableChanged))
     connection.subscribe(ModuleRootListener.TOPIC, LspFolderSetListener(project))
     // A new module SDK can resolve another binary of the tool, and a running server keeps the old one.
     connection.subscribe(PySdkListener.TOPIC, object : PySdkListener {
       override fun moduleSdkUpdated(module: Module, prevSdk: Sdk?, newSdk: Sdk?) {
-        if (module.project == project && prevSdk != newSdk) executableChanged.schedule()
+        if (module.project == project && prevSdk != newSdk) interpreterChanged.schedule()
       }
     })
+    connection.subscribe(ModuleRootListener.TOPIC, LspInterpreterChangeListener(project, interpreterChanged))
     // A refresh of the serve keys lands without a project event, so it triggers the checks itself. A
     // server that started before the refresh can hold the wrong group, and a module that just got the
     // tool can need a server that nothing started.
@@ -259,6 +271,50 @@ abstract class PyLspToolIntegrationProvider : LspIntegrationProvider {
   }
 
   /**
+   * Schedules [interpreterChanged] when a client of this tool serves a module whose interpreter is no
+   * longer the one the client started with, see [PyLspToolDescriptor.interpreterChanged].
+   *
+   * The Project Structure dialog, the SDK table and a new project interpreter fire only `rootsChanged`,
+   * not [PySdkListener].
+   */
+  inner class LspInterpreterChangeListener(
+    private val project: Project,
+    private val interpreterChanged: PyToolChangeDebouncer,
+  ) : ModuleRootListener {
+    override fun rootsChanged(event: ModuleRootEvent) {
+      val clientManager = LspClientManager.getInstance(project)
+      if (clientManager.getClients(this@PyLspToolIntegrationProvider::class.java).isEmpty()) return
+      // `rootsChanged` runs inside a write action, and the interpreters are read after it.
+      project.service<PyLspService>().cs.launch {
+        if (readAction { anyClientInterpreterChanged(project) }) interpreterChanged.schedule()
+      }
+    }
+  }
+
+  @RequiresReadLock
+  private fun anyClientInterpreterChanged(project: Project): Boolean =
+    LspClientManager.getInstance(project).getClients(this::class.java)
+      .any { (it.descriptor as? PyLspToolDescriptor)?.interpreterChanged() == true }
+
+  /**
+   * Calls [PyLspTool.onExecutableChanged] when a client still runs with an interpreter that its modules left,
+   * or when no client runs.
+   *
+   * This runs after the quiet period of the debouncer, so it checks again. A new interpreter can move a module to
+   * another group, see [restartStaleClients]. That restart gives the new servers the new interpreters, and then
+   * this check finds nothing to do. With no client, no server reports a version, so the tool learns of the change
+   * here.
+   */
+  private suspend fun onInterpreterChanged(pyTool: PyLspTool<*>, project: Project) {
+    project.service<PyLspService>().restartMutex.withLock {
+      val noClient = readAction { LspClientManager.getInstance(project).getClients(this::class.java).isEmpty() }
+      if (!noClient && !readAction { anyClientInterpreterChanged(project) }) return@withLock
+      thisLogger().debug("The interpreter of a module of ${pyTool.lspServerName} changed. Telling the tool.")
+      pyTool.onExecutableChanged(project)
+    }
+  }
+
+  /**
    * Restarts the clients of this tool when the folder set of one of them no longer matches its own
    * group, see [pyLspFolderSetIsStale]. Does nothing while every running client is up to date.
    *
@@ -273,6 +329,17 @@ abstract class PyLspToolIntegrationProvider : LspIntegrationProvider {
     // One check at a time. Two checks that begin together both see the old servers, and the second
     // one would stop the servers that the first one just started.
     return project.service<PyLspService>().restartMutex.withLock { restartStaleClientsLocked(project) }
+  }
+
+  /**
+   * Checks the groups again once a new client runs, see [restartStaleClients].
+   *
+   * [fileOpened] builds a descriptor from the serve keys of that moment, and the platform registers the client only
+   * after [fileOpened] returns. A serve-key refresh that lands in between finds no client, so it restarts nothing.
+   */
+  internal fun checkGroupsOfNewClient(project: Project) {
+    if (!servesEveryModule) return
+    project.service<PyLspService>().cs.launch { restartStaleClients(project) }
   }
 
   /** Restarts the servers with the wrong folders or modules, one at a time, see [restartStaleClients]. */
@@ -445,6 +512,23 @@ abstract class PyLspToolDescriptor(
    */
   val liveServedModules: List<Module> get() = servedModules.filterNot { it.isDisposed }
 
+  /**
+   * The home path of the interpreter of each served module when [createCommandLine] last ran, or
+   * `null` before that. The binary of the server comes from these interpreters.
+   */
+  @Volatile
+  private var interpreterHomes: Map<Module, String?>? = null
+
+  /**
+   * Whether a live served module now has another interpreter than when the server started. The binary
+   * of the tool comes from the interpreter, so the server can then run the wrong binary.
+   */
+  @RequiresReadLock
+  fun interpreterChanged(): Boolean {
+    val started = interpreterHomes ?: return false
+    return liveServedModules.any { started[it] != it.pythonSdk?.homePath }
+  }
+
   /** The served module that holds [file], or `null` when no served module does. */
   fun servedModuleOf(file: VirtualFile): Module? =
     ModuleUtilCore.findModuleForFile(file, project)?.takeIf { it in liveServedModules }
@@ -616,7 +700,10 @@ abstract class PyLspToolDescriptor(
     return cmd
   }
 
-  override fun createCommandLine(): GeneralCommandLine = runBlockingMaybeCancellable { resolveCommandLine() }
+  override fun createCommandLine(): GeneralCommandLine = runBlockingMaybeCancellable {
+    interpreterHomes = readAction { liveServedModules.associateWith { it.pythonSdk?.homePath } }
+    resolveCommandLine()
+  }
 
   open fun hasExecutable(): Boolean = findExecutable() != null
 
@@ -642,6 +729,7 @@ abstract class PyLspToolDescriptor(
     override fun serverInitialized(params: InitializeResult) {
       synchronized(commandActionsLock) { initializedServers++ }
       dropCachedTypeContexts()
+      if (this@PyLspToolDescriptor::supportProvider.isInitialized) supportProvider.checkGroupsOfNewClient(project)
       registerCommandActions(params)
     }
 

@@ -65,11 +65,6 @@ sealed interface DevPluginLayoutAssetSource {
     @JvmField val name: String,
   ) : DevPluginLayoutAssetSource
 
-  data class ExternalLocalizationTree(
-    @JvmField val folder: String,
-    @JvmField val language: String,
-  ) : DevPluginLayoutAssetSource
-
   /**
    * One CIDR dependency archive, as a `<name>-dependencies.json` file under `CIDR/` declares it for one platform and architecture.
    * [name] is the `name` of that configuration, such as `cmake` or `LLDBFrontend`. [platform] is a CIDR platform
@@ -161,19 +156,45 @@ enum class JupyterFrontendOperation {
   LICENSES_ONLY,
 }
 
+/** States whether the classic dev build runs the production callback of a layout asset slot. */
+@ApiStatus.Internal
+enum class ClassicDevRun {
+  /** [SKIP] for an omitted slot, [RUN] for a declared slot. */
+  DERIVED,
+
+  /** The classic dev build runs the callback. */
+  RUN,
+
+  /** The classic dev build skips the callback. */
+  SKIP,
+}
+
 /**
  * Declares one callback's development layout as data.
  * Source indices refer to [sources] and preserve their declaration order.
+ *
+ * An [omitted] slot has no files in the dev distribution. [classicDev] states whether the classic dev build runs the
+ * callback, see [runsInClassicDev].
  */
 @ApiStatus.Internal
 data class DevPluginLayoutAssetSpec(
   @JvmField val sources: List<DevPluginLayoutAssetSource> = emptyList(),
   @JvmField val assets: List<DevPluginLayoutAsset> = emptyList(),
   @JvmField val omitted: Boolean = false,
+  @JvmField val classicDev: ClassicDevRun = ClassicDevRun.DERIVED,
 ) {
   init {
     require(!omitted || sources.isEmpty() && assets.isEmpty()) {
       "An omitted layout asset slot must not declare sources or assets"
+    }
+  }
+
+  /** Whether the classic dev build runs the callback. The classic dev build skips an omitted slot unless [classicDev] is [ClassicDevRun.RUN]. */
+  fun runsInClassicDev(): Boolean {
+    return when (classicDev) {
+      ClassicDevRun.DERIVED -> !omitted
+      ClassicDevRun.RUN -> true
+      ClassicDevRun.SKIP -> false
     }
   }
 

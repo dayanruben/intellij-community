@@ -145,7 +145,7 @@ Includes another module set. Creates hierarchical composition:
 fun ideCommon() = moduleSet("ide.common") {
   moduleSet(essential())  // Nest essential modules
   moduleSet(vcs())        // Nest VCS modules
-  moduleSet(xml())        // Nest XML modules
+  moduleSet(lsp())        // Nest LSP modules
 }
 ```
 
@@ -166,14 +166,14 @@ Generation intersects that build-time registry with each product's `ProductModul
 Generates a `<module value="..."/>` declaration in the XML, allowing plugins to depend on this module set as a module:
 
 ```kotlin
-fun xml() = moduleSet("xml", alias = "com.intellij.modules.xml") {
+fun featureX() = moduleSet("feature.x", alias = "com.intellij.modules.featureX") {
   // ...
 }
 ```
 
 Generated XML includes:
 ```xml
-<module value="com.intellij.modules.xml"/>
+<module value="com.intellij.modules.featureX"/>
 ```
 
 ### `outputModule` - Custom Output Location
@@ -241,14 +241,11 @@ fun vcs(): ModuleSet = moduleSet("vcs") {
 
 ```kotlin
 /**
- * XML support modules.
+ * The feature X modules. Plugins depend on the alias, not on one member module.
  */
-fun xml(): ModuleSet = moduleSet("xml", alias = "com.intellij.modules.xml") {
-  embeddedModule("intellij.xml.dom")
-  embeddedModule("intellij.xml.psi")
-  embeddedModule("intellij.xml.psi.impl")
-  module("intellij.xml.emmet")
-  module("intellij.relaxng")
+fun featureX(): ModuleSet = moduleSet("feature.x", alias = "com.intellij.modules.featureX") {
+  embeddedModule("intellij.featureX")
+  module("intellij.featureX.impl")
   // ...
 }
 ```
@@ -277,8 +274,10 @@ fun librariesTestFrameworks(): ModuleSet = moduleSet("libraries.testFrameworks")
  * Essential platform modules required by most IDE products.
  */
 fun essential(): ModuleSet = moduleSet("essential") {
-  // Include minimal essential modules
-  moduleSet(essentialMinimal())
+  // Include coreLang and the feature sets (splitCore, editor, find, and others)
+  moduleSet(coreLang())
+  moduleSet(splitCore())
+  moduleSet(editor())
 
   // Embedded modules (core classloader)
   embeddedModule("intellij.platform.scopes")
@@ -394,7 +393,7 @@ Don't create a module set if:
 ### Naming Conventions
 
 - Use **functional names** that describe what the modules do: `vcs`, `xml`, `ssh`, `essential`
-- Use **dot notation** for hierarchical relationships: `libraries.core`, `ide.common`, `essential.minimal`
+- Use **dot notation** for hierarchical relationships: `libraries.core`, `ide.common`, `split.core`
 - Avoid **product names** in module set names (sets should be reusable)
 - Keep names **concise** and **memorable**
 

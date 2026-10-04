@@ -6,7 +6,7 @@ use std::path::{self, Path, PathBuf};
 
 use anyhow::{Context as _, Result, anyhow, bail};
 
-use crate::merge::{ManifestMode, MergeSpec, Source};
+use crate::merge::{MergeSpec, Source};
 use crate::nativelib;
 use crate::natives::{NativeSpec, NativeTree};
 
@@ -38,7 +38,7 @@ pub struct FlagFile {
 /// The parser takes only the forms that the Starlark rules and the recipe replay write:
 ///
 /// - `keep-manifest=`, `merge-entities=` and `reject-native-entries=` take only `true`. A producer omits a false flag.
-/// - `source-manifest=` takes only `coverage-agent`.
+///   `keep-manifest=true` keeps the manifest of a library source. A module output keeps its manifest without it.
 /// - A path has no `.` and no `..` component, so the parser compares the paths as they are written. See
 ///   [`resolve_path`].
 ///
@@ -109,21 +109,6 @@ pub fn parse_flag_file(path: &Path, base_dir: &Path) -> Result<FlagFile> {
             }
             "module" => spec.sources.push(Source::module(resolve(value)?)),
             "library" => spec.sources.push(Source::library(resolve(value)?)),
-            "source-manifest" => {
-                let Some(source) = spec.sources.last_mut() else {
-                    bail!("`source-manifest=` requires a preceding archive source");
-                };
-                let Source::Jar {
-                    manifest: manifest @ None, ..
-                } = source
-                else {
-                    bail!("`source-manifest=` requires an archive source without a manifest policy");
-                };
-                if value != "coverage-agent" {
-                    bail!("`source-manifest={value}` is not supported: a flag file states only `coverage-agent`");
-                }
-                *manifest = Some(ManifestMode::CoverageAgent);
-            }
             "file" | "patch" => {
                 // `file=<entry name>=<path>`, cut at the first `=`. So the entry name has no `=` and the path can have
                 // one. A jar entry name has none, and a `bazel-out` path can have one.

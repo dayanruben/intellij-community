@@ -303,7 +303,7 @@ class JarPackager private constructor(
       return
     }
 
-    for (customAsset in layout.customAssets) {
+    for (customAsset in layout.customAssetsFor(classicDev = context.options.isDevDistribution)) {
       if (customAsset.platformSpecific != null) {
         continue
       }
@@ -827,7 +827,8 @@ private fun buildAsset(
           }
 
           override fun produce(targetFile: Path) {
-            buildJar(targetFile = targetFile, sources = sources, nativeFileHandler = nativeFileHandler)
+            // The cache can hand a temporary sibling file, so the manifest check takes the name of the jar in the distribution.
+            buildJar(targetFile = targetFile, sources = sources, nativeFileHandler = nativeFileHandler, jarName = file.fileName.toString())
           }
 
           override fun consumeInfo(source: Source, size: Int, hash: Long) {
