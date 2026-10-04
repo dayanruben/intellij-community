@@ -17,8 +17,8 @@ import com.jetbrains.python.inspections.PyTypeCheckerInspectionProblemRegistrar.
 import com.jetbrains.python.psi.PyAugAssignmentStatement
 import com.jetbrains.python.psi.PyBinaryExpression
 import com.jetbrains.python.psi.PyCallExpression
-import com.jetbrains.python.psi.PyCallSiteOwner
 import com.jetbrains.python.psi.PyCallable
+import com.jetbrains.python.psi.PyElement
 import com.jetbrains.python.psi.PyExpression
 import com.jetbrains.python.psi.PyTypeParameterListOwner
 import com.jetbrains.python.psi.PySubscriptionExpression
@@ -37,7 +37,7 @@ import java.util.Optional
 internal object PyTypeCheckerInspectionProblemRegistrar {
   fun registerProblem(
     holder: ProblemsHolder,
-    callSite: PyCallSiteOwner,
+    callSite: PyElement,
     calleesResults: List<AnalyzeCalleeResults>,
     context: TypeEvalContext,
     highlightOverride: ProblemHighlightType?,
@@ -62,7 +62,7 @@ internal object PyTypeCheckerInspectionProblemRegistrar {
    * Argument mismatches map to [PyTypeCheckerSuppressionCode.BAD_ARGUMENT_TYPE], except when the call site is
    * an operator (binary / augmented assignment) or a subscription, which get their own dedicated codes.
    */
-  private fun suppressionCodeFor(callSite: PyCallSiteOwner): PyTypeCheckerSuppressionCode = when (callSite) {
+  private fun suppressionCodeFor(callSite: PyElement): PyTypeCheckerSuppressionCode = when (callSite) {
     is PyBinaryExpression, is PyAugAssignmentStatement -> PyTypeCheckerSuppressionCode.UNSUPPORTED_OPERATOR
     is PySubscriptionExpression -> PyTypeCheckerSuppressionCode.BAD_INDEX
     else -> PyTypeCheckerSuppressionCode.BAD_ARGUMENT_TYPE
@@ -71,7 +71,7 @@ internal object PyTypeCheckerInspectionProblemRegistrar {
   private fun registerSingleCalleeProblem(
     holder: ProblemsHolder,
     code: PyTypeCheckerSuppressionCode,
-    callSite: PyCallSiteOwner,
+    callSite: PyElement,
     calleeResults: AnalyzeCalleeResults,
     context: TypeEvalContext,
     highlightOverride: ProblemHighlightType?,
@@ -161,7 +161,7 @@ internal object PyTypeCheckerInspectionProblemRegistrar {
   private fun registerMultiCalleeProblem(
     holder: ProblemsHolder,
     code: PyTypeCheckerSuppressionCode,
-    callSite: PyCallSiteOwner,
+    callSite: PyElement,
     calleesResults: List<AnalyzeCalleeResults>,
     context: TypeEvalContext,
     highlightOverride: ProblemHighlightType?,
@@ -324,7 +324,7 @@ internal object PyTypeCheckerInspectionProblemRegistrar {
     }
   }
 
-  private fun getMultiCalleeElementToHighlight(callSite: PyCallSiteOwner): PsiElement {
+  private fun getMultiCalleeElementToHighlight(callSite: PyElement): PsiElement {
     return when (callSite) {
       is PyCallExpression -> {
         val argumentList = callSite.argumentList

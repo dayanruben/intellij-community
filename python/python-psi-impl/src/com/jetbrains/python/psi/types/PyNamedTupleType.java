@@ -12,8 +12,8 @@ import com.intellij.util.ObjectUtils;
 import com.intellij.util.ProcessingContext;
 import com.intellij.util.containers.ContainerUtil;
 import com.jetbrains.python.psi.LanguageLevel;
-import com.jetbrains.python.psi.PyCallSiteOwner;
 import com.jetbrains.python.psi.PyClass;
+import com.jetbrains.python.psi.PyElement;
 import com.jetbrains.python.psi.PyExpression;
 import com.jetbrains.python.psi.PyQualifiedNameOwner;
 import com.jetbrains.python.psi.resolve.CompletionVariantsProcessor;
@@ -110,13 +110,13 @@ public class PyNamedTupleType extends PyTupleType implements PyCallableType {
   }
 
   @Override
-  public @Nullable PyNamedTupleType getCallType(@NotNull TypeEvalContext context, @NotNull PyCallSiteOwner callSite) {
+  public @Nullable PyNamedTupleType getCallType(@NotNull TypeEvalContext context, @NotNull PyElement callSite) {
     return isDefinition() ? toInstance() : null;
   }
 
   @Override
   public @Nullable PyNamedTupleType getCallType(@NotNull TypeEvalContext context,
-                                                @Nullable PyCallSiteOwner callSite,
+                                                @Nullable PyElement callSite,
                                                 @NotNull List<PyCallableArgument> arguments) {
     if (isDefinition()) {
       return getCallDefinitionType(arguments, context);

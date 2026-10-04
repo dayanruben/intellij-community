@@ -107,7 +107,7 @@ public interface PyCallExpression extends PyAstCallExpression, PyCallSiteExpress
   List<@NotNull PyArgumentsMapping> multiMapArguments(@NotNull PyResolveContext resolveContext);
 
   class PyArgumentsMapping {
-    private final @NotNull PyCallSiteOwner myCallSiteOwner;
+    private final @NotNull PyElement myCallSite;
     private final @NotNull List<PyExpression> myArguments;
     private final @Nullable PyCallableType myCallableType;
     private final @NotNull Map<PyExpression, PyCallableParameter> myMappedParameters;
@@ -119,7 +119,7 @@ public interface PyCallExpression extends PyAstCallExpression, PyCallSiteExpress
     private final @NotNull Map<PyExpression, PyCallableParameter> myMappedTupleParameters;
 
     @ApiStatus.Internal
-    public PyArgumentsMapping(@NotNull PyCallSiteOwner callSiteOwner,
+    public PyArgumentsMapping(@NotNull PyElement callSite,
                               @NotNull List<PyExpression> arguments,
                               @Nullable PyCallableType callableType,
                               @NotNull Map<PyExpression, PyCallableParameter> mappedParameters,
@@ -129,7 +129,7 @@ public interface PyCallExpression extends PyAstCallExpression, PyCallSiteExpress
                               @NotNull List<PyCallableParameter> parametersMappedToVariadicPositionalArguments,
                               @NotNull List<PyCallableParameter> parametersMappedToVariadicKeywordArguments,
                               @NotNull Map<PyExpression, PyCallableParameter> tupleMappedParameters) {
-      myCallSiteOwner = callSiteOwner;
+      myCallSite = callSite;
       myArguments = arguments;
       myCallableType = callableType;
       myMappedParameters = mappedParameters;
@@ -142,7 +142,7 @@ public interface PyCallExpression extends PyAstCallExpression, PyCallSiteExpress
     }
 
     @ApiStatus.Internal
-    public static @NotNull PyArgumentsMapping empty(@NotNull PyCallSiteOwner callSiteExpression,
+    public static @NotNull PyArgumentsMapping empty(@NotNull PyElement callSiteExpression,
                                                     @NotNull List<PyExpression> arguments) {
       return new PyCallExpression.PyArgumentsMapping(callSiteExpression,
                                                      arguments,
@@ -156,8 +156,9 @@ public interface PyCallExpression extends PyAstCallExpression, PyCallSiteExpress
                                                      Collections.emptyMap());
     }
 
-    public @NotNull PyCallSiteOwner getCallSiteOwner() {
-      return myCallSiteOwner;
+    @ApiStatus.Internal
+    public @NotNull PyElement getCallSite() {
+      return myCallSite;
     }
 
     @ApiStatus.Internal

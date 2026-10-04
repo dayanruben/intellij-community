@@ -32,7 +32,6 @@ import com.jetbrains.python.codeInsight.controlflow.ReadWriteInstruction
 import com.jetbrains.python.codeInsight.controlflow.ScopeOwner
 import com.jetbrains.python.codeInsight.dataflow.scope.ScopeUtil.getScopeOwner
 import com.jetbrains.python.psi.PyCallExpression
-import com.jetbrains.python.psi.PyCallSiteOwner
 import com.jetbrains.python.psi.PyElement
 import com.jetbrains.python.psi.PyExpression
 import com.jetbrains.python.psi.PyImplicitImportNameDefiner

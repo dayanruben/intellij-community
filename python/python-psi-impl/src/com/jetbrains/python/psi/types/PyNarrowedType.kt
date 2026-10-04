@@ -1,7 +1,6 @@
 package com.jetbrains.python.psi.types
 
 import com.jetbrains.python.psi.PyCallExpression
-import com.jetbrains.python.psi.PyCallSiteOwner
 import com.jetbrains.python.psi.PyClass
 import com.jetbrains.python.psi.PyElement
 import com.jetbrains.python.psi.PyReferenceExpression
@@ -74,7 +73,7 @@ class PyNarrowedType private constructor(
       return PyNarrowedType(pyClass, null, null, false, typeIs, returnType)
     }
 
-    fun bindIfNeeded(type: PyType?, callSite: PyCallSiteOwner?): PyType? {
+    fun bindIfNeeded(type: PyType?, callSite: PyElement?): PyType? {
       if (type is PyNarrowedType && callSite is PyCallExpression) {
         val referenceExpression = callSite.arguments.firstOrNull()
         if (referenceExpression is PyReferenceExpression) {

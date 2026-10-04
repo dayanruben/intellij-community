@@ -34,9 +34,9 @@ import com.jetbrains.python.psi.Property;
 import com.jetbrains.python.psi.PyAnnotationOwner;
 import com.jetbrains.python.psi.PyCallExpression;
 import com.jetbrains.python.psi.PyCallSiteExpression;
-import com.jetbrains.python.psi.PyCallSiteOwner;
 import com.jetbrains.python.psi.PyCallable;
 import com.jetbrains.python.psi.PyClass;
+import com.jetbrains.python.psi.PyElement;
 import com.jetbrains.python.psi.PyElsePart;
 import com.jetbrains.python.psi.PyExpression;
 import com.jetbrains.python.psi.PyIfStatement;
@@ -429,11 +429,11 @@ public class PyClassTypeImpl extends UserDataHolderBase implements PyClassType {
   }
 
   @Override
-  public @Nullable PyType getCallType(@NotNull TypeEvalContext context, @NotNull PyCallSiteOwner callSite) {
+  public @Nullable PyType getCallType(@NotNull TypeEvalContext context, @NotNull PyElement callSite) {
     return getPossibleCallType(context, callSite);
   }
 
-  private @Nullable PyType getPossibleCallType(@NotNull TypeEvalContext context, @Nullable PyCallSiteOwner callSite) {
+  private @Nullable PyType getPossibleCallType(@NotNull TypeEvalContext context, @Nullable PyElement callSite) {
     if (!isDefinition()) {
       return PyUtil.getReturnTypeOfMember(this, PyNames.CALL, callSite instanceof PyCallSiteExpression callSiteExpression ? callSiteExpression : null , context);
     }

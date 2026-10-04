@@ -7,5 +7,5 @@ import com.jetbrains.python.ast.PyAstCallSiteExpression;
  * Marker interface for Python expressions that are call sites for explicit or implicit function calls.
  *
  */
-public interface PyCallSiteExpression extends PyAstCallSiteExpression, PyCallSiteOwner, PyExpression {
+public interface PyCallSiteExpression extends PyAstCallSiteExpression, PyExpression {
 }

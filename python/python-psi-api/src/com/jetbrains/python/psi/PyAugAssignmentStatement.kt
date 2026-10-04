@@ -3,7 +3,7 @@ package com.jetbrains.python.psi
 
 import com.jetbrains.python.ast.PyAstAugAssignmentStatement
 
-interface PyAugAssignmentStatement : PyAstAugAssignmentStatement, PyStatement, PyTypedElement, PyCallSiteOwner, PyReferenceOwner, PyQualifiedElement {
+interface PyAugAssignmentStatement : PyAstAugAssignmentStatement, PyStatement, PyTypedElement, PyReferenceOwner, PyQualifiedElement {
   /**
    *  this refers to the reference before it has been assigned to
    */

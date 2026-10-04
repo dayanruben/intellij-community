@@ -3,7 +3,7 @@ package com.jetbrains.python.psi.types
 
 import com.jetbrains.python.PyNames
 import com.jetbrains.python.psi.AccessDirection
-import com.jetbrains.python.psi.PyCallSiteOwner
+import com.jetbrains.python.psi.PyElement
 import com.jetbrains.python.psi.PyExpression
 import com.jetbrains.python.psi.PyTargetExpression
 import com.jetbrains.python.psi.resolve.PyResolveContext
@@ -17,7 +17,7 @@ class PyTypingNewType(
   override val declarationElement: PyTargetExpression,
 ) : PyClassType by classType {
 
-  override fun getCallType(context: TypeEvalContext, callSite: PyCallSiteOwner): PyType {
+  override fun getCallType(context: TypeEvalContext, callSite: PyElement): PyType {
     return PyTypingNewType(classType.toInstance(), name, declarationElement)
   }
 

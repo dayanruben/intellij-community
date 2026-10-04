@@ -26,10 +26,10 @@ import com.jetbrains.python.psi.PyAugAssignmentStatement
 import com.jetbrains.python.psi.PyBinaryExpression
 import com.jetbrains.python.psi.PyCallExpression
 import com.jetbrains.python.psi.PyCallExpression.PyArgumentsMapping
-import com.jetbrains.python.psi.PyCallSiteOwner
 import com.jetbrains.python.psi.PyCallable
 import com.jetbrains.python.psi.PyClass
 import com.jetbrains.python.psi.PyDocStringOwner
+import com.jetbrains.python.psi.PyElement
 import com.jetbrains.python.psi.PyExpression
 import com.jetbrains.python.psi.PyFile
 import com.jetbrains.python.psi.PyFunction
@@ -558,7 +558,7 @@ object PyCallExpressionHelper {
     return getCallType(multiResolveOperator(expression, resolveContext), expression, context)
   }
 
-  private fun getCallType(operators: List<ResolvedOperator>, callSite: PyCallSiteOwner, context: TypeEvalContext): PyType? {
+  private fun getCallType(operators: List<ResolvedOperator>, callSite: PyElement, context: TypeEvalContext): PyType? {
     return operators
       .map { doGetCallType(it.method, callSite, it.arguments.map(::PyCallableArgument), context).type }
       .let(PyUnionType::unionOrUnknown)
@@ -681,7 +681,7 @@ object PyCallExpressionHelper {
 
   private fun doGetCallType(
     type: PyType?,
-    callSite: PyCallSiteOwner?,
+    callSite: PyElement?,
     arguments: List<PyCallableArgument>,
     context: TypeEvalContext,
   ): CallType {
@@ -716,7 +716,7 @@ object PyCallExpressionHelper {
 
   private fun resolveOverloadsCallType(
     types: List<PyCallableType>,
-    callSite: PyCallSiteOwner?,
+    callSite: PyElement?,
     arguments: List<PyCallableArgument>,
     context: TypeEvalContext,
   ): CallType {
@@ -830,7 +830,7 @@ object PyCallExpressionHelper {
 
   @JvmStatic
   fun mapArguments(
-    expression: PyCallSiteOwner,
+    expression: PyElement,
     arguments: List<PyExpression>,
     callableType: PyCallableType,
     context: TypeEvalContext,
@@ -856,7 +856,7 @@ object PyCallExpressionHelper {
   }
 
   @JvmStatic
-  fun mapArguments(expression: PyCallSiteOwner, resolveContext: PyResolveContext): List<PyArgumentsMapping> {
+  fun mapArguments(expression: PyElement, resolveContext: PyResolveContext): List<PyArgumentsMapping> {
     val context = resolveContext.typeEvalContext
     return when (expression) {
       is PyCallExpression -> expression.multiResolveCallee(resolveContext)

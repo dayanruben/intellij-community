@@ -10,7 +10,7 @@ import com.intellij.psi.ResolveState;
 import com.intellij.util.ProcessingContext;
 import com.intellij.util.Processor;
 import com.jetbrains.python.psi.AccessDirection;
-import com.jetbrains.python.psi.PyCallSiteOwner;
+import com.jetbrains.python.psi.PyElement;
 import com.jetbrains.python.psi.PyExpression;
 import com.jetbrains.python.psi.impl.ResolveResultList;
 import com.jetbrains.python.psi.resolve.CompletionVariantsProcessor;
@@ -108,7 +108,7 @@ final class PyJavaClassType implements PyClassLikeType {
   }
 
   @Override
-  public @Nullable PyType getCallType(@NotNull TypeEvalContext context, @NotNull PyCallSiteOwner callSite) {
+  public @Nullable PyType getCallType(@NotNull TypeEvalContext context, @NotNull PyElement callSite) {
     return getReturnType(context);
   }
 

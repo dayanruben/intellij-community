@@ -11,7 +11,7 @@ import com.jetbrains.python.psi.PyElementType
 import org.jetbrains.annotations.ApiStatus
 
 @ApiStatus.Experimental
-interface PyAstAugAssignmentStatement : PyAstStatement, PyAstQualifiedExpression, PyAstCallSiteOwner, PyAstReferenceOwner {
+interface PyAstAugAssignmentStatement : PyAstStatement, PyAstQualifiedExpression, PyAstReferenceOwner {
   val target: PyAstExpression
     get() {
       return childToPsi(PythonDialectsTokenSetProvider.getInstance().expressionTokens, 0)

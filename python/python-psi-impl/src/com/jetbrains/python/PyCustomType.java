@@ -28,7 +28,6 @@ import com.intellij.util.Processor;
 import com.intellij.util.containers.ContainerUtil;
 import com.jetbrains.python.codeInsight.typing.PyTypingTypeProvider;
 import com.jetbrains.python.psi.AccessDirection;
-import com.jetbrains.python.psi.PyCallSiteOwner;
 import com.jetbrains.python.psi.PyElement;
 import com.jetbrains.python.psi.PyExpression;
 import com.jetbrains.python.psi.PyUtil;
@@ -182,7 +181,7 @@ public final class PyCustomType implements PyClassLikeType {
   }
 
   @Override
-  public @Nullable PyType getCallType(@NotNull TypeEvalContext context, @NotNull PyCallSiteOwner callSite) {
+  public @Nullable PyType getCallType(@NotNull TypeEvalContext context, @NotNull PyElement callSite) {
     return getReturnType(context);
   }
 

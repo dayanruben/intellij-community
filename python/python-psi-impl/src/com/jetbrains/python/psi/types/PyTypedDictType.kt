@@ -6,9 +6,9 @@ import com.jetbrains.python.PyNames
 import com.jetbrains.python.codeInsight.typing.PyTypingTypeProvider
 import com.jetbrains.python.codeInsight.typing.isProtocol
 import com.jetbrains.python.psi.PyCallExpression
-import com.jetbrains.python.psi.PyCallSiteOwner
 import com.jetbrains.python.psi.PyClass
 import com.jetbrains.python.psi.PyDictLiteralExpression
+import com.jetbrains.python.psi.PyElement
 import com.jetbrains.python.psi.PyExpression
 import com.jetbrains.python.psi.PyKeyValueExpression
 import com.jetbrains.python.psi.PyKeywordArgument
@@ -72,7 +72,7 @@ class PyTypedDictType private constructor(
     return field.type
   }
 
-  override fun getCallType(context: TypeEvalContext, callSite: PyCallSiteOwner): PyType? {
+  override fun getCallType(context: TypeEvalContext, callSite: PyElement): PyType? {
     return if (isDefinition) toInstance() else PyAnyType.unknown
   }
 

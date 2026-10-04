@@ -22,5 +22,5 @@ import org.jetbrains.annotations.ApiStatus;
  *
  */
 @ApiStatus.Experimental
-public interface PyAstCallSiteExpression extends PyAstCallSiteOwner, PyAstExpression {
+public interface PyAstCallSiteExpression extends PyAstExpression {
 }

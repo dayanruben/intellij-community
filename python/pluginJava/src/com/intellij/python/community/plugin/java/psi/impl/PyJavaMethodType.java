@@ -7,7 +7,7 @@ import com.intellij.psi.PsiMethod;
 import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.ProcessingContext;
 import com.jetbrains.python.psi.AccessDirection;
-import com.jetbrains.python.psi.PyCallSiteOwner;
+import com.jetbrains.python.psi.PyElement;
 import com.jetbrains.python.psi.PyExpression;
 import com.jetbrains.python.psi.resolve.PyResolveContext;
 import com.jetbrains.python.psi.resolve.RatedResolveResult;
@@ -36,7 +36,7 @@ final class PyJavaMethodType implements PyCallableType {
 
   @Override
   public @Nullable PyType getCallType(@NotNull TypeEvalContext context,
-                                      @Nullable PyCallSiteOwner callSite,
+                                      @Nullable PyElement callSite,
                                       @NotNull List<PyCallableArgument> arguments) {
     return getReturnType(context);
   }

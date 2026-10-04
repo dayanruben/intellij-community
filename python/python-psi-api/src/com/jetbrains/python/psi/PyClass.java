@@ -30,7 +30,7 @@ import java.util.Map;
 public interface PyClass
   extends PyAstClass, PsiNameIdentifierOwner, PyCompoundStatement, PyDocStringOwner, StubBasedPsiElement<PyClassStub>,
           ScopeOwner, PyDecoratable, PyTypedElement, PyQualifiedNameOwner, PyStatementListContainer, PyWithAncestors,
-          PyTypeParameterListOwner, PyDeprecatable, PyCallSiteOwner {
+          PyTypeParameterListOwner, PyDeprecatable {
   PyClass[] EMPTY_ARRAY = new PyClass[0];
   ArrayFactory<PyClass> ARRAY_FACTORY = count -> count == 0 ? EMPTY_ARRAY : new PyClass[count];
 

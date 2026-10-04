@@ -3,8 +3,8 @@ package com.jetbrains.python.psi.types;
 
 import com.intellij.openapi.util.text.StringUtil;
 import com.jetbrains.python.PyNames;
-import com.jetbrains.python.psi.PyCallSiteOwner;
 import com.jetbrains.python.psi.PyCallable;
+import com.jetbrains.python.psi.PyElement;
 import com.jetbrains.python.psi.PyFunction;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
@@ -48,7 +48,7 @@ public interface PyCallableType extends PyType {
   @ApiStatus.Internal
   @Nullable
   PyType getCallType(@NotNull TypeEvalContext context,
-                     @Nullable PyCallSiteOwner callSite,
+                     @Nullable PyElement callSite,
                      @NotNull List<PyCallableArgument> arguments);
 
   /**
