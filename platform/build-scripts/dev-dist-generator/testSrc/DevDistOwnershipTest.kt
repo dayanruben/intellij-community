@@ -117,25 +117,56 @@ class DevDistOwnershipTest {
   @Test
   fun `the ultimate half keeps a complex plugin whose equal texts name a label outside the community call labels`() {
     val call = "dev_dist_complex_plugin(libraries = {\"@dev_launch_{platform}_jcef//:files\": \"x\"})\n"
-    val plans = communityPlans(planText = "{}\n", call = call)
+    val planText = "{\"input\": \"@ultimate_lib//:profiler\"}\n"
+    val plans = communityPlans(planText = planText, call = call)
 
-    assertThat(plans.acceptsUpstreamPlans(communityPlugin, mapOf("intellij.c.dev-plan.json" to "{}\n"), call)).isFalse()
+    assertThat(plans.acceptsUpstreamPlans(communityPlugin, mapOf("intellij.c.dev-plan.json" to planText), call)).isFalse()
+    // A download repository that the community calls name is a community call label.
+    assertThat(communityPlans(planText = "{}\n", call = call).acceptsUpstreamPlans(communityPlugin, mapOf("intellij.c.dev-plan.json" to "{}\n"), call)).isTrue()
   }
 
   @Test
-  fun `a key of one class and one launch model is shared, and one class with two models fails`() {
-    val half = monorepoHalf
-    val ultimate = mapOf("Idea" to DevDistLaunchModel("IdeaCommunityProperties", "{\"a\": 1}\n"), "AndroidStudio" to DevDistLaunchModel("A", "{}\n"))
+  fun `one key with one product class in both registries is one community product, and the second half states only its additional tier`() {
+    val ultimateClasses = mapOf("Idea" to "IdeaCommunityProperties", "AndroidStudio" to "AndroidStudioWithMarketplaceProperties", "idea" to "IdeaProperties")
+    val communityClasses = mapOf("Idea" to "IdeaCommunityProperties", "AndroidStudio" to "AndroidStudioProperties")
 
-    assertThat(sharedLaunchModels(half, ultimate, mapOf("Idea" to DevDistLaunchModel("IdeaCommunityProperties", "{\"a\": 1}\n")))).containsExactly("Idea")
-    // A key with two classes states two products, so neither half reuses.
-    assertThat(sharedLaunchModels(half, ultimate, mapOf("AndroidStudio" to DevDistLaunchModel("B", "{\"b\": 2}\n")))).isEmpty()
-    // A key the other half does not state is not shared.
-    assertThat(sharedLaunchModels(half, ultimate, emptyMap())).isEmpty()
-    assertThatThrownBy { sharedLaunchModels(half, ultimate, mapOf("Idea" to DevDistLaunchModel("IdeaCommunityProperties", "{\"a\": 2}\n"))) }
-      .isInstanceOf(IllegalStateException::class.java)
-      .hasMessageContaining("'Idea'")
-      .hasMessageContaining("IdeaCommunityProperties")
+    assertThat(devDistCommunityProducts(ultimateClasses, communityClasses)).containsExactly("Idea")
+    // A key with two classes states two products.
+    assertThat(devDistCommunityProducts(mapOf("AndroidStudio" to "AndroidStudioWithMarketplaceProperties"), communityClasses)).isEmpty()
+    // A key that the community half does not plan is not a community product.
+    assertThat(devDistCommunityProducts(ultimateClasses, emptyMap())).isEmpty()
+
+    // The component map of a community product states only the additional tier.
+    val components = mapOf(
+      "Idea" to mapOf(
+        DevDistPluginTier.BUNDLED to listOf(GeneratedPluginComponent("intellij.java.plugin", label = "//build/dev-dist-descriptors/intellij.java.plugin:c")),
+        DevDistPluginTier.ADDITIONAL to listOf(GeneratedPluginComponent("intellij.devkit", label = "//plugins/devkit:c")),
+      ),
+      "idea" to mapOf(
+        DevDistPluginTier.BUNDLED to listOf(GeneratedPluginComponent("intellij.java.plugin", label = "//plugins/java:c")),
+        DevDistPluginTier.ADDITIONAL to emptyList(),
+      ),
+    )
+    val rendered = renderPluginComponents(components, planLabel = { it }, communityProducts = setOf("Idea")) { emptyList() }
+    assertThat(rendered).isEqualTo(
+      """
+      DEV_DIST_PLUGIN_COMPONENTS = {
+          "Idea": {
+              "additional": {
+                  "intellij.devkit": "//plugins/devkit:c",
+              },
+          },
+          "idea": {
+              "bundled": {
+                  "intellij.java.plugin": "//plugins/java:c",
+              },
+              "additional": {
+              },
+          },
+      }
+
+      """.trimIndent()
+    )
   }
 
   @Test

@@ -381,7 +381,7 @@ class DevDistPluginPlanFilesTest {
     assertThat(home.packageLabel).isEqualTo("@community//plugins/c")
     assertThat(home.callIsCrossHalf).isFalse()
     assertThat(home.exportsPlanFiles).isFalse()
-    // The community half writes the file relative to `community/`, and the text names no community repository.
+    // The community half writes the file relative to `community/`, and the text names no `@community` label.
     assertThat(createdPaths(files)).containsExactly("community/plugins/c/$communityPlugin.dev-plan.json")
     assertThat(files.updates.results.single().relativePath).isEqualTo("plugins/c/$communityPlugin.dev-plan.json")
     assertThat(plans.hasHome(communityPlugin)).isTrue()
@@ -412,6 +412,40 @@ class DevDistPluginPlanFilesTest {
     reused.checkExecutionGraph(key, records.getValue(key), labels)
     assertThat(plans.acceptsCalls(communityPlugin, sectionCalls(call))).isTrue()
     assertThat(plans.acceptsCalls(communityPlugin, sectionCalls("dev_dist_complex_plugin()\n"))).isFalse()
+  }
+
+  @Test
+  fun `the ultimate half reuses an equal plan file and call that name a download repository of the community calls`() {
+    val call = "dev_dist_complex_plugin(libraries = {\"@dev_launch_z//:z\": \"@dev_launch_z//:z\"}, " +
+               "resource_inputs = {\"@dev_launch_{platform}_jcef//:files\": \"r\"})\n"
+    val records = neutralRecords(communityPlugin, library = "@dev_launch_z//:z")
+    val (_, plans) = communityHalfPlans(records, sectionCall = call)
+
+    val planTexts = ultimateHalfPlans(records, plans).files.mapKeys { it.key.substringAfterLast('/') }
+
+    assertThat(plans.acceptsUpstreamPlans(communityPlugin, planTexts, call)).isTrue()
+    // The reused call is rendered per platform, so the home keeps the token and a chain resolves it for its platform.
+    assertThat(plans.upstreamHome(communityPlugin).callRepositories).containsExactly("dev_launch_z", "dev_launch_{platform}_jcef")
+    assertThat(isCommunityCallLabel("@dev_launch_linux_x64_jcef//:files", callRepositories = setOf("dev_launch_linux_x64_jcef"))).isTrue()
+    assertThat(isCommunityCallLabel("@dev_launch_linux_x64_jcef//:files")).isFalse()
+    assertThat(isCommunityCallLabel("//plugins/c:d", callRepositories = setOf("dev_launch_z"))).isFalse()
+  }
+
+  @Test
+  fun `the ultimate half keeps an equal plan file that names a repository the community calls do not name`() {
+    // The plan text names the download repository, but the calls do not. So the community module may not see it.
+    val call = "dev_dist_complex_plugin(descriptor = \"//plugins/c:d\")\n"
+    val records = neutralRecords(communityPlugin, library = "@dev_launch_z//:z")
+    val (_, plans) = communityHalfPlans(records, sectionCall = call)
+    val planTexts = ultimateHalfPlans(records, plans).files.mapKeys { it.key.substringAfterLast('/') }
+    val crossHalfCall = call.replace("\"//", "\"@community//")
+
+    assertThat(plans.acceptsUpstreamPlans(communityPlugin, planTexts, crossHalfCall)).isFalse()
+    assertThat(plans.upstreamHome(communityPlugin).callRepositories).isEmpty()
+    // A call that names another download repository does not make this repository a repository of the community calls.
+    val otherCall = "dev_dist_complex_plugin(descriptor = \"//plugins/c:d\", resource_inputs = {\"@dev_launch_y//:files\": \"r\"})\n"
+    val (_, otherPlans) = communityHalfPlans(records, sectionCall = otherCall)
+    assertThat(otherPlans.acceptsUpstreamPlans(communityPlugin, planTexts, otherCall.replace("\"//", "\"@community//"))).isFalse()
   }
 
   @Test

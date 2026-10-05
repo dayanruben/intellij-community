@@ -3,6 +3,8 @@
 package com.intellij.platform.ijent.spi
 
 import com.intellij.openapi.diagnostic.Attachment
+import com.intellij.openapi.diagnostic.ExceptionWithAttachments
+import com.intellij.platform.eel.EelUnavailableException
 import com.intellij.platform.eel.channels.EelReceiveChannel
 import com.intellij.platform.eel.channels.EelReceiveChannelException
 import com.intellij.platform.eel.channels.PeekableEelReceiveChannel
@@ -12,7 +14,6 @@ import com.intellij.platform.eel.channels.useLines
 import com.intellij.platform.ijent.IjentLog
 import com.intellij.platform.ijent.IjentLogger
 import com.intellij.platform.ijent.IjentScope
-import com.intellij.platform.ijent.IjentUnavailableException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.NonCancellable
@@ -201,7 +202,7 @@ object IjentSessionMediatorUtils {
     isExitExpected: Boolean,
   ): Nothing {
     if (isExitExpected) {
-      val error = IjentUnavailableException.ClosedByApplication("IJent process exited successfully", null)
+      val error = EelUnavailableException.ClosedByApplication("IJent process exited successfully", null)
       currentCoroutineContext()[IjentScope.Key]?.destroy(error, isRootCause = true)
       IjentLogger.LIFETIME_LOG.debug { error.message }
       // Carrying the domain exception as the cancellation cause makes expected shutdown look like a test failure.
@@ -215,11 +216,15 @@ object IjentSessionMediatorUtils {
         }
         if (timeoutResult == null) stderr.append("\n<didn't collect the whole stderr>")
 
-        IjentUnavailableException.CommunicationFailure(
+        EelUnavailableException.CommunicationFailure(
           "The process $ijentLabel suddenly exited with the code $exitCode",
           null,
-          Attachment("stderr", stderr.toString()),
         ).also {
+          it.addSuppressed(object : Throwable("", null, true, false), ExceptionWithAttachments {
+            override fun getAttachments(): Array<out Attachment> {
+              return arrayOf(Attachment("stderr", stderr.toString()))
+            }
+          })
           currentCoroutineContext()[IjentScope.Key]?.destroy(it, isRootCause = true)
         }
       }
@@ -250,7 +255,7 @@ object IjentSessionMediatorUtils {
     catch (err: Exception) {
       val actualErrors = generateSequence(err, Throwable::cause).filterTo(mutableListOf()) { it !is CancellationException }
 
-      val existingIjentUnavailableException = actualErrors.filterIsInstance<IjentUnavailableException>().firstOrNull()
+      val existingIjentUnavailableException = actualErrors.filterIsInstance<EelUnavailableException>().firstOrNull()
       if (existingIjentUnavailableException != null) {
         currentCoroutineContext()[IjentScope.Key]?.destroy(existingIjentUnavailableException, isRootCause = true)
         throw existingIjentUnavailableException
@@ -258,7 +263,7 @@ object IjentSessionMediatorUtils {
 
       if (actualErrors.isEmpty()) {
         // A plain cancellation is an application-initiated close; publish the canonical reason but keep the control flow.
-        val closed = IjentUnavailableException.ClosedByApplication("The coroutine scope of $ijentLabel was cancelled", err)
+        val closed = EelUnavailableException.ClosedByApplication("The coroutine scope of $ijentLabel was cancelled", err)
         currentCoroutineContext()[IjentScope.Key]?.destroy(closed, isRootCause = true)
       }
       // A real failure is not an application close; the exit-code handler publishes the authoritative reason.
@@ -283,7 +288,7 @@ object IjentSessionMediatorUtils {
     if (result != null) {
       return result
     }
-    val error = IjentUnavailableException.CommunicationFailure(msg, cause)
+    val error = EelUnavailableException.CommunicationFailure(msg, cause)
     throw error
   }
 
@@ -294,11 +299,11 @@ object IjentSessionMediatorUtils {
         line.append(US_ASCII.decode(buffer))
       }
       if (!pipeReached) {
-        throw IjentUnavailableException.CommunicationFailure(msg, null)
+        throw EelUnavailableException.CommunicationFailure(msg, null)
       }
     }
     catch (err: EelReceiveChannelException) {
-      throw IjentUnavailableException.CommunicationFailure(msg, err)
+      throw EelUnavailableException.CommunicationFailure(msg, err)
     }
     return line.toString()
   }

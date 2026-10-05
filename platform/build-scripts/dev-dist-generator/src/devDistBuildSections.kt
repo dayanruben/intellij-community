@@ -20,6 +20,7 @@ import org.jetbrains.intellij.build.dev.DevPluginPreparationRecipe
 import org.jetbrains.intellij.build.dev.DevPluginResourceExclusions
 import org.jetbrains.intellij.build.devDist.ReusableJarArtifact
 import org.jetbrains.intellij.build.impl.PluginLayout
+import org.jetbrains.intellij.build.mapConcurrent
 import org.jetbrains.intellij.build.productLayout.TestPluginSpec
 import org.jetbrains.intellij.build.productLayout.discovery.DiscoveredProduct
 import org.jetbrains.intellij.build.productLayout.stats.DevDistPlanFileResult
@@ -103,7 +104,7 @@ internal class DevDistBuildSections private constructor(
   @JvmField internal val verifyPlanUnits: Boolean,
   /**
    * The `content_module_jar` call of every community module that the ultimate half packs differently from the community
-   * half, keyed by module and sorted. The product package [DEV_DIST_CONTENT_MODULE_JARS_PACKAGE] holds these calls. Only
+   * half, keyed by module and sorted. The relocated-call package [DEV_DIST_CONTENT_MODULE_JARS_PACKAGE] holds them. Only
    * the ultimate half has any.
    */
   @JvmField val relocatedContentModuleJarCalls: Map<String, String> = emptyMap(),
@@ -329,16 +330,16 @@ internal class DevDistBuildSections private constructor(
     get() = checkNotNull(resourceStatements) { "The resource statements render after the plugin plan entries are bound" }
 
   /**
-   * What the half that renders second reads of this half, see [DevDistUpstreamHalf]. [launchModels] and
+   * What the half that renders second reads of this half, see [DevDistUpstreamHalf]. [productClasses] and
    * [ownPackagePlans] come from the plan and the plugin executions over these sections.
    */
-  fun upstreamSummary(launchModels: Map<String, DevDistLaunchModel>, ownPackagePlans: DevDistOwnPackagePlans): DevDistUpstreamHalf {
+  fun upstreamSummary(productClasses: Map<String, String>, ownPackagePlans: DevDistOwnPackagePlans): DevDistUpstreamHalf {
     return DevDistUpstreamHalf(
       halfName = half.name,
       contentModuleJarCalls = contentModuleJarCalls,
       devSections = devSections,
       resourceStatements = renderedResourceStatements,
-      launchModels = launchModels,
+      productClasses = productClasses,
       ownPackagePlans = ownPackagePlans,
     )
   }
@@ -379,8 +380,8 @@ internal class DevDistBuildSections private constructor(
    *
    * The `dev` section of a complex plugin holds its own `dev_dist_complex_plugin` calls after the `dev_dist_plugin`
    * call, and its package loads the macro in the spelling of its half. The `dev` section of a community complex plugin
-   * exports its plan files with `exports_files` when a call in the cross-half package reads one. A cross-half call is not
-   * bound here: the plan generator writes it into the cross-half package, see [CrossHalfDescriptorPackages].
+   * exports its plan files with `exports_files` when a call in the product package reads one. A call in the product package is not
+   * bound here: the plan generator writes it into the product package, see [CrossHalfDescriptorPackages].
    */
   fun bindPluginExecutions(rendering: DevDistPluginExecutionRendering, files: DevDistPluginPlanFiles) {
     check(boundPluginPlanEntries != null) { "The plugin executions bind after the plugin plan entries" }
@@ -961,18 +962,33 @@ internal class DevDistSectionInputs private constructor(
       val pendingSections = TreeMap<String, PendingDevSection>()
       val sectionOutcomes = LinkedHashMap<String, DevSectionOutcome>()
       buildSpan("dev sections: plugin sections") {
-        for (plugin in derivation.plugins) {
-          val mainModule = plugin.mainModule
-          if (index.location(mainModule) == null || mainModule in unplannedRegistryLayouts) {
-            continue
+        val sectionPlugins = derivation.plugins.filter { plugin ->
+          index.location(plugin.mainModule) != null && plugin.mainModule !in unplannedRegistryLayouts
+        }
+        // Phase one computes the sections beside each other. Phase two merges them, prints the warnings and throws
+        // the first failure in plugin order.
+        val computedSections = sectionPlugins.mapConcurrent { plugin ->
+          val warnings = DevSectionWarnings()
+          try {
+            val outcome = computeDevSection(
+              mainModule = plugin.mainModule,
+              packing = plugin.packing,
+              descriptorEntries = descriptorEntries.get(plugin.mainModule).orEmpty(),
+              index = index,
+              outputProvider = outputProvider,
+              warn = warnings,
+            )
+            ComputedDevSection(outcome = outcome, failure = null, warnings = warnings)
           }
-          val outcome = computeDevSection(
-            mainModule = mainModule,
-            packing = plugin.packing,
-            descriptorEntries = descriptorEntries.get(mainModule).orEmpty(),
-            index = index,
-            outputProvider = outputProvider,
-          )
+          catch (e: RuntimeException) {
+            ComputedDevSection(outcome = null, failure = e, warnings = warnings)
+          }
+        }
+        for ((plugin, computed) in sectionPlugins.zip(computedSections)) {
+          val mainModule = plugin.mainModule
+          computed.warnings.flush()
+          computed.failure?.let { throw it }
+          val outcome = checkNotNull(computed.outcome)
           check(sectionOutcomes.put(mainModule, outcome) == null) { "Duplicate plugin declaration '$mainModule'" }
           val draft = outcome.draft ?: continue
           pendingSections.put(mainModule, draft)
@@ -1003,6 +1019,36 @@ internal class DevDistSectionInputs private constructor(
         renderedFrontendRootDescriptorJars = embeddedClasses.renderFrontendRootDescriptorJars(),
       )
     }
+  }
+}
+
+/** The section outcome or the failure of one plugin, with the warnings of its computation. */
+private class ComputedDevSection(
+  @JvmField val outcome: DevSectionOutcome?,
+  @JvmField val failure: RuntimeException?,
+  @JvmField val warnings: DevSectionWarnings,
+)
+
+/**
+ * The warnings of one plugin section. They are kept until [flush] prints them in their order.
+ * After [flush], a warning is printed at once.
+ */
+private class DevSectionWarnings : (String) -> Unit {
+  private var kept: ArrayList<String>? = ArrayList()
+
+  override fun invoke(line: String) {
+    val lines = kept
+    if (lines == null) {
+      println(line)
+    }
+    else {
+      lines.add(line)
+    }
+  }
+
+  fun flush() {
+    checkNotNull(kept) { "The warnings are already printed" }.forEach(::println)
+    kept = null
   }
 }
 
@@ -1042,7 +1088,7 @@ internal const val DEV_PLUGIN_TARGET_SUFFIX: String = "_dev_plugin"
 /** The `.bzl` file that exports `dev_dist_complex_plugin`. The `dev` section of an ultimate complex plugin loads it. */
 internal const val DEV_PLUGIN_REMAINDER_RULE: String = "@community//platform/build-scripts/bazel-rules:dev_plugin_remainder.bzl"
 
-/** The `.bzl` file that exports `dev_plugin`. A cross-half descriptor package loads it for a simple plugin. */
+/** The `.bzl` file that exports `dev_plugin`. A product package loads it for a simple plugin. */
 internal const val DEV_PLUGIN_RULE: String = "@community//platform/build-scripts/bazel-rules:dev_plugin.bzl"
 
 /** The `.bzl` file that exports `dev_dist_frontend_application_info` for the helper of a divergent product that embeds the frontend. */
@@ -1050,7 +1096,7 @@ internal const val DEV_DIST_FRONTEND_APPLICATION_INFO_RULE: String =
   "@community//platform/build-scripts/bazel-rules:dev_dist_frontend_application_info.bzl"
 
 /**
- * The directory of one generated Bazel package per cross-half plugin, and of one per divergent (plugin, product).
+ * The directory of the product packages, one per plugin, and of one class package per divergent (plugin, product).
  * `devDistCrossHalfDescriptorPackage.kt` writes them.
  */
 internal const val CROSS_HALF_PACKAGE_ROOT: String = "build/dev-dist-descriptors"

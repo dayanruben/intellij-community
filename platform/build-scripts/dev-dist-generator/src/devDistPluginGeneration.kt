@@ -879,7 +879,7 @@ internal fun assignRegistryLayoutsToProducts(
  * The `dev_dist_complex_plugin` calls of one complex plugin, as top-level statements.
  *
  * [sectionText] holds the calls the plugin's own `dev` section states, or `null`. [crossHalfText] holds the calls of the
- * cross-half plugin package at [crossHalfPath], or `null`. A community plugin states its baseline call in its own section
+ * product package at [crossHalfPath], or `null`. A community plugin states its baseline call in its own section
  * when every label of that call is one a community package can name. Every other call of a community plugin names a
  * product in its chain class, so it sits cross-half. [exportsPlanFiles] says the section exports the plan files, because
  * a cross-half call reads one of them. One blank line separates two calls, see [renderDevDistPluginExecutionCalls].
@@ -905,16 +905,18 @@ internal class DevDistPluginExecutionRendering(
  * product and tier index that consumes every plugin component.
  *
  * The call of a plugin sits in the package its plan home names, see [DevDistPluginPlanHome]: the own package of an
- * ultimate plugin, and the cross-half plugin package of a community plugin. The call states `plan_package` when the
+ * ultimate plugin, and the product package of a community plugin. The call states `plan_package` when the
  * plan file sits in another package than the call.
  *
  * A plugin with a simple packaging has no chain here. Its component is the `dev_plugin` target its own section or its
- * cross-half package declares, and the index names that label.
+ * product package declares, and the index names that label. The component map states no bundled tier for a product
+ * of [communityProducts], see [devDistCommunityProducts].
  */
 internal fun renderGeneratedDevDistPluginExecutions(
   owner: DevDistBuildSections,
   files: DevDistPluginPlanFiles,
   productOrder: Collection<String> = owner.half.splitProducts,
+  communityProducts: Set<String> = emptySet(),
 ): DevDistPluginExecutionRendering {
   val plans = owner.descriptorPlans.associateBy(PluginDescriptorPlan::platformPrefix)
   val rank = productOrder.withIndex().associate { (index, product) -> product to index }
@@ -984,7 +986,9 @@ internal fun renderGeneratedDevDistPluginExecutions(
   checkComponentMembership(components)
   return DevDistPluginExecutionRendering(
     calls = Collections.unmodifiableMap(calls),
-    components = renderPluginComponents(components, planLabel = owner.index::planLabel) { product -> owner.half.compositionOrder(product) },
+    components = renderPluginComponents(components, planLabel = owner.index::planLabel, communityProducts = communityProducts) { product ->
+      owner.half.compositionOrder(product)
+    },
   )
 }
 
@@ -1049,7 +1053,7 @@ private fun renderPluginCall(
 }
 
 /**
- * The absolute label of the package that holds the calls of [mainModule]: the cross-half plugin package for a
+ * The absolute label of the package that holds the calls of [mainModule]: the product package for a
  * community plugin, and the plan home's package otherwise.
  */
 private fun devDistPluginCallPackageLabel(mainModule: String, home: DevDistPluginPlanHome): String {
@@ -1187,16 +1191,23 @@ private fun checkComponentMembership(products: Map<String, Map<DevDistPluginTier
  * The composer writes `plugin-classpath.txt` in that order. The fingerprint hashes that file, so a re-sort is a
  * fingerprint change. A component keeps its label in the recorded form, and [planLabel] spells it for the package of the
  * table, see [DevDistBazelIndex.planLabel].
+ *
+ * A product of [communityProducts] states only its additional tier. Its distribution composes the bundled tier of the
+ * community half, see [devDistCommunityProducts].
  */
-private fun renderPluginComponents(
+internal fun renderPluginComponents(
   products: Map<String, Map<DevDistPluginTier, List<GeneratedPluginComponent>>>,
   planLabel: (String) -> String,
+  communityProducts: Set<String>,
   compositionOrder: (String) -> List<String>,
 ): String = buildString {
   append("DEV_DIST_PLUGIN_COMPONENTS = {\n")
   for ((product, tiers) in products) {
     append("    \"").append(product).append("\": {\n")
     for (tier in DEV_DIST_COMPONENT_TIERS) {
+      if (product in communityProducts && tier == DevDistPluginTier.BUNDLED) {
+        continue
+      }
       val components = tiers.getValue(tier)
       val ordered = if (tier == DevDistPluginTier.BUNDLED) composedBundledComponents(product, compositionOrder(product), components) else components
       append("        \"").append(tier.key).append("\": {\n")

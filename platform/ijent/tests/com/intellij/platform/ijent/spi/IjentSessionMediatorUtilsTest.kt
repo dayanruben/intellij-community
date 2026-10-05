@@ -1,7 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.ijent.spi
 
-import com.intellij.platform.ijent.IjentUnavailableException
+import com.intellij.platform.eel.EelUnavailableException
 import com.intellij.platform.ijent.ParentOfIjentScopes
 import com.intellij.platform.util.coroutines.childScope
 import io.kotest.matchers.collections.shouldBeEmpty
@@ -30,7 +30,7 @@ class IjentSessionMediatorUtilsTest {
   @Test
   fun `a low-level failure that loses the shutdown race is not propagated to the parent scope`(): Unit = runBlocking {
     withParentScope { parent, uncaught ->
-        val ijentScope = ParentOfIjentScopes(parent).createIjentScope("test-session")
+      val ijentScope = ParentOfIjentScopes(parent).createIjentScope("test-session")
 
       val inFlight = CompletableDeferred<Unit>()
       // Imitates a call that is in flight when the transport gets shut down: cancelling the session scope closes the
@@ -58,7 +58,7 @@ class IjentSessionMediatorUtilsTest {
   @Test
   fun `a low-level failure in a live session is still propagated to the parent scope`(): Unit = runBlocking {
     withParentScope { parent, uncaught ->
-        val ijentScope = ParentOfIjentScopes(parent).createIjentScope("test-session")
+      val ijentScope = ParentOfIjentScopes(parent).createIjentScope("test-session")
 
       // Nobody asked to close this session, so the failure is a real one and must reach the application.
       ijentScope.s.launch {
@@ -74,11 +74,11 @@ class IjentSessionMediatorUtilsTest {
   @Test
   fun `a failure the IDE has already named to the user is not propagated to the parent scope`(): Unit = runBlocking {
     withParentScope { parent, uncaught ->
-        val ijentScope = ParentOfIjentScopes(parent).createIjentScope("test-session")
+      val ijentScope = ParentOfIjentScopes(parent).createIjentScope("test-session")
 
       // The deployer could tell what went wrong — "authentication failed" — and has shown it: a condition of the
       // environment, not a defect. Ending the session is all that is left to do.
-      val failure = IjentUnavailableException.CommunicationFailure("Failed to connect over SSH: authentication failed", null)
+      val failure = EelUnavailableException.CommunicationFailure("Failed to connect over SSH: authentication failed", null)
         .apply { diagnosed = true }
       ijentScope.destroy(failure, isRootCause = true)
       ijentScope.s.coroutineContext.job.join()

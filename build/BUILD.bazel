@@ -93,7 +93,11 @@ jps_to_bazel_targets_json(
     config_setting(
         name = "host_%s" % name,
         constraint_values = constraints,
-        # the select axis for every per-platform dependency set, in this repository and in ultimate
+        # The select axis of every per-platform dependency set, in this repository and in ultimate. A setting matches
+        # the target platform of the configuration, which is the host platform unless `--platforms` states another.
+        # No dev-dist rule transitions the target platform. A cross distribution passes its `target_platform` to the
+        # tools only as the `--os` and `--arch` arguments, so a setting still matches the host there. Under an exec
+        # transition, the target platform is the exec platform.
         visibility = ["//visibility:public"],
     )
     for name, constraints in {
@@ -232,8 +236,14 @@ alias(
 # The platform set of every community split product. The distribution of every community run configuration comes from
 # `dev_server_run_configurations()` below and reads these components. `DEV_DIST_PRODUCTS` in
 # `build/dev_dist_products.bzl` is the one list of the products.
+#
+# Public: a distribution of a community product in the ultimate checkout composes these components too, see
+# `DEV_DIST_COMMUNITY_PRODUCTS` of the ultimate plan.
 [
-    intellij_dev_platform_set_community(product = product)
+    intellij_dev_platform_set_community(
+        product = product,
+        visibility = ["//visibility:public"],
+    )
     for product in DEV_DIST_PRODUCTS
 ]
 

@@ -24,6 +24,7 @@ import org.jetbrains.intellij.build.PLUGIN_XML_RELATIVE_PATH
 import org.jetbrains.intellij.build.PRESIGNED_NATIVE_LIBS
 import org.jetbrains.intellij.build.ProductProperties
 import org.jetbrains.intellij.build.SignNativeFileMode
+import org.jetbrains.intellij.build.buildSpan
 import org.jetbrains.intellij.build.classPath.contentModuleJarCoreClasspathEntries
 import org.jetbrains.intellij.build.dev.DevPluginLayoutAssetSource
 import org.jetbrains.intellij.build.devDist.isNativeTreeAsset
@@ -62,6 +63,7 @@ import org.jetbrains.intellij.build.productLayout.util.DeferredFileUpdater
 import org.jetbrains.jps.model.JpsGlobal
 import org.jetbrains.jps.model.JpsProject
 import org.jetbrains.jps.model.java.JpsJavaClasspathKind
+import org.jetbrains.jps.model.java.JpsJavaDependencyScope
 import org.jetbrains.jps.model.java.JpsJavaExtensionService
 import org.jetbrains.jps.model.library.JpsLibrary
 import org.jetbrains.jps.model.library.JpsOrderRootType
@@ -79,30 +81,17 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlin.io.path.invariantSeparatorsPathString
 
 /**
- * The generated Starlark a dev-distribution fragment is built from: its cache partition, its declared inputs, the
- * module sets those inputs reference, and the descriptor files it reads.
+ * The file of `DEV_DIST_EXTRA_DESCRIPTOR_FILES`, the descriptors that a module reaches only through an `xi:include`.
  *
- * A fragment computes the whole product layout before it packs its slice, and computing it needs every content
- * module's descriptor and every bundled plugin's `plugin.xml`. Those are read out of module *jars* today
- * ([org.jetbrains.intellij.build.findUnprocessedDescriptorContent]), which makes hundreds of jars an input of
- * every fragment and is most of why splitting the assembly bought so little.
+ * The shared project model tree carries every content module descriptor and every bundled plugin descriptor. Only
+ * the runtime module repository action and the references read the tree. Bazel finds most descriptors by convention,
+ * as `<moduleName>.xml` or `META-INF/plugin.xml` at a production resource root. The convention cannot predict the
+ * name of an included file, so the generator lists those files here. The generator walks and validates the
+ * `xi:include` closure, so an unresolvable include is a generation error.
  *
- * The product model already knows the answer exactly: a content module's descriptor is named after the module,
- * and the `xi:include` closure is walked and validated during generation - an unresolvable include is a
- * generation error. So the generator writes the file list out, Bazel materializes those files into the shared
- * project model tree, and the layout reads them from there instead of opening jars.
- *
- * The plugins are the exception: a component of its own packs each plugin, so the name tables cover the platform
- * payloads only. The plugin components are labels in the `DEV_DIST_PLUGIN_COMPONENTS` map of
- * `dev-dist-content/dev_dist_content_sets.bzl`. The `dev_dist_complex_plugin` call of a complex plugin sits beside
- * the plugin: in its `dev` section, or in its cross-half package, see [DevDistPluginPlanHome].
- *
- * Separate files, not one, because they have different lifetimes. The partition is what a human reasons about and it
- * changes rarely; the payloads and the descriptor exceptions are long sorted lists that a model change rewrites
- * constantly; the module-set membership changes when a module set does and does not depend on how many products are
- * split; the plugin components change when a plugin's layout does. Keeping them apart means a payload-only or
- * descriptor-only regeneration leaves the partition file untouched, and gives them independent merge-conflict domains
- * instead of one shared 3000-line file.
+ * Each generated table has its own file, because the tables change at different rates. A payload-only or a
+ * descriptor-only regeneration then leaves the partition file [DEV_DIST_PLAN_RELATIVE_PATH] unchanged. Each file is
+ * also its own merge-conflict domain.
  */
 private const val DEV_DIST_DESCRIPTORS_RELATIVE_PATH: String = "build/dev_dist_descriptors.bzl"
 private const val DEV_DIST_PRODUCT_INFO_RELATIVE_PATH: String = "build/dev_dist_product_info.bzl"
@@ -121,34 +110,67 @@ private const val LAUNCH_MODEL_SUFFIX: String = ".launch.json"
 private fun launchModelRelativePath(caseSafeName: String): String = "$DEV_DIST_LAUNCH_DIRECTORY/$caseSafeName$LAUNCH_MODEL_SUFFIX"
 
 /**
- * The package of the platform jar orders, whose `BUILD.bazel` exports every `<product>.platform-jars.txt`. Only a product
- * with the runtime module repository fragment has one.
+ * The `lib/` jar order of the platform as a rule with two lists. The core plugin lists the jars of [first] in that
+ * order. Then it lists every other jar with a module, sorted by its smallest member module name. Then it lists the jars
+ * of [last] in that order. `dev_dist_platform_jar_order.bzl` applies the rule. Bazel knows the member names, but not
+ * the two lists.
+ *
+ * The runtime module repository states the entries of the core plugin in this order. The modular loader builds the main
+ * class loader in the same order. Each name is a destination relative to `lib/`.
  */
-private const val DEV_DIST_PLATFORM_JAR_ORDER_DIRECTORY: String = "build/dev-dist-runtime-module-repository"
-
-private const val PLATFORM_JAR_ORDER_SUFFIX: String = ".platform-jars.txt"
+internal data class PlatformJarOrder(@JvmField val first: List<String>, @JvmField val last: List<String>)
 
 /**
- * The `lib/` jars of the platform in the order in which `JarPackager` creates them: the module jars in layout order,
- * then the library-only jars in the order of [residualJars]. The runtime module repository states the entries of the
- * core plugin in this order, and the modular loader builds the main class loader in the same order. Bazel knows what
- * each jar merges, but not this order.
+ * The [PlatformJarOrder] of [product]. The true order is the order in which `JarPackager` creates the jars. It holds the
+ * module jars in layout order, then the library-only jars in the order of [residualJars]. The key of a module jar is its
+ * smallest member module name.
  */
-private fun platformJarOrder(layout: PlatformLayout, residualJars: Map<String, ResidualPlatformJar>): List<String> {
-  val order = LinkedHashSet<String>()
-  layout.includedModules.mapTo(order) { it.relativeOutputFile }
-  residualJars.filterValues { it.modules.isEmpty() }.keys.toCollection(order)
-  return java.util.List.copyOf(order)
+private fun platformJarOrder(product: String, layout: PlatformLayout, residualJars: Map<String, ResidualPlatformJar>): PlatformJarOrder {
+  val keys = LinkedHashMap<String, String>()
+  for (item in layout.includedModules) {
+    keys.merge(item.relativeOutputFile, item.moduleName) { old, new -> minOf(old, new) }
+  }
+  val libraryOnly = residualJars.filter { it.value.modules.isEmpty() && it.key !in keys }.keys.toList()
+  return derivePlatformJarOrder(product = product, keys = keys.entries.map { it.key to it.value }, libraryOnly = libraryOnly)
 }
 
-private fun listPlatformJarOrders(projectRoot: Path): List<String> {
-  val directory = projectRoot.resolve(DEV_DIST_PLATFORM_JAR_ORDER_DIRECTORY)
-  if (!Files.isDirectory(directory)) {
-    return emptyList()
+/**
+ * The two lists of the [PlatformJarOrder] for the true order [keys] then [libraryOnly]. [keys] are the module jars with
+ * their sort keys, in true order. The keys are distinct, because a module packs into one jar.
+ *
+ * The longest strictly ascending run of keys is the sorted range, and the earliest run wins a tie. [PlatformJarOrder.first]
+ * is the jars before the run. [PlatformJarOrder.last] is the jars after the run, then [libraryOnly]. The function fails
+ * when the rule does not give the true order, and names [product] and the first jar that differs.
+ */
+internal fun derivePlatformJarOrder(product: String, keys: List<Pair<String, String>>, libraryOnly: List<String>): PlatformJarOrder {
+  var runStart = 0
+  var bestStart = 0
+  var bestLength = 0
+  for (index in keys.indices) {
+    if (index > 0 && keys[index - 1].second >= keys[index].second) {
+      runStart = index
+    }
+    val length = index - runStart + 1
+    if (length > bestLength) {
+      bestStart = runStart
+      bestLength = length
+    }
   }
-  return Files.newDirectoryStream(directory).use { stream ->
-    stream.map { it.fileName.toString() }.filter { it.endsWith(PLATFORM_JAR_ORDER_SUFFIX) }.map { "$DEV_DIST_PLATFORM_JAR_ORDER_DIRECTORY/$it" }.sorted()
+  val jars = keys.map { it.first }
+  val order = PlatformJarOrder(
+    first = jars.subList(0, bestStart).toList(),
+    last = jars.subList(bestStart + bestLength, jars.size) + libraryOnly,
+  )
+  // The production rule is the check: the Bazel side applies this rule, so the generator proves it on the true order.
+  val named = HashSet(order.first + order.last)
+  val derived = order.first + keys.filter { it.first !in named }.sortedBy { it.second }.map { it.first } + order.last
+  val expected = jars + libraryOnly
+  val difference = (0 until maxOf(derived.size, expected.size)).firstOrNull { derived.getOrNull(it) != expected.getOrNull(it) }
+  if (difference != null) {
+    error("$product: the platform jar rule places ${derived.getOrNull(difference)} at position $difference," +
+          " but the layout places ${expected.getOrNull(difference)} there")
   }
+  return order
 }
 
 private fun listLaunchModels(projectRoot: Path): List<String> {
@@ -162,6 +184,11 @@ private fun listLaunchModels(projectRoot: Path): List<String> {
 }
 private const val DEV_DIST_FRAGMENT_INPUTS_RELATIVE_PATH: String = "build/dev_dist_fragment_inputs.bzl"
 private const val DEV_DIST_MODULE_SETS_RELATIVE_PATH: String = "build/dev_dist_module_sets.bzl"
+/**
+ * The file of `DEV_DIST_PLUGIN_COMPONENTS`, the component label of every plugin. A component of its own packs each
+ * plugin, so the platform payload tables name no plugin jar. The `dev_dist_complex_plugin` call of a complex plugin
+ * sits beside the plugin, see [DevDistPluginPlanHome].
+ */
 private const val DEV_DIST_CONTENT_SETS_RELATIVE_PATH: String = "build/dev-dist-content/dev_dist_content_sets.bzl"
 private const val DEV_SERVER_RUN_CONFIGURATIONS_RELATIVE_PATH: String = "build/dev_server_run_configurations.bzl"
 
@@ -202,8 +229,8 @@ internal class DevDistPlanCompute(
   private val updater: DeferredFileUpdater,
   private val files: List<DevDistPlanFileResult>,
   private val pluginPlans: DevDistPluginPlanUpdates? = null,
-  /** The launch model of every split product of the plan, keyed by the `dev-build.json` key. Empty for the dev sections. */
-  @JvmField val launchModels: Map<String, DevDistLaunchModel> = emptyMap(),
+  /** The class of the product properties of every planned split product, keyed by the `dev-build.json` key. Empty for the dev sections. */
+  @JvmField val productClasses: Map<String, String> = emptyMap(),
 ) {
   /**
    * Writes the rendered files when [commitChanges], and otherwise reports them as diffs.
@@ -252,44 +279,64 @@ internal class DevDistPluginExecutions(
  * and [computeDevDistPlan] reads the result to write the cross-half calls and the two maps.
  *
  * [upstreamPackagePlans] are the plans of the community half, which the ultimate half passes. The first collection
- * homes every community plugin in its cross-half plugin package. A plugin whose plan files and calls equal the community ones there reuses the community targets, see
+ * homes every community plugin in its product package. A plugin whose plan files and calls equal the community ones there reuses the community targets, see
  * [DevDistOwnPackagePlans.acceptsUpstreamPlans]. The run then collects and renders once more with the community home.
+ * [communityProducts] are the community products of the half, see [devDistCommunityProducts].
  */
 internal fun computeDevDistPluginExecutions(
   sections: DevDistBuildSections,
   upstreamPackagePlans: DevDistOwnPackagePlans? = null,
+  communityProducts: Set<String> = emptySet(),
 ): DevDistPluginExecutions {
   sections.requireDescriptorDeclarationsUnchanged()
-  // A simple plugin has no plan file: its own section or its cross-half package declares the packaging.
+  // A simple plugin has no plan file: its own section or its product package declares the packaging.
   val planFileRecords = sections.pluginPlanRecords.filterKeys { sections.simplePackaging(it.plugin) == null }
+  val half = sections.half
+  // Both collections read one set of texts, so the run encodes and folds every record once.
+  val planTexts = buildSpan("plugin executions: encode and fold plan texts") {
+    DevDistPluginPlanTexts.prepare(planFileRecords, half.splitProducts)
+  }
   fun collect(reusedUpstream: Set<String> = emptySet()): DevDistPluginPlanFiles {
     return collectDevDistPluginPlanFiles(
       projectRoot = sections.index.projectRoot,
       records = planFileRecords,
       index = sections.index,
-      half = sections.half,
+      half = half,
+      productOrder = half.splitProducts,
       ownHome = { plugin, _ -> if (plugin in reusedUpstream) checkNotNull(upstreamPackagePlans).upstreamHome(plugin) else null },
+      planTexts = planTexts,
     )
   }
-  var files = collect()
-  var rendering = renderGeneratedDevDistPluginExecutions(sections, files)
+  val firstFiles = buildSpan("plugin executions: collect plan files") { collect() }
+  val firstRendering = buildSpan("plugin executions: render calls") { renderGeneratedDevDistPluginExecutions(sections, firstFiles, communityProducts = communityProducts) }
+  var files = firstFiles
+  var rendering = firstRendering
   if (upstreamPackagePlans != null) {
-    val reused = files.homes.keys.filterTo(TreeSet()) { plugin ->
-      val home = files.home(plugin)
-      val planTexts = files.files.entries
-        .filter { (path, _) -> path.substringBeforeLast('/', missingDelimiterValue = "") == home.directory }
-        .associate { (path, text) -> path.substringAfterLast('/') to text }
-      home.callIsCrossHalf && upstreamPackagePlans.acceptsUpstreamPlans(plugin, planTexts, rendering.calls.get(plugin)?.crossHalfText)
+    val reused = buildSpan("plugin executions: decide upstream reuse") {
+      // The plan files keyed by directory, then by file name, in path order.
+      val filesByDirectory = HashMap<String, LinkedHashMap<String, String>>()
+      for ((path, text) in firstFiles.files) {
+        filesByDirectory.computeIfAbsent(path.substringBeforeLast('/', missingDelimiterValue = "")) { LinkedHashMap() }.put(path.substringAfterLast('/'), text)
+      }
+      firstFiles.homes.keys.filterTo(TreeSet()) { plugin ->
+        val home = firstFiles.home(plugin)
+        home.callIsCrossHalf && upstreamPackagePlans.acceptsUpstreamPlans(
+          plugin,
+          LinkedHashMap(filesByDirectory.get(home.directory).orEmpty()),
+          firstRendering.calls.get(plugin)?.crossHalfText,
+        )
+      }
     }
-    for (plugin in files.homes.keys) {
+    for (plugin in firstFiles.homes.keys) {
       when {
         plugin in reused -> println("reused the plan files and the calls of $plugin in its community package")
         upstreamPackagePlans.hasHome(plugin) -> println("kept the plan files of $plugin in its product package: the community half states other plan texts or calls")
       }
     }
     if (reused.isNotEmpty()) {
-      files = collect(reusedUpstream = reused)
-      rendering = renderGeneratedDevDistPluginExecutions(sections, files)
+      val reusedFiles = buildSpan("plugin executions: collect reused plan files") { collect(reusedUpstream = reused) }
+      files = reusedFiles
+      rendering = buildSpan("plugin executions: render reused calls") { renderGeneratedDevDistPluginExecutions(sections, reusedFiles, communityProducts = communityProducts) }
       for (plugin in reused) {
         val calls = rendering.calls.getValue(plugin)
         check(calls.sectionText != null && upstreamPackagePlans.acceptsCalls(plugin, calls)) {
@@ -299,8 +346,10 @@ internal fun computeDevDistPluginExecutions(
       }
     }
   }
-  sections.bindPluginExecutions(rendering, files)
-  return DevDistPluginExecutions(files = files, rendering = rendering)
+  val boundFiles = files
+  val boundRendering = rendering
+  buildSpan("plugin executions: bind") { sections.bindPluginExecutions(boundRendering, boundFiles) }
+  return DevDistPluginExecutions(files = boundFiles, rendering = boundRendering)
 }
 
 /**
@@ -311,15 +360,15 @@ internal fun computeDevDistPluginExecutions(
  * every `content_module_jar` label, every plugin content target and every descriptor target, and the plan entries the
  * sections read. So the plan and the dev sections state one label per target and build one entry per plugin.
  * [executions] holds the plan files and the calls of every complex plugin. The calls of a community plugin go into its
- * cross-half package here. [targets] is the JSON the module and library labels still come from.
+ * product package here. [targets] is the JSON the module and library labels still come from.
  *
  * [half] is the half the run writes, and every path is relative to its root, the project root of the index of
  * [sections]. A half writes the reference plan, the platform patches and the embedded descriptor actions only when it has
  * the capability, see [requireHalfCapabilities]. A half writes only into its own packages, see [DevDistHalf.ownsPackage].
  *
- * [upstreamLaunchModels] are the launch models of the community half, which the ultimate half passes. A key of both
- * registries with one product class and an equal text names the community file, see [sharedLaunchModels]. `null` for
- * the community half, which renders first.
+ * [communityProducts] are the community products of this half, see [devDistCommunityProducts]. The half collects no
+ * fragment plan of them, so it writes no row of them in the plan, the reference files, the fragment inputs, the module
+ * sets, the product info and the product descriptor package, and no launch model. Empty for the community half.
  */
 internal fun computeDevDistPlan(
   half: DevDistHalf,
@@ -330,7 +379,7 @@ internal fun computeDevDistPlan(
   executions: DevDistPluginExecutions,
   targets: BazelTargetsInfo.TargetsFile,
   runConfigurationRows: List<DevRunConfigurationRow>,
-  upstreamLaunchModels: Map<String, DevDistLaunchModel>? = null,
+  communityProducts: Set<String> = emptySet(),
 ): DevDistPlanCompute {
   sections.requireDescriptorDeclarationsUnchanged()
   val pluginPlans = executions.files
@@ -346,20 +395,26 @@ internal fun computeDevDistPlan(
   val projectRoot = index.projectRoot
   val splitProducts = half.registrySplitProducts(products.map { it.name })
   val runConfigurations = runConfigurationRows
-  val collected = collectDescriptorFiles(
-    half = half,
-    index = index,
-    outputProvider = outputProvider,
-    products = products,
-    walk = walk,
-    verdicts = verdicts,
-    pluginDescriptorPlans = sections.descriptorPlans,
-    pluginRequests = sections.pluginRequests,
-    platformTable = sections.platformJars,
-    targets = targets,
-    runtimeModuleRepositoryProducts = devDistRuntimeModuleRepositoryProducts(runConfigurations, splitProducts),
-  )
+  val collected = buildSpan("dev-distribution plan: collect descriptor files") {
+    collectDescriptorFiles(
+      half = half,
+      index = index,
+      outputProvider = outputProvider,
+      products = products,
+      walk = walk,
+      verdicts = verdicts,
+      pluginDescriptorPlans = sections.descriptorPlans,
+      pluginRequests = sections.pluginRequests,
+      platformTable = sections.platformJars,
+      targets = targets,
+      runtimeModuleRepositoryProducts = devDistRuntimeModuleRepositoryProducts(runConfigurations, splitProducts),
+      communityProducts = communityProducts,
+    )
+  }
   val sortedProducts = collected.products.sortedBy(ProductFragmentPlan::platformPrefix)
+  for (product in communityProducts) {
+    println("community product $product: the community half plans it, so the ${half.name} half writes no row of it")
+  }
   requireHalfCapabilities(
     half = half,
     projectRoot = projectRoot,
@@ -382,87 +437,85 @@ internal fun computeDevDistPlan(
   val productDescriptorFiles = renderProductDescriptorPackage(sortedProducts.mapNotNull(ProductFragmentPlan::productDescriptor).distinct(), index, half)
   val relocatedContentModuleJarPackage = renderRelocatedContentModuleJarPackage(sections.relocatedContentModuleJarCalls, half)
   val relocatedContentModuleJarPackagePath = "$DEV_DIST_CONTENT_MODULE_JARS_PACKAGE/BUILD.bazel"
-  // One key of both registries with one product class states one product, so the two halves render one launch model.
-  // The half that renders second names the community file of such a key and writes no copy. The file name is the
-  // case-safe name of the key, which both halves state alike, see [checkSplitDistributionsExtend].
-  val productClasses = products.associate { it.name to (it.properties?.javaClass?.name ?: "") }
-  val launchModels = sortedProducts.associateTo(TreeMap()) { product ->
-    product.platformPrefix to DevDistLaunchModel(productClass = productClasses.get(product.platformPrefix).orEmpty(), text = encodeProductLaunchModel(product.launchModel))
-  }
-  val reusedLaunchModels = if (upstreamLaunchModels == null) emptySet() else sharedLaunchModels(half, launchModels, upstreamLaunchModels)
-  val reusedLaunchModelLabels = sortedProducts.filter { it.platformPrefix in reusedLaunchModels }.associate { product ->
-    val path = product.launchModelRelativePath
-    product.platformPrefix to "$COMMUNITY_REPOSITORY_PREFIX${path.substringBeforeLast('/')}:${path.substringAfterLast('/')}"
-  }
-  val fileContents = buildList {
-    add(DEV_DIST_DESCRIPTORS_RELATIVE_PATH to renderDescriptors(collected.files, half))
-    add(DEV_DIST_PRODUCT_INFO_RELATIVE_PATH to renderProductInfo(collected.pluginDescriptorPlans, half))
-    add(DEV_DIST_PLAN_RELATIVE_PATH to renderPartition(sortedProducts, half, reusedLaunchModelLabels))
-    if (DevDistCapability.REFERENCE_PLAN in half.capabilities) {
-      add(DEV_DIST_REFERENCE_PLAN_RELATIVE_PATH to renderReferencePlan(sortedProducts, half))
-    }
-    add(DEV_DIST_FRAGMENT_INPUTS_RELATIVE_PATH to renderFragmentInputs(sortedProducts, half))
-    add(DEV_DIST_MODULE_SETS_RELATIVE_PATH to renderModuleSets(collected.moduleSets, half))
-    add(DEV_DIST_CONTENT_SETS_RELATIVE_PATH to renderContentSets(pluginExecutions, half))
-    add(DEV_SERVER_RUN_CONFIGURATIONS_RELATIVE_PATH to renderDevServerRunConfigurations(runConfigurations, splitProducts, half.macrosBzl, half.refusedRowProperties, half.generatedByHeader))
-    addAll(crossHalfDescriptorPackages.files(crossHalfPluginTargets, crossHalfPluginCalls).toList())
-    productDescriptorFiles.entries.mapTo(this) { it.key to it.value }
-    collected.platformPatches?.renderPackage()?.entries?.mapTo(this) { it.key to it.value }
-    relocatedContentModuleJarPackage?.let { add(relocatedContentModuleJarPackagePath to it) }
-    for (product in sortedProducts) {
-      if (product.platformPrefix !in reusedLaunchModels) {
-        add(product.launchModelRelativePath to launchModels.getValue(product.platformPrefix).text)
+  // The file name of a launch model is the case-safe name of the key, which both halves state alike, see
+  // [checkSplitDistributionsExtend].
+  val productClasses = devDistProductClasses(products)
+  val plannedProductClasses = sortedProducts.associateTo(TreeMap()) { it.platformPrefix to productClasses.get(it.platformPrefix).orEmpty() }
+  val fileContents = buildSpan("dev-distribution plan: render files") { renderSpan ->
+    val contents = buildList {
+      add(DEV_DIST_DESCRIPTORS_RELATIVE_PATH to renderDescriptors(collected.files, half))
+      add(DEV_DIST_PRODUCT_INFO_RELATIVE_PATH to renderProductInfo(collected.pluginDescriptorPlans.filter { it.platformPrefix !in communityProducts }, half))
+      add(DEV_DIST_PLAN_RELATIVE_PATH to renderPartition(sortedProducts, half, communityProducts))
+      if (DevDistCapability.REFERENCE_PLAN in half.capabilities) {
+        add(DEV_DIST_REFERENCE_PLAN_RELATIVE_PATH to renderReferencePlan(sortedProducts, half))
+        val referenceInputs = buildSpan("dev-distribution plan: resolve reference inputs") {
+          resolveDevDistReferenceInputs(
+            products = sortedProducts.map(::referenceProduct),
+            moduleSets = collected.moduleSets.associateBy(ModuleSetData::name),
+            model = referenceInputModel(targets, outputProvider),
+          )
+        }
+        add(DEV_DIST_REFERENCE_INPUTS_RELATIVE_PATH to renderDevDistReferenceInputs(referenceInputs, half.generatedByHeader))
       }
-      platformJarOrderRelativePath(product)?.let { add(it to product.platformJarOrder.joinToString(separator = "\n", postfix = "\n")) }
+      add(DEV_DIST_FRAGMENT_INPUTS_RELATIVE_PATH to renderFragmentInputs(sortedProducts, half))
+      add(DEV_DIST_MODULE_SETS_RELATIVE_PATH to renderModuleSets(collected.moduleSets, half))
+      add(DEV_DIST_CONTENT_SETS_RELATIVE_PATH to renderContentSets(pluginExecutions, half))
+      add(DEV_SERVER_RUN_CONFIGURATIONS_RELATIVE_PATH to renderDevServerRunConfigurations(runConfigurations, splitProducts, half.macrosBzl, half.refusedRowProperties, half.generatedByHeader))
+      addAll(crossHalfDescriptorPackages.files(crossHalfPluginTargets, crossHalfPluginCalls).toList())
+      productDescriptorFiles.entries.mapTo(this) { it.key to it.value }
+      collected.platformPatches?.renderPackage()?.entries?.mapTo(this) { it.key to it.value }
+      relocatedContentModuleJarPackage?.let { add(relocatedContentModuleJarPackagePath to it) }
+      for (product in sortedProducts) {
+        add(product.launchModelRelativePath to encodeProductLaunchModel(product.launchModel))
+      }
     }
+    renderSpan.setAttribute("files", contents.size.toLong())
+    contents
   }
   // A half writes only into its own packages, see `DevDistHalf.ownsPackage`.
-  val files = fileContents.map { (relativePath, newContent) ->
-    half.requireWritable(relativePath)
-    DevDistPlanFileResult(
-      relativePath = relativePath,
-      status = updater.updateIfChanged(path = projectRoot.resolve(relativePath), newContent = newContent),
-    )
+  val files = buildSpan("dev-distribution plan: compare files") {
+    fileContents.map { (relativePath, newContent) ->
+      half.requireWritable(relativePath)
+      DevDistPlanFileResult(
+        relativePath = relativePath,
+        status = updater.updateIfChanged(path = projectRoot.resolve(relativePath), newContent = newContent),
+      )
+    }
   }
   pluginPlans.updates.results.forEach { half.requireWritable(it.relativePath) }
-  // The run deletes every descriptor package on disk that it does not write, see `CrossHalfDescriptorPackages.stale`.
-  val stalePackages = crossHalfDescriptorPackages.stale(projectRoot, crossHalfPluginTargets, crossHalfPluginCalls)
-  for (relativePath in stalePackages) {
-    updater.delete(projectRoot.resolve(relativePath))
-  }
-  // A run without a relocated call leaves no package of relocated calls behind. Only the ultimate half writes one.
-  if (relocatedContentModuleJarPackage == null && !half.writesCommunityPackages && Files.exists(projectRoot.resolve(relocatedContentModuleJarPackagePath))) {
-    updater.delete(projectRoot.resolve(relocatedContentModuleJarPackagePath))
-  }
-  // A product that leaves the split path, or whose model the community half now states, leaves its launch model behind.
-  val launchModelPaths = sortedProducts.filter { it.platformPrefix !in reusedLaunchModels }.mapTo(HashSet()) { it.launchModelRelativePath }
-  for (relativePath in listLaunchModels(projectRoot)) {
-    if (relativePath !in launchModelPaths) {
+  buildSpan("dev-distribution plan: sweep stale files") {
+    // The run deletes every descriptor package on disk that it does not write, see `CrossHalfDescriptorPackages.stale`.
+    val stalePackages = crossHalfDescriptorPackages.stale(projectRoot, crossHalfPluginTargets, crossHalfPluginCalls)
+    for (relativePath in stalePackages) {
       updater.delete(projectRoot.resolve(relativePath))
     }
-  }
-  // A product that loses its runtime module repository fragment leaves its platform jar order behind.
-  val platformJarOrders = sortedProducts.mapNotNullTo(HashSet(), ::platformJarOrderRelativePath)
-  for (relativePath in listPlatformJarOrders(projectRoot)) {
-    if (relativePath !in platformJarOrders) {
+    // A run without a relocated call leaves no package of relocated calls behind. Only the ultimate half writes one.
+    if (relocatedContentModuleJarPackage == null && !half.writesCommunityPackages && Files.exists(projectRoot.resolve(relocatedContentModuleJarPackagePath))) {
+      updater.delete(projectRoot.resolve(relocatedContentModuleJarPackagePath))
+    }
+    // A product that leaves the split path, or that the community half now plans, leaves its launch model behind.
+    val launchModelPaths = sortedProducts.mapTo(HashSet()) { it.launchModelRelativePath }
+    for (relativePath in listLaunchModels(projectRoot)) {
+      if (relativePath !in launchModelPaths) {
+        updater.delete(projectRoot.resolve(relativePath))
+      }
+    }
+    // The descriptor actions compose the content from the module-set table, so an embedded descriptor file is stale.
+    half.embeddedFrontend?.let { embeddedFrontend ->
+      for (relativePath in embeddedFrontend.staleDescriptors(projectRoot)) {
+        updater.delete(projectRoot.resolve(relativePath))
+      }
+    }
+    // The product descriptor actions compose the content from the module-set table, so a product content file is stale.
+    for (relativePath in staleProductDescriptorSources(projectRoot)) {
       updater.delete(projectRoot.resolve(relativePath))
     }
-  }
-  // The descriptor actions compose the content from the module-set table, so an embedded descriptor file is stale.
-  half.embeddedFrontend?.let { embeddedFrontend ->
-    for (relativePath in embeddedFrontend.staleDescriptors(projectRoot)) {
-      updater.delete(projectRoot.resolve(relativePath))
-    }
-  }
-  // The product descriptor actions compose the content from the module-set table, so a product content file is stale.
-  for (relativePath in staleProductDescriptorSources(projectRoot)) {
-    updater.delete(projectRoot.resolve(relativePath))
   }
   return DevDistPlanCompute(
     updater = updater,
     files = files + pluginPlans.updates.results,
     pluginPlans = pluginPlans.updates,
-    launchModels = launchModels,
+    productClasses = plannedProductClasses,
   )
 }
 
@@ -572,8 +625,9 @@ internal fun checkPluginNativeTrees(entries: Collection<DevDistPluginPlanEntry>)
 private const val PLATFORM_LIB_FRAGMENT = "platform_lib"
 
 /**
- * The fragment that writes `modules/module-descriptors.{dat,jar}`. The plan emits it for a product with a run
- * configuration that asks for the runtime module repository, and only such a row composes it.
+ * The component that places `modules/module-descriptors.{dat,jar}`, which the `dev_dist_runtime_module_repository`
+ * action writes. The plan emits it for a product with a run configuration that asks for the runtime module repository,
+ * and only such a row composes it.
  */
 private const val PLATFORM_RUNTIME_MODULE_REPOSITORY_FRAGMENT = "platform_runtime_module_repository"
 
@@ -682,20 +736,20 @@ private data class ProductFragmentPlan(
   @JvmField val productMode: String,
   @JvmField val buildModules: List<String>,
   /**
-   * Whether the product has the runtime module repository fragment: a row asks for it, or the product loads the
+   * Whether the product has the runtime module repository component: a row asks for it, or the product loads the
    * modular loader. Only a row with the runtime module repository composes it, unless [modularLoader] is set.
    */
   @JvmField val runtimeModuleRepository: Boolean,
   /**
    * The `build/dev-build.json` key of the split product whose platform the embedded frontend is, or `null` when the
-   * product embeds none or has no [runtimeModuleRepository] fragment. The runtime module repository fragment lays
+   * product embeds none or has no [runtimeModuleRepository] component. The runtime module repository component lays
    * the frontend's platform and its own bundled plugins out too, so the Bazel side takes that product's `platform_lib`
    * declaration and the components of its frontend-only plugins beside the product's own.
    */
   @JvmField val embeddedFrontend: String?,
   /**
    * Whether the product starts through the modular loader (`ProductProperties.rootModuleForModularLoader`). Such a
-   * product reads `modules/module-descriptors.jar` at every start, so every row composes the [runtimeModuleRepository] fragment.
+   * product reads `modules/module-descriptors.jar` at every start, so every row composes the [runtimeModuleRepository] component.
    */
   @JvmField val modularLoader: Boolean,
   @JvmField val payloads: List<FragmentPayload>,
@@ -708,11 +762,8 @@ private data class ProductFragmentPlan(
   @JvmField val ideaProperties: String,
   /** The application info sources that the `platform_resources` component reads beside [launchModel]. */
   @JvmField val applicationInfoSources: ApplicationInfoSources,
-  /**
-   * The `lib/` jars of the platform in `JarPackager` order, see [platformJarOrder]. Empty for a product without the
-   * [runtimeModuleRepository] fragment.
-   */
-  @JvmField val platformJarOrder: List<String> = emptyList(),
+  /** The `lib/` jar order of the platform. `null` for a product without the [runtimeModuleRepository] component. */
+  @JvmField val platformJarOrder: PlatformJarOrder? = null,
   /** The application-info module, which holds the descriptor of the core plugin of the runtime module repository. */
   @JvmField val applicationInfoModule: String = "",
   /**
@@ -896,13 +947,6 @@ internal fun walkDescriptors(
   generatedModuleSetDescriptors: Map<String, String>,
 ): DescriptorWalk {
   val collector = DescriptorCollector(projectRoot = projectRoot, outputProvider = outputProvider)
-  fun additionalFrontendOnlyPluginModules(properties: ProductProperties): List<String> {
-    val frontendProperties = properties.embeddedFrontendProperties?.invoke() ?: return emptyList()
-    val bundledPluginModules = getBundledPluginModules(properties, outputProvider)
-    val frontendBundledPluginModules = getBundledPluginModules(frontendProperties, outputProvider)
-    return frontendBundledPluginModules.filterNot { it in bundledPluginModules.toSet() }
-  }
-
   for ((relativeRoot, moduleName) in generatedModuleSetDescriptors) {
     collector.collectGeneratedModuleSetDescriptors(relativeRoot = relativeRoot, moduleName = moduleName)
   }
@@ -913,20 +957,42 @@ internal fun walkDescriptors(
   // the collector needs that list before it starts following includes.
   // The products that drop each unresolved content module, for the census below.
   val droppedModules = TreeMap<String, MutableList<String>>()
-  val contentByProduct = products.map { product ->
-    val spec = product.spec ?: return@map null
-    val content = buildProductContentXml(
-      spec = spec,
-      outputProvider = null,
-      inlineXmlIncludes = false,
-      inlineModuleSets = true,
-      metadataBuilder = {},
-    )
-    val dropped = unresolvedContentModules(product = product, content = content, outputProvider = outputProvider)
+  val builtContent = buildSpan("walk descriptors: product content") {
+    products.mapConcurrent { product ->
+      val spec = product.spec ?: return@mapConcurrent null
+      val content = buildProductContentXml(
+        spec = spec,
+        outputProvider = null,
+        inlineXmlIncludes = false,
+        inlineModuleSets = true,
+        metadataBuilder = {},
+      )
+      content to unresolvedContentModules(product = product, content = content, outputProvider = outputProvider)
+    }
+  }
+  val contentByProduct = products.mapIndexed { index, product ->
+    val (content, dropped) = builtContent.get(index) ?: return@mapIndexed null
     for (module in dropped) {
       droppedModules.computeIfAbsent(module) { ArrayList() }.add(product.name)
     }
     if (dropped.isEmpty()) content else content.withoutModules(dropped)
+  }
+  // The bundled plugins of every product with content, and the extra plugins of its embedded frontend.
+  val pluginModulesByProduct = buildSpan("walk descriptors: bundled plugins") {
+    products.withIndex().toList().mapConcurrent { (index, product) ->
+      if (contentByProduct.get(index) == null) return@mapConcurrent null
+      val properties = product.properties as? ProductProperties ?: return@mapConcurrent null
+      val bundledPluginModules = getBundledPluginModules(properties, outputProvider)
+      val frontendProperties = properties.embeddedFrontendProperties?.invoke()
+      val frontendOnlyPluginModules = if (frontendProperties == null) {
+        emptyList()
+      }
+      else {
+        val bundled = bundledPluginModules.toHashSet()
+        getBundledPluginModules(frontendProperties, outputProvider).filterNot { it in bundled }
+      }
+      bundledPluginModules to frontendOnlyPluginModules
+    }
   }
   for ((module, droppingProducts) in droppedModules) {
     println(
@@ -938,12 +1004,42 @@ internal fun walkDescriptors(
     val content = contentByProduct[index] ?: continue
     content.contentBlocks.flatMap { it.modules }.map { it.moduleId.name }.forEach(collector::addToSearchScope)
     product.spec?.deprecatedXmlIncludes?.forEach { collector.addToSearchScope(it.contentModuleName.value) }
-    (product.properties as? ProductProperties)?.let { properties ->
-      getBundledPluginModules(properties, outputProvider).forEach(collector::addToSearchScope)
-      additionalFrontendOnlyPluginModules(properties).forEach(collector::addToSearchScope)
+    pluginModulesByProduct.get(index)?.let { (bundledPluginModules, frontendOnlyPluginModules) ->
+      bundledPluginModules.forEach(collector::addToSearchScope)
+      frontendOnlyPluginModules.forEach(collector::addToSearchScope)
     }
   }
 
+  // The walk below reads the same files in the same order, and the prefetch only fills the memos of the collector.
+  buildSpan("walk descriptors: prefetch") {
+    val roots = ArrayList<DescriptorCollector.PrefetchRoot>()
+    for ((index, product) in products.withIndex()) {
+      val content = contentByProduct.get(index) ?: continue
+      for (contentModule in content.contentBlocks.flatMap { it.modules }.map { it.moduleId.name }) {
+        roots.add(DescriptorCollector.PrefetchRoot.contentModule(contentModule))
+      }
+      product.spec?.deprecatedXmlIncludes?.forEach { include ->
+        roots.add(DescriptorCollector.PrefetchRoot(moduleName = include.contentModuleName.value, relativePath = include.resourcePath, isInclude = true))
+      }
+      val (bundledPluginModules, frontendOnlyPluginModules) = pluginModulesByProduct.get(index) ?: continue
+      for (mainModule in bundledPluginModules + frontendOnlyPluginModules) {
+        roots.add(DescriptorCollector.PrefetchRoot(moduleName = mainModule, relativePath = PLUGIN_XML_RELATIVE_PATH, isInclude = false))
+      }
+    }
+    collector.prefetch(roots)
+  }
+
+  buildSpan("walk descriptors: collect") { collectFlatWalk(collector, products, contentByProduct, pluginModulesByProduct) }
+  return DescriptorWalk(collector = collector, contentByProduct = contentByProduct)
+}
+
+/** The sequential flat walk of [walkDescriptors]. [pluginModulesByProduct] holds the bundled and the frontend-only plugins by product index. */
+private fun collectFlatWalk(
+  collector: DescriptorCollector,
+  products: List<DiscoveredProduct>,
+  contentByProduct: List<ProductContentBuildResult?>,
+  pluginModulesByProduct: List<Pair<List<String>, List<String>>?>,
+) {
   for ((index, product) in products.withIndex()) {
     val content = contentByProduct[index] ?: continue
     for (contentModule in content.contentBlocks.flatMap { it.modules }.map { it.moduleId.name }) {
@@ -964,14 +1060,14 @@ internal fun walkDescriptors(
 
     // The `use-idea-classloader` scan reads every bundled plugin's descriptor, whether or not the product packs
     // anything of that plugin in this fragment.
-    for (mainModule in getBundledPluginModules(properties, outputProvider)) {
+    val (bundledPluginModules, frontendOnlyPluginModules) = checkNotNull(pluginModulesByProduct.get(index))
+    for (mainModule in bundledPluginModules) {
       collector.collect(moduleName = mainModule, relativePath = PLUGIN_XML_RELATIVE_PATH)
     }
-    for (mainModule in additionalFrontendOnlyPluginModules(properties)) {
+    for (mainModule in frontendOnlyPluginModules) {
       collector.collect(moduleName = mainModule, relativePath = PLUGIN_XML_RELATIVE_PATH)
     }
   }
-  return DescriptorWalk(collector = collector, contentByProduct = contentByProduct)
 }
 
 /**
@@ -1014,8 +1110,10 @@ private fun ProductContentBuildResult.withoutModules(modules: Set<String>): Prod
  * Every part of the plan: the files of the flat [walk], the fragment plans of the split products and the descriptor
  * plans. [pluginDescriptorPlans] are the entries the dev sections read, passed through unchanged. [pluginRequests]
  * are the plugins that get a component in this run, so a fragment plan can check that every bundled plugin has one.
- * [runtimeModuleRepositoryProducts] names the products whose plan gets the runtime module repository fragment, see
- * [devDistRuntimeModuleRepositoryProducts].
+ * [runtimeModuleRepositoryProducts] names the products whose plan gets the runtime module repository component, see
+ * [devDistRuntimeModuleRepositoryProducts]. [communityProducts] are the community products of [half], see
+ * [devDistCommunityProducts]. The community half plans them, so this half collects no fragment plan, no product
+ * descriptor and no module-set row of them.
  */
 private fun collectDescriptorFiles(
   half: DevDistHalf,
@@ -1029,13 +1127,14 @@ private fun collectDescriptorFiles(
   platformTable: DevDistPlatformJars,
   targets: BazelTargetsInfo.TargetsFile,
   runtimeModuleRepositoryProducts: Set<String>,
+  communityProducts: Set<String>,
 ): CollectedPlan {
   val contentByProduct = walk.contentByProduct
   // In the product order, so the first product of a group of equal plans names the shared action, as an embedded
   // descriptor class does.
   val plannedDescriptors = pluginDescriptorPlans.mapNotNull { plan -> plan.productDescriptor?.let { plan.platformPrefix to it } }.toMap()
   val productDescriptors = shareEqualProductDescriptors(
-    half.splitProducts.mapNotNull { product -> plannedDescriptors.get(product)?.let { product to it } }.toMap()
+    half.splitProducts.filterNot { it in communityProducts }.mapNotNull { product -> plannedDescriptors.get(product)?.let { product to it } }.toMap()
   )
 
   // The split product an embedded frontend is, by the class of its `ProductProperties`. A frontend debug wrapper
@@ -1058,10 +1157,12 @@ private fun collectDescriptorFiles(
   // payloads walk them, and the product descriptor rules compose the content from them.
   val moduleSets = TreeMap<String, ModuleSetData>()
   for (plan in pluginDescriptorPlans) {
+    if (plan.platformPrefix in communityProducts) continue
     mergeModuleSetRows(table = moduleSets, rows = plan.moduleSets, owner = "Product '${plan.platformPrefix}'")
   }
   val platformPatches = half.platformPatches?.newTargets()
   val fragmentPlans = products.withIndex().mapNotNull { (productIndex, product) ->
+    if (product.name in communityProducts) return@mapNotNull null
     val content = contentByProduct[productIndex] ?: return@mapNotNull null
     val moduleToSetChain = content.moduleToSetChainMapping.mapKeys { it.key.value }
     collectFragmentPlan(
@@ -1724,7 +1825,7 @@ private fun collectFragmentPlan(
     " model; run ./build/jpsModelToBazel.cmd:\n" +
     staleTargetNames.sorted().joinToString(separator = "\n") { "  $it" }
   }
-  // A modular-loader product reads the repository at every start, so its plan carries the fragment whatever its rows ask.
+  // A modular-loader product reads the repository at every start, so its plan carries the component whatever its rows ask.
   val modularLoader = properties.rootModuleForModularLoader != null
   val hasRuntimeModuleRepository = runtimeModuleRepository || modularLoader
   val frontendProperties = if (!hasRuntimeModuleRepository) null else properties.embeddedFrontendProperties?.invoke()
@@ -1770,7 +1871,7 @@ private fun collectFragmentPlan(
       product = product.name,
       hostProperties = half.embeddedFrontend?.hostProperties(properties),
     ),
-    platformJarOrder = if (hasRuntimeModuleRepository) platformJarOrder(layout, platformLibPayload.residualJars) else emptyList(),
+    platformJarOrder = if (hasRuntimeModuleRepository) platformJarOrder(product.name, layout, platformLibPayload.residualJars) else null,
     applicationInfoModule = properties.applicationInfoModule,
     productDescriptor = productDescriptor.takeIf { usesProductDescriptor(platformLibPayload.residualJars.values) },
   )
@@ -1846,8 +1947,8 @@ private fun frontendIconPatches(
  *
  * The generator lays the platform and every bundled plugin out without files, and the dry layout resolves the output
  * and the libraries of each module it packs. The `platform_lib` payload of the product already names the platform,
- * and the `platform_lib` payload of [embeddedFrontend] names the frontend's platform. The bridge takes both
- * declarations whole, before the packed jars leave them. The bundled plugins arrive as `DevDistContentInfo` from
+ * and the `platform_lib` payload of [embeddedFrontend] names the frontend's platform. The reference macro takes
+ * both declarations whole, before the packed jars leave them. The bundled plugins arrive as `DevDistContentInfo` from
  * their components, which `dev_dist_plugin_content` unions per product. So this payload names only the embedded
  * frontend root modules and the product's own modular-loader root, which no platform payload and no plugin carries.
  * A debug wrapper's `rootModule` (`build/dev-build.json`) is that root, and the layout packs it into a residual jar
@@ -1883,7 +1984,8 @@ private fun collectRuntimeModuleRepositoryPayload(
     )
   }
 
-  // A name the project does not have declares nothing, and the Starlark side would only warn about it.
+  // A name the project does not have declares nothing. The generator resolves the reference inputs from these names
+  // and fails on a name that the targets JSON lacks, so the payload keeps only the names of the project.
   payload.modules.retainAll { outputProvider.findModule(it) != null }
   return payload.freeze(name = PLATFORM_RUNTIME_MODULE_REPOSITORY_FRAGMENT)
 }
@@ -2513,6 +2615,65 @@ internal class DescriptorCollector(
     }
   }
 
+  /**
+   * A start point of [prefetch]. [isInclude] is true for an `xi:include`, which [collectInclude] resolves across the
+   * search scope when [moduleName] does not have it.
+   */
+  class PrefetchRoot(@JvmField val moduleName: String, @JvmField val relativePath: String, @JvmField val isInclude: Boolean) {
+    companion object {
+      /** The root that [collectContentModule] walks for [contentModuleName]. */
+      fun contentModule(contentModuleName: String): PrefetchRoot {
+        return PrefetchRoot(
+          moduleName = contentModuleName.substringBeforeLast('/'),
+          relativePath = contentModuleName.replace('/', '.') + ".xml",
+          isInclude = false,
+        )
+      }
+    }
+  }
+
+  /**
+   * Finds and parses the files that a walk from [roots] reads, on concurrent threads, one level of includes at a time.
+   *
+   * The prefetch fills only the memos of file lookups and parses. It changes no walk state, so a later walk gives the
+   * same result. When the declaring module lacks an include, the prefetch resolves it like [collectInclude].
+   * It takes the first search-scope module with the file, then the first of all modules with it.
+   * Call it after the search scope is complete.
+   */
+  fun prefetch(roots: Collection<PrefetchRoot>) {
+    val seen = HashSet<String>()
+    fun admit(root: PrefetchRoot): Boolean = seen.add("${root.isInclude}:${root.moduleName}/${root.relativePath}")
+    var level = roots.filter(::admit)
+    while (level.isNotEmpty()) {
+      val next = ArrayList<PrefetchRoot>()
+      val found: List<Pair<String, ContentParseResult>?> = level.mapConcurrent { root -> prefetchRoot(root) }
+      for (answer in found) {
+        val (owner, parsed) = answer ?: continue
+        for (include in parsed.xIncludePaths) {
+          next.add(PrefetchRoot(moduleName = owner, relativePath = include, isInclude = true))
+        }
+        for (contentModule in parsed.contentModules) {
+          next.add(PrefetchRoot.contentModule(contentModule.name))
+        }
+      }
+      level = next.filter(::admit)
+    }
+  }
+
+  /** The module that answers [root] for the walk and its parsed file, or `null`. */
+  private fun prefetchRoot(root: PrefetchRoot): Pair<String, ContentParseResult>? {
+    val loadPath = root.relativePath
+    fun hasFile(candidate: String): Boolean {
+      return candidate != root.moduleName && findProductionSourceFile(moduleName = candidate, loadPath = loadPath) != null
+    }
+    val owner = when {
+      findProductionSourceFile(moduleName = root.moduleName, loadPath = loadPath) != null -> root.moduleName
+      root.isInclude -> searchScope.firstOrNull(::hasFile) ?: allModulesWith(loadPath).firstOrNull(::hasFile) ?: return null
+      else -> return null
+    }
+    return owner to parse(checkNotNull(findProductionSourceFile(moduleName = owner, loadPath = loadPath)))
+  }
+
   /** Whether [moduleName] has [relativePath] in its production sources; its includes and content are walked if so. */
   fun collect(moduleName: String, relativePath: String): Boolean {
     val key = "$moduleName/$relativePath"
@@ -3009,10 +3170,9 @@ internal class DescriptorCollector(
 private fun renderDescriptors(files: List<DescriptorFile>, half: DevDistHalf): String = buildString {
   append(half.generatedByHeader)
   append("#\n")
-  append("# A dev-distribution fragment computes the whole product layout before it packs its slice, and reads every\n")
-  append("# content module descriptor and bundled plugin descriptor to do it. Bazel materializes those into the\n")
-  append("# shared project model tree so the layout reads files instead of opening module jars - see\n")
-  append("# `intellij_project_model_tree`.\n")
+  append("# The shared project model tree carries every content module descriptor and every bundled plugin descriptor,\n")
+  append("# so a reader of the tree reads files instead of opening module jars. Only the runtime module repository action\n")
+  append("# and the references read the tree - see `intellij_project_model_tree`.\n")
   append("#\n")
   append("# Bazel finds most of them by convention: `<moduleName>.xml` and `META-INF/plugin.xml` at a production\n")
   append("# resource root. This file is the remainder - descriptors reached only through an `xi:include`, whose name\n")
@@ -3031,8 +3191,11 @@ private fun renderDescriptors(files: List<DescriptorFile>, half: DevDistHalf): S
   append("]\n")
 }
 
-/** [reusedLaunchModelLabels] names the community launch model of each product whose key the community half states alike. */
-private fun renderPartition(products: List<ProductFragmentPlan>, half: DevDistHalf, reusedLaunchModelLabels: Map<String, String>): String = buildString {
+/**
+ * [communityProducts] are the community products of [half], see [devDistCommunityProducts]. The half that renders second
+ * names them in `DEV_DIST_COMMUNITY_PRODUCTS`, so its binder composes the community rows for a distribution of one.
+ */
+private fun renderPartition(products: List<ProductFragmentPlan>, half: DevDistHalf, communityProducts: Set<String>): String = buildString {
   append(half.generatedByHeader)
   append("#\n")
   append("# The plan of every split product: the facts that its dev distribution reads. Bazel consumes this plan directly\n")
@@ -3073,6 +3236,23 @@ private fun renderPartition(products: List<ProductFragmentPlan>, half: DevDistHa
     }
     append(name).append(" = struct(\n").append(body).append(")\n\n")
   }
+  if (!half.writesCommunityPackages) {
+    append("# The community products: the keys that both registries state with one product class. The community half plans\n")
+    append("# them, so the plan tables of this half have no row of them. The component map states only their additional tier,\n")
+    append("# and the rows file keeps their run configurations. A distribution of a community product composes the community\n")
+    append("# platform set and the community bundled plugins, see `intellij_dev_dist_declarations`.\n")
+    if (communityProducts.isEmpty()) {
+      append("DEV_DIST_COMMUNITY_PRODUCTS = []\n")
+    }
+    else {
+      append("DEV_DIST_COMMUNITY_PRODUCTS = [\n")
+      for (product in communityProducts) {
+        append("    \"").append(product).append("\",\n")
+      }
+      append("]\n")
+    }
+    append("\n")
+  }
   append("DEV_DIST_PLANS = {\n")
   for (product in products) {
     append("    \"").append(product.platformPrefix).append("\": ")
@@ -3089,14 +3269,10 @@ private fun renderPartition(products: List<ProductFragmentPlan>, half: DevDistHa
   append("# The launch model of every product, which its `platform_resources` component renders. A model file takes the\n")
   append("# case-safe name of its product, so two products never share one file on a case-insensitive disk. The map is\n")
   append("# apart from the plans, so products with equal launch facts still share one plan.\n")
-  if (reusedLaunchModelLabels.isNotEmpty()) {
-    append("# A model that the community half states alike for the same key is the community file, so this half writes no copy.\n")
-  }
   append("DEV_DIST_LAUNCH_MODELS = {\n")
   for (product in products) {
     val path = product.launchModelRelativePath
-    val label = reusedLaunchModelLabels.get(product.platformPrefix) ?: "//${path.substringBeforeLast('/')}:${path.substringAfterLast('/')}"
-    append("    \"").append(product.platformPrefix).append("\": \"").append(label).append("\",\n")
+    append("    \"").append(product.platformPrefix).append("\": \"//").append(path.substringBeforeLast('/')).append(':').append(path.substringAfterLast('/')).append("\",\n")
   }
   append("}\n")
   append("\n")
@@ -3114,13 +3290,56 @@ private fun renderPartition(products: List<ProductFragmentPlan>, half: DevDistHa
   }
   append("}\n")
   append("\n")
-  append("# The `lib/` jars of the platform in the order in which `JarPackager` creates them, for every product with the runtime\n")
-  append("# module repository fragment. The runtime module repository states the entries of the core plugin in this order.\n")
+  append("# The `lib/` jar order of the platform as a rule with two lists, for every product with the runtime module repository\n")
+  append("# fragment. The core plugin lists the jars of `first` in that order. Then it lists every other jar with a module,\n")
+  append("# sorted by its smallest member module name. Then it lists the jars of `last` in that order. Bazel knows the member\n")
+  append("# names, but not the two lists. Equal lists are one private struct, named as a shared plan field is named.\n")
+  appendPlatformJarOrders(products.mapNotNull { product -> product.platformJarOrder?.let { product.platformPrefix to it } })
+}
+
+/** A jar list of a [PlatformJarOrder] as [appendNameList] writes it, or `[]` when it is empty. */
+private fun StringBuilder.appendJarList(field: String, jars: List<String>, indent: String) {
+  if (jars.isEmpty()) {
+    append(indent).append(field).append(" = [],\n")
+  }
+  else {
+    appendNameList(field, jars, indent = indent)
+  }
+}
+
+/**
+ * `DEV_DIST_PLATFORM_JAR_ORDERS` of [orders], in the given product order. A struct that two or more products state alike
+ * is one private constant. It is `_PLATFORM_JAR_ORDER` when every product states it, and `_PLATFORM_JAR_ORDER_<first
+ * product>` otherwise. This is the naming of [sharePlanFieldBodies].
+ */
+private fun StringBuilder.appendPlatformJarOrders(orders: List<Pair<String, PlatformJarOrder>>) {
+  val users = LinkedHashMap<PlatformJarOrder, MutableList<String>>()
+  for ((product, order) in orders) {
+    users.computeIfAbsent(order) { ArrayList() }.add(product)
+  }
+  val shared = users.filterValues { it.size > 1 }
+  val sharedNames = HashMap<PlatformJarOrder, String>()
+  for ((order, owners) in shared) {
+    val name = if (users.size == 1) "_PLATFORM_JAR_ORDER" else "_PLATFORM_JAR_ORDER_" + owners.first()
+    sharedNames.put(order, name)
+    append(name).append(" = struct(\n")
+    appendJarList("first", order.first, indent = INDENT)
+    appendJarList("last", order.last, indent = INDENT)
+    append(")\n\n")
+  }
   append("DEV_DIST_PLATFORM_JAR_ORDERS = {\n")
-  for (product in products) {
-    val path = platformJarOrderRelativePath(product) ?: continue
-    append("    \"").append(product.platformPrefix).append("\": \"//").append(path.substringBeforeLast('/')).append(":")
-      .append(path.substringAfterLast('/')).append("\",\n")
+  for ((product, order) in orders) {
+    append(INDENT).append("\"").append(product).append("\": ")
+    val sharedName = sharedNames.get(order)
+    if (sharedName == null) {
+      append("struct(\n")
+      appendJarList("first", order.first, indent = INDENT + INDENT)
+      appendJarList("last", order.last, indent = INDENT + INDENT)
+      append(INDENT).append("),\n")
+    }
+    else {
+      append(sharedName).append(",\n")
+    }
   }
   append("}\n")
 }
@@ -3166,14 +3385,49 @@ private fun renderReferencePlanFields(product: ProductFragmentPlan, indent: Stri
   appendNameList("platform_asset_archives", product.platformAssets.archives, indent = indent)
 }
 
-/** Where the platform jar order of [product] lives, beside its launch model name, or `null` when it has none. */
-private fun platformJarOrderRelativePath(product: ProductFragmentPlan): String? {
-  if (product.platformJarOrder.isEmpty()) {
-    return null
+/** The names of [product] that the reference inputs resolve, see [resolveDevDistReferenceInputs]. */
+private fun referenceProduct(product: ProductFragmentPlan): DevDistReferenceProduct {
+  fun payload(name: String): DevDistReferencePayload? {
+    val payload = product.payloads.singleOrNull { it.name == name } ?: return null
+    return DevDistReferencePayload(
+      modules = payload.modules,
+      projectLibraries = payload.projectLibraries,
+      moduleSets = payload.moduleSets,
+      runtimeClasspathModules = payload.runtimeClasspathModules,
+    )
   }
-  val caseSafeName = product.launchModelRelativePath.substringAfterLast('/').removeSuffix(LAUNCH_MODEL_SUFFIX)
-  return "$DEV_DIST_PLATFORM_JAR_ORDER_DIRECTORY/$caseSafeName$PLATFORM_JAR_ORDER_SUFFIX"
+  return DevDistReferenceProduct(
+    platformPrefix = product.platformPrefix,
+    buildModules = product.buildModules,
+    embeddedFrontend = product.embeddedFrontend,
+    platformLib = payload(PLATFORM_LIB_FRAGMENT),
+    runtimeModuleRepository = payload(PLATFORM_RUNTIME_MODULE_REPOSITORY_FRAGMENT),
+  )
 }
+
+/**
+ * The targets JSON and the JPS model as the reference inputs read them. A module dependency outside the test scope is a
+ * runtime classpath edge. A library whose parent is the project is a project library reference, whatever its scope.
+ */
+private fun referenceInputModel(targets: BazelTargetsInfo.TargetsFile, outputProvider: ModuleOutputProvider): DevDistReferenceInputModel {
+  val javaExtension = JpsJavaExtensionService.getInstance()
+  return DevDistReferenceInputModel(
+    targets = targets,
+    moduleDependencies = { name ->
+      outputProvider.findModule(name)?.dependenciesList?.dependencies.orEmpty()
+        .filterIsInstance<JpsModuleDependency>()
+        .filter { javaExtension.getDependencyExtension(it)?.scope != JpsJavaDependencyScope.TEST }
+        .map { it.moduleReference.moduleName }
+    },
+    projectLibraryReferences = { name ->
+      outputProvider.findModule(name)?.dependenciesList?.dependencies.orEmpty()
+        .filterIsInstance<JpsLibraryDependency>()
+        .filter { it.libraryReference.parentReference.resolve() is JpsProject }
+        .map { it.libraryReference.libraryName }
+    },
+  )
+}
+
 
 /** One field value of a product plan as [planFieldBodies] renders it at the top level, keyed with its field. */
 private data class PlanFieldBody(@JvmField val field: String, @JvmField val body: String)
@@ -3250,12 +3504,13 @@ private fun renderPlanFields(product: ProductFragmentPlan, indent: String, share
     append(indent).append(field).append(" = ").append(sharedFields.get(body) ?: body.body.replace("\n", "\n$indent")).append(",\n")
   }
   if (product.runtimeModuleRepository) {
-    // Only a row that asks for the runtime module repository composes the fragment. A product without one has no field.
+    // Only a row that asks for the runtime module repository composes the component. A product without one has no field.
     append(indent).append("runtime_module_repository = True,\n")
-    // The split product whose platform the fragment lays out beside the product's own. The bridge and the macro
-    // take that product's `platform_lib` declaration and its frontend-only plugin components from here.
+    // The split product whose platform the component lays out beside the product's own. The dist macro takes its
+    // platform payload and its frontend-only plugin components from here. Only the reference macro reads its
+    // `platform_lib` declaration.
     product.embeddedFrontend?.let { append(indent).append("embedded_frontend = \"").append(it).append("\",\n") }
-    // A modular-loader product reads the repository at every start, so every row of it composes the fragment.
+    // A modular-loader product reads the repository at every start, so every row of it composes the component.
     if (product.modularLoader) {
       append(indent).append("modular_loader = True,\n")
     }
@@ -3272,12 +3527,15 @@ private fun renderFragmentInputs(products: List<ProductFragmentPlan>, half: DevD
   append("# The exact module and library names each fragment declares as its Bazel inputs, so a fragment reads the\n")
   append("# jars its slice of the layout needs instead of the whole production target set.\n")
   append("#\n")
-  append("# Names, not labels, everywhere but one field: this generator has no Bazel-package knowledge, so\n")
-  append("# `").append(half.jpsBridge).append("` resolves each name through its Starlark re-derivation of the converter's package\n")
-  append("# layout and drops, with a warning, a name the model no longer has; the model-generation validation reports\n")
-  append("# staleness. The exception is `packed_content_module_jars`, which is labels because it is the one fact\n")
-  append("# no re-derivation can reach: whether a module packs a `lib/` jar is now a target of its own, and a repository\n")
-  append("# rule can neither see a provider nor test that a target exists.\n")
+  append("# `modules`, `project_libraries`, `module_sets` and `runtime_classpath_modules` are names. The binder reads this\n")
+  append("# file at load time, and no module extension loads it.")
+  if (DevDistCapability.REFERENCE_PLAN in half.capabilities) {
+    append(" The generator resolves the names to the labels of\n")
+    append("# `dev_dist_reference_inputs.bzl`, which only the reference fragments read.")
+  }
+  append("\n")
+  append("# `packed_content_module_jars` is labels: whether a module packs a `lib/` jar is a target of its own, and only the\n")
+  append("# generator knows which modules have one.\n")
   append("#\n")
   append("# `module_sets` is a reference, not a name list: the modules a set contains live in `dev_dist_module_sets.bzl`\n")
   append("# and are shared by every product referencing that set, so this file carries only what no set covers.\n")
@@ -3400,9 +3658,9 @@ private fun renderModuleSets(moduleSets: List<ModuleSetData>, half: DevDistHalf)
   append(half.generatedByHeader)
   append("#\n")
   append("# What each module set a split product references contains: the modules it declares itself, and the sets it\n")
-  append("# nests. `dev_dist_fragment_inputs.bzl` names the sets a product's platform payload references and\n")
-  append("# `").append(half.jpsBridge).append("` walks them from here, so a set two products share is written once instead of\n")
-  append("# flattened into both payloads - which is what made that file grow by ~450 names per split product.\n")
+  append("# nests. `dev_dist_fragment_inputs.bzl` names the sets a product's platform payload references and the binder\n")
+  append("# walks them from here, so a set two products share is written once instead of flattened into both payloads -\n")
+  append("# which is what made that file grow by ~450 names per split product.\n")
   append("#\n")
   append("# The same `moduleSet { }` declarations the generated module-set descriptors come from, so this stays in step\n")
   append("# with what the layout reads at runtime: both are written by this one run and diffed by the same\n")
@@ -3422,9 +3680,8 @@ private fun renderModuleSets(moduleSets: List<ModuleSetData>, half: DevDistHalf)
   append("# `mode_refused` names, per product mode, the `packed` members that the mode refuses. The layout of a product of\n")
   append("# that mode places no jar of them. Such a product hands over no such label, and the binder skips it.\n")
   append("#\n")
-  append("# A set name a payload references and this table no longer has is dropped with a warning, like any other\n")
-  append("# stale plan name: this is read during module-extension evaluation, so failing would make the very tool that\n")
-  append("# regenerates it unbuildable.\n")
+  append("# The binder fails on a set name that a payload references and this table does not have. One generator run writes\n")
+  append("# both files, and no module extension loads this one.\n")
   append("DEV_DIST_MODULE_SETS = {\n")
   for (moduleSet in moduleSets) {
     append("    \"").append(moduleSet.name).append("\": struct(\n")
