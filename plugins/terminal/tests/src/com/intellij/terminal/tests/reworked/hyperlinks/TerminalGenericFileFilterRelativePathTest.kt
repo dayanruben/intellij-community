@@ -4,11 +4,11 @@ import com.intellij.execution.filters.Filter
 import com.intellij.openapi.project.Project
 import com.intellij.platform.eel.path.EelPath
 import com.intellij.terminal.backend.hyperlinks.TerminalHyperlinkFilterContextImpl
+import com.intellij.terminal.backend.hyperlinks.filter.FILENAME_MAX
+import com.intellij.terminal.backend.hyperlinks.filter.TerminalFileKind
+import com.intellij.terminal.backend.hyperlinks.filter.TerminalGenericFileFilter
 import org.assertj.core.api.Assertions
 import org.jetbrains.plugins.terminal.hyperlinks.TerminalFileHyperlinkInfo
-import org.jetbrains.plugins.terminal.hyperlinks.filter.FILENAME_MAX
-import org.jetbrains.plugins.terminal.hyperlinks.filter.TerminalFileKind
-import org.jetbrains.plugins.terminal.hyperlinks.filter.TerminalGenericFileFilter
 import org.junit.Before
 import org.junit.Test
 import org.mockito.Mockito
@@ -129,6 +129,15 @@ internal class TerminalGenericFileFilterRelativePathTest {
   }
 
   @Test
+  fun `a named pipe gets no link`() {
+    fileLookup.addFile("/project/fifo", TerminalFileKind.OTHER)
+    assertNoLinks("fifo")
+    assertNoLinks("./fifo")
+    assertNoLinks("fifo/README.md")
+    assertSingleLink(applyFilter("fifo README.md"), readmeMd, 5, 14)
+  }
+
+  @Test
   fun `ignore paths that exceed FILENAME_MAX per segment`() {
     val longSegment = "a".repeat(FILENAME_MAX + 1)
     assertNoLinks("src/$longSegment.kt")
@@ -216,6 +225,13 @@ internal class TerminalGenericFileFilterRelativePathTest {
   @Test
   fun `relative paths can be disabled`() {
     assertNoLinks("src/Main.kt", TerminalGenericFileFilter(project, descriptor, filterContext, fileLookup, relativePaths = false))
+  }
+
+  @Test
+  fun `console configuration links absolute paths only`() {
+    // TerminalGenericFileFilterProvider.createConsoleFilter
+    val consoleFilter = TerminalGenericFileFilter(project, descriptor, context = null, fileLookup, relativePaths = false)
+    assertSingleLink(applyFilter("see /project/src/Main.kt and src/Main.kt", consoleFilter), mainKt, 4, 24)
   }
 
   @Test

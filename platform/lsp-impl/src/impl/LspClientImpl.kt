@@ -7,8 +7,6 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.event.DocumentEvent
 import com.intellij.openapi.fileEditor.FileDocumentManager
-import com.intellij.openapi.progress.ProgressManager
-import com.intellij.openapi.progress.util.ProgressIndicatorUtils
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectFileIndex
 import com.intellij.openapi.util.io.FileUtilRt
@@ -20,7 +18,6 @@ import com.intellij.platform.lsp.api.LspCommunicationChannel
 import com.intellij.platform.lsp.api.LspCommunicationChannel.StdIO
 import com.intellij.platform.lsp.api.LspIntegrationProvider
 import com.intellij.platform.lsp.api.LspServerState
-import com.intellij.platform.lsp.api.customization.LspInheritanceMarker
 import com.intellij.platform.lsp.api.customization.LspInheritanceMarkersSupport
 import com.intellij.platform.lsp.impl.connector.Lsp4jServerConnector
 import com.intellij.platform.lsp.impl.connector.Lsp4jServerConnectorSocket
@@ -29,34 +26,19 @@ import com.intellij.platform.lsp.impl.connector.LspInitializationException
 import com.intellij.platform.lsp.impl.documentSync.LspDocumentSyncManager
 import com.intellij.platform.lsp.impl.features.LspFeaturesRefreshing
 import com.intellij.platform.lsp.impl.features.highlighting.DiagnosticAndQuickFixes
-import com.intellij.platform.lsp.impl.features.highlighting.LspDocumentLink
 import com.intellij.platform.lsp.impl.features.highlighting.LspHighlightingApplier
-import com.intellij.platform.lsp.impl.features.highlighting.LspSemanticToken
-import com.intellij.platform.lsp.impl.features.highlightingCommon.LspCachedHighlighting
 import com.intellij.platform.lsp.impl.features.highlightingCommon.LspHighlightingCacheRegistry
 import com.intellij.platform.lsp.impl.features.inlayCommon.LspInlayApplier
 import com.intellij.platform.lsp.impl.features.navigation.LspDynamicFiles
 import com.intellij.platform.lsp.impl.fileEvents.LspWatchedFiles
 import com.intellij.serviceContainer.AlreadyDisposedException
-import com.intellij.util.concurrency.Semaphore
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.concurrency.annotations.RequiresReadLock
 import com.intellij.util.text.nullize
-import kotlinx.coroutines.launch
-import org.eclipse.lsp4j.CodeLens
-import org.eclipse.lsp4j.Color
-import org.eclipse.lsp4j.Command
-import org.eclipse.lsp4j.ExecuteCommandParams
-import org.eclipse.lsp4j.FoldingRange
 import org.eclipse.lsp4j.InitializeResult
-import org.eclipse.lsp4j.InlayHint
 import org.eclipse.lsp4j.PublishDiagnosticsParams
-import org.eclipse.lsp4j.SaveOptions
 import org.eclipse.lsp4j.ServerCapabilities
 import org.eclipse.lsp4j.TextDocumentIdentifier
-import org.eclipse.lsp4j.TextDocumentRegistrationOptions
-import org.eclipse.lsp4j.TextDocumentSyncKind
-import org.eclipse.lsp4j.WorkspaceEdit
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.NonNls
 import org.jetbrains.annotations.VisibleForTesting
@@ -103,7 +85,7 @@ class LspClientImpl internal constructor(
   internal val watchedFiles = LspWatchedFiles(this)
   internal val dynamicFiles = LspDynamicFiles(this)
   private val unsupportedFilePaths: MutableSet<String> = Collections.synchronizedSet(HashSet())
-  private val highlightingCacheRegistry = LspHighlightingCacheRegistry(this)
+  internal val highlightingCacheRegistry = LspHighlightingCacheRegistry(this)
 
   private lateinit var lsp4jServerConnector: Lsp4jServerConnector
   private val connectorLock = Any()
@@ -117,9 +99,6 @@ class LspClientImpl internal constructor(
 
   internal val serverCapabilities: ServerCapabilities?
     get() = if (state == LspServerState.Running) initializeResult?.capabilities else null
-
-  internal val textDocumentSyncKind: TextDocumentSyncKind?
-    get() = serverCapabilities?.textDocumentSync?.map({ it }, { it.change })
 
   internal fun isFileOpened(file: VirtualFile): Boolean = documentSyncManager.isFileOpened(file)
 
@@ -164,46 +143,6 @@ class LspClientImpl internal constructor(
       .also { if (!it) unsupportedFilePaths.add(file.path) }
   }
 
-  /**
-   * Sends a [workspace/executeCommand](https://microsoft.github.io/language-server-protocol/specification/#workspace_executeCommand)
-   * request to the server and waits for whichever comes first:
-   *  - a `workspace/applyEdit` request from the server - in this case this function returns the corresponding [WorkspaceEdit],
-   *  and it is up to the caller to apply it;
-   *  - a response to the `executeCommand` request (any response, including an error) - in this case this function returns `null`.
-   *
-   * Waiting is cancellable, so this function is safe to call inside a cancellable read action.
-   */
-  @RequiresBackgroundThread
-  internal fun executeCommandExpectingWorkspaceEdit(command: Command): WorkspaceEdit? {
-    // Released as soon as either the server sends a `workspace/applyEdit` request or the `executeCommand` request gets a response.
-    val semaphore = Semaphore(1)
-    var workspaceEdit: WorkspaceEdit? = null
-
-    try {
-      serverNotificationsHandler.nextApplyEditHandler = { edit ->
-        workspaceEdit = edit
-        semaphore.up()
-      }
-
-      LspCoroutineScopeService.getInstance(project).cs.launch {
-        try {
-          sendRequest { it.workspaceService.executeCommand(ExecuteCommandParams(command.command, command.arguments)) }
-        }
-        finally {
-          semaphore.up()
-        }
-      }
-
-      @Suppress("UsagesOfObsoleteApi")
-      ProgressIndicatorUtils.awaitWithCheckCanceled(semaphore, ProgressManager.getInstance().progressIndicator)
-    }
-    finally {
-      serverNotificationsHandler.nextApplyEditHandler = null
-    }
-
-    return workspaceEdit
-  }
-
   internal fun diagnosticsReceived(params: PublishDiagnosticsParams) {
     highlightingCacheRegistry.publishDiagnosticsCache.diagnosticsReceived(params)
   }
@@ -216,6 +155,10 @@ class LspClientImpl internal constructor(
       // applied before the edit keep their pre-edit offsets until the next daemon pass.
       LspHighlightingApplier.getInstance(project).scheduleHighlightingRefreshDebounced(file)
     }
+  }
+
+  internal fun fileClosed(file: VirtualFile) {
+    highlightingCacheRegistry.fileClosed(file)
   }
 
   override fun invalidateServerResults() {
@@ -263,44 +206,9 @@ class LspClientImpl internal constructor(
   }
 
   @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
-  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
-  internal fun getSemanticTokens(file: VirtualFile): List<LspCachedHighlighting<LspSemanticToken>> =
-    highlightingCacheRegistry.semanticTokensCache.getHighlightings(file)
-
-  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   @VisibleForTesting
   fun getDiagnosticsAndQuickFixes(file: VirtualFile): List<DiagnosticAndQuickFixes> =
     highlightingCacheRegistry.getDiagnosticsAndQuickFixes(file)
-
-  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
-  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
-  internal fun getColorInfos(file: VirtualFile): List<LspCachedHighlighting<Color>> =
-    highlightingCacheRegistry.documentColorCache.getHighlightings(file)
-
-  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
-  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
-  internal fun getDocumentLinkInfos(file: VirtualFile): List<LspCachedHighlighting<LspDocumentLink>> =
-    highlightingCacheRegistry.documentLinkCache.getHighlightings(file)
-
-  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
-  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
-  internal fun getFoldingRangeInfos(file: VirtualFile): List<LspCachedHighlighting<FoldingRange>> =
-    highlightingCacheRegistry.foldingRangeCache.getHighlightings(file)
-
-  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
-  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
-  internal fun getInlayHints(file: VirtualFile): List<LspCachedHighlighting<InlayHint>> =
-    highlightingCacheRegistry.inlayHintsCache.getHighlightings(file)
-
-  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
-  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
-  internal fun getCodeLens(file: VirtualFile): List<LspCachedHighlighting<CodeLens>> =
-    highlightingCacheRegistry.codeLensCache.getHighlightings(file)
-
-  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
-  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
-  internal fun getInheritanceMarkers(file: VirtualFile): List<LspCachedHighlighting<LspInheritanceMarker>> =
-    highlightingCacheRegistry.inheritanceMarkersCache.getHighlightings(file)
 
   internal fun notifyDocumentLinksReceived(file: VirtualFile) = eventBroadcaster.documentLinksReceived(this, file)
 
@@ -418,237 +326,6 @@ class LspClientImpl internal constructor(
     else {
       shutdownAndExit.run()
     }
-  }
-
-  internal fun supportsPullDiagnostics(file: VirtualFile): Boolean =
-    serverCapabilities?.diagnosticProvider != null ||
-    hasDynamicCapabilityToHandleThisFile(file, LspDynamicCapabilities.diagnostic)
-
-  internal fun supportsDocumentColor(file: VirtualFile): Boolean =
-    serverCapabilities?.colorProvider?.let { it.left ?: true }
-    ?: hasDynamicCapabilityToHandleThisFile(file, LspDynamicCapabilities.documentColor)
-
-  internal fun supportsDocumentLink(file: VirtualFile): Boolean =
-    serverCapabilities?.documentLinkProvider != null ||
-    hasDynamicCapabilityToHandleThisFile(file, LspDynamicCapabilities.documentLink)
-
-  internal fun supportsDocumentSymbol(file: VirtualFile): Boolean =
-    serverCapabilities?.documentSymbolProvider != null ||
-    hasDynamicCapabilityToHandleThisFile(file, LspDynamicCapabilities.documentSymbol)
-
-  internal fun supportsFoldingRange(file: VirtualFile): Boolean =
-    serverCapabilities?.foldingRangeProvider?.let { it.left ?: true }
-    ?: hasDynamicCapabilityToHandleThisFile(file, LspDynamicCapabilities.foldingRange)
-
-  internal fun supportsCodeActions(codeActionKindsFilter: (List<String>) -> Boolean): Boolean =
-    serverCapabilities?.codeActionProvider?.let {
-      if (it.isLeft) return it.left!!
-      val kinds = it.right!!.codeActionKinds
-      if (kinds == null) return true // well, the server doesn't have to list code action kinds explicitly, but it does support them!
-      return codeActionKindsFilter(kinds)
-    }
-    ?: false
-
-  internal fun supportsGotoDefinition(): Boolean = serverCapabilities?.definitionProvider?.let { it.left ?: true } == true
-
-  internal fun supportsGotoTypeDefinition(): Boolean = serverCapabilities?.typeDefinitionProvider?.let { it.left ?: true } == true
-
-  internal fun supportsGotoImplementation(file: VirtualFile): Boolean =
-    serverCapabilities?.implementationProvider?.let { it.left ?: true }
-    ?: hasDynamicCapabilityToHandleThisFile(file, LspDynamicCapabilities.implementation)
-
-  internal fun supportsHover(): Boolean = serverCapabilities?.hoverProvider?.let { it.left ?: true } == true
-
-  internal fun supportsCommand(command: String): Boolean =
-    serverCapabilities?.executeCommandProvider?.commands?.contains(command) == true
-
-  /** True when the server provides the text for [scheme] URIs, through the `workspace/textDocumentContent` request. */
-  internal fun providesTextDocumentContent(scheme: String?): Boolean =
-    scheme != null && serverCapabilities?.workspace?.textDocumentContent?.schemes?.contains(scheme) == true
-
-  internal fun supportsFindReferences(file: VirtualFile): Boolean =
-    serverCapabilities?.referencesProvider?.let { it.left ?: true }
-    ?: hasDynamicCapabilityToHandleThisFile(file, LspDynamicCapabilities.references)
-
-  internal fun supportsInlayHints(file: VirtualFile): Boolean =
-    serverCapabilities?.inlayHintProvider?.let { it.left ?: true }
-    ?: hasDynamicCapabilityToHandleThisFile(file, LspDynamicCapabilities.inlayHint)
-
-  internal fun supportsDocumentHighlights(file: VirtualFile): Boolean =
-    serverCapabilities?.documentHighlightProvider?.let { it.left ?: true }
-    ?: hasDynamicCapabilityToHandleThisFile(file, LspDynamicCapabilities.documentHighlight)
-
-  internal fun supportsGoToSymbol(): Boolean = serverCapabilities?.workspaceSymbolProvider?.let { it.left ?: true } == true
-                                               || dynamicCapabilities.hasCapability(LspDynamicCapabilities.symbol)
-
-  internal fun supportsSignatureHelp(file: VirtualFile): Boolean =
-    serverCapabilities?.signatureHelpProvider != null ||
-    hasDynamicCapabilityToHandleThisFile(file, LspDynamicCapabilities.signatureHelp)
-
-  internal fun supportsCallHierarchy(file: VirtualFile): Boolean =
-    serverCapabilities?.callHierarchyProvider?.let { it.left ?: true }
-    ?: hasDynamicCapabilityToHandleThisFile(file, LspDynamicCapabilities.prepareCallHierarchy)
-
-  internal fun supportsTypeHierarchy(file: VirtualFile): Boolean =
-    serverCapabilities?.typeHierarchyProvider?.let { it.left ?: true }
-    ?: hasDynamicCapabilityToHandleThisFile(file, LspDynamicCapabilities.prepareTypeHierarchy)
-
-  internal fun supportsSelectionRange(file: VirtualFile): Boolean =
-    serverCapabilities?.selectionRangeProvider?.let { it.left ?: true }
-    ?: hasDynamicCapabilityToHandleThisFile(file, LspDynamicCapabilities.selectionRange)
-
-  internal fun supportsCodeLens(file: VirtualFile): Boolean =
-    serverCapabilities?.codeLensProvider != null ||
-    hasDynamicCapabilityToHandleThisFile(file, LspDynamicCapabilities.codeLens)
-
-  internal fun supportsRename(file: VirtualFile): Boolean =
-    serverCapabilities?.renameProvider?.let { it.left ?: true }
-    ?: hasDynamicCapabilityToHandleThisFile(file, LspDynamicCapabilities.rename)
-
-  internal fun supportsPrepareRename(file: VirtualFile): Boolean {
-    return serverCapabilities?.renameProvider?.right?.prepareProvider == true ||
-           getDynamicCapabilityOptionsForFile(file, LspDynamicCapabilities.rename)?.prepareProvider == true
-  }
-
-  /**
-   * A server does not have to list its code action kinds; no listed kinds means every kind.
-   * The static capabilities do not veto a dynamic registration: the kind is supported when either source covers it.
-   * Every dynamic registration matching the file counts, because a server may split its kinds across registrations.
-   */
-  internal fun supportsCodeActionsOfKind(file: VirtualFile, kind: String): Boolean {
-    val provider = serverCapabilities?.codeActionProvider
-    val staticSupport = when {
-      provider == null -> false
-      provider.isLeft -> provider.left == true
-      else -> provider.right?.codeActionKinds?.matchesCodeActionKind(kind) != false
-    }
-    if (staticSupport) return true
-    return getDynamicCapabilityOptionsListForFile(file, LspDynamicCapabilities.codeAction)
-      .any { it.codeActionKinds?.matchesCodeActionKind(kind) != false }
-  }
-
-  // a kind covers its own dot-separated subtree only: `refactor.extract.variable2` is not under `refactor.extract.variable`
-  private fun List<String>.matchesCodeActionKind(kind: String): Boolean =
-    any { it == kind || kind.startsWith("$it.") || it.startsWith("$kind.") }
-
-  internal fun getDidSaveOptions(file: VirtualFile): SaveOptions? {
-    val textDocumentSync = serverCapabilities?.textDocumentSync
-    if (textDocumentSync?.right?.save?.left == true) return SaveOptions(false)
-    textDocumentSync?.right?.save?.right?.let { return it }
-    // According to https://microsoft.github.io/language-server-protocol/specification/#textDocument_synchronization
-    // `textDocumentSync` can be `TextDocumentSyncOptions` or `TextDocumentSyncKind`. When it is `TextDocumentSyncKind` there are no rules
-    // that the client must send didSave notification, but VS Code does it in the case of TextDocumentSyncKind.Incremental and
-    // TextDocumentSyncKind.Full. As good practice we should follow VS Code behavior.
-    if (textDocumentSync?.left != null && textDocumentSync.left != TextDocumentSyncKind.None) return SaveOptions(false)
-    getDynamicCapabilityOptionsForFile(file, LspDynamicCapabilities.didSave)?.let { return SaveOptions(it.includeText) }
-    return null
-  }
-
-  /**
-   * @return `true` if the server says it is able to format at least some files;
-   * `false` if the server doesn't support code formatting at all
-   * @see LspClientImpl.doesServerExplicitlyWantToFormatThisFile
-   */
-  internal fun hasFullFileFormattingCapability(): Boolean =
-    dynamicCapabilities.hasCapability(LspDynamicCapabilities.formatting) ||
-    serverCapabilities?.documentFormattingProvider?.let { it.left ?: true } == true
-
-
-  /**
-   * @return `true` if the server says it is able to format at least some files;
-   * `false` if the server doesn't support code range formatting at all
-   * @see LspClientImpl.doesServerExplicitlyWantToFormatThisFile
-   */
-  internal fun hasRangeFormattingCapability(): Boolean =
-    dynamicCapabilities.hasCapability(LspDynamicCapabilities.rangeFormatting) ||
-    serverCapabilities?.documentRangeFormattingProvider?.let { it.left ?: true } == true
-
-  /**
-   * See docs for the `serverExplicitlyWantsToFormatThisFile` parameter in
-   * [com.intellij.platform.lsp.api.customization.LspFormattingSupport.shouldFormatThisFileExclusivelyByServer]
-   */
-  internal fun doesServerExplicitlyWantToFormatThisFile(file: VirtualFile, isFullFileFormatting: Boolean): Boolean {
-    @Suppress("UNCHECKED_CAST")
-    val capabilityAndOptionsClass: Pair<String, Class<TextDocumentRegistrationOptions>> =
-      (if (isFullFileFormatting) LspDynamicCapabilities.formatting else LspDynamicCapabilities.rangeFormatting)
-        as Pair<String, Class<TextDocumentRegistrationOptions>>
-    // We intentionally don't check static server capabilities (serverCapabilities),
-    // which can only say true/false but can't answer whether THIS specific file should be formatted exclusively by the server.
-    // Erroneous `true` answer is very dangerous as it disables the IDE's internal formatter.
-    return hasDynamicCapabilityToHandleThisFile(file, capabilityAndOptionsClass)
-  }
-
-  internal fun getSignatureHelpTriggerCharacters(file: VirtualFile): List<String>? {
-    val staticTriggerCharacters = serverCapabilities?.signatureHelpProvider?.triggerCharacters
-    val dynamicOptions = getDynamicCapabilityOptionsForFile(file, LspDynamicCapabilities.signatureHelp)
-    val dynamicTriggerCharacters = dynamicOptions?.triggerCharacters
-    return when {
-      dynamicTriggerCharacters != null -> dynamicTriggerCharacters
-      staticTriggerCharacters != null -> staticTriggerCharacters
-      else -> null
-    }
-  }
-
-  internal fun getOnTypeFormattingTriggerCharacters(file: VirtualFile): List<String>? {
-    val staticOptions = serverCapabilities?.documentOnTypeFormattingProvider
-    val staticTriggerChars = staticOptions?.let {
-      buildList {
-        add(it.firstTriggerCharacter)
-        it.moreTriggerCharacter?.let { chars -> addAll(chars) }
-      }
-    }
-    val dynamicOptions = getDynamicCapabilityOptionsForFile(file, LspDynamicCapabilities.onTypeFormatting)
-    val dynamicTriggerChars = dynamicOptions?.let {
-      buildList {
-        add(it.firstTriggerCharacter)
-        it.moreTriggerCharacter?.let { chars -> addAll(chars) }
-      }
-    }
-    return dynamicTriggerChars ?: staticTriggerChars
-  }
-
-  private fun <T : TextDocumentRegistrationOptions> hasDynamicCapabilityToHandleThisFile(
-    file: VirtualFile,
-    capabilityAndOptionsClass: Pair<String, Class<T>>,
-  ): Boolean = getDynamicCapabilityOptionsForFile(file, capabilityAndOptionsClass) != null
-
-  private fun <T : TextDocumentRegistrationOptions> getDynamicCapabilityOptionsForFile(
-    file: VirtualFile,
-    capabilityAndOptionsClass: Pair<String, Class<T>>,
-  ): T? = getDynamicCapabilityOptionsListForFile(file, capabilityAndOptionsClass).firstOrNull()
-
-  /** Every registration of the capability whose document selector matches [file]; a registration without a selector matches any file. */
-  private fun <T : TextDocumentRegistrationOptions> getDynamicCapabilityOptionsListForFile(
-    file: VirtualFile,
-    capabilityAndOptionsClass: Pair<String, Class<T>>,
-  ): List<T> {
-    if (file.isDirectory) {
-      logWarn("Directory not expected here. Capability: ${capabilityAndOptionsClass.first}, file: ${file.path}")
-      return emptyList()
-    }
-    return dynamicCapabilities.getCapabilityRegistrationOptions(capabilityAndOptionsClass).filter { it.documentSelectorMatches(file) }
-  }
-
-  private fun TextDocumentRegistrationOptions.documentSelectorMatches(file: VirtualFile): Boolean {
-    val documentSelector = documentSelector ?: return true
-    for (filter in documentSelector) {
-      if (filter.scheme != null && filter.scheme != "file") continue
-
-      val language = filter.language
-      val filterPattern = filter.pattern
-      if (filterPattern != null && filterPattern.isRight) {
-        // A RelativePattern needs its baseUri resolved against the workspace folders. The IDE does not support it yet.
-        logWarn("Ignoring the document filter, its pattern is relative: ${filterPattern.right}")
-        continue
-      }
-      val pattern = filterPattern?.left
-      if (language == null && pattern == null) continue
-      if (language != null && language != descriptor.getLanguageId(file)) continue
-      if (pattern != null && !globMatcher.pathMatches(file.path, false, pattern, null)) continue
-
-      return true
-    }
-    return false
   }
 
   internal fun appendServerErrorOutput(text: String) {

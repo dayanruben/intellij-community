@@ -1,10 +1,13 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.sdk.add.v2.uv
 
+import com.intellij.ide.BrowserUtil
+import com.jetbrains.python.sdk.ModuleOrProject
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.observable.properties.AtomicBooleanProperty
 import com.intellij.openapi.observable.properties.ObservableMutableProperty
 import com.intellij.openapi.observable.properties.ObservableProperty
+import com.intellij.openapi.observable.util.isNotNull
 import com.intellij.openapi.observable.util.not
 import com.intellij.openapi.roots.ModuleRootModificationUtil
 import com.intellij.openapi.ui.ComboBox
@@ -20,8 +23,11 @@ import com.intellij.python.sdk.backend.PythonInterpreter
 import com.intellij.python.uv.backend.UvPyTool
 import com.intellij.python.uv.backend.cli.uv.UvInitVcs
 import com.intellij.python.uv.backend.runtime.uvCli
+import com.intellij.ui.EditorNotificationPanel
+import com.intellij.ui.InlineBanner
 import com.intellij.ui.dsl.builder.AlignX
 import com.intellij.ui.dsl.builder.Panel
+import com.intellij.ui.dsl.builder.Row
 import com.intellij.ui.dsl.builder.bindItem
 import com.intellij.ui.dsl.builder.bindSelected
 import com.intellij.ui.dsl.gridLayout.UnscaledGaps
@@ -32,6 +38,7 @@ import com.jetbrains.python.errorProcessing.ErrorSink
 import com.jetbrains.python.errorProcessing.PyResult
 import com.jetbrains.python.newProjectWizard.collector.PythonNewProjectWizardCollector
 import com.jetbrains.python.sdk.add.v2.CustomNewEnvironmentCreator
+import com.jetbrains.python.sdk.add.v2.InterpreterCreationContext
 import com.jetbrains.python.sdk.add.v2.PathHolder
 import com.jetbrains.python.sdk.add.v2.PythonInterpreterSelectionMethod.SELECT_EXISTING
 import com.jetbrains.python.sdk.add.v2.PythonMutableTargetAddInterpreterModel
@@ -47,6 +54,7 @@ import com.jetbrains.python.sdk.add.v2.pathHolder
 import com.jetbrains.python.sdk.add.v2.successOrNull
 import com.jetbrains.python.sdk.add.v2.validatablePathField
 import com.jetbrains.python.sdk.baseDir
+import com.jetbrains.python.sdk.uv.UvMode
 import com.jetbrains.python.sdk.uv.impl.createUvLowLevel
 import com.jetbrains.python.sdk.uv.impl.validateAndCreateUvCli
 import com.jetbrains.python.sdk.uv.setupNewUvSdkAndEnv
@@ -74,15 +82,33 @@ private fun Version.languageLevel(): @NlsSafe String = "$major.$minor"
 /**
  * Creates a UV environment creator for the given model.
  */
-internal fun PythonMutableTargetAddInterpreterModel<PathHolder.Eel>.uvCreator(): EnvironmentCreatorUv<PathHolder.Eel> {
+internal fun PythonMutableTargetAddInterpreterModel<PathHolder.Eel>.uvCreator(context: InterpreterCreationContext): EnvironmentCreatorUv<PathHolder.Eel> {
   val errorSink = ErrorSink()
-  return EnvironmentCreatorUv(this, null, errorSink)
+  return EnvironmentCreatorUv(this, null, errorSink, context)
 }
+
+/** The row with the box "Use pyproject.toml (uv init)". The box binds to [UvViewModel.projectMode]. */
+internal fun Panel.uvProjectModeRow(uvViewModel: UvViewModel<*>): Row = row("") {
+  checkBox(message("sdk.create.custom.uv.project.mode"))
+    .bindSelected(uvViewModel.projectMode)
+    .comment(message("sdk.create.custom.uv.project.mode.comment"))
+}
+
+/** The banner that explains a uv project. It shows when the uv executable is found. */
+private fun Panel.uvProjectBannerRow(uvViewModel: UvViewModel<*>): Row = row {
+  cell(InlineBanner(message("sdk.create.uv.project.banner"), EditorNotificationPanel.Status.Info))
+    .applyToComponent {
+      showCloseButton(false)
+      addAction(message("sdk.create.uv.project.banner.link")) { BrowserUtil.browse(message("sdk.create.uv.project.banner.url")) }
+    }
+    .align(AlignX.FILL)
+}.visibleIf(uvViewModel.uvExecutable.isNotNull())
 
 internal class EnvironmentCreatorUv<P : PathHolder>(
   model: PythonMutableTargetAddInterpreterModel<P>,
   private val module: Module?,
   errorSink: ErrorSink,
+  private val context: InterpreterCreationContext,
 ) : CustomNewEnvironmentCreator<P>(model, errorSink) {
   override val interpreterType: InterpreterType = InterpreterType.UV
   override val pyTool: PyTool = UvPyTool.getInstance()
@@ -184,6 +210,11 @@ internal class EnvironmentCreatorUv<P : PathHolder>(
           .bindSelected(model.uvViewModel.inheritSitePackages)
           .comment(message("sdk.create.custom.uv.inherit.packages.comment"))
       }
+
+      when (context) {
+        InterpreterCreationContext.NEW_PROJECT_WIZARD -> uvProjectBannerRow(model.uvViewModel)
+        InterpreterCreationContext.ADD_INTERPRETER -> uvProjectModeRow(model.uvViewModel)
+      }
     }
   }
 
@@ -278,15 +309,20 @@ internal class EnvironmentCreatorUv<P : PathHolder>(
     }
   }
 
-  override suspend fun setupEnvSdk(moduleBasePath: Path): PyResult<PythonInterpreter> {
+  override suspend fun setupEnvSdk(moduleOrProject: ModuleOrProject, moduleBasePath: Path): PyResult<PythonInterpreter> {
     val uv = toolExecutable.get()!!.pathHolder.getOr { return it }
     return setupNewUvSdkAndEnv(
+      moduleOrProject = moduleOrProject,
       uvExecutable = uv,
       workingDir = moduleBasePath,
       venvPath = model.uvViewModel.uvVenvPath.get()?.pathHolder?.getOr { return it },
       fileSystem = model.fileSystem,
       version = pythonVersion.get(),
       errorSink = errorSink,
+      mode = when (context) {
+        InterpreterCreationContext.NEW_PROJECT_WIZARD -> UvMode.Project
+        InterpreterCreationContext.ADD_INTERPRETER -> model.uvViewModel.mode
+      },
       overrideExistingEnv = venvAlreadyExistsError.get() != null,
       inheritSitePackages = model.uvViewModel.inheritSitePackages.get(),
     )

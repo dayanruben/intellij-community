@@ -459,6 +459,9 @@ f:com.intellij.codeInsight.highlighting.HighlightUsagesHandler
 - *sf:Companion:com.intellij.codeInsight.lookup.LookupBottomPanelProvider$Companion
 - a:createBottomPanel(com.intellij.codeInsight.lookup.Lookup):javax.swing.JComponent
 *f:com.intellij.codeInsight.lookup.LookupBottomPanelProvider$Companion
+f:com.intellij.codeInsight.navigation.NavigationUtil
+- *sf:getRelatedItemsPopup(java.util.List,java.lang.String,Z,com.intellij.openapi.project.Project,com.intellij.platform.ide.navigation.NavigationOptions):com.intellij.openapi.ui.popup.JBPopup
+- *sf:navigateToRelatedItem(com.intellij.openapi.project.Project,com.intellij.navigation.GotoRelatedItem,com.intellij.platform.ide.navigation.NavigationOptions):V
 *:com.intellij.codeInsight.navigation.SymbolTypeProvider
 - a:getSymbolTypes(com.intellij.openapi.project.Project,com.intellij.model.Symbol):java.util.List
 f:com.intellij.codeInsight.navigation.UtilKt
@@ -650,8 +653,6 @@ f:com.intellij.ide.actions.searcheverywhere.SearchEverywhereUI
 - com.intellij.ide.util.gotoByName.QuickSearchComponent
 - com.intellij.openapi.actionSystem.UiDataProvider
 - *:selectFirstItem():V
-com.intellij.ide.actions.searcheverywhere.SearchListener
-- *:standardSearchFoundNoResults(com.intellij.ide.actions.searcheverywhere.SearchEverywhereContributor):V
 *a:com.intellij.ide.fileTemplates.actions.CustomCreateFromTemplateAction
 - com.intellij.ide.actions.CreateFileFromTemplateAction
 - p:<init>(java.lang.String):V
@@ -670,9 +671,6 @@ com.intellij.ide.projectView.impl.ProjectViewListener
 - sf:EP:com.intellij.openapi.extensions.ExtensionPointName
 - a:createNode(com.intellij.platform.workspace.storage.WorkspaceEntity,com.intellij.openapi.project.Project,com.intellij.ide.projectView.ViewSettings):com.intellij.ide.util.treeView.AbstractTreeNode
 - a:getWorkspaceClass():java.lang.Class
-c:com.intellij.ide.util.scopeChooser.ScopeDescriptor
-- com.intellij.openapi.util.ColoredItem
-- *:needsUserInputForScope():Z
 *f:com.intellij.ide.util.treeView.TreeChildrenPreloaderKt
 - *sf:isChildrenPreloadingEnabled(javax.swing.JTree):Z
 - *sf:setChildrenPreloadingEnabled(javax.swing.JTree,Z):V
@@ -1136,8 +1134,6 @@ f:com.intellij.testIntegration.TestFinderHelper
 - f:editor():com.intellij.openapi.editor.Editor
 - f:open(com.intellij.openapi.fileEditor.OpenFileDescriptor):V
 - f:showEmptyText(java.lang.String):V
-*:com.intellij.unscramble.StacktraceTabContentProvider
-- a:createRunTabDescriptor(com.intellij.openapi.project.Project,java.lang.String,kotlin.coroutines.Continuation):java.lang.Object
 *f:com.intellij.util.gist.GistModificationTracker
 - com.intellij.openapi.util.ModificationTracker
 - <init>(com.intellij.openapi.vfs.VirtualFile):V

@@ -2612,29 +2612,34 @@
       "since": "2019.2"
     },
     {
-      "key": "ToggleButton.borderColor"
+      "key": "OnOffButtonUI",
+      "description": "UI delegate for the on/off toggle. New UI uses DarculaOnOffButtonUI unless a theme sets its own, Classic UI uses the default delegate",
+      "source": "com.intellij.ui.components.OnOffButton"
+    },
+    {
+      "key": "ToggleButton.borderColor",
+      "description": "Classic UI only. Ignored in New UI, where DarculaOnOffButtonUI uses the toggle-* theme colors"
     },
     {
       "key": "ToggleButton.buttonColor",
-      "description": "Legacy sliding knob fill (DefaultOnOffButtonUI)",
+      "description": "Classic UI only. Sliding knob fill. Ignored in New UI, where DarculaOnOffButtonUI uses the toggle-* theme colors",
       "since": "2026.2"
     },
     {
-      "key": "ToggleButton.focusBorderColor",
-      "description": "Focus ring stroke for Islands pill toggle (IslandsOnOffButtonUI; Component-specs Figma control-focus-border-brand). ManyIslands themes map to control-brand-border",
-      "since": "2026.2"
+      "key": "ToggleButton.offBackground",
+      "description": "Classic UI only. Ignored in New UI, where DarculaOnOffButtonUI uses the toggle-* theme colors"
     },
     {
-      "key": "ToggleButton.offBackground"
+      "key": "ToggleButton.offForeground",
+      "description": "Classic UI only. Ignored in New UI, where DarculaOnOffButtonUI uses the toggle-* theme colors"
     },
     {
-      "key": "ToggleButton.offForeground"
+      "key": "ToggleButton.onBackground",
+      "description": "Classic UI only. Ignored in New UI, where DarculaOnOffButtonUI uses the toggle-* theme colors"
     },
     {
-      "key": "ToggleButton.onBackground"
-    },
-    {
-      "key": "ToggleButton.onForeground"
+      "key": "ToggleButton.onForeground",
+      "description": "Classic UI only. Ignored in New UI, where DarculaOnOffButtonUI uses the toggle-* theme colors"
     },
     {
       "key": "SegmentedButton.selectedStartBorderColor",

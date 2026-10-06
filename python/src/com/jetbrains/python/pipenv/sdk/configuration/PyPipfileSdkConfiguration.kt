@@ -110,6 +110,7 @@ internal class PyPipfileSdkConfiguration : PyProjectSdkConfigurationExtension {
       LOGGER.debug("Setting up associated pipenv environment: $path, $basePath")
 
       val sdk = createSdk(
+        pyProject,
         PathHolder.Eel(file.toNioPath()),
         PyPipEnvSdkAdditionalData(basePath),
         suggestedSdkName(basePath.pathString)

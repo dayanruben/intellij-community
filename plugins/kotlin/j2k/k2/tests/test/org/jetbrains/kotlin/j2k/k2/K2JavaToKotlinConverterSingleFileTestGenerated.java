@@ -5294,6 +5294,21 @@ public abstract class K2JavaToKotlinConverterSingleFileTestGenerated extends Abs
             runTest("../../shared/tests/testData/newJ2k/nullabilityGenerics/javaInteropTodo.java");
         }
 
+        @TestMetadata("jpaToManyCollection.java")
+        public void testJpaToManyCollection() throws Exception {
+            runTest("../../shared/tests/testData/newJ2k/nullabilityGenerics/jpaToManyCollection.java");
+        }
+
+        @TestMetadata("jpaToManyNullEvidence.java")
+        public void testJpaToManyNullEvidence() throws Exception {
+            runTest("../../shared/tests/testData/newJ2k/nullabilityGenerics/jpaToManyNullEvidence.java");
+        }
+
+        @TestMetadata("jpaToManyTypeArguments.java")
+        public void testJpaToManyTypeArguments() throws Exception {
+            runTest("../../shared/tests/testData/newJ2k/nullabilityGenerics/jpaToManyTypeArguments.java");
+        }
+
         @TestMetadata("kotlinInteropTodo.java")
         public void testKotlinInteropTodo() throws Exception {
             runTest("../../shared/tests/testData/newJ2k/nullabilityGenerics/kotlinInteropTodo.java");
@@ -5322,6 +5337,11 @@ public abstract class K2JavaToKotlinConverterSingleFileTestGenerated extends Abs
         @TestMetadata("notNullIterationParameterCollections.java")
         public void testNotNullIterationParameterCollections() throws Exception {
             runTest("../../shared/tests/testData/newJ2k/nullabilityGenerics/notNullIterationParameterCollections.java");
+        }
+
+        @TestMetadata("notNullIterationParameterMapViews.java")
+        public void testNotNullIterationParameterMapViews() throws Exception {
+            runTest("../../shared/tests/testData/newJ2k/nullabilityGenerics/notNullIterationParameterMapViews.java");
         }
 
         @TestMetadata("notNullIterationParameterMethodCall.java")

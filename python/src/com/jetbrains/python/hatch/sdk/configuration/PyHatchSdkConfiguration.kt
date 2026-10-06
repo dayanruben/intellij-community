@@ -1,6 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.hatch.sdk.configuration
 
+import com.jetbrains.python.sdk.ModuleOrProject
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import com.intellij.python.sdk.backend.getPythonInfo
@@ -22,12 +23,10 @@ import com.intellij.python.hatch.getHatchService
 import com.intellij.python.hatch.impl.HATCH_TOOL_ID
 import com.intellij.python.pyproject.PY_PROJECT_TOML
 import com.intellij.python.sdk.backend.PythonInterpreter
-import com.intellij.python.sdk.backend.getSdkAPI
 import com.jetbrains.python.PyBundle
 import com.jetbrains.python.PythonBinary
 import com.jetbrains.python.errorProcessing.PyResult
 import com.jetbrains.python.hatch.sdk.createSdk
-import com.jetbrains.python.onSuccess
 import com.jetbrains.python.orLogException
 import com.jetbrains.python.project.PyProject
 import com.jetbrains.python.project.getEel
@@ -39,7 +38,6 @@ import com.jetbrains.python.sdk.configuration.EnvCheckerResult
 import com.jetbrains.python.sdk.configuration.EnvExists
 import com.jetbrains.python.sdk.configuration.PyProjectTomlConfigurationExtension
 import com.jetbrains.python.sdk.configuration.prepareSdkCreator
-import com.jetbrains.python.sdk.setAssociationToModule
 import com.jetbrains.python.util.runWithModalBlockingOrInBackground
 
 internal class PyHatchSdkConfiguration : PyProjectTomlConfigurationExtension {
@@ -120,13 +118,11 @@ internal class PyHatchSdkConfiguration : PyProjectTomlConfigurationExtension {
     }
 
     val hatchVenv = HatchVirtualEnvironment(HatchEnvironment.DEFAULT, environment)
-    val sdk = hatchVenv.createSdk(
+    hatchVenv.createSdk(
+      moduleOrProject = ModuleOrProject.ModuleAndProject(pyProject),
       workingDirectoryPath = hatchService.getWorkingDirectoryPath(),
       fileSystem = fileSystem,
-    ).onSuccess { sdk ->
-      sdk.getSdkAPI().setAssociationToModule(pyProject.residesOnModule)
-    }
-    sdk
+    )
   }
 
 }

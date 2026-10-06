@@ -2,6 +2,9 @@
   <actions>
     <action id="RunConfiguration" class="com.intellij.execution.actions.RunConfigurationsComboBoxAction"/>
     <action id="ChooseRunConfiguration" class="com.intellij.execution.actions.ChooseRunConfigurationPopupAction" icon="AllIcons.Actions.Execute"/>
+    <action id="Unscramble" class="com.intellij.unscramble.AnalyzeStacktraceAction">
+      <override-text place="EditorPopup"/>
+    </action>
     <action id="ChooseDebugConfiguration" class="com.intellij.execution.actions.ChooseDebugConfigurationPopupAction" icon="AllIcons.Actions.StartDebugger"/>
     <group id="CreateRunConfiguration" class="com.intellij.execution.actions.CreateAction"/>
     <action id="SaveTemporaryRunConfiguration" class="com.intellij.execution.actions.SaveTemporaryRunConfigurationAction"/>
@@ -117,9 +120,6 @@
       <reference ref="SaveTemporaryRunConfiguration"/>
       <reference ref="DeleteRunConfiguration"/>
     </group>
-    <group id="RunContextPopupGroup" popup="false">
-      <reference ref="RunContextGroup"/>
-    </group>
     <group id="ProjectViewPopupMenuRunGroup">
       <reference ref="RunContextPopupGroup"/>
     </group>
@@ -136,7 +136,10 @@
       <reference ref="Stop"/>
     </group>
     <group id="RunTestGroup"/>
+    <action id="IdeScriptingConsole" class="com.intellij.ide.script.RunIdeConsoleAction"/>
     <action id="RunAnything" icon="AllIcons.Actions.RunAnything" class="com.intellij.ide.actions.runAnything.RunAnythingAction"/>
-    <group id="ExternalToolsGroup" class="com.intellij.tools.ExternalToolsGroup"/>
+    <group id="ExternalToolsGroup" class="com.intellij.tools.ExternalToolsGroup">
+      <add-to-group group-id="ExternalToolsGroupInHierarchyPopupMenu"/>
+    </group>
   </actions>
 </idea-plugin>

@@ -1,7 +1,8 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.editor.impl.marker;
 
-import com.intellij.openapi.editor.ex.DocumentTextPatch;
+import com.intellij.openapi.editor.ex.DocumentOp;
+import com.intellij.openapi.editor.ex.DocumentPatch;
 import com.intellij.openapi.editor.impl.DocumentImpl;
 import com.intellij.testFramework.LightVirtualFile;
 import com.intellij.testFramework.junit5.TestApplication;
@@ -29,12 +30,16 @@ final class FileMarkerRootTest {
     var fileRoot = FileMarkerRoot.Companion.getOrCreate$intellij_platform_core_impl(file);
     var document = new DocumentImpl("abcdef", true);
     var beforeText = document.getCore().snapshot().text();
-    var patch = DocumentTextPatch.simple(0, 0, "xx", 1, false);
-    var afterText = beforeText.applyOp(patch);
+    var patch = DocumentPatch.simple(0, 0, "xx", 1, false);
+    var afterText = beforeText;
+    for (DocumentOp op : patch.ops()) {
+      afterText = afterText.applyOp(op);
+    }
+    var finalAfterText = afterText;
 
     //noinspection KotlinInternalInJava
     fileRoot.updateCurrentRoot$intellij_platform_core_impl(root ->
-      root.applyPatch(patch, beforeText, afterText, PMarkerRoot.EMPTY_LONG_CONSUMER, PMarkerRoot.EMPTY_LONG_CONSUMER)
+      root.applyPatch(patch, beforeText, finalAfterText, PMarkerRoot.EMPTY_LONG_CONSUMER, PMarkerRoot.EMPTY_LONG_CONSUMER)
     );
 
     //noinspection KotlinInternalInJava

@@ -69,6 +69,8 @@
                   Open a new terminal after enabling this option to take effect."/>
     <registryKey key="terminal.generic.hyperlinks.for.relative.path" defaultValue="true"
                  description="Show generic file hyperlinks for relative paths in the reworked terminal. Requires enabled `terminal.generic.hyperlinks`."/>
+    <registryKey key="terminal.generic.hyperlinks.in.consoles" defaultValue="true"
+                 description="Show invisible file hyperlinks for absolute paths in consoles outside the terminal, such as the Run and Debug consoles."/>
     <registryKey key="terminal.hyperlinks.on.hover" defaultValue="true"
                  description="Compute invisible file hyperlinks in the reworked terminal only for the line under the mouse pointer.
                   When disabled, they are computed for every output line. Open a new terminal after changing this option to take effect."/>
@@ -81,7 +83,6 @@
     <registryKey key="terminal.prefer.image.path.paste.over.text" defaultValue="true"
                  description="When pasting in the terminal, prefer inserting an image path if it is available in the clipboard
                   even if text representation is available."/>
-    <consoleFilterProvider implementation="org.jetbrains.plugins.terminal.hyperlinks.filter.TerminalGenericFileFilterProvider"/>
 
     <experimentalFeature id="terminal.shell.command.handling" percentOfUsers="100"/>
     <terminal.shellCommandHandler implementation="org.jetbrains.plugins.terminal.RunAnythingTerminalBridge"/>

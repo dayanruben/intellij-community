@@ -11,15 +11,13 @@ import com.intellij.openapi.editor.ReadOnlyFragmentModificationException
 import com.intellij.openapi.editor.actionSystem.DocCommandGroupId
 import com.intellij.openapi.editor.event.DocumentEvent
 import com.intellij.openapi.editor.ex.DocumentMutator
-import com.intellij.openapi.editor.ex.DocumentNewOps
+import com.intellij.openapi.editor.ex.DocumentOp
 import com.intellij.openapi.editor.ex.DocumentSettings
 import com.intellij.openapi.editor.ex.DocumentSnapshot
-import com.intellij.openapi.editor.ex.DocumentSputnik
-import com.intellij.openapi.editor.ex.DocumentTextPatch
+import com.intellij.openapi.editor.ex.DocumentPatch
 import com.intellij.openapi.editor.impl.event.DocumentEventImpl
 import com.intellij.openapi.editor.impl.marker.SnapshotMarkerStores
 import com.intellij.openapi.fileEditor.FileDocumentManager
-import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.ProperTextRange
 import com.intellij.util.text.ImmutableCharSequence
 import java.util.function.UnaryOperator
@@ -36,23 +34,13 @@ internal abstract class DocumentMutatorImpl(
   protected abstract fun updateAndGet(update: UnaryOperator<DocumentSnapshot>): DocumentSnapshot
 
   override fun setModStamp(newModStamp: Long, incrementModSequence: Boolean) {
-    val newOps = DocumentNewOps.getInstance()
-    val op = newOps.createModStampOp(newModStamp, incrementModSequence)
+    val op = DocumentOp.modStampOp(newModStamp, incrementModSequence)
     updateAndGet { snapshotMarkerStores.applyOp(it, op) }
   }
 
   override fun clearLineFlags(startLine: Int, endLine: Int, exceptLines: IntArray) {
-    val newOps = DocumentNewOps.getInstance()
-    val op = newOps.createUnmodifiedLinesOp(startLine, endLine, exceptLines)
+    val op = DocumentOp.unmodifiedLinesOp(startLine, endLine, exceptLines)
     updateAndGet { snapshotMarkerStores.applyOp(it, op) }
-  }
-
-  override fun <S : DocumentSputnik> setSputnik(key: Key<S>, sputnik: (DocumentSnapshot) -> S?): DocumentSnapshot {
-    val newOps = DocumentNewOps.getInstance()
-    return updateAndGet { snapshot ->
-      val op = newOps.createSetSputnikOp(key, sputnik.invoke(snapshot))
-      snapshotMarkerStores.applyOp(snapshot, op)
-    }
   }
 
   override fun insertString(
@@ -71,7 +59,7 @@ internal abstract class DocumentMutatorImpl(
     changeText(
       hostDocument,
       snapshot,
-      DocumentTextPatch.simple(
+      DocumentPatch.simple(
         startOffset = insertOffset,
         endOffset = insertOffset,
         newFragment = newFragment,
@@ -213,7 +201,7 @@ internal abstract class DocumentMutatorImpl(
     return changeText(
       hostDocument,
       snapshot,
-      DocumentTextPatch.simple(
+      DocumentPatch.simple(
         startOffset = startOffset,
         endOffset = endOffset,
         newFragment = "",
@@ -276,7 +264,7 @@ internal abstract class DocumentMutatorImpl(
   private fun changeText(
     hostDocument: Document,
     snapshotBefore: DocumentSnapshot,
-    patch: DocumentTextPatch,
+    patch: DocumentPatch,
     startOffset: Int,
     endOffset: Int,
     oldFragment: CharSequence,
@@ -307,7 +295,7 @@ internal abstract class DocumentMutatorImpl(
   protected open fun changeText(
     snapshotBefore: DocumentSnapshot,
     changeEvent: DocumentEvent,
-    patch: DocumentTextPatch,
+    patch: DocumentPatch,
   ): DocumentSnapshot {
     if (changeEvent is DocumentEventImpl) {
       patch.attachLineDiff(changeEvent.lineDiff)
@@ -335,10 +323,10 @@ internal abstract class DocumentMutatorImpl(
   protected fun mergeAndPatch(
     snapshotBefore: DocumentSnapshot,
     latest: DocumentSnapshot,
-    patch: DocumentTextPatch,
+    patch: DocumentPatch,
   ): DocumentSnapshot {
     val merged = snapshotBefore.withMetadata(latest)
-    return snapshotMarkerStores.applyOp(merged, patch)
+    return snapshotMarkerStores.applyPatch(merged, patch)
   }
 
   private fun trimToSize(hostDocument: Document, snapshot: DocumentSnapshot): DocumentSnapshot {

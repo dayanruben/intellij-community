@@ -1,6 +1,7 @@
 // Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.sdk.poetry
 
+import com.jetbrains.python.sdk.ModuleOrProject
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.platform.util.progress.withProgressText
@@ -31,6 +32,7 @@ internal fun suggestedSdkName(basePath: Path): @NlsSafe String = "Poetry (${Path
 
 
 internal suspend fun createNewPoetrySdk(
+  moduleOrProject: ModuleOrProject,
   moduleBasePath: Path,
   basePythonBinaryPath: PythonBinary,
   installPackages: Boolean,
@@ -39,6 +41,7 @@ internal suspend fun createNewPoetrySdk(
 ): PyResult<PythonInterpreter> {
   val fileSystem = moduleBasePath.toEelFileSystem()
   return createNewPoetrySdk(
+    moduleOrProject = moduleOrProject,
     moduleBasePath = moduleBasePath,
     basePythonBinaryPath = PathHolder.Eel(basePythonBinaryPath),
     fileSystem = fileSystem,
@@ -50,6 +53,7 @@ internal suspend fun createNewPoetrySdk(
 }
 
 internal suspend fun <P : PathHolder> createNewPoetrySdk(
+  moduleOrProject: ModuleOrProject,
   moduleBasePath: Path,
   basePythonBinaryPath: P,
   fileSystem: FileSystem<P>,
@@ -70,6 +74,7 @@ internal suspend fun <P : PathHolder> createNewPoetrySdk(
   ).getOr { return it }
 
   return createPoetrySdk(
+    moduleOrProject = moduleOrProject,
     basePath = moduleBasePath,
     pythonBinaryPath = pythonBinaryPath,
     fileSystem = fileSystem,
@@ -78,13 +83,14 @@ internal suspend fun <P : PathHolder> createNewPoetrySdk(
 }
 
 internal suspend fun <P : PathHolder> createPoetrySdk(
+  moduleOrProject: ModuleOrProject,
   basePath: Path,
   pythonBinaryPath: P,
   fileSystem: FileSystem<P>,
   targetPanelExtension: TargetPanelExtension? = null,
 ): PyResult<PythonInterpreter> = withProgressText(PyBundle.message("python.sdk.progress.poetry.configuring")) {
   fileSystem.setupSdk(
-    project = null,
+    moduleOrProject = moduleOrProject,
     pythonBinaryPath = pythonBinaryPath,
     sdkAdditionalData = PyPoetrySdkAdditionalData(basePath),
     targetPanelExtension = targetPanelExtension,

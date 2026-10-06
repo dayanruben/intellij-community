@@ -18,6 +18,7 @@ import com.intellij.terminal.emulator.TerminalCustomCommandListener
 import com.intellij.terminal.emulator.TerminalEmulator
 import com.intellij.terminal.emulator.TerminalInputModifier
 import com.intellij.terminal.emulator.TerminalKeyAction
+import com.intellij.terminal.emulator.KittyKeyboardFlag
 import com.intellij.terminal.emulator.TerminalKeyEvent
 import com.intellij.terminal.emulator.TerminalListener
 import com.intellij.terminal.emulator.TerminalMouseAction
@@ -66,7 +67,9 @@ import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyLayouts.STYLE
 import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyLayouts.STRING
 import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyLayouts.STRING_OFF_LEN
 import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyLayouts.STYLE_SIZE
+import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyKeyEncoderOption
 import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyMode
+import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyOptionAsAlt
 import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyMods
 import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyMouseAction
 import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyMouseButton
@@ -93,7 +96,7 @@ import java.nio.charset.StandardCharsets
 
 /**
  * A [TerminalEmulator] backed by the ghostty VT engine (libghostty-vt). This class owns the native
- * memory (a shared [Arena] + reusable scratch buffers) and maps ghostty's C API onto the
+ * memory (a shared [Arena] + an automatic one for the reusable scratch buffers) and maps ghostty's C API onto the
  * engine-agnostic [TerminalEmulator] surface; [LibGhosttyVt] holds the actual FFM downcall handles.
  * All ghostty-specific types stay private to this class.
  *
@@ -138,8 +141,13 @@ internal class GhosttyTerminalEmulator(
 ) : TerminalEmulator {
 
   // Shared (not confined): the embedding touches ghostty from more than one thread (the VT read
-  // loop and the resize executor). Callers MUST serialize access externally.
+  // loop and the resize executor). Callers MUST serialize access externally. Holds what close() frees.
   private val arena: Arena = Arena.ofShared()
+
+  // The scratch buffers below, freed by the garbage collector with this emulator. A downcall acquires and
+  // releases the session of each segment argument: an atomic update for a shared arena, nothing for an
+  // automatic one. ensureOpen() in each entry point keeps the buffers from use after close().
+  private val scratchArena: Arena = Arena.ofAuto()
   private val terminal: MemorySegment
 
   // Render state: a viewport snapshot with its own dirty tracking, used by takeChanges() (render.h).
@@ -165,30 +173,30 @@ internal class GhosttyTerminalEmulator(
   private var colorScheme: ColorScheme? = null
 
   // Reusable scratch buffers + cell holder (this instance is single-threaded).
-  private val scratchPoint: MemorySegment = arena.allocate(POINT)
-  private val scratchGridRef: MemorySegment = arena.allocate(GRID_REF)
-  private val scratchCell: MemorySegment = arena.allocate(8L)
-  private val scratchRow: MemorySegment = arena.allocate(8L)
-  private val scratchOut: MemorySegment = arena.allocate(16L)
-  private val scratchStyle: MemorySegment = arena.allocate(STYLE_SIZE)
-  private var scratchUri: MemorySegment = arena.allocate(256L)     // grows on OUT_OF_SPACE
-  private val scratchUriLen: MemorySegment = arena.allocate(C_LONG)
-  private var scratchGraphemes: MemorySegment = arena.allocate(8L * C_INT.byteSize()) // uint32[8]; grows on OUT_OF_SPACE
-  private val scratchGraphemesLen: MemorySegment = arena.allocate(C_LONG)
+  private val scratchPoint: MemorySegment = scratchArena.allocate(POINT)
+  private val scratchGridRef: MemorySegment = scratchArena.allocate(GRID_REF)
+  private val scratchCell: MemorySegment = scratchArena.allocate(8L)
+  private val scratchRow: MemorySegment = scratchArena.allocate(8L)
+  private val scratchOut: MemorySegment = scratchArena.allocate(16L)
+  private val scratchStyle: MemorySegment = scratchArena.allocate(STYLE_SIZE)
+  private var scratchUri: MemorySegment = scratchArena.allocate(256L)     // grows on OUT_OF_SPACE
+  private val scratchUriLen: MemorySegment = scratchArena.allocate(C_LONG)
+  private var scratchGraphemes: MemorySegment = scratchArena.allocate(8L * C_INT.byteSize()) // uint32[8]; grows on OUT_OF_SPACE
+  private val scratchGraphemesLen: MemorySegment = scratchArena.allocate(C_LONG)
   private val scratchCellData = CellData()
 
   // One ghostty_cell_get_multi call reads every per-cell scalar readCell needs: [scratchCellKeys]
   // lists the GhosttyCellData codes and [scratchCellValues] the matching output addresses inside
   // [scratchCellOut] (laid out at the CELL_OUT_OFF_* offsets). Filled once; the addresses are
   // stable because the arena never moves allocations.
-  private val scratchCellOut: MemorySegment = arena.allocate(20L)
-  private val scratchCellKeys: MemorySegment = arena.allocate(C_INT, CELL_MULTI_KEYS.size.toLong()).also { keys ->
+  private val scratchCellOut: MemorySegment = scratchArena.allocate(20L)
+  private val scratchCellKeys: MemorySegment = scratchArena.allocate(C_INT, CELL_MULTI_KEYS.size.toLong()).also { keys ->
     CELL_MULTI_KEYS.forEachIndexed { i, key -> keys.setAtIndex(C_INT, i.toLong(), key.code) }
   }
-  private val scratchCellValues: MemorySegment = arena.allocate(C_PTR, CELL_MULTI_KEYS.size.toLong()).also { values ->
+  private val scratchCellValues: MemorySegment = scratchArena.allocate(C_PTR, CELL_MULTI_KEYS.size.toLong()).also { values ->
     CELL_OUT_OFFSETS.forEachIndexed { i, offset -> values.setAtIndex(C_PTR, i.toLong(), scratchCellOut.asSlice(offset)) }
   }
-  private val scratchCellWritten: MemorySegment = arena.allocate(C_LONG)
+  private val scratchCellWritten: MemorySegment = scratchArena.allocate(C_LONG)
 
   // Styles of the row being built, keyed by the cells' style id, so a run of equally styled cells
   // costs one native style read and shares one CellStyle instance. Style ids are page-local (only
@@ -196,22 +204,25 @@ internal class GhosttyTerminalEmulator(
   // outlive one buildRow.
   private val rowStyleCache = HashMap<Int, CellStyle>()
 
+  // The style of the last background-only cell; see backgroundOnlyStyle.
+  private var lastBackgroundOnlyStyle: BackgroundOnlyStyle? = null
+
   // The one and only input buffer for [write], which feeds longer input through it a chunk at a time. Both
-  // halves of that matter: the arena is shared and frees nothing before close(), so allocating per write
+  // halves of that matter: the arena frees nothing while this emulator lives, so allocating per write
   // would grow native usage with the *total* bytes ever written, and growing this buffer on demand would
   // strand every superseded segment for the same reason.
-  private val scratchWrite: MemorySegment = arena.allocate(WRITE_BUFFER_BYTES)
+  private val scratchWrite: MemorySegment = scratchArena.allocate(WRITE_BUFFER_BYTES)
 
   // Per-row dirty tracking (render.h row iterator). [rowIterSlot] holds the reusable iterator handle;
   // [scratchFalse] is a zeroed bool passed to clear a row's dirty flag once consumed.
-  private val rowIterSlot: MemorySegment = arena.allocate(C_PTR)
-  private val scratchFalse: MemorySegment = arena.allocate(1L)
+  private val rowIterSlot: MemorySegment = scratchArena.allocate(C_PTR)
+  private val scratchFalse: MemorySegment = scratchArena.allocate(1L)
 
   // The live 256-color palette, cached in Kotlin as packed 0xRRGGBB so lookups never touch native
   // memory. [scratchPalette] is only the staging buffer for the bulk read done by ensurePaletteLoaded
   // when [paletteDirty] (set by every write, which may carry OSC 4 / 104, and by setDefaultAnsiColors),
   // and for the bulk write done by setDefaultAnsiColors.
-  private val scratchPalette: MemorySegment = arena.allocate(256L * 3)
+  private val scratchPalette: MemorySegment = scratchArena.allocate(256L * 3)
   private val paletteCache = IntArray(256)
   private var paletteDirty = true
 
@@ -222,11 +233,14 @@ internal class GhosttyTerminalEmulator(
   private val keyEvent: MemorySegment
   private val mouseEncoder: MemorySegment
   private val mouseEvent: MemorySegment
-  private var scratchEncode: MemorySegment = arena.allocate(128L)  // grows on OUT_OF_SPACE
-  private val scratchEncodeLen: MemorySegment = arena.allocate(C_LONG)
-  private var scratchKeyText: MemorySegment = arena.allocate(64L)  // grows on demand (IME strings)
-  private val scratchMousePosition: MemorySegment = arena.allocate(GhosttyLayouts.MOUSE_POSITION)
-  private val scratchMouseSize: MemorySegment = arena.allocate(GhosttyLayouts.MOUSE_ENCODER_SIZE_BYTES)
+  private var scratchEncode: MemorySegment = scratchArena.allocate(128L)  // grows on OUT_OF_SPACE
+  private val scratchEncodeLen: MemorySegment = scratchArena.allocate(C_LONG)
+  private var scratchKeyText: MemorySegment = scratchArena.allocate(64L)  // grows on demand (IME strings)
+  private val scratchMousePosition: MemorySegment = scratchArena.allocate(GhosttyLayouts.MOUSE_POSITION)
+  private val scratchMouseSize: MemorySegment = scratchArena.allocate(GhosttyLayouts.MOUSE_ENCODER_SIZE_BYTES)
+
+  /** See [setOptionAsAlt]; applied on every encode, because `setopt_from_terminal` resets it. */
+  private var optionAsAlt = false
 
   init {
     // Tracks what has been created so far, so a failure partway through can roll back what already
@@ -557,6 +571,11 @@ internal class GhosttyTerminalEmulator(
   override val applicationCursorKeys: Boolean get() = modeEnabled(GhosttyMode.DECCKM)
   override val applicationKeypad: Boolean get() = modeEnabled(GhosttyMode.KEYPAD_KEYS)
   override val bracketedPaste: Boolean get() = modeEnabled(GhosttyMode.BRACKETED_PASTE)
+  override val kittyKeyboardFlags: Set<KittyKeyboardFlag>
+    get() {
+      val bits = terminalGetU8(GhosttyTerminalData.KITTY_KEYBOARD_FLAGS)
+      return KittyKeyboardFlag.entries.filterTo(HashSet()) { bits and (1 shl it.ordinal) != 0 }
+    }
   override val synchronizedOutput: Boolean get() = modeEnabled(GhosttyMode.SYNC_OUTPUT)
 
   override val mouseProtocol: MouseProtocol
@@ -644,6 +663,10 @@ internal class GhosttyTerminalEmulator(
 
   // ---- encoding input into PTY bytes ----
 
+  override fun setOptionAsAlt(enabled: Boolean) {
+    optionAsAlt = enabled
+  }
+
   override fun encodeKeyEvent(event: TerminalKeyEvent): ByteArray {
     ensureOpen()
     try {
@@ -651,11 +674,15 @@ internal class GhosttyTerminalEmulator(
       // TerminalKey mirrors GhosttyKey entry by entry, so the ordinal is the C value.
       LibGhosttyVt.keyEventSetKey(keyEvent, event.key.ordinal)
       LibGhosttyVt.keyEventSetMods(keyEvent, modsBits(event.modifiers))
+      LibGhosttyVt.keyEventSetConsumedMods(keyEvent, modsBits(event.consumedModifiers))
       setKeyEventText(event.text)
       LibGhosttyVt.keyEventSetUnshiftedCodepoint(keyEvent, event.unshiftedCodepoint)
       LibGhosttyVt.keyEventSetComposing(keyEvent, event.composing)
 
       LibGhosttyVt.keyEncoderSetoptFromTerminal(keyEncoder, terminal)
+      // No terminal mode carries this option, and setopt_from_terminal has just reset it.
+      scratchOut.set(C_INT, 0L, (if (optionAsAlt) GhosttyOptionAsAlt.TRUE else GhosttyOptionAsAlt.FALSE).code)
+      LibGhosttyVt.keyEncoderSetopt(keyEncoder, GhosttyKeyEncoderOption.MACOS_OPTION_AS_ALT.code, scratchOut)
       return encodeToBytes { buf, size, outLen -> LibGhosttyVt.keyEncoderEncode(keyEncoder, keyEvent, buf, size, outLen) }
     } catch (t: Throwable) {
       throw RuntimeException("ghostty key encoding failed", t)
@@ -706,7 +733,7 @@ internal class GhosttyTerminalEmulator(
     scratchEncodeLen.set(C_LONG, 0L, 0L)
     var result = encode(scratchEncode, scratchEncode.byteSize(), scratchEncodeLen)
     if (result == GhosttyResult.OUT_OF_SPACE) {
-      scratchEncode = arena.allocate(scratchEncodeLen.get(C_LONG, 0L))
+      scratchEncode = scratchArena.allocate(scratchEncodeLen.get(C_LONG, 0L))
       result = encode(scratchEncode, scratchEncode.byteSize(), scratchEncodeLen)
     }
     if (result != GhosttyResult.SUCCESS) {
@@ -723,7 +750,7 @@ internal class GhosttyTerminalEmulator(
   private fun setKeyEventText(text: String) {
     val bytes = text.encodeToByteArray()
     if (bytes.size > scratchKeyText.byteSize()) {
-      scratchKeyText = arena.allocate(bytes.size.toLong())
+      scratchKeyText = scratchArena.allocate(bytes.size.toLong())
     }
     MemorySegment.copy(bytes, 0, scratchKeyText, C_BYTE, 0L, bytes.size)
     LibGhosttyVt.keyEventSetUtf8(keyEvent, scratchKeyText, bytes.size.toLong())
@@ -768,7 +795,17 @@ internal class GhosttyTerminalEmulator(
 
   override fun screenLine(row: Int): TerminalRow = buildRow(GhosttyPointTag.ACTIVE, row)
 
+  override fun isScreenLineWrapped(row: Int): Boolean {
+    ensureOpen()
+    return readRowWrapped(GhosttyPointTag.ACTIVE, row)
+  }
+
   override fun scrollbackLine(row: Int): TerminalRow = buildRow(GhosttyPointTag.HISTORY, row)
+
+  override fun isScrollbackLineWrapped(row: Int): Boolean {
+    ensureOpen()
+    return readRowWrapped(GhosttyPointTag.HISTORY, row)
+  }
 
   private fun buildRow(pointTag: GhosttyPointTag, y: Int): TerminalRow {
     ensureOpen()
@@ -1181,13 +1218,13 @@ internal class GhosttyTerminalEmulator(
         // the engine skips the style map for a cell with no text.
         GhosttyCellContentTag.BG_COLOR_PALETTE -> {
           val index = scratchCellOut.get(C_BYTE, CELL_OUT_OFF_COLOR_PALETTE).toInt() and 0xFF
-          CellStyle(background = toColor(GhosttyStyleColorTag.PALETTE, index))
+          backgroundOnlyStyle(GhosttyStyleColorTag.PALETTE, index)
         }
         GhosttyCellContentTag.BG_COLOR_RGB -> {
           val r = scratchCellOut.get(C_BYTE, CELL_OUT_OFF_COLOR_RGB).toInt() and 0xFF
           val g = scratchCellOut.get(C_BYTE, CELL_OUT_OFF_COLOR_RGB + 1).toInt() and 0xFF
           val b = scratchCellOut.get(C_BYTE, CELL_OUT_OFF_COLOR_RGB + 2).toInt() and 0xFF
-          CellStyle(background = toColor(GhosttyStyleColorTag.RGB, (r shl 16) or (g shl 8) or b))
+          backgroundOnlyStyle(GhosttyStyleColorTag.RGB, (r shl 16) or (g shl 8) or b)
         }
         else -> styleForId(scratchCellOut.get(C_SHORT, CELL_OUT_OFF_STYLE_ID).toInt() and 0xFFFF)
       }
@@ -1208,6 +1245,18 @@ internal class GhosttyTerminalEmulator(
   private fun styleForId(styleId: Int): CellStyle {
     if (styleId == 0) return CellStyle.Default
     return rowStyleCache.getOrPut(styleId) { readStyleFromGridRef() }
+  }
+
+  /**
+   * The [CellStyle] of a background-only cell with the color [value] of kind [tag]. A painted background is a run
+   * of equal cells, so the last style is kept and shared. The color is not page-local, so the style stays valid.
+   */
+  private fun backgroundOnlyStyle(tag: GhosttyStyleColorTag, value: Int): CellStyle {
+    val last = lastBackgroundOnlyStyle
+    if (last != null && last.tag == tag && last.value == value) return last.style
+    val created = BackgroundOnlyStyle(tag, value, CellStyle(background = toColor(tag, value)))
+    lastBackgroundOnlyStyle = created
+    return created.style
   }
 
   /** Read the current grid ref's style; the default style if the engine fails the read. */
@@ -1260,7 +1309,7 @@ internal class GhosttyTerminalEmulator(
       scratchUriLen.set(C_LONG, 0L, 0L)
       var r = LibGhosttyVt.gridRefHyperlinkUri(scratchGridRef, scratchUri, scratchUri.byteSize(), scratchUriLen)
       if (r == GhosttyResult.OUT_OF_SPACE) {
-        scratchUri = arena.allocate(scratchUriLen.get(C_LONG, 0L))
+        scratchUri = scratchArena.allocate(scratchUriLen.get(C_LONG, 0L))
         r = LibGhosttyVt.gridRefHyperlinkUri(scratchGridRef, scratchUri, scratchUri.byteSize(), scratchUriLen)
       }
       if (r != GhosttyResult.SUCCESS) {
@@ -1290,7 +1339,7 @@ internal class GhosttyTerminalEmulator(
       var r = LibGhosttyVt.gridRefGraphemes(scratchGridRef, scratchGraphemes, capacity, scratchGraphemesLen)
       if (r == GhosttyResult.OUT_OF_SPACE) {
         capacity = scratchGraphemesLen.get(C_LONG, 0L)
-        scratchGraphemes = arena.allocate(capacity * C_INT.byteSize())
+        scratchGraphemes = scratchArena.allocate(capacity * C_INT.byteSize())
         r = LibGhosttyVt.gridRefGraphemes(scratchGridRef, scratchGraphemes, capacity, scratchGraphemesLen)
       }
       if (r != GhosttyResult.SUCCESS) {
@@ -1324,6 +1373,20 @@ internal class GhosttyTerminalEmulator(
       return (r shl 16) or (g shl 8) or b
     }
     return 0
+  }
+
+  private fun terminalGetU8(dataKind: GhosttyTerminalData): Int {
+    ensureOpen()
+    scratchOut.set(C_BYTE, 0L, 0.toByte())
+    try {
+      val r = LibGhosttyVt.terminalGet(terminal, dataKind.code, scratchOut)
+      if (r != GhosttyResult.SUCCESS) {
+        throw IllegalStateException("ghostty_terminal_get($dataKind) returned $r")
+      }
+    } catch (t: Throwable) {
+      throw RuntimeException("ghostty_terminal_get failed", t)
+    }
+    return scratchOut.get(C_BYTE, 0L).toInt() and 0xFF
   }
 
   private fun terminalGetU16(dataKind: GhosttyTerminalData): Int {
@@ -1410,6 +1473,10 @@ internal class GhosttyTerminalEmulator(
   }
 
   private fun CellData.toCell(): Cell {
+    // Most cells of a screen are blank, so they share one instance.
+    if (codepoint == 0 && wide == GhosttyCellWide.NARROW && style == CellStyle.Default && hyperlink == null) {
+      return Cell.Empty
+    }
     val cellWidth = when (wide) {
       GhosttyCellWide.NARROW -> CellWidth.NARROW
       GhosttyCellWide.WIDE -> CellWidth.WIDE
@@ -1463,6 +1530,9 @@ internal class GhosttyTerminalEmulator(
     val packed = paletteCache[index]
     return TerminalColor.Rgb((packed shr 16) and 0xFF, (packed shr 8) and 0xFF, packed and 0xFF)
   }
+
+  /** A background-only [style] and the raw color it was made from: [value] of kind [tag]. */
+  private class BackgroundOnlyStyle(val tag: GhosttyStyleColorTag, val value: Int, val style: CellStyle)
 
   /** Mutable, reusable holder for a ghostty cell's raw content + style (avoids per-cell allocation). */
   private class CellData {

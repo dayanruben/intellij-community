@@ -1,6 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.sdk.conda
 
+import com.jetbrains.python.sdk.ModuleOrProject
 import com.intellij.execution.target.FullPathOnTarget
 import com.intellij.execution.target.TargetEnvironmentConfiguration
 import com.intellij.openapi.projectRoots.Sdk
@@ -42,6 +43,7 @@ internal val condaSupportedLanguages: List<LanguageLevel>
  * See `com.jetbrains.env.python.conda.PyCondaSdkTest`
  */
 internal suspend fun PyCondaCommand.createCondaSdkFromExistingEnvironment(
+  moduleOrProject: ModuleOrProject,
   condaIdentity: PyCondaEnvIdentity,
   existingSdks: List<Sdk>,
   workingDirectory: Path,
@@ -63,7 +65,7 @@ internal suspend fun PyCondaCommand.createCondaSdkFromExistingEnvironment(
 
   val sdkType = PythonSdkType.getInstance()
   val name = SdkConfigurationUtil.createUniqueSdkName(sdkType.suggestSdkName(null, interpreterPath), existingSdks)
-  val pythonInterpreter = creationRequest.createSdk( name).getOr { return it }
+  val pythonInterpreter = creationRequest.createSdk(moduleOrProject, name).getOr { return it }
 
   if (targetConfig == null) {
     savePythonCondaPath(Path.of(fullCondaPathOnTarget))
@@ -94,12 +96,14 @@ private suspend fun getCondaPythonBinaryPath(
  * See `com.jetbrains.env.python.conda.PyCondaSdkTest`
  */
 internal suspend fun PyCondaCommand.createCondaSdkAlongWithNewEnv(
+  moduleOrProject: ModuleOrProject,
   newCondaEnvInfo: NewCondaEnvRequest,
   existingSdks: List<Sdk>,
   workingDirectory: Path,
 ): PyResult<PythonInterpreter> {
   PyCondaEnv.createEnv(this, newCondaEnvInfo).getOr { return it }
   val sdk = createCondaSdkFromExistingEnvironment(
+    moduleOrProject = moduleOrProject,
     condaIdentity = newCondaEnvInfo.toIdentity(),
     existingSdks = existingSdks,
     workingDirectory = workingDirectory,

@@ -12,10 +12,10 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import git4idea.GitStandardRemoteBranch
 import git4idea.remote.GitRemoteUrlCoordinates
-import git4idea.remote.hosting.GitHostingUrlUtil.getUriFromRemoteUrl
 import git4idea.remote.hosting.GitRemoteBranchesUtil
 import git4idea.remote.hosting.HostedGitRepositoryRemote
 import git4idea.remote.hosting.changesSignalFlow
+import git4idea.remote.hosting.createHostedGitRepositoryRemote
 import git4idea.workingTrees.GitWorkingTreesService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -36,7 +36,6 @@ import org.jetbrains.plugins.github.authentication.accounts.GithubAccount
 import org.jetbrains.plugins.github.pullrequest.GHPRStatisticsCollector
 import org.jetbrains.plugins.github.pullrequest.ui.GHPRProjectViewModel
 import org.jetbrains.plugins.github.util.GHGitRepositoryMapping
-import java.net.URI
 
 private val LOG = logger<GHPRBranchesViewModel>()
 
@@ -129,18 +128,11 @@ class GHPRBranchesViewModel internal constructor(
 
     private const val WORKTREE_FROM_REVIEW_PLACE = "review.details.branch.popup"
 
-    // Used as a default value for HostedGitRepositoryRemote serverUri when it's not possible to find an existing remote.
-    // Path is removed, to match to every URL with the same host.
-    private fun GitRemoteUrlCoordinates.toServerUri(): URI = getUriFromRemoteUrl(url)?.resolve("/")
-                                                             ?: throw IllegalArgumentException("Invalid remote URL: $url")
-
     /**
-     * Server URI should correspond to the existing remote, otherwise use the default server URI without a path.
+     * Creates the descriptor with the host of [defaultCoordinates] and the project paths from the API.
      */
-    private fun GHRepository.getRemoteDescriptor(defaultCoordinates: GitRemoteUrlCoordinates): HostedGitRepositoryRemote {
-      val serverUri = defaultCoordinates.toServerUri()
-      return HostedGitRepositoryRemote(owner.login, serverUri, nameWithOwner, url, sshUrl)
-    }
+    private fun GHRepository.getRemoteDescriptor(defaultCoordinates: GitRemoteUrlCoordinates): HostedGitRepositoryRemote =
+      createHostedGitRepositoryRemote(owner.login, nameWithOwner, url, sshUrl, defaultCoordinates)
 
     fun GHPullRequest.getHeadRemoteDescriptor(remoteUrlCoordinates: GitRemoteUrlCoordinates): HostedGitRepositoryRemote? =
       headRepository?.getRemoteDescriptor(remoteUrlCoordinates)

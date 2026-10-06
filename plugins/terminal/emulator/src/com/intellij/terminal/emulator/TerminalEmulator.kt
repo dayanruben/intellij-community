@@ -17,6 +17,7 @@ import org.jetbrains.annotations.ApiStatus
 //                            (+ StyleRange, HyperlinkRange)
 //   TerminalCursor.kt        Cursor, CursorShape
 //   TerminalMouseModes.kt    MouseProtocol, MouseEncoding
+//   TerminalKeyboardModes.kt KittyKeyboardFlag — the Kitty keyboard protocol flags
 //   TerminalKeyEvents.kt     TerminalKeyEvent (+ TerminalKey, TerminalKeyAction) — key events to
 //                            encode into PTY bytes
 //   TerminalMouseEvents.kt   TerminalMouseEvent (+ TerminalMouseAction, TerminalMouseButton)
@@ -179,6 +180,13 @@ interface TerminalEmulator : AutoCloseable {
   val mouseProtocol: MouseProtocol
   val mouseEncoding: MouseEncoding
 
+  /**
+   * The flags of the Kitty keyboard protocol the program has enabled; empty while the
+   * protocol is off. While any flag is set, [encodeKeyEvent] encodes every key as the
+   * protocol prescribes.
+   */
+  val kittyKeyboardFlags: Set<KittyKeyboardFlag>
+
   // encoding input into PTY bytes
   /**
    * Encodes [event] into the bytes the embedder should write to the PTY, honoring the terminal's
@@ -187,6 +195,15 @@ interface TerminalEmulator : AutoCloseable {
    * outside the Kitty protocol, an event mid-IME-composition.
    */
   fun encodeKeyEvent(event: TerminalKeyEvent): ByteArray
+
+  /**
+   * Sets whether the macOS Option key acts as Alt in [encodeKeyEvent]. With `false`, the
+   * default, Option composes text ("ƒ" for Option+F) and the text is sent. With `true`,
+   * Option is the Alt modifier: an ESC prefix in legacy mode, and the Alt bit in the
+   * `modifyOtherKeys` and Kitty encodings, which then carry no text. Has no effect on the
+   * other platforms, where Alt is a modifier in any case.
+   */
+  fun setOptionAsAlt(enabled: Boolean)
 
   /**
    * Encodes [event] into the bytes the embedder should write to the PTY, honoring the terminal's
@@ -214,10 +231,19 @@ interface TerminalEmulator : AutoCloseable {
   fun screenLine(row: Int): TerminalRow
 
   /**
+   * Whether row [row] of the active screen soft-wraps into the next one: the [TerminalRow.wrapped] of
+   * [screenLine], but without reading the cells. Out-of-range indices yield `false`.
+   */
+  fun isScreenLineWrapped(row: Int): Boolean
+
+  /**
    * Row [row] of scrollback, 0-based from the oldest retained line (valid range:
    * `0 until scrollbackRows`). Out-of-range indices yield a row of empty cells rather than throwing.
    */
   fun scrollbackLine(row: Int): TerminalRow
+
+  /** The same as [isScreenLineWrapped], for row [row] of [scrollbackLine]. */
+  fun isScrollbackLineWrapped(row: Int): Boolean
 
   // change tracking (pull); resets the pending set
   fun takeChanges(): ScreenChange

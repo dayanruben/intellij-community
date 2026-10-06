@@ -70,7 +70,7 @@ class PyTypedDictTypeProvider : PyTypeProviderBase() {
     return type.notNullToRef()
   }
 
-  override fun prepareCalleeTypeForCall(type: PyType?, callee: PyExpression, context: TypeEvalContext): Ref<PyCallableType?>? {
+  override fun prepareCalleeTypeForCall(type: PyType?, callee: PyExpression, context: TypeEvalContext): Ref<PyType?>? {
     return if (type is PyTypedDictType) Ref.create(type) else null
   }
 
@@ -315,10 +315,12 @@ private fun createTypedDictTypeForClass(cls: PyClass, context: TypeEvalContext):
     else -> typedDictAncestors.firstOrNull()?.isClosed ?: false
   }
 
+  val name = cls.name ?: return null
+  val dictClass = PyBuiltinCache.getInstance(cls).dictType?.pyClass ?: return null
   return PyTypedDictType(
-    cls.name ?: return null,
+    name,
     { evalContext -> collectFields(cls, evalContext) },
-    PyBuiltinCache.getInstance(cls).dictType?.pyClass ?: return null,
+    dictClass,
     true,
     cls,
     closed,
@@ -445,13 +447,15 @@ private fun collectDeclaredFields(cls: PyClass, context: TypeEvalContext): TDFie
     if (element is PyTargetExpression) {
       val stub = element.stub
       if (context.maySwitchToAST(cls) || stub == null) {
-        if (element.annotation != null) {
-          fields.add(Pair(element, checkTypeSpecification(element.annotation!!.value, context, totality)))
+        val annotation = element.annotation
+        if (annotation != null) {
+          fields.add(Pair(element, checkTypeSpecification(annotation.value, context, totality)))
         }
       }
       else {
-        if (stub.annotation != null) {
-          val annotation = PyUtil.createExpressionFromFragment(stub.annotation!!, cls)
+        val stubAnnotation = stub.annotation
+        if (stubAnnotation != null) {
+          val annotation = PyUtil.createExpressionFromFragment(stubAnnotation, cls)
           fields.add(Pair(stub.psi, checkTypeSpecification(annotation, context, totality)))
         }
       }
@@ -512,7 +516,10 @@ private fun checkIfClassIsDirectTypedDictInheritor(cls: PyClass, context: TypeEv
     return cls.superClassExpressions.any { isTypedDict(it, context) }
   }
   else {
-    return stub.superClassesText.any { isTypedDict(PyUtil.createExpressionFromFragment(it, cls) ?: return false, context) }
+    return stub.superClassesText.any {
+      val superClassExpression = PyUtil.createExpressionFromFragment(it, cls) ?: return false
+      isTypedDict(superClassExpression, context)
+    }
   }
 }
 

@@ -1,7 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.editor.impl
 
-import com.intellij.openapi.editor.ex.DocumentTextPatch
+import com.intellij.openapi.editor.ex.DocumentPatch
 import com.intellij.openapi.editor.impl.event.DocumentEventImpl
 import com.intellij.openapi.editor.impl.marker.MarkerSpec
 import com.intellij.openapi.editor.impl.marker.PersistentMarkerPolicy
@@ -73,7 +73,7 @@ internal class DocumentLineDiffTest {
         policy = PersistentMarkerPolicy,
       ),
     ) as SnapshotRangeMarkerImpl
-    val patch = DocumentTextPatch.simple(
+    val patch = DocumentPatch.simple(
       startOffset = 0,
       endOffset = OLD_TEXT.length,
       newFragment = NEW_TEXT,
@@ -85,7 +85,7 @@ internal class DocumentLineDiffTest {
     val rootStore = document.rangeMarkers.rootStore()
 
     runConcurrently {
-      val snapshot = markerStores.applyOp(initialSnapshot, patch)
+      val snapshot = markerStores.applyPatch(initialSnapshot, patch)
       val resolution = SnapshotMarkerEngineImpl.resolveRangeMarker(marker, rootStore.rootReference(snapshot).get())
       assertEquals(expectedStart, resolution.startOffset)
       assertEquals(expectedStart + 3, resolution.endOffset)
@@ -97,7 +97,7 @@ internal class DocumentLineDiffTest {
     val oldFragment = "\ntarget\nomega\r"
     val newFragment = "\nalpha\ntarget\nomega\r"
 
-    fun createPatch(): DocumentTextPatch = DocumentTextPatch.simple(
+    fun createPatch(): DocumentPatch = DocumentPatch.simple(
       startOffset = 1,
       endOffset = oldFragment.length + 1,
       newFragment = newFragment,
@@ -105,7 +105,7 @@ internal class DocumentLineDiffTest {
       clearLineFlags = false,
     )
 
-    fun transformPersistentMarker(prefix: String, suffix: String, patch: DocumentTextPatch): Pair<Int, Int> {
+    fun transformPersistentMarker(prefix: String, suffix: String, patch: DocumentPatch): Pair<Int, Int> {
       val oldText = prefix + oldFragment + suffix
       val document = DocumentImpl(oldText, true, true)
       val initialSnapshot = document.core.snapshot()
@@ -122,7 +122,7 @@ internal class DocumentLineDiffTest {
         ),
       ) as SnapshotRangeMarkerImpl
 
-      val snapshot = document.snapshotMarkerStores.applyOp(initialSnapshot, patch)
+      val snapshot = document.snapshotMarkerStores.applyPatch(initialSnapshot, patch)
       val root = document.rangeMarkers.rootStore().rootReference(snapshot).get()
       val resolution = SnapshotMarkerEngineImpl.resolveRangeMarker(marker, root)
       return resolution.startOffset to resolution.endOffset

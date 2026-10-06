@@ -194,6 +194,11 @@ internal object LibGhosttyVt {
     KEY_ENCODER_SETOPT_FROM_TERMINAL.invokeExact(encoder, terminal)
   }
 
+  /** `ghostty_key_encoder_setopt`: set one [GhosttyKeyEncoderOption]; [value] holds the option's C value. */
+  fun keyEncoderSetopt(encoder: MemorySegment, option: Int, value: MemorySegment) {
+    KEY_ENCODER_SETOPT.invokeExact(encoder, option, value)
+  }
+
   /**
    * `ghostty_key_encoder_encode`: encode [event] into [outBuf] (capacity [outBufSize]); [outLen] receives
    * the byte count (0 when the event produces nothing, or the required size on `OUT_OF_SPACE`).
@@ -223,6 +228,11 @@ internal object LibGhosttyVt {
   /** `ghostty_key_event_set_mods`: set the [GhosttyMods] bitmask. */
   fun keyEventSetMods(event: MemorySegment, mods: Short) {
     KEY_EVENT_SET_MODS.invokeExact(event, mods)
+  }
+
+  /** `ghostty_key_event_set_consumed_mods`: set the [GhosttyMods] bitmask the layout used to produce the text. */
+  fun keyEventSetConsumedMods(event: MemorySegment, mods: Short) {
+    KEY_EVENT_SET_CONSUMED_MODS.invokeExact(event, mods)
   }
 
   /** `ghostty_key_event_set_utf8`: set the layout-produced text; the event borrows [utf8] until re-set. */
@@ -469,6 +479,8 @@ internal object LibGhosttyVt {
     FunctionDescriptor.ofVoid(C_PTR)) }
   private val KEY_ENCODER_SETOPT_FROM_TERMINAL: MethodHandle by lazy { downcall("ghostty_key_encoder_setopt_from_terminal",
     FunctionDescriptor.ofVoid(C_PTR, C_PTR)) }
+  private val KEY_ENCODER_SETOPT: MethodHandle by lazy { downcall("ghostty_key_encoder_setopt",
+    FunctionDescriptor.ofVoid(C_PTR, C_INT, C_PTR)) }
   private val KEY_ENCODER_ENCODE: MethodHandle by lazy { downcall("ghostty_key_encoder_encode",
     FunctionDescriptor.of(C_INT, C_PTR, C_PTR, C_PTR, C_LONG, C_PTR)) }
   private val KEY_EVENT_NEW: MethodHandle by lazy { downcall("ghostty_key_event_new",
@@ -480,6 +492,8 @@ internal object LibGhosttyVt {
   private val KEY_EVENT_SET_KEY: MethodHandle by lazy { downcall("ghostty_key_event_set_key",
     FunctionDescriptor.ofVoid(C_PTR, C_INT)) }
   private val KEY_EVENT_SET_MODS: MethodHandle by lazy { downcall("ghostty_key_event_set_mods",
+    FunctionDescriptor.ofVoid(C_PTR, C_SHORT)) }
+  private val KEY_EVENT_SET_CONSUMED_MODS: MethodHandle by lazy { downcall("ghostty_key_event_set_consumed_mods",
     FunctionDescriptor.ofVoid(C_PTR, C_SHORT)) }
   private val KEY_EVENT_SET_UTF8: MethodHandle by lazy { downcall("ghostty_key_event_set_utf8",
     FunctionDescriptor.ofVoid(C_PTR, C_PTR, C_LONG)) }

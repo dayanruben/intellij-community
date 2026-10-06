@@ -42,6 +42,7 @@
     <module name="intellij.platform.kernel"/>
     <module name="intellij.platform.lang"/>
     <module name="intellij.platform.lang.core"/>
+    <module name="intellij.platform.lang.impl"/>
     <module name="intellij.platform.macro"/>
     <module name="intellij.platform.project"/>
     <module name="intellij.platform.projectFrame"/>
@@ -145,7 +146,16 @@
 
     <actionConfigurationCustomizer implementation="com.intellij.execution.runToolbar.MyActionConfigurationCustomizer"/>
 
+    <searchEverywhereContributor implementation="com.intellij.ide.actions.searcheverywhere.RunConfigurationsSEContributor$Factory"/>
+
+    <templateModuleBuilderPostprocessing implementation="com.intellij.execution.impl.RunConfigurationTemplateModuleBuilderPostprocessing"/>
+    <applicationService serviceInterface="com.intellij.testIntegration.RunSelectedTestAdvertisement"
+                        serviceImplementation="com.intellij.execution.impl.RunSelectedTestAdvertisementImpl"/>
+
     <advancedSetting id="terminal.show.application.title" default="false" groupKey="group.advanced.settings.terminal" visible="false"/>
+
+    <colorSettings implementation="com.intellij.openapi.options.colors.pages.ANSIColoredConsoleColorsPage"
+                   bundle="messages.OptionsBundle" key="color.settings.console.name" priority="COMMON_SETTINGS" id="ansi"/>
 
     <registryKey defaultValue="false"
                  description="Run implementation for split mode."
@@ -153,14 +163,20 @@
                  restartRequired="true"/>
     <remote.customDataContextSerializer implementation="com.intellij.execution.RunContentDescriptorIdSerializer"/>
     <remote.customDataContextSerializer implementation="com.intellij.execution.ExecutionEnvironmentIdSerializer"/>
+    <uiDataRule implementation="com.intellij.execution.impl.printing.RunProfileNameForPrintingRule"/>
     <uiDataRule implementation="com.intellij.execution.RunContentDescriptorIdDataRule"/>
     <uiDataRule implementation="com.intellij.execution.ExecutionEnvironmentIdDataRule"/>
     <runToolbarProcess implementation="com.intellij.execution.runToolbar.RunToolbarRunProcess"/>
+    <scratch.rootType implementation="com.intellij.ide.script.IdeConsoleRootType"/>
+    <appStarter id="ideScript" implementation="com.intellij.ide.script.IdeScriptStarter" internal="true"/>
+    <postStartupActivity implementation="com.intellij.ide.script.IdeStartupScripts" order="last"/>
     <projectSettings service="com.intellij.execution.startup.ProjectStartupLocalConfiguration"/>
     <projectSettings service="com.intellij.execution.startup.ProjectStartupSharedConfiguration"/>
     <projectSettings service="com.intellij.execution.impl.IprRunManagerImpl"/>
     <projectSettings service="com.intellij.execution.ui.RunConfigurationStartHistory"/>
     <projectSettings service="com.intellij.execution.runToolbar.RunToolbarSettings"/>
+    <applicationService serviceInterface="com.intellij.terminal.TerminalUtilsBridge"
+                        serviceImplementation="com.intellij.terminal.TerminalUtilsBridgeImpl"/>
     <applicationSettings service="com.intellij.terminal.TerminalUiSettingsManager"/>
     <projectSettings service="com.intellij.ide.actions.runAnything.RunAnythingCache"/>
     <projectSettings service="com.intellij.ide.actions.runAnything.RunAnythingContextRecentDirectoryCache"/>
@@ -194,6 +210,7 @@
     <extensionPoint qualifiedName="com.intellij.module.workingDirectoryProvider" interface="com.intellij.openapi.module.WorkingDirectoryProvider" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.runningApplicationUpdaterProvider" interface="com.intellij.execution.update.RunningApplicationUpdaterProvider" dynamic="true"/>
     <extensionPoint qualifiedName="org.jetbrains.javaScriptDebuggerStarter" interface="com.intellij.ide.browsers.JavaScriptDebuggerStarter" dynamic="true"/>
+    <extensionPoint qualifiedName="com.intellij.analyzeStacktraceRunContentProvider" interface="com.intellij.unscramble.StacktraceTabContentProvider" dynamic="true"/>
     <extensionPoint interface="com.intellij.execution.DisplayDescriptorChooser"
                     dynamic="true"
                     qualifiedName="com.intellij.execution.displayDescriptorChooser" />

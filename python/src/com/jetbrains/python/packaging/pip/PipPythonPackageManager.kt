@@ -1,9 +1,8 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.packaging.pip
 
+import com.intellij.python.sdk.backend.PythonInterpreter
 import com.jetbrains.python.packaging.utils.PyPackageCoroutine
-import com.intellij.openapi.application.EDT
-import com.intellij.openapi.application.readAction
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.ModuleUtilCore
 import com.intellij.openapi.project.Project
@@ -25,7 +24,6 @@ import com.jetbrains.python.packaging.PyRequirement
 import com.jetbrains.python.packaging.common.PythonOutdatedPackage
 import com.jetbrains.python.packaging.common.PythonPackage
 import com.jetbrains.python.packaging.common.PythonRepositoryPackageSpecification
-import com.jetbrains.python.packaging.common.toPythonPackage
 import com.jetbrains.python.packaging.management.DependenciesExporter
 import com.jetbrains.python.packaging.management.PyWorkspaceMember
 import com.jetbrains.python.packaging.management.PythonManagerCliSpec
@@ -33,7 +31,8 @@ import com.jetbrains.python.packaging.management.PythonPackageInstallRequest
 import com.jetbrains.python.packaging.management.PythonPackageManager
 import com.jetbrains.python.packaging.management.PythonRepositoryManager
 import com.jetbrains.python.packaging.management.hasInstalledPackage
-import com.jetbrains.python.packaging.requirementsTxt.RequirementsTxtManipulationHelper
+import com.jetbrains.python.packaging.requirementsTxt.addRequirement
+import com.jetbrains.python.packaging.requirementsTxt.readDeclaredPackages
 import com.jetbrains.python.packaging.syncWithImports
 import com.jetbrains.python.psi.LanguageLevel
 import com.jetbrains.python.sdk.PythonSdkAdditionalData
@@ -49,7 +48,7 @@ import java.nio.file.Path
  */
 @ApiStatus.Internal
 @PyInternalExecApi
-open class PipPythonPackageManager(project: Project, sdk: Sdk) : PythonPackageManager(project, sdk) {
+open class PipPythonPackageManager(project: Project, interpreter: PythonInterpreter) : PythonPackageManager(project, interpreter) {
   override val repositoryManager: PythonRepositoryManager = PipRepositoryManager.getInstance(project)
   override fun getCliSpecs(eelApi: EelApi): List<PythonManagerCliSpec> =
     listOf(PythonManagerCliSpec("pip", { sdk.homePath?.let { Path.of(it) } }, runAsModule = true))
@@ -102,25 +101,16 @@ open class PipPythonPackageManager(project: Project, sdk: Sdk) : PythonPackageMa
 
   override suspend fun loadPackagesCommand(): PyResult<List<PythonPackage>> = engine.loadPackagesCommand()
 
-  override suspend fun listDeclaredPackages(): PyResult<List<PythonPackage>>? {
-    val requirementsFile = getRootDependenciesFile() ?: return null
-    val requirements = readAction {
-      PyRequirementParser.fromFile(requirementsFile.virtualFile)
-    }
-    return PyResult.success(requirements.mapNotNull { it.toPythonPackage() })
-  }
+  override suspend fun listDeclaredPackages(): PyResult<List<PythonPackage>>? =
+    getRootDependenciesFile()?.readDeclaredPackages()
 
   override val dependenciesFilesRelativePaths: List<Path>
     get() = listOf(
       PythonSdkAdditionalData.REQUIREMENT_TXT_DEFAULT,
     )
 
-  override suspend fun addDependencyImpl(requirement: PyRequirement): Boolean {
-    val requirementsFile = getRootDependenciesFile() ?: return false
-    return withContext(Dispatchers.EDT) {
-      RequirementsTxtManipulationHelper.addToRequirementsTxt(project, requirementsFile.virtualFile, requirement.presentableText)
-    }
-  }
+  override suspend fun addDependencyImpl(requirement: PyRequirement): Boolean =
+    getRootDependenciesFile()?.addRequirement(project, requirement) ?: false
 }
 
 @ApiStatus.Internal

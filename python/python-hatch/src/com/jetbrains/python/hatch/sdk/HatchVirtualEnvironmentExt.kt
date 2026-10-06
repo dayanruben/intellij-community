@@ -1,6 +1,7 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.hatch.sdk
 
+import com.jetbrains.python.sdk.ModuleOrProject
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.python.hatch.BasePythonExecutableNotFoundHatchError
 import com.intellij.python.hatch.HatchVirtualEnvironment
@@ -29,6 +30,7 @@ import java.nio.file.Path
  */
 @ApiStatus.Internal
 suspend fun <P : PathHolder> HatchVirtualEnvironment<P>.createSdk(
+  moduleOrProject: ModuleOrProject,
   workingDirectoryPath: Path,
   fileSystem: FileSystem<P>,
   targetPanelExtension: TargetPanelExtension? = null,
@@ -49,7 +51,7 @@ suspend fun <P : PathHolder> HatchVirtualEnvironment<P>.createSdk(
     hatchEnvironmentName = this.hatchEnvironment.name,
   )
   val sdk = fileSystem.setupSdk(
-    project = null,
+    moduleOrProject = moduleOrProject,
     pythonBinaryPath = pythonBinary,
     sdkAdditionalData = hatchSdkAdditionalData,
     targetPanelExtension = targetPanelExtension,

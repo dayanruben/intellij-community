@@ -6,6 +6,7 @@ import com.intellij.platform.lsp.impl.LspClientImpl
 import com.intellij.platform.lsp.impl.LspDocument
 import com.intellij.platform.lsp.impl.features.highlightingCommon.LspHighlightingCache
 import com.intellij.platform.lsp.impl.features.highlightingCommon.LspPullResult
+import com.intellij.platform.lsp.impl.supportsPullDiagnostics
 import kotlinx.coroutines.withTimeoutOrNull
 import org.eclipse.lsp4j.DocumentDiagnosticParams
 import org.eclipse.lsp4j.Range
@@ -110,6 +111,10 @@ internal class LspPullDiagnosticsCache(private val lspClient: LspClientImpl) : L
 
   override fun clearAdditionalCache() {
     fileToResultIds.clear()
+  }
+
+  override fun clearAdditionalCache(file: VirtualFile) {
+    fileToResultIds.remove(file)
   }
 
   override suspend fun onResponseReceived(file: VirtualFile) {

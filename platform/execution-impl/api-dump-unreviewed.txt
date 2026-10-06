@@ -345,6 +345,21 @@ c:com.intellij.execution.configuration.EnvironmentVariablesTextFieldWithBrowseBu
 - removeChangeListener(javax.swing.event.ChangeListener):V
 - removeEnvFilePathsChangeListener(javax.swing.event.ChangeListener):V
 - p:stringifyEnvs(com.intellij.execution.configuration.EnvironmentVariablesData):java.lang.String
+c:com.intellij.execution.console.ConsoleViewWrapperBase
+- sf:CONSOLE_VIEW_WRAPPER_VIEW_ID_PREFIX:java.lang.String
+- allowHeavyFilters():V
+- canPause():Z
+- getContentSize():I
+- getExecutionConsoleId():java.lang.String
+- getPreferredFocusableComponent():javax.swing.JComponent
+- hasDeferredOutput():Z
+- isOutputPaused():Z
+- performWhenNoDeferredOutput(java.lang.Runnable):V
+- print(java.lang.String,com.intellij.execution.ui.ConsoleViewContentType):V
+- printHyperlink(java.lang.String,com.intellij.execution.filters.HyperlinkInfo):V
+- requestScrollingToEnd():V
+- setHelpId(java.lang.String):V
+- setOutputPaused(Z):V
 f:com.intellij.execution.envFile.EnvFileParserKt
 - sf:parseEnvFile(java.lang.String):java.util.Map
 a:com.intellij.execution.filters.AbstractFileHyperlinkFilter
@@ -884,6 +899,23 @@ c:com.intellij.execution.runToolbar.components.TrimmedMiddleLabel
 - javax.swing.JLabel
 - <init>():V
 - p:paintComponent(java.awt.Graphics):V
+a:com.intellij.execution.runners.AbstractConsoleRunnerWithHistory
+- <init>(com.intellij.openapi.project.Project,java.lang.String,java.lang.String):V
+- p:constructConsoleTitle(java.lang.String):java.lang.String
+- p:createCloseAction(com.intellij.execution.Executor,com.intellij.execution.ui.RunContentDescriptor):com.intellij.openapi.actionSystem.AnAction
+- pa:createConsoleView():com.intellij.execution.console.LanguageConsoleView
+- pa:createExecuteActionHandler():com.intellij.execution.console.ProcessBackedConsoleExecuteActionHandler
+- pa:createProcess():java.lang.Process
+- pa:createProcessHandler(java.lang.Process):com.intellij.execution.process.OSProcessHandler
+- p:createStopAction():com.intellij.openapi.actionSystem.AnAction
+- p:fillToolBarActions(com.intellij.openapi.actionSystem.DefaultActionGroup,com.intellij.execution.Executor,com.intellij.execution.ui.RunContentDescriptor):java.util.List
+- p:finishConsole():V
+- p:getConsoleIcon():javax.swing.Icon
+- p:getExecutor():com.intellij.execution.Executor
+- isAutoFocusContent():Z
+- s:registerActionShortcuts(java.util.List,javax.swing.JComponent):V
+- p:shouldAddNumberToTitle():Z
+- p:showConsole(com.intellij.execution.Executor,com.intellij.execution.ui.RunContentDescriptor):V
 c:com.intellij.execution.runners.ConsoleTitleGen
 - <init>(com.intellij.openapi.project.Project,java.lang.String):V
 - <init>(com.intellij.openapi.project.Project,java.lang.String,Z):V
@@ -900,6 +932,9 @@ f:com.intellij.execution.runners.RerunTestsAction
 - actionPerformed(com.intellij.openapi.actionSystem.AnActionEvent):V
 - getActionUpdateThread():com.intellij.openapi.actionSystem.ActionUpdateThread
 - update(com.intellij.openapi.actionSystem.AnActionEvent):V
+f:com.intellij.execution.runners.RerunTestsNotification
+- <init>():V
+- s:showRerunNotification(com.intellij.execution.ui.RunContentDescriptor,com.intellij.execution.ui.ExecutionConsole):V
 com.intellij.execution.runners.RunContentActionsContributor
 - a:getActions():com.intellij.openapi.actionSystem.AnAction[]
 - getAdditionalActions():com.intellij.openapi.actionSystem.AnAction[]
@@ -1800,9 +1835,6 @@ f:com.intellij.terminal.TerminalUiSettingsManager$State
 - f:setAutoShowDocumentationPopup(Z):V
 - f:setCursorShape(com.intellij.terminal.TerminalUiSettingsManager$CursorShape):V
 - f:setMaxVisibleCompletionItemsCount(I):V
-f:com.intellij.terminal.TerminalUtils
-- s:getSelectedTextInTerminal(java.awt.Component):java.lang.String
-- s:hasSelectionInTerminal(java.awt.Component):Z
 f:com.intellij.terminal.actions.TerminalActionUtil
 - s:createTerminalAction(com.intellij.terminal.JBTerminalWidget,com.intellij.openapi.actionSystem.AnAction):com.jediterm.terminal.ui.TerminalAction
 - s:createTerminalAction(com.intellij.terminal.JBTerminalWidget,com.jediterm.terminal.ui.TerminalActionPresentation,java.util.function.Predicate):com.jediterm.terminal.ui.TerminalAction
@@ -1900,3 +1932,5 @@ a:com.intellij.tools.ToolsProvider
 - sf:EP_NAME:com.intellij.openapi.extensions.ExtensionPointName
 - <init>():V
 - a:getTools():java.util.List
+f:com.intellij.unscramble.AnalyzeStacktraceUtil
+- sf:EP_NAME:com.intellij.openapi.extensions.ProjectExtensionPointName

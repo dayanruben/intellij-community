@@ -6,6 +6,7 @@ import com.intellij.markdown.backend.editor.livepreview.computeLivePreviewSpecs
 import com.intellij.openapi.editor.ex.DocumentEx
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import org.intellij.plugins.markdown.MarkdownBundle
+import org.intellij.plugins.markdown.editor.livepreview.MarkdownLivePreviewSpec.AlertType
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 
@@ -109,8 +110,17 @@ class MarkdownLivePreviewSpecTest : BasePlatformTestCase() {
     assertEquals("file:///project/image.png", image.destination)
   }
 
-  fun testReferenceLinksAreNotConcealed() {
-    assertEmpty(concealed("[text][label] and [label]\n\n[label]: https://example.org"))
+  fun testReferenceLinksAreConcealed() {
+    val content = """
+      |[Markdown Guide][docs] [IntelliJ IDEA][] [GitHub]
+      |
+      |[docs]: https://example.org
+      |[IntelliJ IDEA]: https://www.jetbrains.com/idea/
+      |[GitHub]: https://github.com
+    """.trimMargin()
+
+    assertEquals(listOf("[", "][docs]", "[", "][]", "[", "]"), concealed(content))
+    assertEquals(listOf("[Markdown Guide][docs]", "[IntelliJ IDEA][]", "[GitHub]"), revealRanges(content))
   }
 
   fun testCodeFenceContentIsNotConcealed() {
@@ -322,7 +332,7 @@ class MarkdownLivePreviewSpecTest : BasePlatformTestCase() {
 
   fun testBlockquoteRuleCoversLazyContinuationLines() {
     val content = "> first\nlazy\n> third"
-    assertEquals(listOf("> first\nlazy\n", "> third"), ruleSegments(content))
+    assertEquals(listOf("> first", "> third"), ruleSegments(content))
   }
 
   fun testBlockquoteRulesInsideListItemsCoverTheirLines() {
@@ -410,6 +420,23 @@ class MarkdownLivePreviewSpecTest : BasePlatformTestCase() {
     assertEquals(listOf(">", ">", ">", ">", ">"), concealed(content))
     assertEquals(listOf("> > first\n", "> first", ">\n", "> > second", "> second"), ruleSegments(content))
     assertEquals(listOf("> >", "> >", ">", "> >", "> >"), revealRanges(content))
+  }
+
+  fun testAlertsConcealTheirMarkersAndTitleBrackets() {
+    val content = "> [!NOTE]\n> text"
+    assertEquals(listOf(">", "[!", "]", ">"), concealed(content))
+    assertEquals(listOf(">", "[!NOTE]", ">"), revealRanges(content))
+    assertEquals(listOf("> [!NOTE]\n", "> text"), ruleSegments(content))
+    assertEquals(listOf(AlertType.NOTE, AlertType.NOTE), blockQuotes(content).map { it.alertType })
+  }
+
+  fun testQuoteInsideAnAlertHasNoAlertType() {
+    val content = "> [!CAUTION]\n> > nested"
+    assertEquals(listOf(AlertType.CAUTION, AlertType.CAUTION, null), blockQuotes(content).map { it.alertType })
+  }
+
+  fun testUnknownAlertTitleHasNoAlertType() {
+    assertEquals(listOf(null), blockQuotes("> [!UNKNOWN]").map { it.alertType })
   }
 
   fun testTaskExamplesOutsideListsAreNotCheckboxes() {

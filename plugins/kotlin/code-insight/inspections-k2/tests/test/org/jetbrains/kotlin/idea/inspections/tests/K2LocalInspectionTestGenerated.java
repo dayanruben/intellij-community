@@ -9282,24 +9282,19 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
             runTest("../../../idea/tests/testData/inspectionsLocal/selfAssignment/property3.kt");
         }
 
-        @TestMetadata("property4.k2.kt")
-        public void testProperty4_k2() throws Exception {
-            runTest("../../../idea/tests/testData/inspectionsLocal/selfAssignment/property4.k2.kt");
+        @TestMetadata("property4.kt")
+        public void testProperty4() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/selfAssignment/property4.kt");
         }
 
-        @TestMetadata("property5.k2.kt")
-        public void testProperty5_k2() throws Exception {
-            runTest("../../../idea/tests/testData/inspectionsLocal/selfAssignment/property5.k2.kt");
+        @TestMetadata("property5.kt")
+        public void testProperty5() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/selfAssignment/property5.kt");
         }
 
         @TestMetadata("propertyHasDelegate.kt")
         public void testPropertyHasDelegate() throws Exception {
             runTest("../../../idea/tests/testData/inspectionsLocal/selfAssignment/propertyHasDelegate.kt");
-        }
-
-        @TestMetadata("propertyHasDelegate.k2.kt")
-        public void testPropertyHasDelegate_k2() throws Exception {
-            runTest("../../../idea/tests/testData/inspectionsLocal/selfAssignment/propertyHasDelegate.k2.kt");
         }
 
         @TestMetadata("propertyHasGetter.kt")
@@ -19756,6 +19751,69 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
         }
 
         @RunWith(JUnit3RunnerWithInners.class)
+        @TestMetadata("testData/inspectionsLocal/redundantContextSensitiveResolutionQualifier")
+        public static class RedundantContextSensitiveResolutionQualifier extends AbstractK2LocalInspectionTest {
+            private void runTest(String testDataFilePath) throws Exception {
+                KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+            }
+
+            @TestMetadata("companionPropertyInVariableDeclaration.kt")
+            public void testCompanionPropertyInVariableDeclaration() throws Exception {
+                runTest("testData/inspectionsLocal/redundantContextSensitiveResolutionQualifier/companionPropertyInVariableDeclaration.kt");
+            }
+
+            @TestMetadata("companionPropertyInVariableDeclaration_implicitPropertyType.kt")
+            public void testCompanionPropertyInVariableDeclaration_implicitPropertyType() throws Exception {
+                runTest("testData/inspectionsLocal/redundantContextSensitiveResolutionQualifier/companionPropertyInVariableDeclaration_implicitPropertyType.kt");
+            }
+
+            @TestMetadata("enumEntryFeatureDisabled.kt")
+            public void testEnumEntryFeatureDisabled() throws Exception {
+                runTest("testData/inspectionsLocal/redundantContextSensitiveResolutionQualifier/enumEntryFeatureDisabled.kt");
+            }
+
+            @TestMetadata("enumEntryInEquality.kt")
+            public void testEnumEntryInEquality() throws Exception {
+                runTest("testData/inspectionsLocal/redundantContextSensitiveResolutionQualifier/enumEntryInEquality.kt");
+            }
+
+            @TestMetadata("enumEntryInFunctionParameter.kt")
+            public void testEnumEntryInFunctionParameter() throws Exception {
+                runTest("testData/inspectionsLocal/redundantContextSensitiveResolutionQualifier/enumEntryInFunctionParameter.kt");
+            }
+
+            @TestMetadata("enumEntryInVariableDeclaration.kt")
+            public void testEnumEntryInVariableDeclaration() throws Exception {
+                runTest("testData/inspectionsLocal/redundantContextSensitiveResolutionQualifier/enumEntryInVariableDeclaration.kt");
+            }
+
+            @TestMetadata("enumEntryInWhenCondition.kt")
+            public void testEnumEntryInWhenCondition() throws Exception {
+                runTest("testData/inspectionsLocal/redundantContextSensitiveResolutionQualifier/enumEntryInWhenCondition.kt");
+            }
+
+            @TestMetadata("enumEntryNoExpectedType.kt")
+            public void testEnumEntryNoExpectedType() throws Exception {
+                runTest("testData/inspectionsLocal/redundantContextSensitiveResolutionQualifier/enumEntryNoExpectedType.kt");
+            }
+
+            @TestMetadata("enumEntryQualifierRedundantByImport.kt")
+            public void testEnumEntryQualifierRedundantByImport() throws Exception {
+                runTest("testData/inspectionsLocal/redundantContextSensitiveResolutionQualifier/enumEntryQualifierRedundantByImport.kt");
+            }
+
+            @TestMetadata("sealedSubclassInAsCast.kt")
+            public void testSealedSubclassInAsCast() throws Exception {
+                runTest("testData/inspectionsLocal/redundantContextSensitiveResolutionQualifier/sealedSubclassInAsCast.kt");
+            }
+
+            @TestMetadata("sealedSubclassInIsCheck.kt")
+            public void testSealedSubclassInIsCheck() throws Exception {
+                runTest("testData/inspectionsLocal/redundantContextSensitiveResolutionQualifier/sealedSubclassInIsCheck.kt");
+            }
+        }
+
+        @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/inspectionsLocal/redundantDestructuringRename")
         public static class RedundantDestructuringRename extends AbstractK2LocalInspectionTest {
             private void runTest(String testDataFilePath) throws Exception {
@@ -27896,29 +27954,14 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
             runTest("../../../idea/tests/testData/inspectionsLocal/mainFunctionReturnUnit/explicitReturnTypeBlockBody.kt");
         }
 
-        @TestMetadata("explicitReturnTypeBlockBody.k2.kt")
-        public void testExplicitReturnTypeBlockBody_k2() throws Exception {
-            runTest("../../../idea/tests/testData/inspectionsLocal/mainFunctionReturnUnit/explicitReturnTypeBlockBody.k2.kt");
-        }
-
         @TestMetadata("explicitReturnTypeExpressionBody.kt")
         public void testExplicitReturnTypeExpressionBody() throws Exception {
             runTest("../../../idea/tests/testData/inspectionsLocal/mainFunctionReturnUnit/explicitReturnTypeExpressionBody.kt");
         }
 
-        @TestMetadata("explicitReturnTypeExpressionBody.k2.kt")
-        public void testExplicitReturnTypeExpressionBody_k2() throws Exception {
-            runTest("../../../idea/tests/testData/inspectionsLocal/mainFunctionReturnUnit/explicitReturnTypeExpressionBody.k2.kt");
-        }
-
         @TestMetadata("implicitReturnTypeExpressionBody.kt")
         public void testImplicitReturnTypeExpressionBody() throws Exception {
             runTest("../../../idea/tests/testData/inspectionsLocal/mainFunctionReturnUnit/implicitReturnTypeExpressionBody.kt");
-        }
-
-        @TestMetadata("implicitReturnTypeExpressionBody.k2.kt")
-        public void testImplicitReturnTypeExpressionBody_k2() throws Exception {
-            runTest("../../../idea/tests/testData/inspectionsLocal/mainFunctionReturnUnit/implicitReturnTypeExpressionBody.k2.kt");
         }
 
         @TestMetadata("notMainFunName.kt")
@@ -28567,6 +28610,11 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
         @TestMetadata("fullForm.kt")
         public void testFullForm() throws Exception {
             runTest("../../../idea/tests/testData/inspectionsLocal/customComponentDestructuringMigration/fullForm.kt");
+        }
+
+        @TestMetadata("fullFormNonDataClass.kt")
+        public void testFullFormNonDataClass() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/customComponentDestructuringMigration/fullFormNonDataClass.kt");
         }
 
         @TestMetadata("fullValueClass.kt")
@@ -30916,6 +30964,16 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
         @TestMetadata("notLastInChain.kt")
         public void testNotLastInChain() throws Exception {
             runTest("../../../idea/tests/testData/inspectionsLocal/mapToForEach/notLastInChain.kt");
+        }
+
+        @TestMetadata("onEachIndexedWithReturnValueChecker.kt")
+        public void testOnEachIndexedWithReturnValueChecker() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/mapToForEach/onEachIndexedWithReturnValueChecker.kt");
+        }
+
+        @TestMetadata("onEachWithReturnValueChecker.kt")
+        public void testOnEachWithReturnValueChecker() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/mapToForEach/onEachWithReturnValueChecker.kt");
         }
 
         @TestMetadata("reference.kt")

@@ -82,7 +82,8 @@
                     serviceImplementation="org.jetbrains.plugins.gitlab.mergerequest.ui.GitLabConnectedProjectViewModelFactoryImpl"/>
 
     <!--suppress PluginXmlI18n - intentionally suppress the inspection to avoid translating `GitLab` technology name-->
-    <projectConfigurable parentId="project.propVCSSupport.Mappings" groupWeight="-500"
+    <projectConfigurable id="org.jetbrains.plugins.gitlab.GitLabSettingsConfigurable"
+                         parentId="project.propVCSSupport.Mappings" groupWeight="-500"
                          instance="org.jetbrains.plugins.gitlab.GitLabSettingsConfigurable"
                          displayName="GitLab"/>
 
@@ -134,6 +135,8 @@
     <projectSettings service="org.jetbrains.plugins.gitlab.mergerequest.ui.details.model.GitLabPersistentMergeRequestChangesViewedState"/>
     <projectSettings service="org.jetbrains.plugins.gitlab.authentication.accounts.GitLabProjectDefaultAccountHolder"/>
     <applicationSettings service="org.jetbrains.plugins.gitlab.GitLabSettings"/>
+
+    <advancedSetting default="gitlab.com" id="gitlab.aliases" groupKey="advanced.setting.gitlab"/>
   </extensions>
 
   <extensions defaultExtensionNs="com.intellij.statistics">

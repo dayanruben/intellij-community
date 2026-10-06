@@ -47,7 +47,7 @@ public class OnOffButton extends JToggleButton {
   }
 
   /**
-   * This method is no longer supported for the Islands themes
+   * @deprecated This method is no longer supported
    */
   @ApiStatus.Internal
   @Deprecated(forRemoval = true)
@@ -56,7 +56,7 @@ public class OnOffButton extends JToggleButton {
   }
 
   /**
-   * This method is no longer supported for the Islands themes
+   * @deprecated This method is no longer supported
    */
   @Deprecated(forRemoval = true)
   public void setOnText(@NlsContexts.Button String onText) {
@@ -64,7 +64,7 @@ public class OnOffButton extends JToggleButton {
   }
 
   /**
-   * This method is no longer supported for the Islands themes
+   * @deprecated This method is no longer supported
    */
   @ApiStatus.Internal
   @Deprecated(forRemoval = true)
@@ -73,7 +73,7 @@ public class OnOffButton extends JToggleButton {
   }
 
   /**
-   * This method is no longer supported for the Islands themes
+   * @deprecated This method is no longer supported
    */
   @Deprecated(forRemoval = true)
   public void setOffText(@NlsContexts.Button String offText) {

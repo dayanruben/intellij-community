@@ -2,7 +2,7 @@
 package com.intellij.openapi.editor.impl
 
 import com.intellij.openapi.editor.EditorFactory
-import com.intellij.openapi.editor.ex.DocumentTextPatch
+import com.intellij.openapi.editor.ex.DocumentPatch
 import com.intellij.openapi.editor.impl.marker.SnapshotMarkerEngineImpl
 import com.intellij.openapi.editor.impl.marker.SnapshotRangeMarkerImpl
 import com.intellij.openapi.editor.impl.marker.UsePMarkerImplementation
@@ -29,7 +29,7 @@ class SnapshotFocusModeModelTest {
     assertThat(SnapshotMarkerEngineImpl.resolveRangeMarker(snapshotRegion, rootStore.rootReference(initialSnapshot).get()))
       .extracting("startOffset", "endOffset").containsExactly(2, 4)
 
-    val branch = document.snapshotMarkerStores.applyOp(initialSnapshot, textPatch(0, 0, "x"))
+    val branch = document.snapshotMarkerStores.applyPatch(initialSnapshot, textPatch(0, 0, "x"))
     assertThat(SnapshotMarkerEngineImpl.resolveRangeMarker(snapshotRegion, rootStore.rootReference(branch).get()))
       .extracting("startOffset", "endOffset").containsExactly(3, 5)
     assertThat(SnapshotMarkerEngineImpl.resolveRangeMarker(snapshotRegion, rootStore.rootReference(initialSnapshot).get()))
@@ -127,8 +127,8 @@ class SnapshotFocusModeModelTest {
     }
   }
 
-  private fun textPatch(startOffset: Int, endOffset: Int, newFragment: String): DocumentTextPatch {
-    return DocumentTextPatch.simple(
+  private fun textPatch(startOffset: Int, endOffset: Int, newFragment: String): DocumentPatch {
+    return DocumentPatch.simple(
       startOffset = startOffset,
       endOffset = endOffset,
       newFragment = newFragment,

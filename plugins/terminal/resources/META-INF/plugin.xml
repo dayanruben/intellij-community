@@ -44,7 +44,6 @@
     <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
     <module name="fleet.rhizomedb"/>
     <module name="intellij.libraries.caffeine"/>
-    <module name="intellij.libraries.fastutil"/>
     <module name="intellij.libraries.guava"/>
     <module name="intellij.libraries.jediterm.core"/>
     <module name="intellij.libraries.jediterm.ui"/>
@@ -90,6 +89,7 @@
     <module name="intellij.platform.rpc.lite"/>
     <module name="intellij.platform.rpc.topics"/>
     <module name="intellij.platform.statistics"/>
+    <module name="intellij.platform.util.annotations"/>
     <module name="intellij.platform.util.coroutines"/>
     <module name="intellij.platform.util.diff"/>
     <module name="intellij.platform.util.text.matching"/>

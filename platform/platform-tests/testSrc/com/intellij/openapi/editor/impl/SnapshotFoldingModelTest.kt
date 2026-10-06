@@ -6,7 +6,7 @@ import com.intellij.openapi.editor.CustomFoldRegion
 import com.intellij.openapi.editor.CustomFoldRegionRenderer
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.FoldRegion
-import com.intellij.openapi.editor.ex.DocumentTextPatch
+import com.intellij.openapi.editor.ex.DocumentPatch
 import com.intellij.openapi.editor.ex.FoldingListener
 import com.intellij.openapi.editor.impl.marker.SnapshotMarkerEngineImpl
 import com.intellij.openapi.editor.impl.marker.SnapshotRangeMarkerImpl
@@ -33,7 +33,7 @@ class SnapshotFoldingModelTest {
       val initialSnapshot = document.core.snapshot()
       val region = addFoldRegion(editor, 1, 4) as SnapshotRangeMarkerImpl
       val rootStore = editor.foldingModel.rootStore()
-      val shiftedSnapshot = document.snapshotMarkerStores.applyOp(initialSnapshot, textPatch(0, 0, "xy"))
+      val shiftedSnapshot = document.snapshotMarkerStores.applyPatch(initialSnapshot, textPatch(0, 0, "xy"))
 
       BranchState(
         usesSnapshotStorage = editor.foldingModel.isUsingSnapshotFoldingStorage,
@@ -178,8 +178,8 @@ class SnapshotFoldingModelTest {
     return region
   }
 
-  private fun textPatch(startOffset: Int, endOffset: Int, newFragment: String): DocumentTextPatch {
-    return DocumentTextPatch.simple(
+  private fun textPatch(startOffset: Int, endOffset: Int, newFragment: String): DocumentPatch {
+    return DocumentPatch.simple(
       startOffset = startOffset,
       endOffset = endOffset,
       newFragment = newFragment,

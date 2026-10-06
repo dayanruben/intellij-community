@@ -422,6 +422,8 @@ com.intellij.execution.services.ServiceViewDescriptor
 *f:com.intellij.ide.actions.searcheverywhere.SearchEverywhereSpellCheckResult$NoCorrection
 - com.intellij.ide.actions.searcheverywhere.SearchEverywhereSpellCheckResult
 - sf:INSTANCE:com.intellij.ide.actions.searcheverywhere.SearchEverywhereSpellCheckResult$NoCorrection
+com.intellij.ide.actions.searcheverywhere.SearchListener
+- *:standardSearchFoundNoResults(com.intellij.ide.actions.searcheverywhere.SearchEverywhereContributor):V
 com.intellij.ide.bookmark.BookmarksListProvider
 - *:getDescriptor(com.intellij.ide.util.treeView.AbstractTreeNode):com.intellij.openapi.fileEditor.OpenFileDescriptor
 com.intellij.ide.bookmark.BookmarksManager
@@ -450,6 +452,9 @@ com.intellij.ide.bookmark.BookmarksManager
 *:com.intellij.ide.util.projectWizard.ModuleNameGenerator
 - sf:EP_NAME:com.intellij.openapi.extensions.ExtensionPointName
 - a:getUi(java.lang.String,java.util.function.Consumer):javax.swing.JComponent
+c:com.intellij.ide.util.scopeChooser.ScopeDescriptor
+- com.intellij.openapi.util.ColoredItem
+- *:needsUserInputForScope():Z
 *a:com.intellij.lang.parameterInfo.ParameterInfoHandlerWithColoredSyntax
 - com.intellij.lang.parameterInfo.ParameterInfoHandler
 - <init>():V
@@ -532,6 +537,12 @@ com.intellij.ide.bookmark.BookmarksManager
 - f:setBoilerplate(Z):V
 - f:setFrameworkLanguage(java.lang.String):V
 - f:setFrameworkVersion(java.lang.String):V
+c:com.intellij.navigation.GotoRelatedItem
+- com.intellij.pom.Navigatable
+- *p:<init>(com.intellij.openapi.project.Project,com.intellij.psi.PsiElement,java.lang.String,I):V
+- *f:getProject():com.intellij.openapi.project.Project
+- *:navigationRequest():com.intellij.platform.backend.navigation.NavigationRequest
+- *:onChosen():V
 com.intellij.openapi.roots.ModifiableModelsProvider
 - *a:getGlobalLibraryTableModifiableModel(com.intellij.openapi.project.Project):com.intellij.openapi.roots.libraries.LibraryTable$ModifiableModel
 c:com.intellij.openapi.roots.ui.configuration.ProjectSettingsService

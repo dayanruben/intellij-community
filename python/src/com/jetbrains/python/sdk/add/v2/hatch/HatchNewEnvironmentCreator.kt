@@ -1,6 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.sdk.add.v2.hatch
 
+import com.jetbrains.python.sdk.ModuleOrProject
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.observable.properties.ObservableProperty
 import com.intellij.openapi.projectRoots.Sdk
@@ -91,7 +92,7 @@ internal class HatchNewEnvironmentCreator<P : PathHolder>(
     return Result.success(Unit)
   }
 
-  override suspend fun setupEnvSdk(moduleBasePath: Path): PyResult<PythonInterpreter> {
+  override suspend fun setupEnvSdk(moduleOrProject: ModuleOrProject, moduleBasePath: Path): PyResult<PythonInterpreter> {
     val basePythonBinaryPath = model.getOrInstallBasePython()
                                ?: return Result.failure(HatchUIError.BasePythonExecutableIsNotAvailable())
 
@@ -111,6 +112,7 @@ internal class HatchNewEnvironmentCreator<P : PathHolder>(
 
     val hatchVirtualEnv = HatchVirtualEnvironment(hatchEnv, virtualEnvironment)
     return hatchVirtualEnv.createSdk(
+      moduleOrProject = moduleOrProject,
       workingDirectoryPath = hatchService.getWorkingDirectoryPath(),
       fileSystem = model.fileSystem,
       targetPanelExtension = model.state.targetPanelExtension.get(),

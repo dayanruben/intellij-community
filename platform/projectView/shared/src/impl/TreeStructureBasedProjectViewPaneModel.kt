@@ -9,8 +9,6 @@ import com.intellij.ide.projectView.impl.AbstractProjectTreeStructure
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.registry.Registry
-import com.intellij.platform.ide.navigation.NavigationOptions
-import com.intellij.platform.ide.navigation.NavigationService
 import com.intellij.platform.projectView.pane.BackendProjectViewNodeModel
 import com.intellij.platform.projectView.pane.ProjectViewPaneNavigateOptions
 import com.intellij.platform.projectView.settings.ProjectViewPaneOption
@@ -36,7 +34,7 @@ abstract class TreeStructureBasedProjectViewPaneModel(project: Project) : TreeBa
   protected abstract fun createTreeStructure(viewSettings: ViewSettings): AbstractProjectTreeStructure
 
   override suspend fun createUpdater(): ProjectViewUpdater {
-    return TreeStructureProjectViewUpdater(project)
+    return TreeStructureProjectViewUpdater(project, id())
   }
 
   override fun supportsOption(option: ProjectViewPaneOption): Boolean {
@@ -72,11 +70,7 @@ suspend fun navigateToTreeStructureNode(
 ): Boolean {
   val navigatable = node?.userObject?.elementDescriptor as? Navigatable? ?: return false
   val navigationRequest = readAction { navigatable.navigationRequest() } ?: return false
-  return NavigationService.getInstance(project).navigate(
-    request = navigationRequest,
-    options = NavigationOptions.defaultOptions()
-      .requestFocus(options.requestFocus),
-  )
+  return navigateSafely(project, navigationRequest, options.requestFocus)
 }
 
 @ApiStatus.Experimental

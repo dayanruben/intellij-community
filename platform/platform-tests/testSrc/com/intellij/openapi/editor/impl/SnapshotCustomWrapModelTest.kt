@@ -5,7 +5,7 @@ import com.intellij.openapi.application.EDT
 import com.intellij.openapi.editor.CustomWrap
 import com.intellij.openapi.editor.CustomWrapModel
 import com.intellij.openapi.editor.EditorFactory
-import com.intellij.openapi.editor.ex.DocumentTextPatch
+import com.intellij.openapi.editor.ex.DocumentPatch
 import com.intellij.openapi.editor.impl.marker.SnapshotMarkerEngineImpl
 import com.intellij.openapi.editor.impl.marker.SnapshotRangeMarkerImpl
 import com.intellij.openapi.editor.impl.marker.UsePMarkerImplementation
@@ -34,8 +34,8 @@ class SnapshotCustomWrapModelTest {
       val snapshotWrap = wrap as SnapshotRangeMarkerImpl
       val rootStore = (editor.customWrapModel as CustomWrapModelImpl).rootStore()
       val markerStores = document.snapshotMarkerStores
-      val shiftedBranch = markerStores.applyOp(initialSnapshot, textPatch(0, 0, "x"))
-      val invalidBranch = markerStores.applyOp(initialSnapshot, textPatch(4, 5, ""))
+      val shiftedBranch = markerStores.applyPatch(initialSnapshot, textPatch(0, 0, "x"))
+      val invalidBranch = markerStores.applyPatch(initialSnapshot, textPatch(4, 5, ""))
       val initialResolution = SnapshotMarkerEngineImpl.resolveRangeMarker(snapshotWrap, rootStore.rootReference(initialSnapshot).get())
       val shiftedResolution = SnapshotMarkerEngineImpl.resolveRangeMarker(snapshotWrap, rootStore.rootReference(shiftedBranch).get())
       val invalidResolution = SnapshotMarkerEngineImpl.resolveRangeMarker(snapshotWrap, rootStore.rootReference(invalidBranch).get())
@@ -220,8 +220,8 @@ class SnapshotCustomWrapModelTest {
     return WeakReference(editor.customWrapModel.runBatchMutation { addWrap(2) }!!)
   }
 
-  private fun textPatch(startOffset: Int, endOffset: Int, newFragment: String): DocumentTextPatch {
-    return DocumentTextPatch.simple(
+  private fun textPatch(startOffset: Int, endOffset: Int, newFragment: String): DocumentPatch {
+    return DocumentPatch.simple(
       startOffset = startOffset,
       endOffset = endOffset,
       newFragment = newFragment,

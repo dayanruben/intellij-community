@@ -38,6 +38,7 @@ c:com.intellij.application.options.colors.ColorAndFontOptions
 - findSubConfigurable(java.lang.String):com.intellij.openapi.options.SearchableConfigurable
 - getCurrentDescriptions():com.intellij.openapi.editor.colors.EditorSchemeAttributeDescriptor[]
 - s:getFontConfigurableName():java.lang.String
+- s:getPageConfigurableId(java.lang.String):java.lang.String
 - s:getScopesGroup():java.lang.String
 - getSelectedScheme():com.intellij.openapi.editor.colors.EditorColorsScheme
 - reset():V
@@ -63,6 +64,24 @@ com.intellij.application.options.colors.ColorAndFontSettingsListener
 a:com.intellij.application.options.colors.ColorAndFontSettingsListener$Abstract
 - com.intellij.application.options.colors.ColorAndFontSettingsListener
 - <init>():V
+f:com.intellij.application.options.colors.ColorSettingsPageEP
+- com.intellij.serviceContainer.BaseKeyedLazyInstance
+- sf:EP_NAME:com.intellij.openapi.extensions.ExtensionPointName
+- beta:Z
+- bundle:java.lang.String
+- declaredPageId:java.lang.String
+- declaredPriority:com.intellij.psi.codeStyle.DisplayPriority
+- displayName:java.lang.String
+- groupWeight:I
+- implementationClass:java.lang.String
+- key:java.lang.String
+- keyLanguageIn:java.lang.String
+- <init>():V
+- findPageClass():java.lang.Class
+- getPage():com.intellij.openapi.options.colors.ColorSettingsPage
+- getPageId():java.lang.String
+- getPageName():java.lang.String
+- getPriority():com.intellij.psi.codeStyle.DisplayPriority
 f:com.intellij.application.options.colors.ColorSettingsUtil
 - s:getAllAttributeDescriptors(com.intellij.openapi.options.colors.ColorAndFontDescriptorsProvider):java.util.List
 c:com.intellij.application.options.colors.FontPreviewService
@@ -3096,6 +3115,7 @@ c:com.intellij.openapi.fileEditor.TextEditorWithPreview
 - getState(com.intellij.openapi.fileEditor.FileEditorStateLevel):com.intellij.openapi.fileEditor.FileEditorState
 - getTextEditor():com.intellij.openapi.fileEditor.TextEditor
 - pf:handleLayoutChange(Z):V
+- p:initialize():V
 - isModified():Z
 - p:isShowActionsInTabs():Z
 - isVerticalSplit():Z

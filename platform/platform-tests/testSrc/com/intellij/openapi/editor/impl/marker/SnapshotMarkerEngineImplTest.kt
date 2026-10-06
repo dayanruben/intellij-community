@@ -2,11 +2,9 @@
 package com.intellij.openapi.editor.impl.marker
 
 import com.intellij.openapi.editor.elf.Elf
-import com.intellij.openapi.editor.ex.DocumentNewOps
 import com.intellij.openapi.editor.ex.DocumentOp
 import com.intellij.openapi.editor.ex.DocumentSnapshot
-import com.intellij.openapi.editor.ex.DocumentSputnik
-import com.intellij.openapi.editor.ex.DocumentTextPatch
+import com.intellij.openapi.editor.ex.DocumentPatch
 import com.intellij.openapi.editor.ex.RangeMarkerEx
 import com.intellij.openapi.editor.impl.DocumentImpl
 import com.intellij.openapi.util.Key
@@ -20,13 +18,10 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.Timeout
 import java.lang.ref.Reference
 import java.lang.ref.WeakReference
-import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 import java.util.function.LongConsumer
 import kotlin.concurrent.thread
 import kotlin.random.Random
@@ -46,8 +41,8 @@ class SnapshotMarkerEngineImplTest {
   fun `clean snapshot merge keeps markers created in both branches`() {
     val fixture = Fixture("abcdef")
     val initialSnapshot = fixture.initialSnapshot
-    val primary = fixture.applyOp(initialSnapshot, DocumentNewOps.getInstance().createModStampOp(1, true))
-    val metadata = fixture.applyOp(initialSnapshot, DocumentNewOps.getInstance().createModStampOp(2, true))
+    val primary = fixture.applyOp(initialSnapshot, DocumentOp.modStampOp(1, true))
+    val metadata = fixture.applyOp(initialSnapshot, DocumentOp.modStampOp(2, true))
     val primaryMarker = SnapshotMarkerEngineImpl.createRangeMarker(
       document = fixture.document,
       snapshot = primary,
@@ -155,55 +150,6 @@ class SnapshotMarkerEngineImplTest {
     assertRange(marker, initialSnapshot, startOffset = 2, endOffset = 4)
     assertAbsent(marker, existingChild, startOffset = 2, endOffset = 4)
     assertRange(marker, futureChild, startOffset = 4, endOffset = 6)
-  }
-
-  @Test
-  @Timeout(30)
-  fun `marker created after child root capture is propagated only to future children`() {
-    val fixture = Fixture("abcdef")
-    val rootCaptured = CountDownLatch(1)
-    val markerCreated = CountDownLatch(1)
-    val sputnik = object : DocumentSputnik {
-      override fun applyOp(before: DocumentSnapshot, after: DocumentSnapshot, op: DocumentOp): DocumentSputnik {
-        check(op is DocumentTextPatch)
-        rootCaptured.countDown()
-        check(markerCreated.await(10, TimeUnit.SECONDS)) { "Marker creation did not finish" }
-        return this
-      }
-    }
-    val sputnikKey = Key.create<DocumentSputnik>("test.marker.root.capture")
-    val parent = fixture.applyOp(fixture.initialSnapshot, DocumentNewOps.getInstance().createSetSputnikOp(sputnikKey, sputnik))
-    val childFuture = CompletableFuture<DocumentSnapshot>()
-    val childThread = thread(start = true, isDaemon = true, name = "snapshot-child-creator") {
-      try {
-        childFuture.complete(fixture.edit(parent, startOffset = 0, endOffset = 0, newFragment = "X"))
-      }
-      catch (t: Throwable) {
-        childFuture.completeExceptionally(t)
-      }
-    }
-
-    try {
-      assertTrue(rootCaptured.await(10, TimeUnit.SECONDS))
-      val marker = SnapshotMarkerEngineImpl.createRangeMarker(
-        document = fixture.document,
-        snapshot = parent,
-        startOffset = 2,
-        endOffset = 4,
-        spec = nonGreedySpec(),
-      )
-      markerCreated.countDown()
-      val child = childFuture.get(10, TimeUnit.SECONDS)
-      val futureChild = fixture.edit(parent, startOffset = 0, endOffset = 0, newFragment = "YY")
-
-      assertRange(marker, parent, startOffset = 2, endOffset = 4)
-      assertAbsent(marker, child, startOffset = 2, endOffset = 4)
-      assertRange(marker, futureChild, startOffset = 4, endOffset = 6)
-    }
-    finally {
-      markerCreated.countDown()
-      childThread.join(10_000)
-    }
   }
 
   @Test
@@ -700,7 +646,7 @@ class SnapshotMarkerEngineImplTest {
     val parent = document.core.snapshot()
     val strongMarker = createStrongMarker(document, startOffset = 2, endOffset = 4)
 
-    document.snapshotMarkerStores.applyOp(parent, textPatch(1, 5, ""))
+    document.snapshotMarkerStores.applyPatch(parent, textPatch(1, 5, ""))
     GCUtil.tryGcSoftlyReachableObjects()
 
     assertNotNull(strongMarker.reference.get())
@@ -712,7 +658,7 @@ class SnapshotMarkerEngineImplTest {
     val parent = document.core.snapshot()
     val strongMarker = createStrongMarker(document, startOffset = 2, endOffset = 4)
     val rootStore = document.rangeMarkers.rootStore()
-    val child = document.snapshotMarkerStores.applyOp(parent, textPatch(0, 0, "X"))
+    val child = document.snapshotMarkerStores.applyPatch(parent, textPatch(0, 0, "X"))
 
     disposeMarker(strongMarker)
     GCUtil.tryGcSoftlyReachableObjects()
@@ -912,7 +858,7 @@ class SnapshotMarkerEngineImplTest {
 
   @Test
   fun `marker spec delegates transformation to its policy`() {
-    var receivedPatch: DocumentTextPatch? = null
+    var receivedPatch: DocumentPatch? = null
     val invalidatedMarkerIds = ArrayList<Long>()
     val policy = MarkerPolicy { entry, patch, _, _ ->
       receivedPatch = patch
@@ -926,7 +872,7 @@ class SnapshotMarkerEngineImplTest {
       flavorFlags = 0,
       markerReference = null)
 
-    val patch = DocumentTextPatch.complex(
+    val patch = DocumentPatch.complex(
       startOffset = 2,
       endOffset = 2,
       newFragment = "x",
@@ -1326,8 +1272,8 @@ class SnapshotMarkerEngineImplTest {
 
   private fun persistentSpec(): MarkerSpec = nonGreedySpec().copy(policy = PersistentMarkerPolicy)
 
-  private fun textPatch(startOffset: Int, endOffset: Int, newFragment: String): DocumentTextPatch {
-    return DocumentTextPatch.simple(
+  private fun textPatch(startOffset: Int, endOffset: Int, newFragment: String): DocumentPatch {
+    return DocumentPatch.simple(
       startOffset = startOffset,
       endOffset = endOffset,
       newFragment = newFragment,
@@ -1339,12 +1285,12 @@ class SnapshotMarkerEngineImplTest {
   private fun applyPatch(
     root: PMarkerRoot,
     before: String,
-    patch: DocumentTextPatch,
+    patch: DocumentPatch,
     invalidatedMarkerConsumer: LongConsumer = PMarkerRoot.EMPTY_LONG_CONSUMER,
     affectedMarkerConsumer: LongConsumer = PMarkerRoot.EMPTY_LONG_CONSUMER,
   ): PMarkerRoot {
     val beforeText = DocumentImpl(before, true).core.snapshot().text()
-    val afterText = beforeText.applyOp(patch)
+    val afterText = patch.ops().fold(beforeText) { text, op -> text.applyOp(op) }
     return root.applyPatch(patch, beforeText, afterText, invalidatedMarkerConsumer, affectedMarkerConsumer)
   }
 
@@ -1355,7 +1301,6 @@ class SnapshotMarkerEngineImplTest {
 
     private val markerStores: SnapshotMarkerStores = document.snapshotMarkerStores
 
-    private val newOps = DocumentNewOps.getInstance()
     private var nextModSequence = initialSnapshot.modState().sequence() + 1
     private var nextModStamp = initialSnapshot.modState().stamp() + 1
 
@@ -1380,14 +1325,14 @@ class SnapshotMarkerEngineImplTest {
       require(startOffset in 0..endOffset)
       require(endOffset <= parent.text().length())
 
-      val targetModSequence = maxOf(nextModSequence, parent.modState().sequence() + 1)
       var newModStamp = nextModStamp++
 
       var child = applyTextEdit(parent, startOffset, endOffset, newFragment, newModStamp)
+      val targetModSequence = maxOf(nextModSequence, child.modState().sequence())
 
       while (child.modState().sequence() < targetModSequence) {
         newModStamp = nextModStamp++
-        child = markerStores.applyOp(child, newOps.createModStampOp(newModStamp, true))
+        child = markerStores.applyOp(child, DocumentOp.modStampOp(newModStamp, true))
       }
 
       check(child.modState().sequence() == targetModSequence) {
@@ -1405,9 +1350,9 @@ class SnapshotMarkerEngineImplTest {
       newFragment: String,
       newModStamp: Long,
     ): DocumentSnapshot {
-      return markerStores.applyOp(
+      return markerStores.applyPatch(
         parent,
-        DocumentTextPatch.simple(
+        DocumentPatch.simple(
           startOffset = startOffset,
           endOffset = endOffset,
           newFragment = newFragment,

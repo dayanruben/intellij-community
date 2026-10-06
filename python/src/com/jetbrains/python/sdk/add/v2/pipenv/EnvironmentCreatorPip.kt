@@ -1,6 +1,7 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.sdk.add.v2.pipenv
 
+import com.jetbrains.python.sdk.ModuleOrProject
 import com.intellij.openapi.observable.properties.ObservableProperty
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.python.community.impl.pipenv.PipEnvPyTool
@@ -31,7 +32,7 @@ internal class EnvironmentCreatorPip<P : PathHolder>(model: PythonMutableTargetA
     model.fileSystem.persistCustomToolPath(pathHolder, pyTool)
   }
 
-  override suspend fun setupEnvSdk(moduleBasePath: Path): PyResult<PythonInterpreter> {
+  override suspend fun setupEnvSdk(moduleOrProject: ModuleOrProject, moduleBasePath: Path): PyResult<PythonInterpreter> {
     val basePythonBinaryPath = model.getOrInstallBasePython()
                                ?: return PyResult.localizedError(message("python.sdk.provided.path.is.invalid", null))
     val pipenvExecutable = model.pipenvViewModel.pipenvExecutable.get()?.pathHolder?.getOr { return it }
@@ -39,6 +40,7 @@ internal class EnvironmentCreatorPip<P : PathHolder>(model: PythonMutableTargetA
 
     return withProgressText(message("python.sdk.progress.pipenv.creating")) {
       setupPipEnvSdkWithProgressReport(
+        moduleOrProject = moduleOrProject,
         moduleBasePath = moduleBasePath,
         basePythonBinaryPath = basePythonBinaryPath,
         fileSystem = model.fileSystem,

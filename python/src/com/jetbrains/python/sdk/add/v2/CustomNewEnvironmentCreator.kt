@@ -10,7 +10,6 @@ import com.intellij.python.pytools.backend.PyTool
 import com.intellij.python.pytools.backend.Version
 import com.intellij.python.pytools.backend.performToolInstallation
 import com.intellij.python.sdk.backend.PythonInterpreter
-import com.intellij.python.sdk.backend.getSdkAPI
 import com.intellij.ui.components.ActionLink
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.util.concurrency.annotations.RequiresEdt
@@ -24,7 +23,6 @@ import com.jetbrains.python.onFailure
 import com.jetbrains.python.sdk.ModuleOrProject
 import com.jetbrains.python.sdk.baseDir
 import com.jetbrains.python.sdk.flavors.PythonSdkFlavor
-import com.jetbrains.python.sdk.setAssociationToModule
 import com.jetbrains.python.statistics.InterpreterCreationMode
 import com.jetbrains.python.statistics.InterpreterType
 import kotlinx.coroutines.CoroutineScope
@@ -92,12 +90,9 @@ internal abstract class CustomNewEnvironmentCreator<P : PathHolder>(
                          ?: model.projectPathFlows.projectPath.first()
                          ?: error("module base path can't be recognized, both module and project are nulls")
 
-    val pythonInterpreter = setupEnvSdk(moduleBasePath).getOr { return it }
+    val pythonInterpreter = setupEnvSdk(moduleOrProject, moduleBasePath).getOr { return it }
 
-    if (module != null) {
-      pythonInterpreter.getSdkAPI().setAssociationToModule(module)
-      module.baseDir?.refresh(true, false)
-    }
+    module?.baseDir?.refresh(true, false)
 
 
     return Result.success(pythonInterpreter)
@@ -155,7 +150,7 @@ internal abstract class CustomNewEnvironmentCreator<P : PathHolder>(
 
   internal abstract val toolValidator: ToolValidator<P>
 
-  protected abstract suspend fun setupEnvSdk(moduleBasePath: Path): PyResult<PythonInterpreter>
+  protected abstract suspend fun setupEnvSdk(moduleOrProject: ModuleOrProject, moduleBasePath: Path): PyResult<PythonInterpreter>
 
   internal open fun onVenvSelectExisting() {}
 }

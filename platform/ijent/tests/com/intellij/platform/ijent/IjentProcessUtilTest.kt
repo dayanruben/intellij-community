@@ -4,13 +4,12 @@
 package com.intellij.platform.ijent
 
 import com.intellij.platform.eel.EelUnavailableException
-import com.intellij.platform.eel.EelUnavailableException.ClosedByApplication
 import com.intellij.platform.eel.EelUnavailableException.CommunicationFailure
+import com.intellij.platform.eel.EelUnavailableException.IntendedExit
 import com.intellij.platform.eel.SafeDeferred
 import com.intellij.platform.ijent.spi.IjentSessionMediatorUtils
 import com.intellij.testFramework.common.timeoutRunBlocking
 import io.kotest.assertions.throwables.shouldThrow
-import io.kotest.assertions.throwables.shouldThrowAny
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.types.shouldBeInstanceOf
@@ -42,21 +41,22 @@ import kotlin.time.Duration.Companion.seconds
 @OptIn(DelicateCoroutinesApi::class)
 class IjentProcessUtilTest {
   @Test
-  fun `expected process exit stores ClosedByApplication without attaching it to cancellation`(): Unit = runBlocking {
+  fun `expected process exit stores IntendedExit without attaching it to cancellation`(): Unit = runBlocking {
     val ijentScope = ParentOfIjentScopes(this).createIjentScope("test")
 
     withContext(ijentScope) {
-      val thrown = shouldThrow<ClosedByApplication> {
+      val thrown = shouldThrow<IntendedExit> {
         IjentSessionMediatorUtils.ijentProcessExitCodeHandler(
           ijentLabel = "test",
           lastStderrMessages = MutableSharedFlow<String?>(),
           exitCode = -1,
           isExitExpected = true,
+          exitFollowsSessionFailure = false,
         )
       }
 
       thrown.cause shouldBe null
-      ijentScope.resolveExitReason(1.seconds).shouldBeInstanceOf<EelUnavailableException.ClosedByApplication>()
+      ijentScope.resolveExitReason(1.seconds).shouldBeInstanceOf<IntendedExit>()
     }
   }
 
@@ -67,7 +67,7 @@ class IjentProcessUtilTest {
     val canonical = CommunicationFailure("canonical", null)
 
     withContext(ijentScope) {
-      ijentScope.destroy(canonical, isRootCause = true)
+      ijentScope.destroy(canonical)
 
       val backing = CompletableDeferred<Int>()
       // Reproduces IJPL-245668: the backing deferred fails with a raw low-level exception.
@@ -101,12 +101,12 @@ class IjentProcessUtilTest {
       error("oops")
     }
 
-    val err = shouldThrowAny {
-      ijentScope.wrapErrors {
-        ijentScope.s.async { delay(1.seconds) }.await()
-      }
+    val err = shouldThrow<SafeDeferred.FailedDeferred> {
+      ijentScope.toSafeDeferred(ijentScope.s.async { delay(1.seconds) }).await()
     }
-    err.message shouldContain "oops"
+    // The raw failure is a bug in the session, and a caller gets it inside a copy of the exit reason.
+    err.cause.shouldBeInstanceOf<CommunicationFailure>()
+      .cause.shouldBeInstanceOf<IllegalStateException>().message shouldContain "oops"
   }
 
   @Test
@@ -137,17 +137,15 @@ class IjentProcessUtilTest {
         throw ex
       }
       finally {
-        val err = ClosedByApplication(rightErrorMessage, null)
-        ijentScope.destroy(err, true)
+        val err = IntendedExit(rightErrorMessage, null)
+        ijentScope.destroy(err)
         throw CommunicationFailure("And even this error should not propagate", null)
       }
     }
 
-    val caughtErr = shouldThrow<ClosedByApplication> {
-      ijentScope.wrapErrors {
-        deferred.await()
-      }
-    }
-    caughtErr.message shouldBe rightErrorMessage
+    val caughtErr = shouldThrow<SafeDeferred.FailedDeferred> {
+      ijentScope.toSafeDeferred(deferred).await()
+    }.cause
+    caughtErr.shouldBeInstanceOf<IntendedExit>().message shouldBe rightErrorMessage
   }
 }

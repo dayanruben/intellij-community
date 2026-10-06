@@ -135,6 +135,7 @@ import com.intellij.openapi.vfs.VirtualFileFilter;
 import com.intellij.openapi.vfs.VirtualFileUtil;
 import com.intellij.openapi.vfs.impl.VirtualFilePointerTracker;
 import com.intellij.openapi.vfs.newvfs.ArchiveFileSystem;
+import com.intellij.openapi.vfs.newvfs.impl.VfsRootAccess;
 import com.intellij.openapi.vfs.transformer.TextPresentationTransformers;
 import com.intellij.platform.testFramework.core.FileComparisonFailedError;
 import com.intellij.profile.codeInspection.ProjectInspectionProfileManager;
@@ -173,7 +174,7 @@ import com.intellij.testFramework.IndexingTestUtil;
 import com.intellij.testFramework.InspectionTestUtil;
 import com.intellij.testFramework.InspectionsKt;
 import com.intellij.testFramework.LightPlatformTestCase;
-import com.intellij.testFramework.NavigationTestUtil;
+import com.intellij.testFramework.EditorOpenTestUtil;
 import com.intellij.testFramework.PlatformTestUtil;
 import com.intellij.testFramework.PsiTestUtil;
 import com.intellij.testFramework.RunAll;
@@ -182,6 +183,7 @@ import com.intellij.testFramework.TestDataFile;
 import com.intellij.testFramework.TreeNodeTester;
 import com.intellij.testFramework.UsefulTestCase;
 import com.intellij.testFramework.VfsTestUtil;
+import com.intellij.testFramework.common.BazelTestUtil;
 import com.intellij.testFramework.common.EditorCaretTestUtil;
 import com.intellij.testFramework.fixtures.CodeInsightTestFixture;
 import com.intellij.testFramework.fixtures.CodeInsightTestUtil;
@@ -1142,7 +1144,7 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
     ActionUtil.updateAction(action, e);
     if (e.getPresentation().isEnabled()) {
       ActionUtil.performAction(action, e);
-      NavigationTestUtil.awaitPendingNavigationIfEnabled(getProject());
+      EditorOpenTestUtil.awaitPendingNavigationAndEditorOpenIfEnabled(getProject());
     }
     return e.getPresentation();
   }
@@ -1974,6 +1976,9 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
   @Override
   public void setTestDataPath(@NotNull String dataPath) {
     myTestDataPath = dataPath;
+    if (BazelTestUtil.isUnderBazelTest() && !dataPath.isEmpty()) {
+      VfsRootAccess.allowRootAccess(getTestRootDisposable(), Paths.get(dataPath).toAbsolutePath().toString());
+    }
   }
 
   @Override

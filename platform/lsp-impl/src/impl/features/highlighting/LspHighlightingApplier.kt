@@ -31,12 +31,13 @@ import com.intellij.problems.WolfTheProblemSolver
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiManager
 import com.intellij.util.ThreeState
+import com.intellij.util.containers.ContainerUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.TestOnly
-import java.util.concurrent.ConcurrentHashMap
+import java.util.WeakHashMap
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
@@ -58,9 +59,12 @@ import kotlin.time.Duration.Companion.milliseconds
 @Service(Service.Level.PROJECT)
 internal class LspHighlightingApplier(private val project: Project) {
 
-  private val fileToCurrentGeneration = ConcurrentHashMap<VirtualFile, AtomicLong>()
-  private val filesWithWolfReportedErrors = HashSet<VirtualFile>()
-  private val fileToLastWolfWrittenGen = HashMap<VirtualFile, Long>()
+  // Weak keys: the daemon pass reports for every editor, including the in-memory files of diff viewers and dialogs,
+  // which never get a file-closed event. Entries are not dropped on close either: a refresh still in flight would
+  // then report a generation above the restarted counter, and the Wolf gate would drop the newer reports.
+  private val fileToCurrentGeneration = ContainerUtil.createConcurrentWeakMap<VirtualFile, AtomicLong>()
+  private val filesWithWolfReportedErrors = ContainerUtil.createWeakSet<VirtualFile>()
+  private val fileToLastWolfWrittenGen = WeakHashMap<VirtualFile, Long>()
 
   private val serializedDispatcher = Dispatchers.Default.limitedParallelism(1)
 
@@ -200,7 +204,7 @@ internal class LspHighlightingApplier(private val project: Project) {
   ) {
     val semanticTokensSupport = client.descriptor.lspCustomization.semanticTokensCustomizer
                                   as? LspSemanticTokensSupport ?: return
-    val tokens = client.getSemanticTokens(file)
+    val tokens = client.highlightingCacheRegistry.semanticTokensCache.getHighlightings(file)
     for (token in tokens) {
       val textAttributesKey = semanticTokensSupport.getTextAttributesKey(
         token.highlightingInfo.tokenType, token.highlightingInfo.tokenModifiers
@@ -221,7 +225,7 @@ internal class LspHighlightingApplier(private val project: Project) {
   ) {
     val customizer = client.descriptor.lspCustomization.documentLinkCustomizer
     if (customizer is LspDocumentLinkDisabled) return
-    val documentLinks = client.getDocumentLinkInfos(file)
+    val documentLinks = client.highlightingCacheRegistry.documentLinkCache.getHighlightings(file)
     for (link in documentLinks) {
       val info = HighlightInfo.newHighlightInfo(HighlightInfoType.INFORMATION)
         .range(link.textRange)

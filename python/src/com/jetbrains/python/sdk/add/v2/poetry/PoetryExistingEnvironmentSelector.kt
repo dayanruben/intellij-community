@@ -50,6 +50,7 @@ internal class PoetryExistingEnvironmentSelector<P : PathHolder>(model: PythonMu
                    ?: return PyResult.localizedError(PyBundle.message("python.sdk.project.working.directory.not.found"))
 
     return createPoetrySdk(
+      moduleOrProject = moduleOrProject,
       basePath = basePath,
       pythonBinaryPath = pythonBinaryPath,
       fileSystem = model.fileSystem,

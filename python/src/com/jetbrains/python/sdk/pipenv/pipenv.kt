@@ -1,6 +1,7 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.sdk.pipenv
 
+import com.jetbrains.python.sdk.ModuleOrProject
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.platform.util.progress.withProgressText
@@ -37,13 +38,14 @@ fun suggestedSdkName(basePath: @NlsSafe String): @NlsSafe String = "Pipenv (${Pa
  * environment per project, so [basePath] is what ties the SDK back to it.
  */
 internal suspend fun <P : PathHolder> createPipenvSdk(
+  moduleOrProject: ModuleOrProject,
   basePath: Path,
   pythonBinaryPath: P,
   fileSystem: FileSystem<P>,
   targetPanelExtension: TargetPanelExtension? = null,
 ): PyResult<PythonInterpreter> = withProgressText(PyBundle.message("python.sdk.progress.pipenv.configuring")) {
   fileSystem.setupSdk(
-    project = null,
+    moduleOrProject = moduleOrProject,
     pythonBinaryPath = pythonBinaryPath,
     sdkAdditionalData = PyPipEnvSdkAdditionalData(basePath),
     targetPanelExtension = targetPanelExtension,

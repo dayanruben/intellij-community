@@ -434,6 +434,12 @@ class GhosttyTerminalSession internal constructor(
     if (disposed) KeyEventProcessingResultDto.Unhandled else keyEncoder.encodeKeyEvent(e)
   }
 
+  override fun focusLost() {
+    emulatorLock.withLock {
+      if (!disposed) keyEncoder.focusLost()
+    }
+  }
+
   override suspend fun getInputChannel(): SendChannel<TerminalInputEvent> {
     if (isClosed) {
       return Channel<TerminalInputEvent>(capacity = 0).also { it.close() }
@@ -647,7 +653,7 @@ class GhosttyTerminalSession internal constructor(
     lastScrollbackRows = scrollbackRows
 
     if (contentChanged) {
-      val content = projector.buildContentUpdate()
+      val content = projector.buildContentUpdate(change)
       events.add(content)
       lastCursorLine = content.cursorLogicalLineIndex
       lastCursorColumn = content.cursorColumnIndex

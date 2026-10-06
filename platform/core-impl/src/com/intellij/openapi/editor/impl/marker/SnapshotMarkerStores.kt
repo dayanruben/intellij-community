@@ -3,7 +3,7 @@ package com.intellij.openapi.editor.impl.marker
 
 import com.intellij.openapi.editor.ex.DocumentOp
 import com.intellij.openapi.editor.ex.DocumentSnapshot
-import com.intellij.openapi.editor.ex.DocumentTextPatch
+import com.intellij.openapi.editor.ex.DocumentPatch
 import com.intellij.util.containers.ContainerUtil
 import org.jetbrains.annotations.ApiStatus
 
@@ -33,13 +33,29 @@ class SnapshotMarkerStores {
     return additionalApply(op, beforeSnapshot, afterSnapshot, capturedRoots)
   }
 
+  fun applyPatch(beforeSnapshot: DocumentSnapshot, patch: DocumentPatch): DocumentSnapshot {
+    val capturedRoots = captureRoots(beforeSnapshot)
+    val afterSnapshot = applyPatch0(beforeSnapshot, patch)
+    if (afterSnapshot === beforeSnapshot) return afterSnapshot
+
+    return additionalApply(patch, beforeSnapshot, afterSnapshot, capturedRoots)
+  }
+
+  fun applyPatch0(beforeSnapshot: DocumentSnapshot, patch: DocumentPatch): DocumentSnapshot {
+    var snapshot = beforeSnapshot
+    for (op in patch.ops()) {
+      snapshot = snapshot.applyOp(op)
+    }
+    return snapshot
+  }
+
   private fun additionalApply(
     op: DocumentOp,
     beforeSnapshot: DocumentSnapshot,
     afterSnapshot: DocumentSnapshot,
     capturedRoots: List<CapturedRoot>,
   ): DocumentSnapshot {
-    if (op is DocumentTextPatch) {
+    if (op is DocumentPatch) {
       validatePatch(beforeSnapshot, afterSnapshot, op)
       for (i in capturedRoots.indices) {
         val it = capturedRoots[i]
@@ -49,6 +65,31 @@ class SnapshotMarkerStores {
     else {
       require(beforeSnapshot.text() === afterSnapshot.text()) {
         "Snapshots must share the same text instance, but op: $op corrupted the text"
+      }
+      for (i in capturedRoots.indices) {
+        val it = capturedRoots[i]
+        it.store.inherit(it.root, afterSnapshot)
+      }
+    }
+    return afterSnapshot
+  }
+
+  private fun additionalApply(
+    patch: DocumentPatch,
+    beforeSnapshot: DocumentSnapshot,
+    afterSnapshot: DocumentSnapshot,
+    capturedRoots: List<CapturedRoot>,
+  ): DocumentSnapshot {
+    if (patch is DocumentPatch) {
+      validatePatch(beforeSnapshot, afterSnapshot, patch)
+      for (i in capturedRoots.indices) {
+        val it = capturedRoots[i]
+        it.store.applyPatch(it.root, beforeSnapshot, afterSnapshot, patch)
+      }
+    }
+    else {
+      require(beforeSnapshot.text() === afterSnapshot.text()) {
+        "Snapshots must share the same text instance, but op: $patch corrupted the text"
       }
       for (i in capturedRoots.indices) {
         val it = capturedRoots[i]
@@ -88,7 +129,7 @@ class SnapshotMarkerStores {
     return result
   }
 
-  private fun validatePatch(beforeSnapshot: DocumentSnapshot, afterSnapshot: DocumentSnapshot, patch: DocumentTextPatch) {
+  private fun validatePatch(beforeSnapshot: DocumentSnapshot, afterSnapshot: DocumentSnapshot, patch: DocumentPatch) {
     val beforeLength = beforeSnapshot.text().length()
     val afterLength = afterSnapshot.text().length()
     val startOffset = patch.startOffset()

@@ -42,11 +42,13 @@ import com.intellij.platform.backend.navigation.NavigationRequest
 import com.intellij.platform.backend.navigation.impl.DirectoryNavigationRequest
 import com.intellij.platform.backend.navigation.impl.RawNavigationRequest
 import com.intellij.platform.backend.navigation.impl.SourceNavigationRequest
+import com.intellij.platform.backend.navigation.impl.asDecompilerRequestIfAny
 import com.intellij.platform.ide.navigation.CaretPlacement
 import com.intellij.platform.ide.navigation.NavigationOptions
 import com.intellij.platform.ide.navigation.NavigationService
 import com.intellij.platform.ide.navigation.NavigationTaskCoordinator
 import com.intellij.platform.ide.navigation.RequestedEditor
+import com.intellij.platform.ide.navigation.requestNavigate
 import com.intellij.platform.ide.progress.withBackgroundProgress
 import com.intellij.platform.util.progress.hasProgressStep
 import com.intellij.platform.util.progress.mapWithProgress
@@ -63,6 +65,7 @@ import kotlinx.coroutines.asContextElement
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import java.util.concurrent.CompletableFuture
 
 @Service(Service.Level.PROJECT)
 internal class IdeNavigationService(private val project: Project) : NavigationService {
@@ -71,6 +74,14 @@ internal class IdeNavigationService(private val project: Project) : NavigationSe
 
   private val taskCoordinator: NavigationTaskCoordinator
     get() = NavigationTaskCoordinator.getInstance(project)
+
+  override fun requestNavigate(navigatable: Navigatable, options: NavigationOptions): CompletableFuture<Boolean> {
+    return requestNavigate(project, navigatable, options)
+  }
+
+  override fun requestNavigate(request: NavigationRequest, options: NavigationOptions): CompletableFuture<Boolean> {
+    return requestNavigate(project, request, options)
+  }
 
   override suspend fun navigateRequests(options: NavigationOptions, supplier: suspend () -> Collection<NavigationRequest>): Boolean {
     return doExclusively(options) {
@@ -290,14 +301,15 @@ private suspend fun tryNavigateToSource(
 ): Boolean {
   when (request) {
     is SourceNavigationRequest -> {
-      val caretShift = caretShift(project = project, request = request, placement = options.caretPlacement)
       val knownType = request.file.knownFileType()
+      val resolvedRequest = request.asDecompilerRequestIfAny()
+      val caretShift = caretShift(project = project, request = resolvedRequest, placement = options.caretPlacement)
       withContext(Dispatchers.EDT) {
         navigateToSourceImpl(
-          request = request,
+          request = resolvedRequest,
           options = options,
           project = project,
-          offset = request.targetOffset(caretShift),
+          offset = resolvedRequest.targetOffset(caretShift),
           knownType = knownType,
           rightSplitWindow = rightSplitWindow,
         )
@@ -353,8 +365,8 @@ private suspend fun caretShift(project: Project, request: SourceNavigationReques
   if (placement == CaretPlacement.TARGET_OFFSET) {
     return 0
   }
-  val offset = request.offsetMarker?.takeIf { it.isValid }?.startOffset ?: return 0
   val shift = readAction {
+    val offset = request.offsetMarker?.takeIf { it.isValid }?.startOffset ?: return@readAction null
     val psiFile = request.file.findPsiFile(project) ?: return@readAction null
     psiFile.findLeafEndAtOffset(offset = offset)?.minus(offset)
   }
@@ -507,7 +519,8 @@ private suspend fun openFile(
     file = file,
     options = FileEditorOpenOptions(
       // an open editor of the same file must not win over the split the batch opens into
-      reuseOpen = targetWindow == null,
+      reuseOpen = targetWindow == null && !request.useCurrentWindow,
+      usePreviewTab = request.usePreviewTab,
       requestFocus = options.requestFocus,
       openMode = if (options.openInRightSplit) FileEditorManagerImpl.OpenMode.RIGHT_SPLIT else FileEditorManagerImpl.OpenMode.DEFAULT,
       window = targetWindow,
