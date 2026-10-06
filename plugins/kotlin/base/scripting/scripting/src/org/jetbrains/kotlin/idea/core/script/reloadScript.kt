@@ -137,12 +137,6 @@ class ReloadScriptConfigurationService(private val project: Project, private val
                     ).notify(project)
             } else {
                 scriptingWarnLog("reloadScriptData failed: ${virtualFile.path}")
-                notificationManager.getNotificationGroup("KotlinScriptNotificationGroup")
-                    .createNotification(
-                        KotlinBaseScriptingBundle.message("script.configuration.loading.title"),
-                        KotlinBaseScriptingBundle.message("script.configuration.loading.failed", virtualFile.name),
-                        NotificationType.ERROR
-                    ).notify(project)
             }
 
             ktFile.putUserData(SHOW_NOTIFICATION, false)
