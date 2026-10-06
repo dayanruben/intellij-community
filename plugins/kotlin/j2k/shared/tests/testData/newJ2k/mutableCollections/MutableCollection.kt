@@ -1,6 +1,6 @@
 class J {
     fun foo(
-        l1: MutableCollection<Double?>,
+        l1: MutableCollection<Double>,
         l2: MutableCollection<Double?>,
         l3: MutableCollection<Double?>,
         l4: MutableCollection<Double?>,

@@ -1,17 +1,13 @@
 // ERROR: Argument type mismatch: actual type is 'ArrayList<String?>', but 'ArrayList<String>' was expected.
 // ERROR: Argument type mismatch: actual type is 'ArrayList<String?>?', but 'ArrayList<String>?' was expected.
 // ERROR: Initializer type mismatch: expected 'ArrayList<String?>', actual 'ArrayList<String>'.
-// ERROR: Initializer type mismatch: expected 'ArrayList<String?>', actual 'ArrayList<String>'.
 // ERROR: Initializer type mismatch: expected 'ArrayList<String?>?', actual 'ArrayList<String>?'.
-// ERROR: Initializer type mismatch: expected 'ArrayList<String?>?', actual 'ArrayList<String>?'.
-// ERROR: Return type mismatch: expected 'ArrayList<String?>', actual 'ArrayList<String>'.
-// ERROR: Return type mismatch: expected 'ArrayList<String?>?', actual 'ArrayList<String>?'.
 class Foo {
     fun testAssignment(j: J) {
         val l1 = j.return1()
-        val l2: ArrayList<String?>? = j.return2()
+        val l2 = j.return2()
         val l3 = j.return3()
-        val l4: ArrayList<String?> = j.return4()
+        val l4 = j.return4()
 
         val l5 = j.field1
         val l6: ArrayList<String?>? = j.field2
@@ -36,7 +32,7 @@ class Foo {
         return j.return1()
     }
 
-    fun testReturn2(j: J): ArrayList<String?>? {
+    fun testReturn2(j: J): ArrayList<String>? {
         return j.return2()
     }
 
@@ -44,7 +40,7 @@ class Foo {
         return j.return3()
     }
 
-    fun testReturn4(j: J): ArrayList<String?> {
+    fun testReturn4(j: J): ArrayList<String> {
         return j.return4()
     }
 }

@@ -50,7 +50,7 @@ internal class Java8Class {
     }
 
     fun testMemberFunctionThroughClass() {
-        val memberFunFromClass = JFunction2 { obj: Java8Class? -> obj!!.memberFun() }
+        val memberFunFromClass = JFunction2 { obj: Java8Class -> obj.memberFun() }
         memberFunFromClass.foo(Java8Class())
         MethodReferenceHelperClass.staticFun2<Java8Class?, Int?>(JFunction2 { obj: Java8Class? -> obj!!.memberFun() })
         h.memberFun2<Java8Class?, Int?>(JFunction2 { obj: Java8Class? -> obj!!.memberFun() })
@@ -101,7 +101,7 @@ internal class Java8Class {
         MethodReferenceHelperClass.staticFun0(JFunction0 { Test() })
         h.memberFun0(JFunction0 { Test() })
 
-        val constructorAnotherClassWithParam = JFunction2 { i: Int? -> Test(i!!) }
+        val constructorAnotherClassWithParam = JFunction2 { i: Int -> Test(i) }
         constructorAnotherClassWithParam.foo(1)
         MethodReferenceHelperClass.staticFun2<Int?, Test?>(JFunction2 { i: Int? -> Test(i!!) })
         h.memberFun2<Int?, Test?>(JFunction2 { i: Int? -> Test(i!!) })
@@ -118,7 +118,7 @@ internal class Java8Class {
     }
 
     fun testLibraryFunctions() {
-        val memberFunFromClass = JFunction2 { obj: String? -> obj!!.length }
+        val memberFunFromClass = JFunction2 { obj: String -> obj.length }
         memberFunFromClass.foo("str")
 
         Thread(Runnable { println() }).start()
@@ -131,8 +131,7 @@ internal class Java8Class {
         MethodReferenceHelperClass.staticFun1<String?>(JFunction1 { Test.Companion.testOverloads() })
         h.memberFun1<String?>(JFunction1 { Test.Companion.testOverloads() })
 
-        val constructorWithParam: JFunction2<Int?, String?> =
-            JFunction2 { i: Int? -> Test.Companion.testOverloads(i!!) }
+        val constructorWithParam: JFunction2<Int, String?> = JFunction2 { i: Int -> Test.Companion.testOverloads(i) }
         constructorWithParam.foo(2)
         MethodReferenceHelperClass.staticFun2<Int?, String?>(JFunction2 { i: Int? -> Test.Companion.testOverloads(i!!) })
         h.memberFun2<Int?, String?>(JFunction2 { i: Int? -> Test.Companion.testOverloads(i!!) })

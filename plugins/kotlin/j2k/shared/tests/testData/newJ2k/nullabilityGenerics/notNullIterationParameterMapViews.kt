@@ -1,5 +1,5 @@
 internal class Totals {
-    private val totals: MutableMap<String?, Int> = HashMap<String?, Int>()
+    private val totals: MutableMap<String, Int> = HashMap<String, Int>()
 
     fun put(key: String, amount: Int) {
         totals.put(key, amount)
@@ -16,7 +16,7 @@ internal class Totals {
     fun length(): Int {
         var length = 0
         for (entry in totals.entries) {
-            val name: String = entry.key!!
+            val name = entry.key
             length += name.length
         }
         return length

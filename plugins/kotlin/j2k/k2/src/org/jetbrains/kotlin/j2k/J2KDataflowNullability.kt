@@ -80,89 +80,107 @@ import com.intellij.codeInsight.Nullability as JavaNullability
 
 @ApiStatus.Internal
 class J2KDataflowNullability(private val file: PsiFile) {
-    private enum class Flow { NOT_NULL, UNKNOWN, NULLABLE }
-
-    private class Slot(val type: PsiType, val spec: Nullability?, val wildcard: PsiWildcardType? = null) {
-        var flow: Flow? = null
-        var demand = false
+    /**
+     * A type in the flow graph: the type of a declaration, of a call result, or of a type argument.
+     * [platformNullability] comes from an annotation or a framework, and the engine keeps it.
+     * [dataflowNullability] is the join of the values that flow in.
+     * [needsNotNull] tells that a use needs a not-null value.
+     */
+    private class TypeNode(val type: PsiType, val platformNullability: Nullability?, val wildcard: PsiWildcardType? = null) {
+        var dataflowNullability: Nullability? = null
+        var needsNotNull = false
         var result = Nullability.Default
-        val targets = LinkedHashSet<Slot>()
-        val sources = LinkedHashSet<Slot>()
-        var elements: List<Slot> = emptyList()
+        var printedByCaller = false
+        val targets = LinkedHashSet<TypeNode>()
+        val sources = LinkedHashSet<TypeNode>()
+        var elements: List<TypeNode> = emptyList()
 
-        val value: Flow?
-            get() = when (spec) {
-                Nullability.NotNull -> Flow.NOT_NULL
-                Nullability.Nullable -> Flow.NULLABLE
-                else -> flow
+        fun join(other: Nullability): Boolean {
+            val current = dataflowNullability
+            val joined = when {
+                current == null || current == other -> other
+                current == Nullability.Nullable || other == Nullability.Nullable -> Nullability.Nullable
+                else -> Nullability.Default
             }
-
-        fun join(other: Flow): Boolean {
-            val joined = flow?.let { maxOf(it, other) } ?: other
-            if (joined == flow) return false
-            flow = joined
+            if (joined == current) return false
+            dataflowNullability = joined
             return true
         }
 
-        fun decide(): Nullability = spec ?: when {
-            flow == Flow.NULLABLE -> Nullability.Nullable
-            demand || flow == Flow.NOT_NULL -> Nullability.NotNull
+        fun decide(): Nullability = platformNullability ?: when {
+            dataflowNullability == Nullability.Nullable -> Nullability.Nullable
+            needsNotNull || dataflowNullability == Nullability.NotNull -> Nullability.NotNull
             else -> Nullability.Default
         }
     }
 
-    private val slots = LinkedHashMap<PsiModifierListOwner, Slot>()
-    private val librarySlots = HashMap<PsiMethod, Slot>()
-    private val callSlots = HashMap<PsiMethodCallExpression, Slot>()
-    private val elementSlots = ArrayList<Slot>()
-    private val generated = LinkedHashSet<PsiModifierListOwner>()
-    private val loopVariables = HashSet<PsiModifierListOwner>()
+    private val nodes = LinkedHashMap<PsiModifierListOwner, TypeNode>()
+
+    /** Keyed by the method for a result without type arguments, otherwise by the call or the `new` expression. */
+    private val callNodes = HashMap<PsiElement, TypeNode>()
+    private val notPrinted = LinkedHashSet<PsiModifierListOwner>()
     private val methods = ArrayList<PsiMethod>()
-    private val sinks = HashMap<PsiExpression, Slot>()
+    private val sinks = HashMap<PsiExpression, TypeNode>()
     private val visited = HashSet<PsiExpression>()
     private val originals = OriginalJavaSemanticResolver()
     private val originalFile by lazy { originals.originalElementOrSelf(file) }
 
     val decisions: Map<PsiModifierListOwner, Nullability> by lazy {
-        collectSlots()
-        collectEvidence()
+        collectNodes()
+        collectDataflow()
         analyzeBodies()
-        for ((expression, slot) in sinks) {
-            if (expression !in visited) addStaticEvidence(expression, slot)
+        for ((expression, node) in sinks) {
+            if (expression !in visited) addStaticDataflow(expression, node)
         }
+        spreadPrintedByCaller()
         solve()
         resolve()
-        slots.filterKeys { it !in generated && it !in loopVariables }.mapValues { it.value.result }
+        nodes.filterKeys { it !in notPrinted }.mapValues { it.value.result }
     }
 
     fun applyTo(inferrer: J2KNullityInferrer) {
         if (decisions.isEmpty()) return
         for (owner in decisions.keys) {
-            val slot = slots.getValue(owner)
-            val element = (slot.type as? PsiClassReferenceType)?.reference
-            inferrer.nullableTypes.remove(slot.type)
-            inferrer.notNullTypes.remove(slot.type)
-            if (element != null) {
-                inferrer.nullableElements.remove(element)
-                inferrer.notNullElements.remove(element)
-            }
-            when (slot.result) {
-                Nullability.Nullable -> {
-                    inferrer.nullableTypes.add(slot.type)
-                    if (element != null) inferrer.nullableElements.add(element)
-                }
+            val node = nodes.getValue(owner)
+            inferrer.write(node.type, node.result)
+            writeElements(inferrer, node)
+        }
+        for ((key, node) in callNodes) if (key is PsiNewExpression) writeElements(inferrer, node)
+    }
 
-                Nullability.NotNull -> {
-                    inferrer.notNullTypes.add(slot.type)
-                    if (element != null) inferrer.notNullElements.add(element)
-                }
-
-                Nullability.Default -> {}
-            }
+    private fun writeElements(inferrer: J2KNullityInferrer, node: TypeNode) {
+        for (element in node.elements) {
+            val type = if (element.wildcard == null) element.type else element.wildcard.bound ?: continue
+            val printed = !TypeConversionUtil.isPrimitiveAndNotNull(type) && PsiUtil.resolveClassInClassTypeOnly(type) !is PsiTypeParameter
+            if (printed && !element.printedByCaller && element.result != Nullability.Default) inferrer.write(type, element.result)
+            writeElements(inferrer, element)
         }
     }
 
-    private fun collectSlots() {
+    private fun J2KNullityInferrer.write(type: PsiType, result: Nullability) {
+        val element = (type as? PsiClassReferenceType)?.reference
+        nullableTypes.remove(type)
+        notNullTypes.remove(type)
+        if (element != null) {
+            nullableElements.remove(element)
+            notNullElements.remove(element)
+        }
+        when (result) {
+            Nullability.Nullable -> {
+                nullableTypes.add(type)
+                if (element != null) nullableElements.add(element)
+            }
+
+            Nullability.NotNull -> {
+                notNullTypes.add(type)
+                if (element != null) notNullElements.add(element)
+            }
+
+            Nullability.Default -> {}
+        }
+    }
+
+    private fun collectNodes() {
         file.accept(object : JavaRecursiveElementWalkingVisitor() {
             override fun visitClass(aClass: PsiClass) {
                 super.visitClass(aClass)
@@ -170,20 +188,20 @@ class J2KDataflowNullability(private val file: PsiFile) {
                 val written = (aClass as? PsiExtensibleClass)?.ownMethods ?: return
                 for (method in aClass.methods) {
                     if (method in written || method.body == null) continue
-                    generated += method
-                    generated += method.parameterList.parameters
+                    notPrinted += method
+                    notPrinted += method.parameterList.parameters
                     methods += method
                     val returnType = method.returnType
-                    if (!method.isConstructor && returnType != null) addSlot(method, returnType)
+                    if (!method.isConstructor && returnType != null) addNode(method, returnType)
                     for (parameter in method.parameterList.parameters) {
-                        if (!parameter.isVarArgs) addSlot(parameter, parameter.type)
+                        if (!parameter.isVarArgs) addNode(parameter, parameter.type)
                     }
                 }
             }
 
             override fun visitField(field: PsiField) {
                 super.visitField(field)
-                if (field !is PsiEnumConstant) addSlot(field, field.type)
+                if (field !is PsiEnumConstant) addNode(field, field.type)
             }
 
             override fun visitMethod(method: PsiMethod) {
@@ -191,29 +209,29 @@ class J2KDataflowNullability(private val file: PsiFile) {
                 methods += method
                 val returnType = method.returnType
                 if (!method.isConstructor && returnType != null && method.containingClass?.isAnnotationType != true) {
-                    addSlot(method, returnType)
+                    addNode(method, returnType)
                 }
             }
 
             override fun visitParameter(parameter: PsiParameter) {
                 super.visitParameter(parameter)
                 when (parameter.declarationScope) {
-                    is PsiMethod -> if (!parameter.isVarArgs) addSlot(parameter, parameter.type)
+                    is PsiMethod -> if (!parameter.isVarArgs) addNode(parameter, parameter.type)
                     is PsiForeachStatement -> {
-                        addSlot(parameter, parameter.type)
-                        loopVariables += parameter
+                        addNode(parameter, parameter.type)
+                        notPrinted += parameter
                     }
                 }
             }
 
             override fun visitLocalVariable(variable: PsiLocalVariable) {
                 super.visitLocalVariable(variable)
-                addSlot(variable, variable.type)
+                addNode(variable, variable.type)
             }
         })
     }
 
-    private fun addSlot(owner: PsiModifierListOwner, type: PsiType) {
+    private fun addNode(owner: PsiModifierListOwner, type: PsiType) {
         if (TypeConversionUtil.isPrimitiveAndNotNull(type) || PsiUtil.resolveClassInClassTypeOnly(type) is PsiTypeParameter) return
         if (PsiTreeUtil.getParentOfType(owner, PsiClass::class.java)?.isRecord == true || isJpaToManyDeclaration(owner)) return
         if (PsiTypesUtil.classNameEquals(type, CommonClassNames.JAVA_UTIL_OPTIONAL)) return
@@ -224,37 +242,61 @@ class J2KDataflowNullability(private val file: PsiFile) {
             else -> null
         }?.takeIf { it != Nullability.Default }
         val info = NullableNotNullManager.getInstance(file.project).findEffectiveNullabilityInfo(owner)
-        val slot = Slot(type, extensionNullability ?: info?.takeUnless { it.isInferred }?.nullability?.toJ2K())
-        if (info != null && info.isInferred && owner !is PsiParameter) {
-            when (info.nullability) {
-                JavaNullability.NOT_NULL -> slot.join(Flow.NOT_NULL)
-                JavaNullability.NULLABLE -> slot.join(Flow.NULLABLE)
-                else -> {}
-            }
-        }
-        slot.elements = createElements(type)
-        slots[owner] = slot
+        val node = TypeNode(type, extensionNullability ?: info?.takeUnless { it.isInferred }?.nullability?.toJ2K())
+        if (info != null && info.isInferred && owner !is PsiParameter) info.nullability.toJ2K()?.let(node::join)
+        node.elements = createElements(type, elementNullability = (owner as? PsiMethod)?.let(::extensionElementNullability))
+        nodes[owner] = node
     }
 
-    private fun createElements(type: PsiType, receiver: Slot? = null): List<Slot> {
+    private fun extensionElementNullability(method: PsiMethod): Nullability? =
+        J2KNullabilityInferenceExtension.getTypeArgumentNullability(method)?.takeIf { it != Nullability.Default }
+
+    private fun createElements(
+        type: PsiType,
+        receiver: TypeNode? = null,
+        elementNullability: Nullability? = null,
+        callee: PsiMethod? = null,
+    ): List<TypeNode> {
         val arguments = when (type) {
             is PsiArrayType -> listOf(type.componentType)
             is PsiClassType -> type.parameters.asList()
             else -> emptyList()
         }
-        return arguments.map { argument ->
+        val typeParameters = (type as? PsiClassType)?.resolve()?.typeParameters
+        return arguments.mapIndexed { index, argument ->
             val wildcard = argument as? PsiWildcardType
             val elementType = wildcard?.extendsBound ?: argument
-            if (receiver != null && wildcard == null) receiverElement(receiver, elementType)?.let { return@map it }
-            val spec = if (TypeConversionUtil.isPrimitiveAndNotNull(elementType)) Nullability.NotNull else elementType.nullability.nullability().toJ2K()
-            Slot(elementType, spec, wildcard).also {
-                it.elements = createElements(elementType, receiver)
-                elementSlots += it
+            if (receiver != null && wildcard == null) receiverElement(receiver, elementType)?.let { return@mapIndexed it }
+            val platformNullability = if (TypeConversionUtil.isPrimitiveAndNotNull(elementType)) {
+                Nullability.NotNull
+            } else {
+                elementType.nullability.nullability().toJ2K() ?: elementNullability ?: boundNullability(typeParameters?.getOrNull(index))
+            }
+            TypeNode(elementType, platformNullability, wildcard).also {
+                it.printedByCaller = callee != null && (PsiUtil.resolveClassInClassTypeOnly(elementType) as? PsiTypeParameter)?.owner == callee
+                it.elements = createElements(elementType, receiver, callee = callee)
             }
         }
     }
 
-    private fun linkElements(source: Slot, target: Slot) {
+    private fun spreadPrintedByCaller() {
+        val elements = elementNodes()
+        val queue = ArrayDeque(elements.filter { it.printedByCaller })
+        while (queue.isNotEmpty()) {
+            val node = queue.removeFirst()
+            for (next in node.sources + node.targets) {
+                if (next in elements && !next.printedByCaller) {
+                    next.printedByCaller = true
+                    queue += next
+                }
+            }
+        }
+    }
+
+    private fun boundNullability(typeParameter: PsiTypeParameter?): Nullability? =
+        if (typeParameter != null && getTypeParameterNullability(typeParameter) == JavaNullability.NOT_NULL) Nullability.NotNull else null
+
+    private fun linkElements(source: TypeNode, target: TypeNode) {
         if (source === target) return
         for ((sourceElement, targetElement) in source.elements.zip(target.elements)) {
             val wildcard = targetElement.wildcard
@@ -270,22 +312,22 @@ class J2KDataflowNullability(private val file: PsiFile) {
         else -> null
     }
 
-    private fun collectEvidence() {
+    private fun collectDataflow() {
         val visitor = object : JavaRecursiveElementWalkingVisitor() {
             override fun visitVariable(variable: PsiVariable) {
                 super.visitVariable(variable)
-                val slot = slots[variable] ?: return
-                variable.initializer?.let { addSink(it, slot) }
+                val node = nodes[variable] ?: return
+                variable.initializer?.let { addSink(it, node) }
             }
 
             override fun visitAssignmentExpression(expression: PsiAssignmentExpression) {
                 super.visitAssignmentExpression(expression)
-                val slot = expressionSlot(expression.lExpression) ?: return
+                val node = expressionNode(expression.lExpression) ?: return
                 if (expression.operationTokenType == JavaTokenType.EQ) {
-                    expression.rExpression?.let { addSink(it, slot) }
+                    expression.rExpression?.let { addSink(it, node) }
                 } else {
-                    slot.join(Flow.NOT_NULL)
-                    if (PsiPrimitiveType.getUnboxedType(expression.lExpression.type) != null) slot.demand = true
+                    node.join(Nullability.NotNull)
+                    if (PsiPrimitiveType.getUnboxedType(expression.lExpression.type) != null) node.needsNotNull = true
                 }
             }
 
@@ -297,8 +339,8 @@ class J2KDataflowNullability(private val file: PsiFile) {
 
             override fun visitForeachStatement(statement: PsiForeachStatement) {
                 super.visitForeachStatement(statement)
-                val variable = slots[statement.iterationParameter] ?: return
-                val iterated = expressionSlot(statement.iteratedValue) ?: return
+                val variable = nodes[statement.iterationParameter] ?: return
+                val iterated = expressionNode(statement.iteratedValue) ?: return
                 val element = if (iterated.type is PsiArrayType) iterated.elements.firstOrNull() else receiverElement(iterated, iterableElementType)
                 if (element != null) {
                     edge(element, variable)
@@ -314,67 +356,67 @@ class J2KDataflowNullability(private val file: PsiFile) {
             override fun visitMethodReferenceExpression(expression: PsiMethodReferenceExpression) {
                 super.visitMethodReferenceExpression(expression)
                 val method = expression.resolve() as? PsiMethod ?: return
-                for (parameter in method.parameterList.parameters) slots[parameter]?.join(Flow.UNKNOWN)
+                for (parameter in method.parameterList.parameters) nodes[parameter]?.let(::joinUnknown)
             }
 
             override fun visitBinaryExpression(expression: PsiBinaryExpression) {
                 super.visitBinaryExpression(expression)
-                addNullComparisonEvidence(expression)
+                addNullComparisonDataflow(expression)
             }
         }
         file.accept(visitor)
-        for (owner in generated) (owner as? PsiMethod)?.body?.accept(visitor)
+        for (owner in notPrinted) (owner as? PsiMethod)?.body?.accept(visitor)
 
         for (method in methods) {
             val searchesAllUsers = searchesAllUsers(method)
-            slots[method]?.let { slot ->
-                if (method.body == null && !searchesAllUsers) slot.join(Flow.UNKNOWN)
-                for (statement in PsiUtil.findReturnStatements(method)) statement.returnValue?.let { addSink(it, slot) }
+            nodes[method]?.let { node ->
+                if (method.body == null && !searchesAllUsers) node.join(Nullability.Default)
+                for (statement in PsiUtil.findReturnStatements(method)) statement.returnValue?.let { addSink(it, node) }
             }
-            addParameterEvidence(method)
-            addOverrideEvidence(method)
-            if (searchesAllUsers) addProjectEvidence(method)
+            addParameterDataflow(method)
+            addOverrideDataflow(method)
+            if (searchesAllUsers) addProjectDataflow(method)
         }
-        for ((owner, slot) in slots) {
-            if (owner is PsiField && searchesAllUsers(owner)) addProjectAssignmentEvidence(owner, slot)
+        for ((owner, node) in nodes) {
+            if (owner is PsiField && searchesAllUsers(owner)) addProjectAssignmentDataflow(owner, node)
         }
     }
 
     private fun searchesAllUsers(member: PsiMember): Boolean = member.hasModifierProperty(PsiModifier.PACKAGE_LOCAL)
 
-    private fun addSink(expression: PsiExpression, slot: Slot) {
+    private fun addSink(expression: PsiExpression, node: TypeNode) {
         when (val stripped = PsiUtil.skipParenthesizedExprDown(expression) ?: return) {
             is PsiConditionalExpression -> {
-                stripped.thenExpression?.let { addSink(it, slot) }
-                stripped.elseExpression?.let { addSink(it, slot) }
+                stripped.thenExpression?.let { addSink(it, node) }
+                stripped.elseExpression?.let { addSink(it, node) }
             }
 
-            is PsiTypeCastExpression -> stripped.operand?.let { addSink(it, slot) }
+            is PsiTypeCastExpression -> stripped.operand?.let { addSink(it, node) }
             else -> {
-                sinks[stripped] = slot
-                expressionSlot(stripped)?.let { linkElements(it, slot) }
+                sinks[stripped] = node
+                expressionNode(stripped)?.let { linkElements(it, node) }
                 val initializer = (stripped as? PsiNewExpression)?.arrayInitializer ?: stripped as? PsiArrayInitializerExpression
-                val element = slot.elements.firstOrNull()
+                val element = node.elements.firstOrNull()
                 if (initializer != null && element != null) {
                     for (initializerElement in initializer.initializers) addSink(initializerElement, element)
                 }
-                if (stripped is PsiNewExpression && initializer == null) addNewArrayEvidence(stripped, slot)
+                if (stripped is PsiNewExpression && initializer == null) addNewArrayDataflow(stripped, node)
             }
         }
     }
 
-    private fun addNewArrayEvidence(expression: PsiNewExpression, slot: Slot) {
+    private fun addNewArrayDataflow(expression: PsiNewExpression, node: TypeNode) {
         val dimensions = expression.arrayDimensions
-        var element = slot.elements.firstOrNull()
+        var element = node.elements.firstOrNull()
         for (index in dimensions.indices) {
             val current = element ?: return
-            current.join(if (index == dimensions.lastIndex) Flow.NULLABLE else Flow.NOT_NULL)
+            current.join(if (index == dimensions.lastIndex) Nullability.Nullable else Nullability.NotNull)
             element = current.elements.firstOrNull()
         }
     }
 
     private fun addReceiverElementSinks(call: PsiMethodCallExpression) {
-        val receiver = expressionSlot(call.methodExpression.qualifierExpression) ?: return
+        val receiver = expressionNode(call.methodExpression.qualifierExpression) ?: return
         if (receiver.elements.isEmpty()) return
         val method = call.resolveMethod() ?: return
         val arguments = call.argumentList.expressions
@@ -386,7 +428,7 @@ class J2KDataflowNullability(private val file: PsiFile) {
         }
     }
 
-    private fun receiverElement(receiver: Slot, type: PsiType?): Slot? {
+    private fun receiverElement(receiver: TypeNode, type: PsiType?): TypeNode? {
         val typeParameter = PsiUtil.resolveClassInClassTypeOnly(type) as? PsiTypeParameter ?: return null
         val owner = typeParameter.owner as? PsiClass ?: return null
         val receiverClass = PsiUtil.resolveClassInClassTypeOnly(receiver.type) ?: return null
@@ -411,14 +453,14 @@ class J2KDataflowNullability(private val file: PsiFile) {
         for (argument in arguments) {
             val parameter = MethodCallUtils.getParameterForArgument(argument) ?: continue
             if (!parameter.isVarArgs) {
-                slots[parameter]?.let { addSink(argument, it) }
+                nodes[parameter]?.let { addSink(argument, it) }
             } else if (!isVarArgCall) {
-                variableSlot(argument)?.demand = true
+                variableNode(argument)?.needsNotNull = true
             }
         }
     }
 
-    private fun addNullComparisonEvidence(expression: PsiBinaryExpression) {
+    private fun addNullComparisonDataflow(expression: PsiBinaryExpression) {
         val operation = expression.operationTokenType
         if (operation != JavaTokenType.EQEQ && operation != JavaTokenType.NE) return
         val left = expression.lOperand
@@ -429,78 +471,77 @@ class J2KDataflowNullability(private val file: PsiFile) {
             else -> return
         }
         val reference = PsiUtil.skipParenthesizedExprDown(operand) as? PsiReferenceExpression ?: return
-        val slot = variableSlot(reference) ?: return
+        val node = variableNode(reference) ?: return
         if (getExpressionDfaNullability(reference) == DfaNullability.NOT_NULL) return
         if (DfaPsiUtil.isAssertionEffectively(expression, operation == JavaTokenType.NE)) {
-            slot.demand = true
+            node.needsNotNull = true
         } else {
-            slot.join(Flow.NULLABLE)
+            node.join(Nullability.Nullable)
         }
     }
 
-    private fun addParameterEvidence(method: PsiMethod) {
+    private fun addParameterDataflow(method: PsiMethod) {
         val hasUnseenCallers = !method.hasModifierProperty(PsiModifier.PRIVATE) && !searchesAllUsers(method)
         for (parameter in method.parameterList.parameters) {
-            val slot = slots[parameter] ?: continue
-            if (hasUnseenCallers) slot.join(Flow.UNKNOWN)
-            if (method.body != null && JavaSourceInference.inferNullability(parameter) == JavaNullability.NOT_NULL) slot.demand = true
+            val node = nodes[parameter] ?: continue
+            if (hasUnseenCallers) joinUnknown(node)
+            if (method.body != null && JavaSourceInference.inferNullability(parameter) == JavaNullability.NOT_NULL) node.needsNotNull = true
         }
     }
 
-    private fun addOverrideEvidence(method: PsiMethod) {
-        val returnSlot = slots[method]
+    private fun joinUnknown(node: TypeNode) {
+        node.join(Nullability.Default)
+        for (element in node.elements) joinUnknown(element)
+    }
+
+    private fun addOverrideDataflow(method: PsiMethod) {
+        val returnNode = nodes[method]
         for (superMethod in method.findSuperMethods()) {
-            val superReturnSlot = slots[superMethod]
-            if (returnSlot != null && superReturnSlot != null) {
-                edge(returnSlot, superReturnSlot)
-                linkElements(returnSlot, superReturnSlot)
+            val superReturnNode = nodes[superMethod]
+            if (returnNode != null && superReturnNode != null) {
+                edge(returnNode, superReturnNode)
+                linkElements(returnNode, superReturnNode)
             }
             for ((parameter, superParameter) in method.parameterList.parameters.zip(superMethod.parameterList.parameters)) {
-                val parameterSlot = slots[parameter] ?: continue
-                val superParameterSlot = slots[superParameter] ?: continue
-                edge(parameterSlot, superParameterSlot)
-                edge(superParameterSlot, parameterSlot)
-                linkElements(parameterSlot, superParameterSlot)
-                linkElements(superParameterSlot, parameterSlot)
+                val parameterNode = nodes[parameter] ?: continue
+                val superParameterNode = nodes[superParameter] ?: continue
+                edge(parameterNode, superParameterNode)
+                edge(superParameterNode, parameterNode)
+                linkElements(parameterNode, superParameterNode)
+                linkElements(superParameterNode, parameterNode)
             }
         }
     }
 
-    private fun addProjectEvidence(method: PsiMethod) {
-        val parameterSlots = method.parameterList.parameters.map { slots[it] }
-        if (parameterSlots.any { it != null }) {
+    private fun addProjectDataflow(method: PsiMethod) {
+        val parameterNodes = method.parameterList.parameters.map { nodes[it] }
+        if (parameterNodes.any { it != null }) {
             for (element in referencesOutsideFile(method)) {
                 val arguments = (element.parent as? PsiCall)?.argumentList?.expressions
                 if (arguments == null && element !is PsiMethodReferenceExpression) continue
-                for ((index, slot) in parameterSlots.withIndex()) {
-                    if (slot == null) continue
+                for ((index, node) in parameterNodes.withIndex()) {
+                    if (node == null) continue
                     val argument = arguments?.getOrNull(index)
-                    if (argument != null) addStaticEvidence(argument, slot) else slot.join(Flow.UNKNOWN)
+                    if (argument != null) addStaticDataflow(argument, node) else joinUnknown(node)
                 }
             }
         }
-        val returnSlot = slots[method] ?: return
+        val returnNode = nodes[method] ?: return
         if (method.isConstructor || method.hasModifierProperty(PsiModifier.STATIC) || method.hasModifierProperty(PsiModifier.FINAL)) return
         for (overrider in OverridingMethodsSearch.search(originals.originalElementOrSelf(method)).findAll()) {
             if (overrider.containingFile == originalFile) continue
             val nullability = NullableNotNullManager.getNullability(overrider).takeIf { it != JavaNullability.UNKNOWN }
                 ?: DfaUtil.inferMethodNullability(overrider)
-            returnSlot.join(
-                when (nullability) {
-                    JavaNullability.NOT_NULL -> Flow.NOT_NULL
-                    JavaNullability.NULLABLE -> Flow.NULLABLE
-                    else -> Flow.UNKNOWN
-                }
-            )
+            returnNode.join(nullability.toJ2K() ?: Nullability.Default)
         }
     }
 
-    private fun addProjectAssignmentEvidence(field: PsiField, slot: Slot) {
+    private fun addProjectAssignmentDataflow(field: PsiField, node: TypeNode) {
         for (element in referencesOutsideFile(field)) {
             val assignment = element.parent as? PsiAssignmentExpression ?: continue
             if (assignment.lExpression != element) continue
             val value = assignment.rExpression
-            if (assignment.operationTokenType == JavaTokenType.EQ && value != null) addStaticEvidence(value, slot) else slot.join(Flow.NOT_NULL)
+            if (assignment.operationTokenType == JavaTokenType.EQ && value != null) addStaticDataflow(value, node) else node.join(Nullability.NotNull)
         }
     }
 
@@ -534,14 +575,14 @@ class J2KDataflowNullability(private val file: PsiFile) {
 
     private fun analyzeConstruction(aClass: PsiClass) {
         val runner = ConstructionRunner()
-        val classEvidence = BodyEvidence()
+        val classDataflow = BodyDataflow()
         runner.checkAtReturn = false
-        runner.fieldsToCheck = aClass.fields.filter { it.hasModifierProperty(PsiModifier.STATIC) && it in slots }
-        if (runner.analyzeBlockRecursively(aClass, listOf(runner.freshState()), classEvidence) != RunnerResult.OK) return
-        classEvidence.commit()
+        runner.fieldsToCheck = aClass.fields.filter { it.hasModifierProperty(PsiModifier.STATIC) && it in nodes }
+        if (runner.analyzeBlockRecursively(aClass, listOf(runner.freshState()), classDataflow) != RunnerResult.OK) return
+        classDataflow.commit()
 
-        val instanceFields = aClass.fields.filter { !it.hasModifierProperty(PsiModifier.STATIC) && it in slots }
-        val initializedStates = classEvidence.endOfInitializerStates.ifEmpty { listOf(runner.freshState()) }
+        val instanceFields = aClass.fields.filter { !it.hasModifierProperty(PsiModifier.STATIC) && it in nodes }
+        val initializedStates = classDataflow.endOfInitializerStates.ifEmpty { listOf(runner.freshState()) }
         val constructors = aClass.constructors
         if (constructors.isEmpty()) {
             for (state in initializedStates) runner.check(state, instanceFields)
@@ -552,10 +593,10 @@ class J2KDataflowNullability(private val file: PsiFile) {
             runner.checkAtReturn = true
             runner.fieldsToCheck = if (chained) emptyList() else instanceFields
             val states = if (chained) listOf(runner.freshState()) else initializedStates.map { it.createCopy() }
-            val evidence = BodyEvidence()
-            if (runner.analyzeBlockRecursively(body, states, evidence) == RunnerResult.OK) evidence.commit()
+            val dataflow = BodyDataflow()
+            if (runner.analyzeBlockRecursively(body, states, dataflow) == RunnerResult.OK) dataflow.commit()
         }
-        for (field in runner.nullAtEnd) slots[field]?.join(Flow.NULLABLE)
+        for (field in runner.nullAtEnd) nodes[field]?.join(Nullability.Nullable)
     }
 
     private inner class ConstructionRunner : StandardDataFlowRunner(file.project, ThreeState.UNSURE) {
@@ -586,15 +627,15 @@ class J2KDataflowNullability(private val file: PsiFile) {
     }
 
     private fun analyze(body: PsiCodeBlock) {
-        val evidence = BodyEvidence()
-        val result = StandardDataFlowRunner(file.project, ThreeState.UNSURE).analyzeMethodRecursively(body, evidence)
-        if (result == RunnerResult.OK) evidence.commit()
+        val dataflow = BodyDataflow()
+        val result = StandardDataFlowRunner(file.project, ThreeState.UNSURE).analyzeMethodRecursively(body, dataflow)
+        if (result == RunnerResult.OK) dataflow.commit()
     }
 
-    private inner class BodyEvidence : JavaDfaListener {
-        private val flows = ArrayList<Pair<Slot, Flow>>()
-        private val edges = ArrayList<Pair<Slot, Slot>>()
-        private val demands = ArrayList<Slot>()
+    private inner class BodyDataflow : JavaDfaListener {
+        private val joins = ArrayList<Pair<TypeNode, Nullability>>()
+        private val edges = ArrayList<Pair<TypeNode, TypeNode>>()
+        private val needsNotNull = ArrayList<TypeNode>()
         private val pushed = HashSet<PsiExpression>()
         val endOfInitializerStates = ArrayList<DfaMemoryState>()
 
@@ -612,14 +653,14 @@ class J2KDataflowNullability(private val file: PsiFile) {
                 DfaNullability.fromDfType(state.getDfTypeIncludingDerived(value))
             }
             when (nullability) {
-                DfaNullability.NULL, DfaNullability.NULLABLE -> flows += target to Flow.NULLABLE
-                DfaNullability.NOT_NULL -> flows += target to Flow.NOT_NULL
+                DfaNullability.NULL, DfaNullability.NULLABLE -> joins += target to Nullability.Nullable
+                DfaNullability.NOT_NULL -> joins += target to Nullability.NotNull
                 else -> when (NullabilityUtil.getExpressionNullability(expression, false)) {
-                    JavaNullability.NOT_NULL -> flows += target to Flow.NOT_NULL
-                    JavaNullability.NULLABLE -> flows += target to Flow.NULLABLE
+                    JavaNullability.NOT_NULL -> joins += target to Nullability.NotNull
+                    JavaNullability.NULLABLE -> joins += target to Nullability.Nullable
                     else -> {
-                        val source = sourceSlot(value, expression)
-                        if (source != null) edges += source to target else flows += target to Flow.UNKNOWN
+                        val source = sourceNode(value, expression)
+                        if (source != null) edges += source to target else joins += target to Nullability.Default
                     }
                 }
             }
@@ -628,116 +669,144 @@ class J2KDataflowNullability(private val file: PsiFile) {
         override fun onCondition(problem: UnsatisfiedConditionProblem, value: DfaValue, failed: ThreeState, state: DfaMemoryState) {
             if (problem !is NullabilityProblem<*> || problem.kind !in DEREFERENCE_KINDS) return
             val variable = (value as? DfaVariableValue)?.psiVariable as? PsiVariable ?: return
-            val slot = slots[variable] ?: return
+            val node = nodes[variable] ?: return
             val nullability = DfaNullability.fromDfType(state.getDfType(value))
-            if (nullability == DfaNullability.UNKNOWN || nullability == DfaNullability.FLUSHED) demands += slot
+            if (nullability == DfaNullability.UNKNOWN || nullability == DfaNullability.FLUSHED) needsNotNull += node
         }
 
         fun commit() {
-            for ((slot, flow) in flows) slot.join(flow)
+            for ((node, nullability) in joins) node.join(nullability)
             for ((source, target) in edges) edge(source, target)
-            for (slot in demands) slot.demand = true
+            for (node in needsNotNull) node.needsNotNull = true
             visited += pushed
         }
     }
 
-    private fun sourceSlot(value: DfaValue, expression: PsiExpression): Slot? {
+    private fun sourceNode(value: DfaValue, expression: PsiExpression): TypeNode? {
         val variable = (value as? DfaVariableValue)?.psiVariable as? PsiModifierListOwner
-        if (variable != null) slots[variable]?.let { return it }
-        return expressionSlot(expression)
+        if (variable != null) nodes[variable]?.let { return it }
+        return expressionNode(expression)
     }
 
-    private fun expressionSlot(expression: PsiExpression?): Slot? = when (val stripped = PsiUtil.skipParenthesizedExprDown(expression)) {
-        is PsiReferenceExpression -> (stripped.resolve() as? PsiVariable)?.let { slots[it] }
-        is PsiMethodCallExpression -> calleeSlot(stripped)
-        is PsiArrayAccessExpression -> expressionSlot(stripped.arrayExpression)?.elements?.firstOrNull()
+    private fun expressionNode(expression: PsiExpression?): TypeNode? = when (val stripped = PsiUtil.skipParenthesizedExprDown(expression)) {
+        is PsiReferenceExpression -> (stripped.resolve() as? PsiVariable)?.let { nodes[it] }
+        is PsiMethodCallExpression -> calleeNode(stripped)
+        is PsiArrayAccessExpression -> expressionNode(stripped.arrayExpression)?.elements?.firstOrNull()
+        is PsiNewExpression -> newExpressionNode(stripped)
         else -> null
     }
 
-    private fun variableSlot(expression: PsiExpression?): Slot? {
-        val reference = PsiUtil.skipParenthesizedExprDown(expression) as? PsiReferenceExpression ?: return null
-        val variable = reference.resolve() as? PsiVariable ?: return null
-        return slots[variable]
+    private fun newExpressionNode(expression: PsiNewExpression): TypeNode? {
+        callNodes[expression]?.let { return it }
+        val typeArguments = expression.classReference?.parameterList?.typeParameterElements ?: return null
+        if (typeArguments.isEmpty()) return null
+        val type = expression.type as? PsiClassType ?: return null
+        return TypeNode(type, Nullability.NotNull).also {
+            it.elements = createElements(type)
+            callNodes[expression] = it
+        }
     }
 
-    private fun calleeSlot(call: PsiMethodCallExpression): Slot? {
+    private fun variableNode(expression: PsiExpression?): TypeNode? {
+        val reference = PsiUtil.skipParenthesizedExprDown(expression) as? PsiReferenceExpression ?: return null
+        val variable = reference.resolve() as? PsiVariable ?: return null
+        return nodes[variable]
+    }
+
+    private fun calleeNode(call: PsiMethodCallExpression): TypeNode? {
         val method = call.resolveMethod() ?: return null
-        slots[method]?.let { return it }
-        callSlots[call]?.let { return it }
+        nodes[method]?.let { return it }
+        callNodes[call]?.let { return it }
         val type = method.returnType ?: return null
-        val receiver = expressionSlot(call.methodExpression.qualifierExpression)
+        val receiver = expressionNode(call.methodExpression.qualifierExpression)
         if (receiver != null) {
             receiverElement(receiver, type)?.let { return it }
-            val elements = if (receiver.elements.isEmpty()) emptyList() else createElements(type, receiver)
+            val elements = if (receiver.elements.isEmpty()) emptyList() else createElements(type, receiver, callee = method)
             if (elements.isNotEmpty()) {
                 val nullability = effectiveNullability(method)
-                return Slot(type, nullability).also {
-                    if (nullability == null) it.join(Flow.UNKNOWN)
+                return TypeNode(type, nullability).also {
+                    if (nullability == null) it.join(Nullability.Default)
                     it.elements = elements
-                    callSlots[call] = it
+                    callNodes[call] = it
                 }
             }
         }
-        librarySlots[method]?.let { return it }
-        if (method.containingFile == file) return null
-        val nullability = effectiveNullability(method) ?: return null
-        return Slot(type, nullability).also {
-            it.elements = createElements(type)
-            librarySlots[method] = it
+        callNodes[method]?.let { return it }
+        val enumValues = isEnumValues(method)
+        if (method.containingFile == file && !enumValues) return null
+        val nullability = if (enumValues) Nullability.NotNull else effectiveNullability(method) ?: return null
+        val elementNullability = if (enumValues) Nullability.NotNull else extensionElementNullability(method)
+        val elements = createElements(type, elementNullability = elementNullability, callee = method)
+        return TypeNode(type, nullability).also {
+            it.elements = elements
+            callNodes[if (elements.isEmpty()) method else call] = it
         }
     }
+
+    private fun isEnumValues(method: PsiMethod): Boolean =
+        method.name == "values" && method.parameterList.isEmpty && method.hasModifierProperty(PsiModifier.STATIC) &&
+            method.containingClass?.isEnum == true
 
     private fun effectiveNullability(method: PsiMethod): Nullability? =
         NullableNotNullManager.getInstance(file.project).findEffectiveNullabilityInfo(method)?.nullability?.toJ2K()
 
-    private fun addStaticEvidence(expression: PsiExpression, slot: Slot) {
+    private fun addStaticDataflow(expression: PsiExpression, node: TypeNode) {
         when (NullabilityUtil.getExpressionNullability(expression, true)) {
-            JavaNullability.NOT_NULL -> slot.join(Flow.NOT_NULL)
-            JavaNullability.NULLABLE -> slot.join(Flow.NULLABLE)
+            JavaNullability.NOT_NULL -> node.join(Nullability.NotNull)
+            JavaNullability.NULLABLE -> node.join(Nullability.Nullable)
             else -> {
-                val source = expressionSlot(expression)
+                val source = expressionNode(expression)
                 if (source != null) {
-                    edge(source, slot)
-                    linkElements(source, slot)
+                    edge(source, node)
+                    linkElements(source, node)
                 } else {
-                    slot.join(Flow.UNKNOWN)
+                    node.join(Nullability.Default)
                 }
             }
         }
     }
 
-    private fun edge(source: Slot, target: Slot) {
+    private fun edge(source: TypeNode, target: TypeNode) {
         if (source === target) return
         source.targets += target
         target.sources += source
     }
 
-    private fun allSlots(): List<Slot> = buildList {
-        addAll(slots.values)
-        addAll(librarySlots.values)
-        addAll(callSlots.values)
-        addAll(elementSlots)
+    private fun allNodes(): List<TypeNode> = buildList {
+        addAll(nodes.values)
+        addAll(callNodes.values)
+        addAll(elementNodes())
+    }
+
+    private fun elementNodes(): Set<TypeNode> {
+        val elements = LinkedHashSet<TypeNode>()
+        fun collect(node: TypeNode) {
+            for (element in node.elements) if (elements.add(element)) collect(element)
+        }
+        for (node in nodes.values) collect(node)
+        for (node in callNodes.values) collect(node)
+        return elements
     }
 
     private fun solve() {
-        val queue = ArrayDeque(allSlots())
+        val queue = ArrayDeque(allNodes())
         while (queue.isNotEmpty()) {
-            val slot = queue.removeFirst()
-            val value = slot.value ?: continue
-            for (target in slot.targets) {
-                if (target.spec == null && target.join(value)) queue += target
+            val node = queue.removeFirst()
+            val nullability = node.platformNullability ?: node.dataflowNullability ?: continue
+            for (target in node.targets) {
+                if (target.platformNullability == null && target.join(nullability)) queue += target
             }
         }
     }
 
     private fun resolve() {
-        val all = allSlots()
-        for (slot in all) slot.result = slot.decide()
+        val all = allNodes()
+        for (node in all) node.result = node.decide()
         val queue = ArrayDeque(all.filter { it.result == Nullability.NotNull })
         while (queue.isNotEmpty()) {
             for (source in queue.removeFirst().sources) {
-                if (source.spec != null || source.demand || source.flow == Flow.NULLABLE) continue
-                source.demand = true
+                if (source.platformNullability != null || source.needsNotNull || source.dataflowNullability == Nullability.Nullable) continue
+                source.needsNotNull = true
                 source.result = source.decide()
                 queue += source
             }

@@ -1,5 +1,3 @@
-// ERROR: Initializer type mismatch: expected 'Array<String>', actual 'Array<String?>'.
-// ERROR: Return type mismatch: expected 'Array<String>', actual 'Array<String?>'.
 // TODO support array initializers
 internal class ArrayArgument {
     fun test(array: Array<String>) {
@@ -23,11 +21,11 @@ internal class ArrayMethodCall {
         }
     }
 
-    private fun strings(): Array<String> {
+    private fun strings(): Array<String?> {
         return strings2()
     }
 
-    private fun strings2(): Array<String> {
+    private fun strings2(): Array<String?> {
         return arrayOfNulls<String>(0)
     }
 }
@@ -43,7 +41,7 @@ internal class ArrayParameter {
 }
 
 internal class ArrayField {
-    var field: Array<String> = arrayOfNulls<String>(0)
+    var field: Array<String?> = arrayOfNulls<String>(0)
 
     fun test() {
         val array = field

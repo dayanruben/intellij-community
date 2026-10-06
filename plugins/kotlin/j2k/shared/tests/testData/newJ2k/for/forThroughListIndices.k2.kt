@@ -1,11 +1,11 @@
 internal class C {
-    fun foo1(list: MutableList<String?>) {
+    fun foo1(list: MutableList<String>) {
         for (i in list.indices) {
             list.set(i, "a")
         }
     }
 
-    fun foo2(list: ArrayList<String?>) {
+    fun foo2(list: ArrayList<String>) {
         for (i in list.indices) {
             list.set(i, "a")
         }

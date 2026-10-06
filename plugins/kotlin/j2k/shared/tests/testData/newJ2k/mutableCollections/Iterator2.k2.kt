@@ -1,5 +1,5 @@
 class TestMutableCollection {
-    val list: MutableList<String?> = ArrayList<String?>()
+    val list: MutableList<String> = ArrayList<String>()
 
     fun test() {
         val it = list.iterator()

@@ -40,7 +40,7 @@ internal object Foo {
         println("" + o)
         println(o.hashCode().toString() + "")
         println("" + o.hashCode())
-        val bar = arrayOf<String?>("hi")
+        val bar = arrayOf<String>("hi")
         println(1.toString() + bar[0])
         println((1 + 2).toString() + bar[0])
         println(bar[0] + 1)

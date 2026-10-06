@@ -1,15 +1,11 @@
 // ERROR: Argument type mismatch: actual type is 'ArrayList<String?>', but 'ArrayList<String>' was expected.
 // ERROR: Argument type mismatch: actual type is 'ArrayList<String?>?', but 'ArrayList<String>?' was expected.
-// ERROR: Initializer type mismatch: expected 'ArrayList<String?>', actual 'ArrayList<String>'.
-// ERROR: Initializer type mismatch: expected 'ArrayList<String?>?', actual 'ArrayList<String>?'.
-// ERROR: Return type mismatch: expected 'ArrayList<String?>', actual 'ArrayList<String>'.
-// ERROR: Return type mismatch: expected 'ArrayList<String?>?', actual 'ArrayList<String>?'.
 class Foo {
     fun testAssignment(k: K) {
         val l1 = k.return1()
-        val l2: ArrayList<String?>? = k.return2()
+        val l2 = k.return2()
         val l3 = k.return3()
-        val l4: ArrayList<String?> = k.return4()
+        val l4 = k.return4()
     }
 
     fun testArgument(
@@ -29,7 +25,7 @@ class Foo {
         return k.return1()
     }
 
-    fun testReturn2(k: K): ArrayList<String?>? {
+    fun testReturn2(k: K): ArrayList<String>? {
         return k.return2()
     }
 
@@ -37,7 +33,7 @@ class Foo {
         return k.return3()
     }
 
-    fun testReturn4(k: K): ArrayList<String?> {
+    fun testReturn4(k: K): ArrayList<String> {
         return k.return4()
     }
 }

@@ -1,4 +1,3 @@
-// IGNORE_K2
 // COMPILER_ARGUMENTS: -XXLanguage:-EnumEntries
 
 enum MyEnum {

@@ -1,15 +1,15 @@
 class J {
     fun foo(
         m1: MutableMap<String?, String?>,
-        m2: MutableMap<String?, String?>,
-        m3: MutableMap<String?, String?>,
-        m4: MutableMap<String?, String?>,
-        m5: MutableMap<String?, String?>,
-        m6: MutableMap<String?, String?>,
+        m2: MutableMap<String, String?>,
+        m3: MutableMap<String, String?>,
+        m4: MutableMap<String, String?>,
+        m5: MutableMap<String, String>,
+        m6: MutableMap<String, String>,
         m7: MutableMap<String?, String?>,
-        m8: MutableMap<String?, String?>,
+        m8: MutableMap<String, String>,
         m9: MutableMap<String?, String?>,
-        m10: MutableMap<String?, String?>,
+        m10: MutableMap<String, String>,
         m11: MutableMap<String?, String?>
     ) {
         m1.clear()
