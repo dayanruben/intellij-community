@@ -102,13 +102,25 @@ public abstract class ImportClassFixBase<T extends PsiElement, R extends PsiRefe
   private final PsiFile myContainingPsiFile;
   private final boolean myInContent;
   private final ThreeState extensionsAllowToChangeFileSilently;
+  private final boolean myNarrowByUsage;
 
   @RequiresBackgroundThread
   @RequiresReadLock
   protected ImportClassFixBase(@NotNull T referenceElement, @NotNull R reference) {
+    this(referenceElement, reference, false);
+  }
+
+  /**
+   * @param narrowByUsage whether {@link #filterByContext} may also narrow by how the code uses the
+   *                      type.
+   */
+  @RequiresBackgroundThread
+  @RequiresReadLock
+  protected ImportClassFixBase(@NotNull T referenceElement, @NotNull R reference, boolean narrowByUsage) {
     super(referenceElement.getProject());
     ThreadingAssertions.assertBackgroundThread();
     ThreadingAssertions.assertReadAccess();
+    myNarrowByUsage = narrowByUsage;
     myReferenceElement = referenceElement;
     myReference = reference;
     myContainingPsiFile = referenceElement.getContainingFile();
@@ -130,6 +142,10 @@ public abstract class ImportClassFixBase<T extends PsiElement, R extends PsiRefe
 
   @Override
   public boolean isAvailable(@NotNull Project project, Editor editor, @NotNull PsiFile psiFile) {
+    return isAvailable(project, psiFile);
+  }
+
+  public boolean isAvailable(@NotNull Project project, @NotNull PsiFile psiFile) {
     if (myClassesToImport.length == 0) return false;
     return isStillAvailable() && !getClassesToImport(true).isEmpty();
   }
@@ -357,6 +373,11 @@ public abstract class ImportClassFixBase<T extends PsiElement, R extends PsiRefe
 
   protected @Unmodifiable @NotNull Collection<PsiClass> filterByContext(@NotNull Collection<PsiClass> candidates, @NotNull T referenceElement) {
     return candidates;
+  }
+
+  /** Whether the fix was built to narrow its candidates by how the code uses the type as well. */
+  protected final boolean isNarrowByUsage() {
+    return myNarrowByUsage;
   }
 
   protected abstract boolean isAccessible(@NotNull PsiMember member, @NotNull T referenceElement);

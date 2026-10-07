@@ -9,13 +9,14 @@ community platform set and the community bundled plugins, with the additional pl
 tables name the community products and the community tables in `community`, see `_community_product`.
 """
 
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "dev_dist_platform_jar")
 load("//platform/build-scripts/bazel-rules:dev_dist_content.bzl", "dev_dist_platform_payload")
 load("//platform/build-scripts/bazel-rules:dev_dist_product_files.bzl", "dev_dist_product_files")
 load("//platform/build-scripts/bazel-rules:dev_dist_runtime_module_repository.bzl", "dev_dist_runtime_layout_parts", "dev_dist_runtime_module_repository")
 load("//platform/build-scripts/bazel-rules:intellij_dev_dist.bzl", "intellij_dev_fragments_dist", "intellij_dev_packed_jars_component")
 load(":dev_launch_dependencies.bzl", "HOST_PLATFORMS", "platform_parts")
-load(":intellij_dev.bzl", "intellij_dev_dist_config", "intellij_dev_launcher_binary")
+load(":intellij_dev.bzl", "intellij_dev_java_launcher_binary")
 
 def _plugin_component_entries(platform_prefix, tier, entries):
     """Reads one tier of the generated component map as `struct(main_module, label, labels)` entries.
@@ -615,11 +616,10 @@ def _distribution_groups(rows):
     return groups
 
 def _declare_run_distribution(tables, name, product, additional_modules, runtime_module_repository, catalogue, visibility):
-    """The distribution of one or more launchers: `<name>_dist`, `<name>_dist_launch`, and the pair a launcher reads.
+    """The distribution of one or more launchers: the self-contained `<name>_dist` and the local launch `<name>_dist_launch`.
 
-    `<name>_distribution` is the self-contained `_dist` on Windows and the metadata-only `_dist_launch` elsewhere, which a
-    launcher links into a local home from the component runfiles. `<name>_ide_config` is its config file. A distribution
-    with `runtime_module_repository` composes the `platform_runtime_module_repository` component of its product, which
+    A row starts over the placement of `_dist_launch`, and on Windows over the home of `_dist`. A distribution with
+    `runtime_module_repository` composes the `platform_runtime_module_repository` component of its product, which
     places the `modules/` files of `dev_dist_runtime_module_repository`.
     """
     _check_plan(tables, name, product)
@@ -636,33 +636,17 @@ def _declare_run_distribution(tables, name, product, additional_modules, runtime
         create_local_launch = True,
         catalogue = catalogue,
     )
-    dist = "//%s:%s_dist" % (native.package_name(), name)
-    native.alias(
-        name = name + "_distribution",
-        actual = select({
-            "@platforms//os:windows": dist,
-            "//conditions:default": dist + "_launch",
-        }),
-        tags = ["manual"],
-        visibility = ["//visibility:private"],
-    )
-    intellij_dev_dist_config(
-        name = name + "_ide_config",
-        dist = "//%s:%s_distribution" % (native.package_name(), name),
-        tags = ["manual"],
-        visibility = ["//visibility:private"],
-    )
 
-def _before_run(tables, name, jvm_flags, compile_clion_backend_before_run):
-    """The `before_run_main_class` and `before_run_runtime_deps` of a launcher, from the `before_run` hook of the tables.
+def _check_before_run(tables, name, jvm_flags, compile_clion_backend_before_run):
+    """Checks the before-run step of a row with the `check_before_run` hook of the tables.
 
-    Without the hook, a launcher gets no before-run step, and a launcher that asks for one fails.
+    No launcher runs the step. A developer runs it as a target of its own. Without the hook, a row that asks for the step
+    fails.
     """
-    if tables.before_run != None:
-        return tables.before_run(name, jvm_flags, compile_clion_backend_before_run)
-    if compile_clion_backend_before_run:
-        fail("%s: compile_clion_backend_before_run needs the before_run hook, and the tables of this half have none" % name)
-    return struct(before_run_main_class = "", before_run_runtime_deps = [])
+    if tables.check_before_run != None:
+        tables.check_before_run(name, jvm_flags, compile_clion_backend_before_run)
+    elif compile_clion_backend_before_run:
+        fail("%s: compile_clion_backend_before_run needs the check_before_run hook, and the tables of this half have none" % name)
 
 def _declare_run_launcher(
         tables,
@@ -676,7 +660,11 @@ def _declare_run_launcher(
         program_args,
         compile_clion_backend_before_run,
         visibility):
-    """The launcher `name`, the launcher over the distribution `_declare_run_distribution` declared as `distribution`."""
+    """The launcher `name`, the launcher over the distribution `_declare_run_distribution` declared as `distribution`.
+
+    The row is an `intellij_dev_java_launcher` over `<distribution>_dist_launch`, with the home `<distribution>_dist` on
+    Windows.
+    """
     for flag in jvm_flags:
         if flag.startswith("-Dadditional.modules="):
             fail("%s: pass the modules of '%s' as additional_modules, not in jvm_flags" % (name, flag))
@@ -689,23 +677,27 @@ def _declare_run_launcher(
                   "distribution, such as runtime_module_repository = True for the runtime module repository, or a path " +
                   "outside out/classes, out/production and out/test") % (name, flag))
 
-    before_run = _before_run(tables, name, jvm_flags, compile_clion_backend_before_run)
+    _check_before_run(tables, name, jvm_flags, compile_clion_backend_before_run)
     if tables.launcher_jvm_flags != None:
         jvm_flags = tables.launcher_jvm_flags(product, additional_modules, jvm_flags)
 
-    # The distribution states its prefix: the launcher reads `-Didea.platform.prefix` from `product-info.json`, as a
-    # production launcher does, and a caller's value would win over it.
-    intellij_dev_launcher_binary(
+    intellij_dev_java_launcher_binary(
         name = name,
         visibility = visibility,
-        dist = "//%s:%s_distribution" % (native.package_name(), distribution),
-        ide_config = "//%s:%s_ide_config" % (native.package_name(), distribution),
+        dist = "//%s:%s_dist_launch" % (native.package_name(), distribution),
+        export = "//%s:%s_dist" % (native.package_name(), distribution),
         jvm_flags = jvm_flags,
         env = env,
         data = data,
         program_args = program_args,
-        before_run_main_class = before_run.before_run_main_class,
-        before_run_runtime_deps = before_run.before_run_runtime_deps,
+    )
+
+def _launch_assembles_test(name, rows, tags):
+    """A `build_test` that builds the launchers of `rows`. The factory result documents it as `launch_assembles_test`."""
+    build_test(
+        name = name,
+        tags = tags,
+        targets = rows,
     )
 
 def _run_configurations(tables, rows):
@@ -780,9 +772,9 @@ def _run_configuration(
 _RUN_CONFIGURATION_DOC = """One dev launcher written by hand, `bazel run //<package>:<name>`, over a distribution of its own.
 
     It declares what `run_configurations` declares for one generated row: the distribution `<name>_dist` with
-    `<name>_dist_launch`, and `<name>`, an `intellij_dev_launcher` over it. The rows of `.idea/runConfigurations` do not
-    use this macro: `dev_server_run_configurations.bzl` passes them to `run_configurations`, which lets rows share a
-    distribution.
+    `<name>_dist_launch`, and `<name>`, an `intellij_dev_java_launcher` over it. The rows of `.idea/runConfigurations`
+    do not use this macro:
+    `dev_server_run_configurations.bzl` passes them to `run_configurations`, which lets rows share a distribution.
 
     A launcher the generated plan cannot serve fails at load time (`check_plan`): a product that the split
     distributions of its generator half do not name. A module of `additional_modules` without a
@@ -797,7 +789,7 @@ _RUN_CONFIGURATION_ATTRS = {
     "data": attr.label_list(default = [], doc = "Extra data dependencies of the launcher."),
     "program_args": attr.string_list(default = [], configurable = False, doc = "Program arguments of the launcher."),
     "generate_runtime_module_repository": attr.bool(default = False, configurable = False, doc = "The -Dintellij.build.generate.runtime.module.repository=true of a run configuration. The distribution composes the `platform_runtime_module_repository` component of its product."),
-    "compile_clion_backend_before_run": attr.bool(default = False, configurable = False, doc = "The before-run step of a run configuration. The `before_run` hook of the tables declares it. Without the hook, the attribute fails."),
+    "compile_clion_backend_before_run": attr.bool(default = False, configurable = False, doc = "The before-run step of a run configuration. The `check_before_run` hook of the tables checks it, and no launcher runs it. Without the hook, the attribute fails."),
 }
 
 def intellij_dev_dist_declarations(tables):
@@ -823,7 +815,8 @@ def intellij_dev_dist_declarations(tables):
     - `build_package`: the package that declares the platform sets, for example `//build`.
     - `product_info_label(product)`: the label of the product info of `product`.
     - `launcher_jvm_flags(product, additional_modules, jvm_flags)`: the `jvm_flags` of a launcher, or `None`.
-    - `before_run(name, jvm_flags, compile_clion_backend_before_run)`: the before-run step of a launcher, or `None`.
+    - `check_before_run(name, jvm_flags, compile_clion_backend_before_run)`: checks the before-run step of a row, or
+      `None`. No launcher runs the step.
     - `community`: the community products and the community tables that a distribution of one reads, or `None`.
       See `_community_product` for the fields.
 
@@ -892,6 +885,10 @@ def intellij_dev_dist_declarations(tables):
         """
         _run_configurations(tables, rows)
 
+    def launch_assembles_test(name, rows, tags = []):
+        """A `build_test` `name` that builds the launchers of `rows`, labels of rows of this package or another one."""
+        _launch_assembles_test(name, rows, tags)
+
     def run_configuration_impl(
             name,
             visibility,
@@ -923,6 +920,7 @@ def intellij_dev_dist_declarations(tables):
         declare_fragments_dist = declare_fragments_dist,
         check_plan = check_plan,
         run_configurations = run_configurations,
+        launch_assembles_test = launch_assembles_test,
         run_configuration = macro(
             doc = _RUN_CONFIGURATION_DOC,
             implementation = run_configuration_impl,

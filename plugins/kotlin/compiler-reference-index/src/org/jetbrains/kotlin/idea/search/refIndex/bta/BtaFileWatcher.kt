@@ -16,6 +16,10 @@ import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.idea.maven.project.MavenProjectsManager
 import org.jetbrains.kotlin.buildtools.api.ExperimentalBuildToolsApi
 import org.jetbrains.kotlin.buildtools.api.cri.CriToolchain
+import org.jetbrains.kotlin.idea.base.plugin.KotlinCompilerVersionProvider
+import org.jetbrains.kotlin.idea.base.plugin.artifacts.KotlinArtifactConstants.KOTLIN_MAVEN_GROUP_ID
+import org.jetbrains.kotlin.idea.base.util.isGradleModule
+import org.jetbrains.kotlin.idea.compiler.configuration.IdeKotlinVersion
 import org.jetbrains.kotlin.idea.gradle.configuration.readGradleProperty
 import org.jetbrains.kotlin.idea.search.refIndex.bta.BtaFileWatcher.Companion.ENABLE_BTA_CRI_KEY
 import org.jetbrains.plugins.gradle.settings.GradleSettings
@@ -94,20 +98,39 @@ internal class BtaFileWatcher(private val project: Project) {
         private const val KOTLIN_CRI_GENERATION_PROPERTY = "kotlin.compiler.generateCompilerRefIndex"
 
         /**
+         * Maven project property that enables Kotlin incremental compilation. Maven CRI generation requires it.
+         */
+        private const val KOTLIN_INCREMENTAL_PROPERTY = "kotlin.compiler.incremental"
+
+        private const val KOTLIN_MAVEN_PLUGIN_ID = "kotlin-maven-plugin"
+
+        /**
          * Returns `true` when [ENABLE_BTA_CRI_KEY] is enabled and the project uses a BTA-based build system (Gradle or Maven)
          * with CRI generation enabled.
          */
         internal fun isApplicable(project: Project): Boolean =
             Registry.`is`(ENABLE_BTA_CRI_KEY) && (isGradleCriEnabled(project) || isMavenCriEnabled(project))
 
+        // TODO KTIJ-40389: Use the effective CRI generation value from the new Kotlin Gradle import once available
+        // This approximation ignores `kotlin.compiler.runViaBuildToolsApi`, CI detection, and other property sources
         private fun isGradleCriEnabled(project: Project): Boolean = runReadActionBlocking {
-            GradleSettings.getInstance(project).linkedProjectsSettings.isNotEmpty()
-                    && (readGradleProperty(project, KOTLIN_CRI_GENERATION_PROPERTY)?.toBoolean() ?: false)
+            val kotlinGradlePluginVersions = ModuleManager.getInstance(project).modules
+                .filter(Module::isGradleModule)
+                .mapNotNull(KotlinCompilerVersionProvider::getVersion)
+            GradleSettings.getInstance(project).linkedProjectsSettings.isNotEmpty() && isGradleCriGenerationEnabled(
+                readGradleProperty(project, KOTLIN_CRI_GENERATION_PROPERTY),
+                kotlinGradlePluginVersions
+            )
         }
 
+        // This approximation ignores CI detection and property sources other than the POM properties
         private fun isMavenCriEnabled(project: Project): Boolean = runReadActionBlocking {
             MavenProjectsManager.getInstanceIfCreated(project)?.projects?.any { mavenProject ->
-                mavenProject.properties.getProperty(KOTLIN_CRI_GENERATION_PROPERTY).toBoolean()
+                isMavenCriGenerationEnabled(
+                    mavenProject.properties.getProperty(KOTLIN_CRI_GENERATION_PROPERTY),
+                    mavenProject.properties.getProperty(KOTLIN_INCREMENTAL_PROPERTY),
+                    mavenProject.findPlugin(KOTLIN_MAVEN_GROUP_ID, KOTLIN_MAVEN_PLUGIN_ID)?.version?.let(IdeKotlinVersion::opt),
+                )
             } ?: false
         }
 
@@ -133,6 +156,35 @@ fun getCriArtifactTimestamp(criPath: Path): FileTime? {
         }
         .maxOrNull()
 }
+
+/**
+ * Returns `true` when the Kotlin Gradle plugin generates CRI artifacts.
+ *
+ * An explicit [generateCompilerRefIndex] value wins; without it, the result is `true` when CRI generation is enabled by default
+ * for one of the [kotlinGradlePluginVersions].
+ */
+@ApiStatus.Internal
+fun isGradleCriGenerationEnabled(
+    generateCompilerRefIndex: String?,
+    kotlinGradlePluginVersions: List<IdeKotlinVersion>,
+): Boolean = generateCompilerRefIndex?.toBoolean() ?: kotlinGradlePluginVersions.any { it.isCriGenerationEnabledByDefault }
+
+/**
+ * Returns `true` when the Kotlin Maven plugin generates CRI artifacts.
+ *
+ * An explicit [generateCompilerRefIndex] value wins; without it, the result is `true` when [incremental] compilation is enabled
+ * and CRI generation is enabled by default for the [kotlinMavenPluginVersion].
+ */
+@ApiStatus.Internal
+fun isMavenCriGenerationEnabled(
+    generateCompilerRefIndex: String?,
+    incremental: String?,
+    kotlinMavenPluginVersion: IdeKotlinVersion?,
+): Boolean = generateCompilerRefIndex?.toBoolean()
+    ?: (incremental.toBoolean() && kotlinMavenPluginVersion?.isCriGenerationEnabledByDefault == true)
+
+private val IdeKotlinVersion.isCriGenerationEnabledByDefault: Boolean
+    get() = kotlinVersion.isAtLeast(2, 5) // KT-81782 Enable CRI by default
 
 /**
  * Returns modules whose path's [getTimestamp] is newer than the receiver's cached value.

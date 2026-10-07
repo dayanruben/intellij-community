@@ -4,11 +4,10 @@ package org.jetbrains.plugins.gradle.testFramework.fixtures.impl
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.application.edtWriteAction
+import com.intellij.openapi.application.runReadActionBlocking
 import com.intellij.openapi.application.runWriteActionAndWait
 import com.intellij.openapi.externalSystem.autoimport.changes.vfs.VirtualFileChangesListener
 import com.intellij.openapi.externalSystem.autoimport.changes.vfs.VirtualFileChangesListener.Companion.installBulkVirtualFileListener
-import com.intellij.openapi.externalSystem.util.runReadAction
-import com.intellij.openapi.externalSystem.util.runWriteActionAndGet
 import com.intellij.openapi.observable.operation.core.onFailureCatching
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.JDOMUtil
@@ -110,19 +109,19 @@ internal class FileTestFixtureImpl(
     val systemDirectory = systemPath.findOrCreateDirectory().refreshAndGetVirtualDirectory()
     val fixtureRoot = "FileTestFixture/$relativePath"
     VfsRootAccess.allowRootAccess(testRootDisposable, systemDirectory.path + "/$fixtureRoot")
-    return runWriteActionAndGet {
+    return runWriteActionAndWait {
       systemDirectory.findOrCreateDirectory(fixtureRoot)
     }
   }
 
   private fun createFixtureStateFile(): VirtualFile {
-    return runWriteActionAndGet {
+    return runWriteActionAndWait {
       root.findOrCreateFile("_FileTestFixture.xml")
     }
   }
 
   private fun createProjectRoot(): VirtualFile {
-    return runWriteActionAndGet {
+    return runWriteActionAndWait {
       root.findOrCreateDirectory(relativeProjectPath)
     }
   }
@@ -154,7 +153,7 @@ internal class FileTestFixtureImpl(
 
   private fun readFixtureState(): State {
     return runCatching {
-      runReadAction {
+      runReadActionBlocking {
         val element = JDOMUtil.load(fixtureStateFile.toNioPath())
         XmlSerializer.deserialize(element, State::class.java)
       }

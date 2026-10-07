@@ -66,9 +66,10 @@ object CommunityModuleSets {
     moduleSet(ideInternal())
     moduleSet(builtInServer())
 
-    embeddedModule("intellij.libraries.download.pgp.verifier")
-    embeddedModule("intellij.remoteDev.util")
+    module("intellij.libraries.download.pgp.verifier")
+    module("intellij.remoteDev.util")
     embeddedModule("intellij.platform.markdown.utils")
+    module("intellij.remoteDev.frontendProcessLauncher")
 
     module("intellij.platform.buildScripts.downloader")
     module("intellij.platform.indexing.impl.backend")
@@ -79,6 +80,8 @@ object CommunityModuleSets {
     module("intellij.platform.feedback")
     module("intellij.platform.ide.presentationAssistant")
     module("intellij.platform.ide.socketConnection")
+    module("intellij.platform.ide.filterField")
+    module("intellij.platform.ide.migLayout")
 
     module("intellij.platform.pluginManager.shared.base")
     module("intellij.platform.pluginManager.shared")
@@ -216,7 +219,7 @@ object CommunityModuleSets {
    * The internal IDE services and actions, and their backend.
    * The module registers the platform implementations of `StatisticsNotificationManager` and `LatencyRecorder`.
    *
-   * [essential] nests this set. A lean product such as Draft adds the set itself.
+   * [essential] nests this set. A lean product can leave the set out. The platform callers of these services are null-safe.
    */
   fun ideInternal(): ModuleSet = moduleSet("ide.internal") {
     module("intellij.platform.ide.internal")
@@ -260,12 +263,15 @@ object CommunityModuleSets {
   }
 
   /**
-   * Language Server Protocol (LSP) support modules.
+   * Language Server Protocol (LSP) support: the API, the implementation and the structure view.
+   * Each direct module of this set loads in its own class loader.
+   * The lsp4j wrappers of [librariesLsp4j] stay embedded.
+   * [ideCommon] nests this set, and the JetBrains Client adds it.
    */
   fun lsp(): ModuleSet = moduleSet("lsp") {
     moduleSet(librariesLsp4j())
-    embeddedModule("intellij.platform.lsp")
-    embeddedModule("intellij.platform.lsp.impl")
+    module("intellij.platform.lsp")
+    module("intellij.platform.lsp.impl")
     module("intellij.platform.lsp.impl.structureView")
   }
 

@@ -1,6 +1,8 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.externalSystem.autoimport
 
+import com.intellij.openapi.application.runReadActionBlocking
+import com.intellij.openapi.application.runWriteActionAndWait
 import com.intellij.openapi.externalSystem.autoimport.ExternalSystemModificationType.EXTERNAL
 import com.intellij.openapi.externalSystem.autoimport.ExternalSystemModificationType.HIDDEN
 import com.intellij.openapi.externalSystem.autoimport.ExternalSystemModificationType.INTERNAL
@@ -13,8 +15,6 @@ import com.intellij.openapi.externalSystem.autoimport.ExternalSystemSettingsFile
 import com.intellij.openapi.externalSystem.autoimport.ExternalSystemSettingsFilesModificationContext.ReloadStatus.IN_PROGRESS
 import com.intellij.openapi.externalSystem.autoimport.MockProjectAware.ReloadCollisionPassType
 import com.intellij.openapi.externalSystem.model.ProjectSystemId
-import com.intellij.openapi.externalSystem.util.runReadAction
-import com.intellij.openapi.externalSystem.util.runWriteActionAndWait
 import com.intellij.testFramework.refreshVfs
 import com.intellij.testFramework.utils.editor.saveToDisk
 import com.intellij.testFramework.utils.vfs.getDocument
@@ -453,7 +453,7 @@ class AutoReloadTest : AutoReloadTestCase() {
 
   fun `test document changes between save`() {
     test { settingsFile ->
-      val settingsDocument = runReadAction {
+      val settingsDocument = runReadActionBlocking {
         settingsFile.getDocument()
       }
 
@@ -897,7 +897,7 @@ class AutoReloadTest : AutoReloadTestCase() {
 
   fun `test settings file modification by document before sync`() {
     test { settingsFile ->
-      val settingsDocument = runReadAction {
+      val settingsDocument = runReadActionBlocking {
         settingsFile.getDocument()
       }
 

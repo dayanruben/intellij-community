@@ -1,5 +1,8 @@
 package com.jetbrains.lsp.protocol
 
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.KSerializer
+import kotlinx.serialization.KeepGeneratedSerializer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.JsonElement
@@ -13,7 +16,17 @@ val Initialize: RequestType<InitializeParams, InitializeResult, InitializeError>
 
 val Initialized: NotificationType<Unit> = NotificationType("initialized", Unit.serializer())
 
-@Serializable
+@OptIn(ExperimentalSerializationApi::class)
+internal object InitializeParamsSerializer :
+    KSerializer<InitializeParams> by RequiredNullMembers(InitializeParams.generatedSerializer(), "processId", "rootUri")
+
+/**
+ * `processId` (`integer | null`) and `rootUri` (`DocumentUri | null`) are required members of the spec: written as `null`
+ * when null ([RequiredNullMembers]).
+ */
+@OptIn(ExperimentalSerializationApi::class)
+@KeepGeneratedSerializer
+@Serializable(with = InitializeParamsSerializer::class)
 data class InitializeParams(
     /**
      * The process Id of the parent process that started the server. Is null if
@@ -21,7 +34,7 @@ data class InitializeParams(
      * process is not alive then the server should exit (see exit notification)
      * its process.
      */
-    val processId: Int?,
+    val processId: Int? = null,
 
     /**
      * Information about the client
@@ -58,7 +71,7 @@ data class InitializeParams(
      *
      * @deprecated in favour of `workspaceFolders`
      */
-    val rootUri: DocumentUri?,
+    val rootUri: DocumentUri? = null,
 
     /**
      * User provided initialization options.
@@ -85,7 +98,7 @@ data class InitializeParams(
      */
     val workspaceFolders: List<WorkspaceFolder>? = null,
 
-    override val workDoneToken: ProgressToken?,
+    override val workDoneToken: ProgressToken? = null,
 
     ) : WorkDoneProgressParams
 
@@ -124,5 +137,5 @@ data class InitializeError(
     val retry: Boolean,
 )
 
-val ExitNotificationType: NotificationType<Unit> =
-    NotificationType("exit", Unit.serializer())
+val ExitNotificationType: NotificationType<Nothing?> =
+    NotificationType("exit", NoValueSerializer)

@@ -1,4 +1,4 @@
-// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.gradle.importing
 
 
@@ -7,7 +7,6 @@ import com.intellij.openapi.externalSystem.importing.ImportSpecBuilder
 import com.intellij.openapi.externalSystem.service.execution.ExternalSystemJdkProvider
 import com.intellij.openapi.externalSystem.service.execution.ExternalSystemJdkUtil
 import com.intellij.openapi.externalSystem.service.execution.ExternalSystemJdkUtilTestCase.TestJdkProvider
-import com.intellij.openapi.externalSystem.service.execution.TestUnknownSdkResolver
 import com.intellij.openapi.externalSystem.util.ExternalSystemUtil
 import com.intellij.openapi.externalSystem.util.environment.Environment
 import com.intellij.openapi.externalSystem.util.environment.TestEnvironment
@@ -18,11 +17,14 @@ import com.intellij.openapi.roots.ModuleRootManager
 import com.intellij.openapi.roots.ProjectRootManager
 import com.intellij.openapi.roots.ui.configuration.SdkTestCase
 import com.intellij.openapi.roots.ui.configuration.SdkTestCase.Companion.assertSdk
-import com.intellij.openapi.roots.ui.configuration.SdkTestCase.TestSdkGenerator
 import com.intellij.platform.externalSystem.testFramework.ExternalSystemTestObservation.awaitProjectActivity
+import com.intellij.platform.externalSystem.testFramework.service.execution.ExternalSystemTestUnknownSdkResolver
 import com.intellij.testFramework.VfsTestUtil
 import com.intellij.testFramework.common.runAll
 import com.intellij.testFramework.replaceService
+import com.intellij.testFramework.roots.ui.configuration.TestSdkGenerator
+import com.intellij.testFramework.roots.ui.configuration.TestSdkType
+import com.intellij.testFramework.roots.ui.configuration.TestUnknownSdkResolver
 import com.intellij.util.lang.JavaVersion
 import org.jetbrains.plugins.gradle.service.project.open.linkAndSyncGradleProject
 import org.jetbrains.plugins.gradle.testFramework.util.createBuildFile
@@ -46,11 +48,11 @@ abstract class GradleProjectSdkResolverTestCase : GradleImportingTestCase() {
     setRegistryPropertyForTest("unknown.sdk.auto", "false")
     setRegistryPropertyForTest("use.jdk.vendor.in.suggested.jdk.name", "false") //we have inconsistency between SDK names in JDK
 
-    SdkType.EP_NAME.point.registerExtension(SdkTestCase.TestSdkType, testRootDisposable)
+    SdkType.EP_NAME.point.registerExtension(TestSdkType, testRootDisposable)
 
     environment.variables(ExternalSystemJdkUtil.JAVA_HOME to null)
 
-    TestUnknownSdkResolver.unknownSdkFixMode = TestUnknownSdkResolver.TestUnknownSdkFixMode.TEST_LOCAL_FIX
+    ExternalSystemTestUnknownSdkResolver.unknownSdkFixMode = TestUnknownSdkResolver.TestUnknownSdkFixMode.TEST_LOCAL_FIX
   }
 
   override fun installGradleJvmConfigurator() {

@@ -1,9 +1,9 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.idea.codeInsight.gradle
 
 import com.intellij.gradle.toolingExtension.util.GradleVersionUtil.isGradleOlderThan
 import com.intellij.lang.documentation.psi.createPsiDocumentationTarget
-import com.intellij.openapi.externalSystem.util.runReadAction
+import com.intellij.openapi.application.runReadActionBlocking
 import com.intellij.platform.backend.documentation.DocumentationData
 import com.intellij.platform.backend.documentation.DocumentationResult
 import com.intellij.testFramework.findReferenceByText
@@ -25,7 +25,7 @@ class KotlinGradleBuildNavigationTest : KotlinGradleCodeInsightTestCase() {
     fun testBuildGradleWithMppPlugin(gradleVersion: GradleVersion) {
         runBlocking {
             test(gradleVersion, KOTLIN_PLUGIN_FIXTURE) {
-                runReadAction {
+                runReadActionBlocking {
                     val buildGradle = getFile("build.gradle").getPsiFile(project)
                     val jvmElement = buildGradle.findReferenceByText("jvm").element
                     val documentationTarget = createPsiDocumentationTarget(jvmElement, jvmElement)

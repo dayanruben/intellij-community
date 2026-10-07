@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.externalSystem.service.execution
 
 import com.intellij.openapi.Disposable
@@ -9,8 +9,12 @@ import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.roots.ui.configuration.SdkTestCase
 import com.intellij.openapi.roots.ui.configuration.UnknownSdkResolver
 import com.intellij.openapi.util.Disposer
+import com.intellij.platform.externalSystem.testFramework.service.execution.ExternalSystemTestUnknownSdkResolver
 import com.intellij.testFramework.ExtensionTestUtil
 import com.intellij.testFramework.replaceService
+import com.intellij.testFramework.roots.ui.configuration.TestSdkGenerator
+import com.intellij.testFramework.roots.ui.configuration.TestSdkType
+import com.intellij.testFramework.roots.ui.configuration.TestUnknownSdkResolver
 
 abstract class ExternalSystemJdkUtilTestCase : SdkTestCase() {
 
@@ -24,11 +28,11 @@ abstract class ExternalSystemJdkUtilTestCase : SdkTestCase() {
     application.replaceService(Environment::class.java, TestEnvironment(), testRootDisposable)
     application.replaceService(ExternalSystemJdkProvider::class.java, TestJdkProvider(), testRootDisposable)
 
-    ExtensionTestUtil.maskExtensions(UnknownSdkResolver.EP_NAME, listOf(TestUnknownSdkResolver), testRootDisposable)
+    ExtensionTestUtil.maskExtensions(UnknownSdkResolver.EP_NAME, listOf(ExternalSystemTestUnknownSdkResolver), testRootDisposable)
 
     environment.variables(ExternalSystemJdkUtil.JAVA_HOME to null)
 
-    TestUnknownSdkResolver.unknownSdkFixMode = TestUnknownSdkResolver.TestUnknownSdkFixMode.TEST_LOCAL_FIX
+    ExternalSystemTestUnknownSdkResolver.unknownSdkFixMode = TestUnknownSdkResolver.TestUnknownSdkFixMode.TEST_LOCAL_FIX
   }
 
   class TestJdkProvider : ExternalSystemJdkProvider, Disposable {

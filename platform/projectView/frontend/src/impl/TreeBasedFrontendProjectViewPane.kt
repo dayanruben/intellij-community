@@ -2,6 +2,7 @@
 package com.intellij.platform.projectView.frontend.impl
 
 import com.intellij.ide.DefaultTreeExpander
+import com.intellij.ide.IdeBundle
 import com.intellij.ide.SelectInTarget
 import com.intellij.ide.util.treeView.TreeState
 import com.intellij.openapi.actionSystem.CommonDataKeys
@@ -23,6 +24,7 @@ import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.platform.projectView.actions.ProjectViewActionSupport
 import com.intellij.platform.projectView.frontend.pane.FrontendProjectViewPane
 import com.intellij.platform.projectView.frontend.pane.id
+import com.intellij.platform.projectView.frontend.window.ProjectViewToolWindowServiceImpl
 import com.intellij.platform.projectView.pane.PROJECT_VIEW_SELECTED_NODE_IDS_KEY
 import com.intellij.platform.projectView.pane.ProjectViewChildrenLoaded
 import com.intellij.platform.projectView.pane.ProjectViewNodeModelImpl
@@ -37,6 +39,7 @@ import com.intellij.platform.projectView.settings.ProjectViewPaneOptionDTO
 import com.intellij.ui.AutoScrollToSourceHandler
 import com.intellij.ui.ClientProperty
 import com.intellij.ui.ScrollPaneFactory
+import com.intellij.ui.SimpleTextAttributes
 import com.intellij.ui.stripe.ErrorStripe
 import com.intellij.ui.stripe.ErrorStripePainter
 import com.intellij.ui.stripe.TreeUpdater
@@ -203,6 +206,15 @@ internal class TreeBasedFrontendProjectViewPane(
     }
     tree.addTreeSelectionListener(RestoreSelectionListener())
     enableDnD(tree, paneTreeModel)
+    if (!descriptor.isDefault) {
+      tree.emptyText
+        .setText(IdeBundle.message("scope.view.empty.text"))
+        .appendSecondaryText(IdeBundle.message("scope.view.empty.link"), SimpleTextAttributes.LINK_PLAIN_ATTRIBUTES) {
+          if (!project.isDisposed) {
+            ProjectViewToolWindowServiceImpl.getInstance(project).selectDefaultPane()
+          }
+        }
+    }
   }
 
   override suspend fun manage() {
@@ -413,17 +425,34 @@ internal class TreeBasedFrontendProjectViewPane(
   override fun uiDataSnapshot(sink: DataSink) {
     sink[ProjectViewPaneId.DATA_KEY] = paneTreeModel.descriptor.id
     sink[ProjectViewPaneKind.DATA_KEY] = paneTreeModel.descriptor.kind
-    sink[PROJECT_VIEW_SELECTED_NODE_IDS_KEY] = tree.selectionPaths?.mapNotNull { path ->
-      (path?.lastPathComponent as? Node)?.projectViewNode?.id
-    }
     sink[PlatformDataKeys.CUT_PROVIDER] = cutCopyPasteDeleteProvider
     sink[PlatformDataKeys.COPY_PROVIDER] = cutCopyPasteDeleteProvider
     sink[PlatformDataKeys.PASTE_PROVIDER] = cutCopyPasteDeleteProvider
     sink[PlatformDataKeys.DELETE_ELEMENT_PROVIDER] = cutCopyPasteDeleteProvider
-    sink[CommonDataKeys.NAVIGATABLE_ARRAY] = tree.selectionPaths?.mapNotNull { path ->
-      (path?.lastPathComponent as? Node)?.projectViewNode?.let { paneTreeModel.createNavigatable(it) }
-    }?.toTypedArray()
     sink[PlatformDataKeys.TREE_EXPANDER] = treeExpander
+    val selectionPaths = tree.selectionPaths ?: return
+    uiDataSnapshotForSelection(sink, selectionPaths)
+  }
+
+  private fun uiDataSnapshotForSelection(
+    sink: DataSink,
+    selectionPaths: Array<out TreePath>,
+  ) {
+    val selectedNodes = selectionPaths.mapNotNull { path ->
+      path.lastPathComponent as? Node
+    }
+    sink[PROJECT_VIEW_SELECTED_NODE_IDS_KEY] = selectedNodes.map { node ->
+      node.projectViewNode.id
+    }
+    sink[CommonDataKeys.NAVIGATABLE_ARRAY] = selectedNodes.map { node ->
+      node.projectViewNode.let { paneTreeModel.createNavigatable(it) }
+    }.toTypedArray()
+    sink.lazy(CommonDataKeys.VIRTUAL_FILE) {
+      selectedNodes.firstOrNull()?.projectViewNode?.userObject?.getVirtualFile() 
+    }
+    sink.lazy(CommonDataKeys.VIRTUAL_FILE_ARRAY) {
+      selectedNodes.mapNotNull { it.projectViewNode.userObject.getVirtualFile() }.toTypedArray()
+    }
   }
 
   override fun saveStateTo(element: Element) {

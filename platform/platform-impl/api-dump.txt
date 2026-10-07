@@ -350,8 +350,6 @@ c:com.intellij.diagnostic.WindowsDefenderChecker
 - f:getPathsToExclude(com.intellij.openapi.project.Project):java.util.List
 com.intellij.diagnostic.WindowsDefenderChecker$Extension
 - a:getPaths(com.intellij.openapi.project.Project,java.nio.file.Path):java.util.Collection
-f:com.intellij.diagnostic.hprof.util.HeapReportUtils
-- f:sectionHeader(java.lang.String):java.lang.String
 e:com.intellij.diagnostic.logs.DebugLogLevel
 - java.lang.Enum
 f:com.intellij.diagnostic.logs.LogCategory
@@ -819,10 +817,15 @@ Fc:com.intellij.ide.actions.SaveAllAction
 - com.intellij.openapi.actionSystem.AnAction
 - com.intellij.ide.lightEdit.LightEditCompatible
 - com.intellij.openapi.project.DumbAware
+- sf:Companion:com.intellij.ide.actions.SaveAllAction$Companion
 - <init>():V
 - actionPerformed(com.intellij.openapi.actionSystem.AnActionEvent):V
+- sf:isSaveAllAction(com.intellij.openapi.actionSystem.AnAction):Z
+f:com.intellij.ide.actions.SaveAllAction$Companion
+- f:isSaveAllAction(com.intellij.openapi.actionSystem.AnAction):Z
 f:com.intellij.ide.actions.SaveDocumentAction
 - com.intellij.openapi.project.DumbAwareAction
+- s:isSaveDocumentAction(com.intellij.openapi.actionSystem.AnAction):Z
 c:com.intellij.ide.actions.SearchWebAction
 - com.intellij.openapi.actionSystem.AnAction
 - com.intellij.openapi.project.DumbAware
@@ -1030,89 +1033,6 @@ c:com.intellij.ide.browsers.actions.WebPreviewVirtualFile
 - getName():java.lang.String
 - getOriginalFile():com.intellij.openapi.vfs.VirtualFile
 - getPreviewUrl():com.intellij.util.Url
-f:com.intellij.ide.dnd.DnDManagerImpl
-- com.intellij.ide.dnd.DnDManager
-- <init>():V
-f:com.intellij.ide.dnd.FileCopyPasteUtil
-- s:getFileList(java.awt.datatransfer.Transferable):java.util.List
-- s:getFileListFromAttachedObject(java.lang.Object):java.util.List
-- s:getFiles(java.awt.datatransfer.Transferable):java.util.List
-- s:getPathListFromAttachedObject(java.lang.Object):java.util.List
-- s:isFileListFlavorAvailable():Z
-- s:isFileListFlavorAvailable(com.intellij.ide.dnd.DnDEvent):Z
-- s:isFileListFlavorAvailable(java.awt.datatransfer.DataFlavor[]):Z
-com.intellij.ide.dnd.FileFlavorProvider
-- a:asFileList():java.util.List
-a:com.intellij.ide.dnd.TransferableList
-- java.awt.datatransfer.Transferable
-- <init>(java.lang.Object[]):V
-com.intellij.ide.dnd.TransferableWrapper
-- com.intellij.ide.dnd.FileFlavorProvider
-- a:getPsiElements():com.intellij.psi.PsiElement[]
-- a:getTreeNodes():javax.swing.tree.TreeNode[]
-- getTreePaths():javax.swing.tree.TreePath[]
-- getVirtualFiles():com.intellij.openapi.vfs.VirtualFile[]
-c:com.intellij.ide.dnd.aware.DnDAwareTree
-- com.intellij.ui.treeStructure.Tree
-- com.intellij.ide.dnd.DnDAware
-- <init>():V
-- <init>(javax.swing.tree.TreeModel):V
-- <init>(javax.swing.tree.TreeNode):V
-- processMouseEvent(java.awt.event.MouseEvent):V
-a:com.intellij.ide.errorTreeView.ErrorTreeElement
-- a:getExportTextPrefix():java.lang.String
-- a:getText():java.lang.String[]
-f:com.intellij.ide.errorTreeView.ErrorTreeNodeDescriptor
-- com.intellij.ide.util.treeView.NodeDescriptor
-- getElement():com.intellij.ide.errorTreeView.ErrorTreeElement
-c:com.intellij.ide.errorTreeView.ErrorViewStructure
-- com.intellij.ide.util.treeView.AbstractTreeStructure
-- clear():V
-- getChildElements(java.lang.Object):com.intellij.ide.errorTreeView.ErrorTreeElement[]
-- getRootElement():java.lang.Object
-- hasMessages(java.util.Set):Z
-- lookupGroupingElement(java.lang.String):com.intellij.ide.errorTreeView.GroupingElement
-- removeElement(com.intellij.ide.errorTreeView.ErrorTreeElement):V
-c:com.intellij.ide.errorTreeView.GroupingElement
-- com.intellij.ide.errorTreeView.ErrorTreeElement
-- getData():java.lang.Object
-com.intellij.ide.errorTreeView.NavigatableErrorTreeElement
-- a:getNavigatable():com.intellij.pom.Navigatable
-c:com.intellij.ide.errorTreeView.NavigatableMessageElement
-- com.intellij.ide.errorTreeView.ErrorTreeElement
-- com.intellij.ide.errorTreeView.NavigatableErrorTreeElement
-f:com.intellij.ide.errorTreeView.NewErrorTreeRenderer
-- com.intellij.ui.MultilineTreeCellRenderer
-- s:install(javax.swing.JTree):javax.swing.JScrollPane
-c:com.intellij.ide.errorTreeView.NewErrorTreeViewPanel
-- javax.swing.JPanel
-- com.intellij.ide.CopyProvider
-- com.intellij.ide.OccurenceNavigator
-- com.intellij.openapi.Disposable
-- com.intellij.openapi.actionSystem.UiCompatibleDataProvider
-- com.intellij.util.ui.MutableErrorTreeView
-- f:collapseAll():V
-- f:expandAll():V
-- p:fillRightToolbarGroup(com.intellij.openapi.actionSystem.DefaultActionGroup):V
-- f:getErrorViewStructure():com.intellij.ide.errorTreeView.ErrorViewStructure
-- f:getSelectedErrorTreeElement():com.intellij.ide.errorTreeView.ErrorTreeElement
-- hasNextOccurence():Z
-- hasPreviousOccurence():Z
-- f:isHideWarnings():Z
-- reload():V
-- f:setProgressText(java.lang.String):V
-- f:updateAddedElement(com.intellij.ide.errorTreeView.ErrorTreeElement):V
-- updateTree():V
-com.intellij.ide.errorTreeView.NewErrorTreeViewPanel$ProcessController
-- a:isProcessStopped():Z
-- a:stopProcess():V
-f:com.intellij.ide.errorTreeView.impl.ErrorTreeViewConfiguration
-- com.intellij.openapi.components.PersistentStateComponent
-- s:getInstance(com.intellij.openapi.project.Project):com.intellij.ide.errorTreeView.impl.ErrorTreeViewConfiguration
-- isAutoscrollToSource():Z
-- isHideWarnings():Z
-- setAutoscrollToSource(Z):V
-- setHideWarnings(Z):V
 com.intellij.ide.externalComponents.ExternalComponentSource
 - sf:EP_NAME:com.intellij.openapi.extensions.ExtensionPointName
 - a:getAllChannels():java.util.List
@@ -2844,7 +2764,7 @@ f:com.intellij.openapi.editor.impl.SelectionModelImpl
 - addSelectionListener(com.intellij.openapi.editor.event.SelectionListener):V
 - getBlockSelectionEnds():I[]
 - getBlockSelectionStarts():I[]
-Fa:com.intellij.openapi.editor.impl.SoftWrapModelImpl
+f:com.intellij.openapi.editor.impl.SoftWrapModelImpl
 - com.intellij.openapi.editor.InlayModel$SimpleAdapter
 - com.intellij.diagnostic.Dumpable
 - com.intellij.openapi.Disposable
@@ -2853,11 +2773,35 @@ Fa:com.intellij.openapi.editor.impl.SoftWrapModelImpl
 - com.intellij.openapi.editor.ex.PrioritizedDocumentListener
 - com.intellij.openapi.editor.ex.SoftWrapModelEx
 - java.beans.PropertyChangeListener
-- <init>():V
-- a:getApplianceManager():com.intellij.openapi.editor.impl.softwrap.mapping.SoftWrapApplianceManager
-- f:getRegisteredSoftWraps():java.util.List
-- f:getSoftWrap(I):com.intellij.openapi.editor.SoftWrap
-- a:isDirty():Z
+- addSoftWrapChangeListener(com.intellij.openapi.editor.ex.SoftWrapChangeListener):Z
+- beforeDocumentChange(com.intellij.openapi.editor.event.DocumentEvent):V
+- beforeDocumentChangeAtCaret():V
+- beforeFoldRegionDisposed(com.intellij.openapi.editor.FoldRegion):V
+- dispose():V
+- documentChanged(com.intellij.openapi.editor.event.DocumentEvent):V
+- dumpState():java.lang.String
+- forceAdditionalColumnsUsage():V
+- getApplianceManager():com.intellij.openapi.editor.impl.softwrap.mapping.SoftWrapApplianceManager
+- getMinDrawingWidthInPixels(com.intellij.openapi.editor.impl.softwrap.SoftWrapDrawingType):I
+- getPriority():I
+- getRegisteredSoftWraps():java.util.List
+- getSoftWrap(I):com.intellij.openapi.editor.SoftWrap
+- getSoftWrapIndex(I):I
+- getSoftWrapsForLine(I):java.util.List
+- getSoftWrapsForRange(I,I):java.util.List
+- isDirty():Z
+- isInsideOrBeforeSoftWrap(com.intellij.openapi.editor.VisualPosition):Z
+- isInsideSoftWrap(com.intellij.openapi.editor.VisualPosition):Z
+- isRespectAdditionalColumns():Z
+- isSoftWrappingEnabled():Z
+- isVisible(com.intellij.openapi.editor.SoftWrap):Z
+- onBatchModeFinish(com.intellij.openapi.editor.Editor):V
+- onFoldProcessingEnd():V
+- onFoldRegionStateChange(com.intellij.openapi.editor.FoldRegion):V
+- onUpdated(com.intellij.openapi.editor.Inlay,I):V
+- paint(java.awt.Graphics,com.intellij.openapi.editor.impl.softwrap.SoftWrapDrawingType,I,I,I):I
+- propertyChange(java.beans.PropertyChangeEvent):V
+- release():V
 com.intellij.openapi.editor.impl.TextDrawingCallback
 - a:drawChars(java.awt.Graphics,C[],I,I,I,I,java.awt.Color,com.intellij.openapi.editor.impl.FontInfo):V
 f:com.intellij.openapi.editor.impl.TrailingSpacesStripper
@@ -3089,8 +3033,6 @@ c:com.intellij.openapi.fileChooser.tree.FileNode
 - getName():java.lang.String
 - isHidden():Z
 - isValid():Z
-f:com.intellij.openapi.fileChooser.universal.FileBrowser
-- sf:INSTANCE:com.intellij.openapi.fileChooser.universal.FileBrowser
 f:com.intellij.openapi.fileEditor.LayoutActionsFloatingToolbar
 - com.intellij.openapi.editor.toolbar.floating.AbstractFloatingToolbarComponent
 f:com.intellij.openapi.fileEditor.SplitEditorToolbar
@@ -3718,18 +3660,6 @@ f:com.intellij.openapi.ui.impl.ShadowBorderPainter$Shadow
 - getImage():java.awt.Image
 - getX():I
 - getY():I
-com.intellij.openapi.ui.playback.PlaybackCommand
-- a:canGoFurther():Z
-- a:execute(com.intellij.openapi.ui.playback.PlaybackContext):java.util.concurrent.CompletableFuture
-- getScriptDir():java.io.File
-a:com.intellij.openapi.ui.playback.PlaybackContext
-- a:getProject():com.intellij.openapi.project.Project
-a:com.intellij.openapi.ui.playback.commands.AbstractCommand
-- com.intellij.openapi.ui.playback.PlaybackCommand
-- f:getLine():I
-c:com.intellij.openapi.ui.playback.commands.ActionCommand
-- com.intellij.openapi.ui.playback.commands.AbstractCommand
-- s:getInputEvent(java.lang.String):java.awt.event.InputEvent
 a:com.intellij.openapi.ui.popup.MultiSelectionListPopupStep
 - com.intellij.openapi.ui.popup.util.BaseListPopupStep
 f:com.intellij.openapi.ui.validation.RequestorsKt
@@ -4266,26 +4196,6 @@ f:com.intellij.openapi.wm.impl.welcomeScreen.collapsedActionGroup.CollapsedActio
 - <init>(java.lang.String,java.util.List):V
 - f:getCollapsed():Z
 - f:setCollapsed(Z):V
-com.intellij.openapi.wm.impl.welcomeScreen.learnIde.coursesInProgress.CourseDataStorage
-- a:getAllCourses():java.util.List
-- a:getCoursePath(com.intellij.openapi.wm.impl.welcomeScreen.learnIde.coursesInProgress.CourseInfo):java.lang.String
-- a:removeCourseByLocation(java.lang.String):Z
-c:com.intellij.openapi.wm.impl.welcomeScreen.learnIde.coursesInProgress.CourseInfo
-- <init>():V
-- f:getDescription():java.lang.String
-- f:getId():I
-- f:getLocation():java.lang.String
-- f:getName():java.lang.String
-- f:getTasksSolved():I
-- f:getTasksTotal():I
-- f:setDescription(java.lang.String):V
-- f:setId(I):V
-- f:setLocation(java.lang.String):V
-- f:setName(java.lang.String):V
-- f:setTasksSolved(I):V
-- f:setTasksTotal(I):V
-com.intellij.openapi.wm.impl.welcomeScreen.learnIde.coursesInProgress.CoursesStorageProvider
-- a:getCoursesStorage():com.intellij.openapi.wm.impl.welcomeScreen.learnIde.coursesInProgress.CourseDataStorage
 a:com.intellij.packageDependencies.ui.TreeExpansionMonitor
 - freeze():V
 - s:install(javax.swing.JTree):com.intellij.packageDependencies.ui.TreeExpansionMonitor
@@ -5318,25 +5228,6 @@ f:com.intellij.ui.dsl.builder.LabelKt
 f:com.intellij.ui.dsl.builder.components.ValidationTooltipKt
 - sf:validationTooltip(com.intellij.ui.dsl.builder.Row,java.lang.String,com.intellij.ui.components.ActionLink,com.intellij.ui.components.ActionLink,com.intellij.ui.dsl.builder.components.ValidationType,Z):com.intellij.ui.dsl.builder.Cell
 - bs:validationTooltip$default(com.intellij.ui.dsl.builder.Row,java.lang.String,com.intellij.ui.components.ActionLink,com.intellij.ui.components.ActionLink,com.intellij.ui.dsl.builder.components.ValidationType,Z,I,java.lang.Object):com.intellij.ui.dsl.builder.Cell
-f:com.intellij.ui.filterField.FilterAllAction
-- com.intellij.openapi.actionSystem.AnAction
-a:com.intellij.ui.filterField.FilterField
-- javax.swing.JPanel
-- <init>(java.lang.String):V
-f:com.intellij.ui.filterField.FilterFieldAction
-- com.intellij.openapi.actionSystem.AnAction
-- com.intellij.openapi.actionSystem.ex.CustomComponentAction
-- <init>(kotlin.jvm.functions.Function0):V
-f:com.intellij.ui.filterField.FilterMultiSelectAction
-- com.intellij.openapi.actionSystem.AnAction
-f:com.intellij.ui.filterField.FilterValueAction
-- com.intellij.openapi.actionSystem.AnAction
-c:com.intellij.ui.layout.migLayout.patched.MigLayout
-- java.awt.LayoutManager2
-- <init>():V
-- <init>(net.miginfocom.layout.LC):V
-- f:getComponentConstraints():java.util.Map
-- f:getLayoutConstraints():net.miginfocom.layout.LC
 f:com.intellij.ui.list.TargetPopup
 - sf:createTargetPresentationRenderer(java.util.function.Function):javax.swing.ListCellRenderer
 f:com.intellij.ui.mac.touchbar.TouchbarSupport
@@ -5815,30 +5706,3 @@ c:com.intellij.xml.breadcrumbs.DefaultCrumbsPresentation
 - <init>():V
 f:com.intellij.xml.breadcrumbs.PsiFileBreadcrumbsCollector
 - com.intellij.codeInsight.breadcrumbs.FileBreadcrumbsCollector
-f:org.jetbrains.io.JsonReaderEx
-- java.io.Closeable
-- <init>(java.lang.CharSequence):V
-- beginArray():V
-- beginObject():org.jetbrains.io.JsonReaderEx
-- close():V
-- createSubReaderAndSkipValue():org.jetbrains.io.JsonReaderEx
-- endArray():V
-- endObject():V
-- hasNext():Z
-- nextBoolean():Z
-- nextNameOrNull():java.lang.String
-- nextString():java.lang.String
-- skipValue():V
-f:org.jetbrains.io.JsonUtil
-- s:nextObject(org.jetbrains.io.JsonReaderEx):java.util.Map
-f:org.jetbrains.io.LocalFileFinder
-- s:findFile(java.lang.String):com.intellij.openapi.vfs.VirtualFile
-f:org.jetbrains.io.mandatory.JsonMandatoryException
-- com.google.gson.JsonParseException
-- <init>(java.lang.String):V
-@:org.jetbrains.io.mandatory.Mandatory
-- java.lang.annotation.Annotation
-f:org.jetbrains.io.mandatory.NullCheckingFactory
-- com.google.gson.TypeAdapterFactory
-@:org.jetbrains.io.mandatory.RestModel
-- java.lang.annotation.Annotation

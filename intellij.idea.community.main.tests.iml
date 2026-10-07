@@ -237,8 +237,11 @@
     <orderEntry type="module" module-name="intellij.platform.experiment.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.externalProcessAuthHelper.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.ide.concurrency.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.ide.hprof.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.ide.tabInEditor.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.ide.nonModalWelcomeScreen.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.ide.presentationAssistant" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.platform.ide.tabInEditor" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.platform.buildScripts.usages.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.ijent.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.images.build.tests" scope="TEST" />
@@ -341,6 +344,8 @@
     <orderEntry type="module" module-name="intellij.dev.leakDetection.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.dev.pluginLoading.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.mcpserver.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.java.mcp.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.kotlin.mcp.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.mcpserver.terminal.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.mcpserver.terminal.frontend.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.testExtensions" scope="TEST" />

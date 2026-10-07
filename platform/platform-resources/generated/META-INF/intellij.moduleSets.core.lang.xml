@@ -301,6 +301,9 @@
     <module name="intellij.platform.undo" loading="embedded"/>
     <module name="intellij.platform.ui.tree" loading="embedded"/>
     <module name="intellij.platform.vfs.impl" loading="embedded"/>
+    <module name="intellij.platform.ide.json" loading="embedded"/>
+    <module name="intellij.platform.ide.dnd" loading="embedded"/>
+    <module name="intellij.platform.ide.editorSkeleton" loading="embedded"/>
     <module name="intellij.platform.ide.codeinsight.inline" loading="embedded"/>
     <module name="intellij.platform.pasta" loading="embedded"/>
     <module name="intellij.platform.diagnostic.startUpPerformanceReporter" loading="embedded"/>
@@ -312,6 +315,12 @@
     <module name="intellij.platform.remote.core" loading="embedded"/>
     <module name="intellij.platform.ide.remote"/>
     <module name="intellij.platform.ide.colorPicker"/>
+    <module name="intellij.platform.ide.hprof"/>
+    <module name="intellij.platform.ide.errorTreeView"/>
+    <module name="intellij.platform.ide.learnIde"/>
+    <module name="intellij.platform.ide.playback"/>
+    <module name="intellij.platform.ide.fileChooser.universal"/>
+    <module name="intellij.platform.ide.tabInEditor"/>
     <module name="intellij.platform.threadDumpParser"/>
     <module name="intellij.platform.ide.favoritesTreeView"/>
     <module name="intellij.platform.ide.designer"/>

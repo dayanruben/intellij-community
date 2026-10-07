@@ -33,6 +33,7 @@ import com.intellij.openapi.vfs.VirtualFileSetFactory
 import com.intellij.platform.ide.progress.withBackgroundProgress
 import com.intellij.platform.util.progress.reportProgress
 import com.intellij.platform.util.progress.reportSequentialProgress
+import com.intellij.project.ProjectStoreOwner
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.concurrency.annotations.RequiresReadLock
@@ -132,8 +133,18 @@ class ActionsOnSaveFileDocumentManagerListener private constructor(private val p
     abstract suspend fun updateDocument(project: Project, document: Document)
   }
 
+  // The application publishes the save events to every project, including a project that is still opening.
+  private fun isProjectStoreInitialized(): Boolean {
+    val store = (project as? ProjectStoreOwner)?.componentStore ?: return true
+    return store.isStoreInitialized
+  }
+
   @ApiStatus.Internal
   override fun beforeDocumentSaving(document: Document) {
+    if (!isProjectStoreInitialized()) {
+      return
+    }
+
     if (!ActionsOnSaveManager.getInstance(project).runningSaveDocumentAction) {
       // There are hundreds of places in IntelliJ codebase where saveDocument() is called. IDE and plugins may decide to save some specific
       // document at any time. Sometimes a document is saved on typing (com.intellij.openapi.vcs.ex.LineStatusTrackerKt.saveDocumentWhenUnchanged).
@@ -153,6 +164,10 @@ class ActionsOnSaveFileDocumentManagerListener private constructor(private val p
 
   @ApiStatus.Internal
   override fun beforeAllDocumentsSaving() {
+    if (!isProjectStoreInitialized()) {
+      return
+    }
+
     val documents = FileDocumentManager.getInstance().unsavedDocuments
     if (documents.isEmpty()) {
       return
@@ -405,7 +420,7 @@ class ActionsOnSaveManager private constructor(private val project: Project, pri
 private class CurrentActionListener : AnActionListener {
   override fun beforeActionPerformed(action: AnAction, event: AnActionEvent) {
     val project = event.project
-    if (project != null && action is SaveDocumentAction) {
+    if (project != null && SaveDocumentAction.isSaveDocumentAction(action)) {
       ActionsOnSaveManager.getInstance(project).runningSaveDocumentAction = true
     }
   }

@@ -14,8 +14,6 @@ import com.intellij.openapi.externalSystem.model.ProjectSystemId
 import com.intellij.openapi.externalSystem.model.settings.ExternalSystemExecutionSettings
 import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskId
 import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskNotificationListener
-import com.intellij.openapi.externalSystem.service.execution.TestUnknownSdkResolver
-import com.intellij.openapi.externalSystem.service.execution.TestUnknownSdkResolver.unknownSdkFixMode
 import com.intellij.openapi.externalSystem.service.notification.ExternalSystemProgressNotificationManager
 import com.intellij.openapi.externalSystem.settings.ExternalSystemSettingsListener
 import com.intellij.openapi.externalSystem.test.JavaExternalSystemImportingTestCase
@@ -41,6 +39,8 @@ import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.openapi.vfs.newvfs.impl.VfsRootAccess
 import com.intellij.platform.eel.EelDescriptor
 import com.intellij.platform.eel.provider.getEelDescriptor
+import com.intellij.platform.externalSystem.testFramework.service.execution.ExternalSystemTestUnknownSdkResolver
+import com.intellij.platform.externalSystem.testFramework.service.execution.ExternalSystemTestUnknownSdkResolver.unknownSdkFixMode
 import com.intellij.platform.testFramework.eelJava.EelTestJdkProvider
 import com.intellij.platform.testFramework.eelJava.EelTestUtil
 import com.intellij.platform.testFramework.io.ExternalResourcesChecker.reportUnavailability
@@ -48,6 +48,7 @@ import com.intellij.testFramework.CompilerBuildTestUtil
 import com.intellij.testFramework.ExtensionTestUtil.maskExtensions
 import com.intellij.testFramework.RunAll.Companion.runAll
 import com.intellij.testFramework.common.ThreadLeakTracker
+import com.intellij.testFramework.roots.ui.configuration.TestUnknownSdkResolver
 import com.intellij.util.SmartList
 import com.intellij.util.ThrowableRunnable
 import com.intellij.util.io.copyRecursively
@@ -162,7 +163,7 @@ abstract class GradleImportingTestCase : JavaExternalSystemImportingTestCase() {
     System.setProperty(ExternalSystemExecutionSettings.REMOTE_PROCESS_IDLE_TTL_IN_MS_KEY, GRADLE_DAEMON_TTL_MS.toString())
     setUpGradleVmOptions()
 
-    maskExtensions<UnknownSdkResolver>(UnknownSdkResolver.EP_NAME, listOf(TestUnknownSdkResolver), myTestDisposable)
+    maskExtensions<UnknownSdkResolver>(UnknownSdkResolver.EP_NAME, listOf(ExternalSystemTestUnknownSdkResolver), myTestDisposable)
     setRegistryPropertyForTest("unknown.sdk.auto", "false")
     unknownSdkFixMode = TestUnknownSdkResolver.TestUnknownSdkFixMode.REAL_LOCAL_FIX
 

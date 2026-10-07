@@ -358,6 +358,7 @@ java/jsp-spi
 java/langInjection
 java/langInjection/jps
 java/manifest
+java/mcp
 java/openapi
 java/performancePlugin
 java/plugin
@@ -939,19 +940,30 @@ platform/platform-impl/codeinsight-inline
 platform/platform-impl/color-picker
 platform/platform-impl/concurrency
 platform/platform-impl/designer
+platform/platform-impl/dnd
+platform/platform-impl/editor-skeleton
 platform/platform-impl/eel
+platform/platform-impl/error-tree-view
+platform/platform-impl/file-chooser-universal
+platform/platform-impl/filter-field
+platform/platform-impl/hprof
 platform/platform-impl/initial-config-import
 platform/platform-impl/internal
 platform/platform-impl/internal/ide.internal.backend
 platform/platform-impl/internal/jcef
 platform/platform-impl/jcef
+platform/platform-impl/json
+platform/platform-impl/learn-ide
+platform/platform-impl/mig-layout
 platform/platform-impl/os-certificates
+platform/platform-impl/playback
 platform/platform-impl/plugin-signature-verifier
 platform/platform-impl/presentation-assistant
 platform/platform-impl/recentProjects
 platform/platform-impl/remote
 platform/platform-impl/rpc
 platform/platform-impl/socket-connection
+platform/platform-impl/tab-in-editor
 platform/platform-impl/ui
 platform/platform-impl/ui-inspector
 platform/platform-impl/update-checker
@@ -1021,6 +1033,7 @@ platform/remote-topics/backend
 platform/remote-topics/frontend
 platform/remote-topics/shared
 platform/remoteDev-util
+platform/remoteDev/frontendProcessLauncher
 platform/runtime/loader
 platform/runtime/product
 platform/runtime/product/tests
@@ -1285,6 +1298,7 @@ plugins/git-modal-commit
 plugins/git4idea
 plugins/git4idea/backend
 plugins/git4idea/frontend
+plugins/git4idea/hosting
 plugins/git4idea/intellij.vcs.git.coverage
 plugins/git4idea/localHistory
 plugins/git4idea/performanceTesting
@@ -1586,6 +1600,7 @@ plugins/kotlin/lombok
 plugins/kotlin/lombok/tests
 plugins/kotlin/maven
 plugins/kotlin/maven/tests
+plugins/kotlin/mcp
 plugins/kotlin/migration
 plugins/kotlin/ml-completion
 plugins/kotlin/ml-completion/tests
@@ -1646,6 +1661,8 @@ plugins/lsp.client.playground
 plugins/lsp.ui/idea.product.modules
 plugins/lsp.ui/lsp.ui.frontend
 plugins/lsp.ui/lsp.ui.plugin
+plugins/macros/plugin
+plugins/macros/shared
 plugins/markdown/compose
 plugins/markdown/core
 plugins/markdown/core/backend
@@ -1797,6 +1814,7 @@ plugins/terminal
 plugins/terminal/backend
 plugins/terminal/cloud
 plugins/terminal/completion
+plugins/terminal/completion-ml
 plugins/terminal/emulator
 plugins/terminal/frontend
 plugins/terminal/libraries
@@ -2029,6 +2047,7 @@ xml/xml-analysis-impl
 xml/xml-parser
 xml/xml-psi-api
 xml/xml-psi-impl
+xml/xml-psi-impl/regexp
 xml/xml-structure-view-api
 xml/xml-structure-view-impl
 xml/xml-syntax

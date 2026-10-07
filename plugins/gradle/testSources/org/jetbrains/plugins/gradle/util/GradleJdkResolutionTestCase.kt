@@ -7,6 +7,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.roots.ui.configuration.SdkLookupProviderImpl
 import com.intellij.openapi.util.io.FileUtil
+import com.intellij.testFramework.roots.ui.configuration.TestSdkGenerator
 import org.gradle.util.GradleVersion
 import org.jetbrains.plugins.gradle.properties.GRADLE_JAVA_HOME_PROPERTY
 import org.jetbrains.plugins.gradle.properties.GRADLE_LOCAL_JAVA_HOME_PROPERTY

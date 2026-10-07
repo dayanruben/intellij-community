@@ -57,6 +57,7 @@
     <module name="intellij.platform.ide.codeinsight.inline"/>
     <module name="intellij.platform.ide.core"/>
     <module name="intellij.platform.ide.core.impl"/>
+    <module name="intellij.platform.ide.errorTreeView"/>
     <module name="intellij.platform.ide.impl"/>
     <module name="intellij.platform.ide.internal"/>
     <module name="intellij.platform.ide.observable"/>
@@ -441,6 +442,7 @@
     <advancedSetting id="python.debugger.attach.timeout" default="20000" groupKey="group.advanced.settings.python"/>
     <advancedSetting id="python.type.ignore.suppress.include.code" default="true" groupKey="group.advanced.settings.python"/>
     <advancedSetting id="python.type.ignore.suppress.pycharm.namespace" default="false" groupKey="group.advanced.settings.python"/>
+    <advancedSetting id="python.typing.strict.unions" default="true" groupKey="group.advanced.settings.python"/>
     <runLineMarkerContributor language="Python"
                               implementationClass="com.jetbrains.python.testing.PyTestLineMarkerContributor"/>
     <toolWindow id="Python Console" anchor="right" icon="com.jetbrains.python.icons.PythonIcons.Python.PythonConsoleToolWindow"
@@ -759,10 +761,6 @@
     <registryKey defaultValue="true" description="Halt variable resolve threads on step/resume" restartRequired="false"
                  key="python.debug.halt.variable.resolve.threads.on.step.resume"/>
 
-    <!-- Retaining the feature flag for FL-29868 -->
-    <registryKey defaultValue="false" description="Use a single port for communication between PyCharm and the debugger"
-                 restartRequired="false" key="python.debug.use.single.port"/>
-
     <registryKey defaultValue="1000" description="Timeout between attempts to connect to remote debugger server"
                  restartRequired="false" key="python.debugger.remote.connect.retry.timeout.ms"/>
     <registryKey defaultValue="30" description="Max attempts to connect to remote debugger server"
@@ -963,8 +961,6 @@
                  description="When disabled stripes minor version to look for prebuilt skeletons"/>
     <registryKey key="python.activate.virtualenv.on.run" defaultValue="true"
                  description="Whether enabled activates virtualenv before script execution and passes environment to the process"/>
-
-    <registryKey key="python.typing.strict.unions" defaultValue="true" description="Enable strict union types semantics"/>
 
     <python.processOutput.common.processOutputIconMapping implementation="com.jetbrains.python.sdk.SdkIconMapping"/>
 

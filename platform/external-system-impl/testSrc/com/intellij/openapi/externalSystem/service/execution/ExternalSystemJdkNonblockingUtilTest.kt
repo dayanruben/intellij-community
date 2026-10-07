@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.externalSystem.service.execution
 
 import com.intellij.idea.IJIgnore
@@ -6,9 +6,11 @@ import com.intellij.openapi.externalSystem.service.execution.ExternalSystemJdkUt
 import com.intellij.openapi.externalSystem.service.execution.ExternalSystemJdkUtil.USE_INTERNAL_JAVA
 import com.intellij.openapi.externalSystem.service.execution.ExternalSystemJdkUtil.USE_JAVA_HOME
 import com.intellij.openapi.externalSystem.service.execution.ExternalSystemJdkUtil.USE_PROJECT_JDK
-import com.intellij.openapi.externalSystem.service.execution.TestUnknownSdkResolver.TestUnknownSdkFixMode.TEST_DOWNLOADABLE_FIX
-import com.intellij.openapi.externalSystem.service.execution.TestUnknownSdkResolver.TestUnknownSdkFixMode.TEST_LOCAL_FIX
 import com.intellij.openapi.roots.ui.configuration.SdkLookupProvider.SdkInfo
+import com.intellij.platform.externalSystem.testFramework.service.execution.ExternalSystemTestUnknownSdkResolver
+import com.intellij.testFramework.roots.ui.configuration.TestSdkGenerator
+import com.intellij.testFramework.roots.ui.configuration.TestSdkType
+import com.intellij.testFramework.roots.ui.configuration.TestUnknownSdkResolver
 
 class ExternalSystemJdkNonblockingUtilTest : ExternalSystemJdkNonblockingUtilTestCase() {
   fun `test nonblocking jdk resolution (project jdk)`() {
@@ -47,7 +49,7 @@ class ExternalSystemJdkNonblockingUtilTest : ExternalSystemJdkNonblockingUtilTes
     assertSdkInfo(sdk, null)
 
     assertUnexpectedSdksRegistration {
-      TestUnknownSdkResolver.unknownSdkFixMode = TEST_LOCAL_FIX
+      ExternalSystemTestUnknownSdkResolver.unknownSdkFixMode = TestUnknownSdkResolver.TestUnknownSdkFixMode.TEST_LOCAL_FIX
       sdkLookupProvider.newLookupBuilder()
         .withSdkType(TestSdkType)
         .onSdkNameResolved { assertSdkInfo(createResolvingSdkInfo(it!!), null) }
@@ -58,7 +60,7 @@ class ExternalSystemJdkNonblockingUtilTest : ExternalSystemJdkNonblockingUtilTes
     }
 
     assertNewlyRegisteredSdks({ TestSdkGenerator.getCurrentSdk() }) {
-      TestUnknownSdkResolver.unknownSdkFixMode = TEST_DOWNLOADABLE_FIX
+      ExternalSystemTestUnknownSdkResolver.unknownSdkFixMode = TestUnknownSdkResolver.TestUnknownSdkFixMode.TEST_DOWNLOADABLE_FIX
       sdkLookupProvider.newLookupBuilder()
         .withSdkType(TestSdkType)
         .onSdkNameResolved { assertSdkInfo(createResolvingSdkInfo(it!!), null) }

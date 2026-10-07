@@ -503,17 +503,6 @@
           </group>
         </group>
         <separator/>
-        <group id="Macros" popup="true">
-          <group id="StandardMacroActions">
-            <reference ref="PlaybackLastMacro"/>
-            <reference ref="StartStopMacroRecording"/>
-            <reference ref="EditMacros"/>
-            <reference ref="PlaySavedMacrosAction"/>
-          </group>
-          <separator/>
-          <reference ref="MacrosGroup"/>
-        </group>
-        <separator/>
         <reference ref="EmojiAndSymbols"/>
       </group>
 
@@ -896,7 +885,6 @@
     </group>
 
     <group id="EditorTabPopupMenu">
-      <reference ref="MoveToolWindowTabFromEditorToToolWindowAction"/>
       <separator/>
       <reference ref="CloseEditorsGroup"/>
       <separator/>
@@ -1237,13 +1225,6 @@
       <reference ref="SearchEverywhere.NavigateToPrevGroup"/>
 
       <add-to-group group-id="Other.KeymapGroup"/>
-    </group>
-
-    <group id="Internal.HeapAnalysis" popup="true" internal="true">
-      <reference ref="UserInvokedFullAnalysis"/>
-      <reference ref="SilentHeapDumpSnapshot"/>
-      <reference ref="AnalyzeHeapDumpSnapshot"/>
-      <add-to-group group-id="Internal"/>
     </group>
 
     <reference ref="TriggerLowMemoryNotification"/>

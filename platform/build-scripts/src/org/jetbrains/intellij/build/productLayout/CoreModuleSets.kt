@@ -288,6 +288,9 @@ object CoreModuleSets {
     embeddedModule("intellij.platform.undo")
     embeddedModule("intellij.platform.ui.tree")
     embeddedModule("intellij.platform.vfs.impl")
+    embeddedModule("intellij.platform.ide.json")
+    embeddedModule("intellij.platform.ide.dnd")
+    embeddedModule("intellij.platform.ide.editorSkeleton")
     embeddedModule("intellij.platform.ide.codeinsight.inline")
     embeddedModule("intellij.platform.pasta")
     embeddedModule("intellij.platform.diagnostic.startUpPerformanceReporter")
@@ -307,6 +310,17 @@ object CoreModuleSets {
     module("intellij.platform.ide.remote")
     // intellij.platform.ide.impl shows the color picker popup through the service of this module
     module("intellij.platform.ide.colorPicker")
+    // intellij.platform.ide.impl captures and analyzes heap dumps through the service of this module
+    module("intellij.platform.ide.hprof")
+    // intellij.platform.execution.impl creates the error tree view through the service of this module
+    module("intellij.platform.ide.errorTreeView")
+    // keeps the Learn tab in every product with ide.impl
+    module("intellij.platform.ide.learnIde")
+    module("intellij.platform.ide.playback")
+    // intellij.platform.ide.impl creates the universal file chooser through the service of this module
+    module("intellij.platform.ide.fileChooser.universal")
+    // intellij.platform.ide.impl opens tool window tabs in the editor through the service of this module
+    module("intellij.platform.ide.tabInEditor")
     module("intellij.platform.threadDumpParser")
     module("intellij.platform.ide.favoritesTreeView")
     // todo not used by platform - move to plugin

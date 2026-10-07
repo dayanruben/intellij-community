@@ -2,8 +2,8 @@
 package com.intellij.compose.ide.plugin.resources.completion
 
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.runReadActionBlocking
 import com.intellij.openapi.command.WriteCommandAction
-import com.intellij.openapi.externalSystem.util.runReadAction
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
@@ -53,7 +53,7 @@ class ComposeResourcesGutterIconCacheTest : BasePlatformTestCase() {
     icon = ICON_A
     assertSame(ICON_A, cache.getIcon(sampleFile) { icon })
 
-    val document = runReadAction {
+    val document = runReadActionBlocking {
       checkNotNull(FileDocumentManager.getInstance().getDocument(sampleFile))
     }
     with(ApplicationManager.getApplication()) {
@@ -107,7 +107,7 @@ class ComposeResourcesGutterIconCacheTest : BasePlatformTestCase() {
     assertSame(ICON_A, cache.getIcon(file1) { ICON_A })
     assertSame(ICON_B, cache.getIcon(file2) { ICON_B })
 
-    val document = runReadAction {
+    val document = runReadActionBlocking {
       checkNotNull(FileDocumentManager.getInstance().getDocument(file1))
     }
     with(ApplicationManager.getApplication()) {

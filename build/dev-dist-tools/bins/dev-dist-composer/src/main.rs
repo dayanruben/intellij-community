@@ -4,12 +4,15 @@
 //! Then it writes the files that start the IDE.
 //!
 //! The rule `intellij_dev_fragments_dist` runs it with `--composition-spec`, `--output-dir`, `--ide-config`,
-//! `--fingerprint` and an optional `--trace-file`, each in the `--key=value` form. Every failure exits with 1.
+//! `--fingerprint` and an optional `--trace-file`, each in the `--key=value` form. Launch metadata can also name
+//! `--core-classpath-file` and `--plugin-classpath-file`, which get a copy of the two metadata files of the output.
+//! Every failure exits with 1.
 //!
 //! The composer owns the composition of the component contract. [`spec`] reads the composition spec and the source
 //! bindings. [`compose`] checks the components and their destinations, then [`merge`] copies the files of a full
 //! distribution, and [`local_layout`] writes the layout of launch metadata. [`plugin_classpath`] joins the plugin
 //! records, [`fingerprint`] computes fingerprint v5, and [`ide_config`] writes the file of `DevIdeConfig`.
+//! [`placement`] checks the home placement of the spec against the manifests.
 
 use std::ffi::OsString;
 use std::fs;
@@ -27,6 +30,7 @@ mod fingerprint;
 mod ide_config;
 mod local_layout;
 mod merge;
+mod placement;
 mod plugin_classpath;
 mod spec;
 
@@ -94,6 +98,8 @@ fn compose_dev_distribution(mut options: cli::Options, root: &trace::Span) -> Re
     let output_dir = required_path(&mut options, "--output-dir")?;
     let ide_config = required_path(&mut options, "--ide-config")?;
     let fingerprint_file = required_path(&mut options, "--fingerprint")?;
+    let core_classpath_file = optional_path(&mut options, "--core-classpath-file")?;
+    let plugin_classpath_file = optional_path(&mut options, "--plugin-classpath-file")?;
     options.finish()?;
     root.tag("componentCount", spec.components.len());
 
@@ -126,6 +132,10 @@ fn compose_dev_distribution(mut options: cli::Options, root: &trace::Span) -> Re
         }
         components.push(component);
     }
+    if let Some(placement) = &spec.placement {
+        let manifests: Vec<&manifest::ComponentManifest> = components.iter().map(|component| &component.manifest).collect();
+        placement::check_placement(&manifests, placement)?;
+    }
 
     remove_output(&output_dir)?;
     let compose_options = ComposeOptions {
@@ -152,6 +162,15 @@ fn compose_dev_distribution(mut options: cli::Options, root: &trace::Span) -> Re
         (fingerprint_file, result.fingerprint.clone()),
     ] {
         fs::write(&file, content).with_context(|| file.display().to_string())?;
+    }
+    for (copy, name) in [
+        (core_classpath_file, "core-classpath.txt"),
+        (plugin_classpath_file, component::plugin_classpath::PLUGIN_CLASSPATH),
+    ] {
+        if let Some(copy) = copy {
+            let file = home.join(paths::from_slash(name).as_ref());
+            fs::copy(&file, &copy).with_context(|| format!("copy {} to {}", file.display(), copy.display()))?;
+        }
     }
     ide_config::write_dev_ide_config(
         &ide_config,

@@ -2,8 +2,7 @@
 package org.jetbrains.plugins.gradle.testFramework
 
 import com.intellij.gradle.toolingExtension.util.GradleVersionUtil
-import com.intellij.openapi.externalSystem.util.runWriteActionAndGet
-import com.intellij.openapi.externalSystem.util.runWriteActionAndWait
+import com.intellij.openapi.application.runWriteActionAndWait
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
@@ -50,14 +49,14 @@ abstract class GradleProjectTestCase : GradleProjectBaseTestCase() {
 
   fun createFile(relativePath: String): VirtualFile {
     gradleFixture.fileFixture.snapshot(relativePath)
-    return runWriteActionAndGet {
+    return runWriteActionAndWait {
       projectRoot.createFile(relativePath)
     }
   }
 
   fun findOrCreateFile(relativePath: String): VirtualFile {
     gradleFixture.fileFixture.snapshot(relativePath)
-    return runWriteActionAndGet {
+    return runWriteActionAndWait {
       projectRoot.findOrCreateFile(relativePath)
     }
   }

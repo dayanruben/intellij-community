@@ -11440,9 +11440,19 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
                 runTest("../../../idea/tests/testData/quickfix/modifiers/removeSupertype4.kt");
             }
 
+            @TestMetadata("removeSupertypeValueClassCannotExtendIdentityAnnotationClass.kt")
+            public void testRemoveSupertypeValueClassCannotExtendIdentityAnnotationClass() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/modifiers/removeSupertypeValueClassCannotExtendIdentityAnnotationClass.kt");
+            }
+
             @TestMetadata("removeSupertypeValueClassCannotExtendIdentityClass.kt")
             public void testRemoveSupertypeValueClassCannotExtendIdentityClass() throws Exception {
                 runTest("../../../idea/tests/testData/quickfix/modifiers/removeSupertypeValueClassCannotExtendIdentityClass.kt");
+            }
+
+            @TestMetadata("removeSupertypeValueClassCannotExtendIdentityDataClass.kt")
+            public void testRemoveSupertypeValueClassCannotExtendIdentityDataClass() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/modifiers/removeSupertypeValueClassCannotExtendIdentityDataClass.kt");
             }
 
             @TestMetadata("visibilityModifer1.kt")
@@ -11786,6 +11796,21 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
             @TestMetadata("removeCallableReferenceStaticLhsNullable.kt")
             public void testRemoveCallableReferenceStaticLhsNullable() throws Exception {
                 runTest("../../../idea/tests/testData/quickfix/nullables/removeCallableReferenceStaticLhsNullable.kt");
+            }
+
+            @TestMetadata("removeCallableReferenceStaticLhsNullableType.kt")
+            public void testRemoveCallableReferenceStaticLhsNullableType() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/nullables/removeCallableReferenceStaticLhsNullableType.kt");
+            }
+
+            @TestMetadata("removeCallableReferenceStaticLhsNullableWithComment.kt")
+            public void testRemoveCallableReferenceStaticLhsNullableWithComment() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/nullables/removeCallableReferenceStaticLhsNullableWithComment.kt");
+            }
+
+            @TestMetadata("removeCallableReferenceStaticLhsNullableWithSpace.kt")
+            public void testRemoveCallableReferenceStaticLhsNullableWithSpace() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/nullables/removeCallableReferenceStaticLhsNullableWithSpace.kt");
             }
 
             @TestMetadata("removeCompanionExtensionNullableReceiver.kt")

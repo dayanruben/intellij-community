@@ -11,8 +11,8 @@ import com.intellij.ide.wizard.NewProjectWizardStep
 import com.intellij.java.library.getMavenCoordinates
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.WriteAction
+import com.intellij.openapi.application.runWriteActionAndWait
 import com.intellij.openapi.externalSystem.service.execution.ExternalSystemJdkProvider
-import com.intellij.openapi.externalSystem.util.runWriteActionAndWait
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.modules

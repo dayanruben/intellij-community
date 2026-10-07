@@ -42,6 +42,7 @@
     <module name="intellij.platform.ide.core"/>
     <module name="intellij.platform.ide.core.impl"/>
     <module name="intellij.platform.ide.core.plugins"/>
+    <module name="intellij.platform.ide.errorTreeView"/>
     <module name="intellij.platform.ide.impl"/>
     <module name="intellij.platform.ide.observable"/>
     <module name="intellij.platform.ide.progress"/>
@@ -62,6 +63,7 @@
     <module name="intellij.platform.rpc.backend"/>
     <module name="intellij.platform.rpc.topics"/>
     <module name="intellij.platform.statistics"/>
+    <module name="intellij.platform.util.annotations"/>
     <module name="intellij.platform.util.coroutines"/>
     <module name="intellij.platform.util.diff"/>
     <module name="intellij.platform.util.ex"/>

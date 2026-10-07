@@ -72,6 +72,9 @@
     <module name="intellij.platform.ide.core"/>
     <module name="intellij.platform.ide.core.impl"/>
     <module name="intellij.platform.ide.core.plugins"/>
+    <module name="intellij.platform.ide.dnd"/>
+    <module name="intellij.platform.ide.editorSkeleton"/>
+    <module name="intellij.platform.ide.json"/>
     <module name="intellij.platform.ide.observable"/>
     <module name="intellij.platform.ide.progress"/>
     <module name="intellij.platform.ide.recentProjects"/>
@@ -251,7 +254,6 @@
     <extensionPoint qualifiedName="com.intellij.toolWindow.splitContentProvider" beanClass="com.intellij.toolWindow.ToolWindowSplitContentProviderBean" dynamic="true">
       <with attribute="implementationClass" implements="com.intellij.toolWindow.ToolWindowSplitContentProvider"/>
     </extensionPoint>
-    <extensionPoint qualifiedName="com.intellij.coursesStorageProvider" interface="com.intellij.openapi.wm.impl.welcomeScreen.learnIde.coursesInProgress.CoursesStorageProvider" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.statistic.eventLog.ideShutdownSessionTypeProvider"
                     interface="com.intellij.featureStatistics.fusCollectors.IdeShutdownSessionTypeProvider"
                     dynamic="true"/>
@@ -352,12 +354,6 @@
     <extensionPoint qualifiedName="com.intellij.actionOnSave" interface="com.intellij.ide.actionsOnSave.impl.ActionsOnSaveFileDocumentManagerListener$ActionOnSave" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.contentTabActionProvider" interface="com.intellij.openapi.wm.impl.content.tabActions.ContentTabActionProvider"
                     dynamic="true"/>
-    <extensionPoint qualifiedName="com.intellij.toolWindowEditorTabSupport" beanClass="com.intellij.util.KeyedLazyInstanceEP" dynamic="true">
-      <with attribute="implementationClass" implements="com.intellij.openapi.wm.impl.tabInEditor.ToolWindowEditorTabSupport"/>
-    </extensionPoint>
-    <extensionPoint qualifiedName="com.intellij.toolWindowEditorTabPersistenceProvider" beanClass="com.intellij.util.KeyedLazyInstanceEP" dynamic="true">
-      <with attribute="implementationClass" implements="com.intellij.openapi.wm.impl.tabInEditor.ToolWindowEditorTabPersistenceProvider"/>
-    </extensionPoint>
     <extensionPoint qualifiedName="com.intellij.inspectionPopupLevelChangePolicy" interface="com.intellij.openapi.editor.impl.InspectionPopupLevelChangePolicy" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.editorMouseActionsOverrider"
                     interface="com.intellij.openapi.editor.impl.EditorMouseActionsOverrider" dynamic="true"/>
@@ -579,7 +575,6 @@
     <pluginUpdatesProvider implementation="com.intellij.ide.plugins.newui.DefaultPluginUpdatesProvider"/>
     <projectSettings service="com.intellij.openapi.updateSettings.impl.pluginsAdvertisement.UnknownFeaturesCollector"/>
     <projectSettings service="com.intellij.ui.RecentsManager"/>
-    <projectSettings service="com.intellij.ide.errorTreeView.impl.ErrorTreeViewConfiguration"/>
     <applicationSettings service="com.intellij.execution.wsl.WSLDistributionService"/>
     <applicationSettings service="com.intellij.util.singleProduct.MigrationToSingleProductSettings"/>
     <projectSettings service="com.intellij.openapi.project.impl.ProjectRootPersistentStateComponent"/>
@@ -971,8 +966,6 @@
                        order="after ProjectsWelcomeTab"/>
     <welcomeTabFactory id="PluginsWelcomeTab" implementation="com.intellij.openapi.wm.impl.welcomeScreen.PluginsTabFactory"
                        order="after CustomizeWelcomeTab"/>
-    <welcomeTabFactory id="LearnIdeWelcomeTab" implementation="com.intellij.openapi.wm.impl.welcomeScreen.LearnIdeTabFactory"
-                       order="after PluginsWelcomeTab"/>
     <welcomeScreenCustomization id="defaultCustomization"
                                 implementation="com.intellij.openapi.wm.impl.welcomeScreen.WelcomeScreenDefaultCustomization"/>
     <startPagePromoter implementation="com.intellij.openapi.wm.impl.welcomeScreen.TechInsightsLabPromoter"/>
@@ -1062,8 +1055,6 @@
               extensions="iws"/>
     <fileType name="IDEA_MODULE" implementationClass="com.intellij.ide.highlighter.ModuleFileType" fieldName="INSTANCE" extensions="iml"/>
     <fileType name="IDEA_PROJECT" implementationClass="com.intellij.ide.highlighter.ProjectFileType" fieldName="INSTANCE" extensions="ipr"/>
-    <fileType name="TOOL_WINDOW_TAB" implementationClass="com.intellij.openapi.wm.impl.tabInEditor.ToolWindowEditorTabFileType"
-              fieldName="INSTANCE"/>
     <backgroundPostStartupActivity implementation="com.intellij.openapi.fileTypes.impl.ApproveRemovedMappingsActivity"/>
     <applicationService serviceInterface="com.intellij.ide.plugins.PluginEnabler"
                         serviceImplementation="com.intellij.ide.plugins.DynamicPluginEnabler"
@@ -1291,14 +1282,9 @@
                              instance="com.intellij.openapi.editor.impl.stickyLines.configurable.StickyLinesConfigurable"/>
     <backgroundPostStartupActivity implementation="com.intellij.diagnostic.WindowsDefenderCheckerActivity" os="windows"/>
     <iconLayerProvider implementation="com.intellij.ide.LockedIconLayerProvider"/>
-    <fileEditorProvider implementation="com.intellij.openapi.wm.impl.tabInEditor.ToolWindowEditorTabFileEditorProvider" id="ToolWindowEditorTabFileEditor"/>
-    <virtualFileSystem implementationClass="com.intellij.openapi.wm.impl.tabInEditor.ToolWindowEditorTabFileSystem" key="tool-window-editor-tab" physical="false"/>
     <fileEditorProvider implementation="com.intellij.openapi.fileEditor.impl.text.LargeFileEditorProvider" id="LargeFileEditor"
                         allowedInUntrustedFiles="true"/>
     <fileEditorProvider id="jcomponent-editor" implementation="com.intellij.openapi.fileEditor.impl.JComponentEditorProvider"/>
-    <editorTabTitleProvider implementation="com.intellij.openapi.wm.impl.tabInEditor.ToolWindowEditorTabTitleProvider"/>
-    <editorAutoClosingHandler implementation="com.intellij.openapi.wm.impl.tabInEditor.ToolWindowEditorTabAutoClosingHandler"/>
-    <virtualFilePreCloseCheck implementation="com.intellij.openapi.wm.impl.tabInEditor.ToolWindowEditorTabPreCloseCheck"/>
     <editorNotificationProvider implementation="com.intellij.openapi.fileEditor.impl.text.LargeFileNotificationProvider"/>
     <fileDocumentSynchronizationVetoer implementation="com.intellij.openapi.fileEditor.impl.LargeFileSavingVetoer"/>
     <editorNotificationProvider implementation="com.intellij.openapi.editor.impl.BidiContentNotificationProvider"/>
@@ -1386,7 +1372,6 @@
                         serviceImplementation="com.intellij.net.ssl.CertificateWarningDialogProviderImpl"/>
     <!--suppress PluginXmlValidity -->
     <rawEditorTypedHandler implementationClass="com.intellij.openapi.editor.impl.EditorRawTypedHandler"/>
-    <postStartupActivity implementation="com.intellij.diagnostic.AnalyzePendingSnapshotActivity"/>
     <editorFactoryDocumentListener implementation="com.intellij.openapi.command.impl.DocumentUndoProvider"/>
     <editorFactoryListener implementation="com.intellij.openapi.editor.impl.EditorLastActionTracker$MyEditorFactoryListener"/>
     <editorFactoryMouseListener implementation="com.intellij.openapi.editor.impl.EditorLastActionTracker$MyEditorMouseListener"/>
@@ -1465,8 +1450,6 @@
     <notificationGroup id="Project Settings" displayType="BALLOON" bundle="messages.IdeBundle" key="notification.group.project.settings"/>
     <notificationGroup id="Settings Error" displayType="BALLOON" bundle="messages.IdeBundle" key="notification.group.settings.error"/>
     <notificationGroup id="Load Error" displayType="BALLOON" bundle="messages.IdeBundle" key="notification.group.load.error"/>
-    <notificationGroup id="Heap Dump Analysis" displayType="STICKY_BALLOON" bundle="messages.DiagnosticBundle"
-                       key="notification.group.heap.dump.analysis" notificationIds="memory.analysis.complete"/>
     <notificationGroup id="KeymapMissing" displayType="STICKY_BALLOON" bundle="messages.KeyMapBundle"
                        key="notification.group.keymap.missing"/>
     <notificationGroup id="ColorSchemeDeprecation" displayType="STICKY_BALLOON" bundle="messages.IdeBundle"
@@ -1615,8 +1598,6 @@
                         serviceImplementation="com.intellij.openapi.wm.impl.headertoolbar.DefaultOpenProjectSelectionPredicateSupplier"/>
     <multiverseEnabler implementation="com.intellij.codeInsight.multiverse.RegistryFlagMultiverseEnabler"/>
     <actionPromoter implementation="com.intellij.ide.actions.speedSearch.SpeedSearchActionPromoter"/>
-    <fileEditorProvider id="learnIde" implementation="com.intellij.openapi.wm.impl.welcomeScreen.learnIde.editorTab.LearnIdeFileEditorProvider"/>
-    <interactiveCourseFactory implementation="com.intellij.openapi.wm.impl.welcomeScreen.learnIde.jbAcademy.JBAcademyInteractiveCourse"/>
     <cachesInvalidator implementation="com.intellij.ide.ui.IconCacheInvalidator"/>
     <cachesInvalidator implementation="com.intellij.openapi.editor.impl.zombie.NecropolisDestroyer$InvalidationRequest"/>
     <diagnostic.freezeListener implementation="com.intellij.diagnostic.FusFreezeReporter"/>
@@ -1719,7 +1700,6 @@
     <registryKey key="update.source.initialization.enabled" defaultValue="true"
                  description="Enable initialization of update plugin update sources once for an IDE" />
     <troubleInfoCollector implementation="com.intellij.ide.plugins.CustomPluginRepositoriesTroubleInfoCollector"/>
-    <universalFileChooserContributor implementation="com.intellij.openapi.fileChooser.universal.LocalFileChooserContributor"/>
     <projectSettings service="com.intellij.openapi.vcs.readOnlyHandler.ReadonlyStatusHandlerImpl"/>
     <projectSettings service="com.intellij.externalDependencies.impl.ExternalDependenciesManagerImpl"/>
     <applicationSettings service="com.intellij.openapi.fileTypes.impl.FileTypeManagerImpl"/>
@@ -1763,7 +1743,6 @@
     <applicationSettings service="com.intellij.openapi.util.registry.RegistryManagerImpl"/>
     <applicationSettings service="com.intellij.openapi.editor.colors.impl.EditorColorsManagerImpl"/>
     <applicationSettings service="com.intellij.application.options.PathMacrosImpl"/>
-    <fileIconProvider implementation="com.intellij.openapi.wm.impl.tabInEditor.ToolWindowEditorTabFileIconProvider"/>
     <!-- works as a fallback, after all providers -->
     <fileIconProvider implementation="com.intellij.platform.ide.impl.common.file.icons.CommonFileIconsProvider" order="last"/>
     <applicationSettings service="com.intellij.codeInsight.folding.CodeFoldingSettingsImpl"/>
@@ -1930,8 +1909,6 @@
                     serviceImplementation="com.intellij.openapi.client.ClientProjectSessionsManager"/>
     <projectService serviceInterface="com.intellij.openapi.fileEditor.ex.IdeDocumentHistory" open="true"
                     serviceImplementation="com.intellij.openapi.fileEditor.impl.IdeDocumentHistoryImpl" preload="await"/>
-    <applicationService serviceImplementation="com.intellij.ide.actionMacro.ActionMacroManager"/>
-    <actionConfigurationCustomizer implementation="com.intellij.ide.actionMacro.ActionMacroManager$MyActionTuner"/>
     <applicationService
       serviceInterface="com.intellij.formatting.visualLayer.VirtualFormattingInlaysInfo" open="true"
       serviceImplementation="com.intellij.formatting.visualLayer.PlatformVirtualFormattingInlaysInfo" />
@@ -1944,7 +1921,6 @@
     <applicationSettings service="com.intellij.ide.ui.laf.LafManagerImpl"/>
     <projectSettings service="com.intellij.openapi.wm.impl.ToolWindowManagerStateImpl"/>
     <applicationSettings service="com.intellij.openapi.wm.impl.WindowManagerImpl"/>
-    <applicationSettings service="com.intellij.ide.actionMacro.ActionMacroManager"/>
     <projectSettings service="com.intellij.openapi.fileEditor.impl.IdeDocumentHistoryImpl"/>
     <applicationService serviceInterface="com.intellij.openapi.project.ProjectManager" open="true"
                         serviceImplementation="com.intellij.openapi.project.impl.ProjectManagerImpl"
@@ -1953,8 +1929,16 @@
 
     <applicationService serviceInterface="com.intellij.ide.plugins.PluginPermissionService"
                         serviceImplementation="com.intellij.openapi.updateSettings.impl.PluginPermissionServiceImpl"/>
+    <applicationService serviceInterface="com.intellij.internal.statistic.eventLog.StatisticsRegionSettingsService"
+                        serviceImplementation="com.intellij.internal.statistic.StatisticsRegionSettingsServiceImpl"/>
   </extensions>
   <applicationListeners>
+    <listener class="com.intellij.internal.statistic.EventLogApplicationLifecycleListener"
+              topic="com.intellij.ide.AppLifecycleListener"
+              activeInHeadlessMode="true"
+              activeInTestMode="false"/>
+    <listener topic="com.intellij.ide.RegionSettings$RegionSettingsListener"
+              class="com.intellij.internal.statistic.StatisticsRegionSettingsListener"/>
     <listener class="com.intellij.ide.plugins.DynamicPluginsFrameStateListener"
               topic="com.intellij.openapi.application.ApplicationActivationListener"/>
     <listener class="com.intellij.ide.plugins.PluginInitializationErrorStartupReporter"
@@ -2021,8 +2005,6 @@
               activeInHeadlessMode="false"/>
     <listener class="com.intellij.ide.RecentProjectsManagerBase$MyProjectListener"
               topic="com.intellij.openapi.project.ProjectCloseListener" activeInHeadlessMode="false"/>
-    <listener class="com.intellij.openapi.wm.impl.tabInEditor.ToolWindowEditorTabFileRegistryCleaner"
-              topic="com.intellij.openapi.project.ProjectCloseListener"/>
     <listener class="com.intellij.ide.RecentProjectsManagerBase$MyFrameStateListener" topic="com.intellij.ide.FrameStateListener"/>
     <listener class="com.intellij.openapi.editor.impl.EditorLastActionTracker$MyAnActionListener"
               topic="com.intellij.openapi.actionSystem.ex.AnActionListener"/>

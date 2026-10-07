@@ -1,7 +1,7 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.gradle.testFramework.util
 
-import com.intellij.openapi.externalSystem.util.runWriteActionAndGet
+import com.intellij.openapi.application.runWriteActionAndWait
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.findOrCreateDirectory
 import com.intellij.openapi.vfs.findOrCreateFile
@@ -25,7 +25,7 @@ fun GradleImportingTestCase.createSettingsFile(
   gradleDsl: GradleDsl = GradleDsl.GROOVY,
   configure: GradleSettingScriptBuilder<*>.() -> Unit,
 ): VirtualFile {
-  return runWriteActionAndGet {
+  return runWriteActionAndWait {
     myProjectRoot.findOrCreateDirectory(relativeModulePath)
       .findOrCreateFile(gradleDsl.settingsScriptName).apply {
         writeText(settingsScript(configure))
@@ -38,7 +38,7 @@ fun GradleImportingTestCase.createBuildFile(
   gradleDsl: GradleDsl = GradleDsl.GROOVY,
   configure: TestGradleBuildScriptBuilder.() -> Unit,
 ): VirtualFile {
-  return runWriteActionAndGet {
+  return runWriteActionAndWait {
     myProjectRoot.findOrCreateDirectory(relativeModulePath)
       .findOrCreateFile(gradleDsl.buildScriptName).apply {
         writeText(script(configure))
@@ -49,7 +49,7 @@ fun GradleImportingTestCase.createBuildFile(
 fun GradleImportingTestCase.createGradleWrapper(
   relativeModulePath: String = ".",
 ) {
-  runWriteActionAndGet {
+  runWriteActionAndWait {
     myProjectRoot.findOrCreateDirectory(relativeModulePath)
       .createGradleWrapper(currentGradleVersion)
   }

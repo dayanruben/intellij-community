@@ -14,7 +14,6 @@ import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.JsonElement
 import kotlin.concurrent.atomics.AtomicReference
 import kotlin.coroutines.cancellation.CancellationException
 
@@ -23,12 +22,35 @@ interface LspServer {
     val initializeResult: InitializeResult
 }
 
+/**
+ * The server side of a JSON-RPC session over wire messages ([withLspFraming]): `initialize` starts the [LspServer] of
+ * [handlers], `exit` ends it. Params are decoded straight from the frame text, and outgoing frames are sent as they are.
+ *
+ * NOT A STABLE API, see [LspWireCodec].
+ */
 suspend fun serveLsp(
-    incoming: ReceiveChannel<JsonElement>,
-    outgoing: SendChannel<JsonElement>,
+    incoming: ReceiveChannel<LspWireBody>,
+    outgoing: SendChannel<LspWireOutgoing>,
     handlers: (InitializeParams, LspClient) -> Resource<LspServer>,
 ) {
-    withLspImpl(incoming, outgoing) { lspClient ->
+    withLspImpl(incoming = incoming, outgoing = outgoing, body = serverHandlers(handlers))
+}
+
+/** [serveLsp] over the base-protocol frames of [connection], on the wire path ([withLspFraming]). */
+suspend fun serveLsp(
+    connection: LspConnection,
+    exitSignal: CompletableDeferred<Unit>?,
+    handlers: (InitializeParams, LspClient) -> Resource<LspServer>,
+) {
+    withLspFraming(connection = connection, exitSignal = exitSignal) { incoming, outgoing ->
+        serveLsp(incoming = incoming, outgoing = outgoing, handlers = handlers)
+    }
+}
+
+private fun serverHandlers(
+    handlers: (InitializeParams, LspClient) -> Resource<LspServer>,
+): (LspClient) -> Resource<LspHandlers> =
+    { lspClient ->
         resource { cc ->
             withCoroutineScope { scope ->
                 val handlersDef = AtomicReference<LspHandlers?>(null)
@@ -86,4 +108,3 @@ suspend fun serveLsp(
             }
         }
     }
-}
