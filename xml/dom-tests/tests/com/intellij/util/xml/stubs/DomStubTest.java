@@ -15,12 +15,6 @@
  */
 package com.intellij.util.xml.stubs;
 
-import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.psi.PsiFile;
-import com.intellij.psi.impl.DebugUtil;
-import com.intellij.psi.impl.PsiManagerEx;
-import com.intellij.psi.stubs.ObjectStubTree;
-import com.intellij.psi.stubs.StubTreeLoader;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.testFramework.TestDataFile;
 import com.intellij.testFramework.fixtures.JavaCodeInsightTestFixture;
@@ -56,16 +50,7 @@ public abstract class DomStubTest extends LightJavaCodeInsightFixtureTestCase {
   };
 
   public static ElementStub getRootStub(@TestDataFile String filePath, JavaCodeInsightTestFixture fixture) {
-    PsiFile psiFile = fixture.configureByFile(filePath);
-
-    StubTreeLoader loader = StubTreeLoader.getInstance();
-    VirtualFile file = psiFile.getVirtualFile();
-    assertTrue(loader.canHaveStub(file));
-    ObjectStubTree<?> stubTree = loader.readFromVFile(fixture.getProject(), file);
-    assertNotNull(stubTree);
-    ElementStub root = (ElementStub)stubTree.getRoot();
-    assertNotNull(root);
-    return root;
+    return DomStubTestUtil.getRootStub(filePath, fixture);
   }
 
   @Override
@@ -84,30 +69,14 @@ public abstract class DomStubTest extends LightJavaCodeInsightFixtureTestCase {
   }
 
   protected void doBuilderTest(@TestDataFile String file, String stubText) {
-    ElementStub stub = getRootStub(file);
-    assertEquals(stubText, DebugUtil.stubTreeToString(stub));
+    DomStubTestUtil.doBuilderTest(file, stubText, myFixture);
   }
 
   protected <T extends DomElement> DomFileElement<T> prepare(@TestDataFile String path, Class<T> domClass) {
-    XmlFile file = prepareFile(path);
-
-    DomFileElement<T> fileElement = DomManager.getDomManager(getProject()).getFileElement(file, domClass);
-    assertNotNull(fileElement);
-    return fileElement;
+    return DomStubTestUtil.prepare(path, domClass, myFixture);
   }
 
   protected XmlFile prepareFile(String path) {
-    VirtualFile virtualFile = myFixture.copyFileToProject(path);
-    assertNotNull(virtualFile);
-    XmlFile file = (XmlFile)((PsiManagerEx)getPsiManager()).getFileManager().findFile(virtualFile);
-    assertFalse(file.getNode().isParsed());
-    ObjectStubTree<?> tree = StubTreeLoader.getInstance().readOrBuild(getProject(), virtualFile, file);
-    assertNotNull("Can't build stubs for " + path, tree);
-
-    ((PsiManagerEx)getPsiManager()).cleanupForNextTest();
-
-    file = (XmlFile)getPsiManager().findFile(virtualFile);
-    assertNotNull(file);
-    return file;
+    return DomStubTestUtil.prepareFile(path, myFixture);
   }
 }
