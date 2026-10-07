@@ -8,7 +8,8 @@ import org.jetbrains.kotlin.analysis.api.imports.getDefaultImports
 import org.jetbrains.kotlin.idea.base.psi.kotlinFqName
 import org.jetbrains.kotlin.idea.base.util.isImported
 import org.jetbrains.kotlin.idea.references.mainReference
-import org.jetbrains.kotlin.load.java.NULLABILITY_ANNOTATIONS
+import org.jetbrains.kotlin.load.java.NOT_NULL_ANNOTATIONS
+import org.jetbrains.kotlin.load.java.NULLABLE_ANNOTATIONS
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.platform.TargetPlatform
 import org.jetbrains.kotlin.psi.KtQualifiedExpression
@@ -36,7 +37,8 @@ class JKImportStorage(targetPlatform: TargetPlatform, project: Project) {
     private fun isImportNeeded(fqName: FqName, allowSingleIdentifierImport: Boolean = false): Boolean {
         val fqNameString = fqName.asString()
         if (!allowSingleIdentifierImport && fqNameString.count { it == '.' } < 1) return false
-        if (fqName in NULLABILITY_ANNOTATIONS) return false
+        // NullabilityAnnotationsConversion removes only these annotations
+        if (fqName in NULLABLE_ANNOTATIONS || fqName in NOT_NULL_ANNOTATIONS) return false
         if (defaultImports.any { fqName.isImported(it) }) return false
         if (PLATFORM_CLASSES_MAPPED_TO_KOTLIN.any { it.matches(fqNameString) }) return false
         return true
