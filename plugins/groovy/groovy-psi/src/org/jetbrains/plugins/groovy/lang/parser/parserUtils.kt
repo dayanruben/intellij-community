@@ -368,13 +368,16 @@ fun parseApplication(builder: PsiBuilder, level: Int,
 }
 
 fun parsePackage(builder: PsiBuilder, level: Int, modifierList: Parser): Boolean {
+  val start = builder.mark()
   modifierList.parse(builder, level)
   skipNewlines(builder)
   if (PsiBuilderUtil.expect(builder, KW_PACKAGE)) {
     parseQualifiedName(builder, true)
     parseStatementEnd(builder)
+    start.drop()
     return true
   }
+  start.rollbackTo()
   return false
 }
 
@@ -389,6 +392,7 @@ private fun parseStatementEnd(builder: PsiBuilder) {
 }
 
 fun parseImport(builder: PsiBuilder, level: Int, modifierList: Parser): Boolean {
+  val start = builder.mark()
   modifierList.parse(builder, level)
   skipNewlines(builder)
   if (PsiBuilderUtil.expect(builder, KW_IMPORT)) {
@@ -411,8 +415,10 @@ fun parseImport(builder: PsiBuilder, level: Int, modifierList: Parser): Boolean 
       aliasMarker.done(IMPORT_ALIAS)
     }
     parseStatementEnd(builder)
+    start.drop()
     return true
   }
+  start.rollbackTo()
   return false
 }
 

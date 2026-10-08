@@ -1,7 +1,8 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.groovy.lang.psi.impl.statements;
 
 import com.intellij.lang.ASTNode;
+import com.intellij.psi.PsiAnnotation;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.ResolveState;
 import com.intellij.psi.scope.PsiScopeProcessor;
@@ -37,6 +38,11 @@ public class GrForStatementImpl extends GroovyPsiElementImpl implements GrForSta
   }
 
   @Override
+  public PsiAnnotation @NotNull [] getAnnotations() {
+    return findChildrenByClass(PsiAnnotation.class);
+  }
+
+  @Override
   public @Nullable GrForClause getClause() {
     return findChildByClass(GrForClause.class);
   }
@@ -63,7 +69,7 @@ public class GrForStatementImpl extends GroovyPsiElementImpl implements GrForSta
   }
 
   @Override
-  public PsiElement getRParenth() {
+  public @Nullable PsiElement getRParenth() {
     return findChildByType(GroovyTokenTypes.mRPAREN);
   }
 }

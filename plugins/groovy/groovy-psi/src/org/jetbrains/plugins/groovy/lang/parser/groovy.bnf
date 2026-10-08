@@ -789,17 +789,18 @@ finally_clause ::= 'finally' (mb_nl lazy_block)
   pin = 1
 }
 
-while_statement ::= 'while' after_while { pin = 1 }
-private after_while ::= while_header mb_nl while_body { pin = 1 }
+while_statement ::= [non_empty_annotation_list mb_nl] 'while' after_while { pin = 2 }
+private after_while ::= while_header mb_nl loop_body { pin = 1 }
 private while_header ::= '(' mb_nl <<insideParentheses expression>> mb_nl ')' { pin = 1 }
-private while_body ::= followed_by_semi | branch
+private loop_body ::= followed_by_semi | branch
 
-do_while_statement ::= 'do' mb_nl branch mb_nl 'while' '(' <<insideParentheses expression>> (mb_nl ')') { pin = 1 }
+do_while_statement ::= [non_empty_annotation_list mb_nl] 'do' mb_nl branch mb_nl 'while' '(' <<insideParentheses expression>> (mb_nl ')') { pin = 2 }
 
 private type_element_followed_by_identifier ::= type_element variable_lookahead
 private mb_type_element ::= type_element_followed_by_identifier?
 
-for_statement ::= 'for' (for_header mb_nl for_body) { pin('.*') = 1 }
+for_statement ::= [non_empty_annotation_list mb_nl] 'for' after_for { pin = 2 }
+private after_for ::= for_header mb_nl loop_body { pin = 1 }
 private for_header ::= '(' mb_nl <<insideParentheses for_clause>> mb_nl ')' { pin = 1 }
 private for_clause ::= for_in_clause | traditional_for_clause
 
@@ -808,9 +809,8 @@ private two_for_in_parameters ::= for_in_parameter ',' mb_nl for_in_parameter
 private single_for_in_parameter ::= for_in_parameter !(',')
 for_in_parameter ::= (modifier_list mb_nl mb_type_element) (weak_keyword | IDENTIFIER) mb_nl !('=' | ';') | clear_variants_and_fail { elementType = parameter }
 
-traditional_for_clause ::= empty for_clause_initialization? mb_nl ';' mb_nl expression? mb_nl ';' mb_nl for_clause_update? { pin = 1 }
-private for_clause_initialization ::= for_variable_declaration | expression | clear_variants_and_fail
-private for_clause_update ::= expression_list
+traditional_for_clause ::= empty for_clause_initialization? mb_nl ';' mb_nl expression? mb_nl ';' mb_nl expression_list? { pin = 1 }
+private for_clause_initialization ::= for_variable_declaration | expression
 
 private for_variable_declaration ::= <<declaration fvd_after_modifiers fvd_after_no_modifiers>>
 private fvd_after_modifiers ::= fvd_tuple_tail | fvd_modifiers_type | fvd_tail
@@ -821,13 +821,7 @@ private fvd_tail ::= variable_declaration_tail <<wrapLeft>>
 
 expression_list ::= expression mb_nl (',' mb_nl expression)*
 
-// FIXME get rid of this weird logic
-private for_body ::= &<<extendedStatement>> | followed_by_semi | statement { name = 'loop body' }
-
-synchronized_statement ::= 'synchronized' '(' <<insideParentheses expression>> mb_nl ')' (mb_nl lazy_block)
-{
-  pin = 2
-}
+synchronized_statement ::= 'synchronized' '(' <<insideParentheses expression>> mb_nl ')' (mb_nl lazy_block) { pin = 2 }
 
 labeled_statement ::= (weak_keyword | IDENTIFIER) after_label
 private after_label ::= ':' mb_nl statement

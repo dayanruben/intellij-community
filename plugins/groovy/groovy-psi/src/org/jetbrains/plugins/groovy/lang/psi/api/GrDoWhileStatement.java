@@ -1,28 +1,19 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.groovy.lang.psi.api;
 
 import com.intellij.psi.PsiElement;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrLoopStatement;
-import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrStatement;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrExpression;
 
 public interface GrDoWhileStatement extends GrLoopStatement {
 
-  @NotNull
-  PsiElement getDoKeyword();
+  @NotNull PsiElement getDoKeyword();
 
-  @Override
-  @Nullable
-  GrStatement getBody();
+  @Nullable GrExpression getCondition();
 
-  @Nullable
-  PsiElement getLParenth();
+  @Nullable PsiElement getLParenth();
 
-  @Nullable
-  GrExpression getCondition();
-
-  @Nullable
-  PsiElement getRParenth();
+  @Nullable PsiElement getRParenth();
 }

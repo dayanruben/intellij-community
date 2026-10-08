@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.groovy.lang.psi.impl.statements;
 
 import com.intellij.lang.ASTNode;
@@ -12,7 +12,6 @@ import org.jetbrains.plugins.groovy.lang.psi.GroovyElementVisitor;
 import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.GrCondition;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrStatement;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrWhileStatement;
-import org.jetbrains.plugins.groovy.lang.psi.impl.GrWhileStatementBase;
 import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil;
 import org.jetbrains.plugins.groovy.lang.resolve.processors.GroovyResolveKind;
 
@@ -52,6 +51,6 @@ public class GrWhileStatementImpl extends GrWhileStatementBase implements GrWhil
     if (rParenth == null) return null;
 
     PsiElement afterRParenth = PsiUtil.skipWhitespacesAndComments(rParenth.getNextSibling(), true);
-    return afterRParenth instanceof GrStatement ? (GrStatement)afterRParenth : null;
+    return afterRParenth instanceof GrStatement statement ? statement : null;
   }
 }
