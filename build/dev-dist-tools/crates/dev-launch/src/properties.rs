@@ -9,7 +9,7 @@ use serde::Deserialize;
 /// The parts of `bin/product-info.json` that a dev launch reads.
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
-pub(crate) struct ProductInfo {
+pub struct ProductInfo {
     launch: Vec<LaunchInfo>,
 }
 
@@ -30,7 +30,7 @@ struct CustomCommand {
 
 impl ProductInfo {
     /// Reads a `product-info.json` file at any path.
-    pub(crate) fn read_file(file: &Path) -> anyhow::Result<Self> {
+    pub fn read_file(file: &Path) -> anyhow::Result<Self> {
         let data = std::fs::read(file).with_context(|| format!("read {}", file.display()))?;
         serde_json::from_slice(&data).context("read product-info.json")
     }
@@ -75,7 +75,7 @@ pub(crate) fn put_system_property(properties: &mut IndexMap<String, String>, arg
 ///
 /// Java reads `idea.properties` as ISO-8859-1, and `java_properties` reads it as windows-1252. The two differ only in
 /// the bytes 0x80 to 0x9F. Every file that the writer reads is ASCII, so the difference has no effect.
-pub(crate) fn properties_of_files(
+pub fn properties_of_files(
     idea_properties: &Path,
     vm_options_file: &Path,
     vm_options_path: &str,
@@ -97,11 +97,11 @@ pub(crate) fn properties_of_files(
 }
 
 /// The system property that names the runtime module repository of the IDE.
-pub(crate) const RUNTIME_MODULE_REPOSITORY_PROPERTY: &str = "intellij.platform.runtime.repository.path";
+pub const RUNTIME_MODULE_REPOSITORY_PROPERTY: &str = "intellij.platform.runtime.repository.path";
 
 /// The main class and the system properties of the custom command of the distribution that handles `command`. This
 /// is `readCustomCommandLaunch` of `DevLaunchProperties.kt`.
-pub(crate) fn custom_command(home: &str, info: &ProductInfo, command: &str) -> anyhow::Result<(String, IndexMap<String, String>)> {
+pub fn custom_command(home: &str, info: &ProductInfo, command: &str) -> anyhow::Result<(String, IndexMap<String, String>)> {
     let [launch] = info.launch.as_slice() else {
         bail!(
             "product-info.json of {home} states {} launches, and a dev distribution has one",
@@ -134,7 +134,7 @@ pub(crate) fn custom_command(home: &str, info: &ProductInfo, command: &str) -> a
 }
 
 /// The lines of a text file without the line terminators.
-pub(crate) fn read_lines(file: &Path) -> anyhow::Result<Vec<String>> {
+pub fn read_lines(file: &Path) -> anyhow::Result<Vec<String>> {
     let text = std::fs::read_to_string(file).with_context(|| format!("read {}", file.display()))?;
     Ok(text.lines().map(str::to_owned).collect())
 }

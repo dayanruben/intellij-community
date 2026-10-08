@@ -1,6 +1,8 @@
 use std::ffi::OsString;
 use std::path::Path;
 
+use dev_launch::PATH_LIST_SEPARATOR;
+
 use super::*;
 
 fn write_file(path: &Path, content: &str) {
@@ -166,19 +168,6 @@ fn the_writer_refuses_an_argument_with_a_line_break() {
 }
 
 #[test]
-fn the_distribution_states_the_runtime_module_repository_first() {
-    let property = RUNTIME_MODULE_REPOSITORY_PROPERTY;
-    let mut distribution = IndexMap::from([(property.to_owned(), "/product-info.dat".to_owned())]);
-    add_runtime_module_repository(&mut distribution, "/home/modules/module-descriptors.dat", &IndexMap::new());
-    assert_eq!(distribution.get(property).map(String::as_str), Some("/product-info.dat"));
-
-    let mut distribution = IndexMap::new();
-    let caller = IndexMap::from([(property.to_owned(), "/custom.dat".to_owned())]);
-    add_runtime_module_repository(&mut distribution, "/home/modules/module-descriptors.dat", &caller);
-    assert!(distribution.is_empty(), "the home overrode the caller flag: {distribution:?}");
-}
-
-#[test]
 fn a_program_argument_needs_a_value() {
     let directory = tempfile::tempdir().unwrap();
     let args = write_inputs(directory.path(), &[], &["--program-arg"]);
@@ -204,32 +193,4 @@ fn jvm_args_refuses_a_relative_home() {
     let (code, errors) = run(&args);
     assert_eq!(code, 2);
     assert!(errors.contains("--home must be an absolute path"), "{errors}");
-}
-
-#[test]
-fn an_argument_is_quoted_only_when_java_needs_it() {
-    assert_eq!(quote_argument("-Da=b"), "-Da=b");
-    assert_eq!(quote_argument(""), "\"\"");
-    assert_eq!(quote_argument("-Da=x y"), "\"-Da=x y\"");
-    assert_eq!(quote_argument("-Da=\"\""), "\"-Da=\\\"\\\"\"");
-    assert_eq!(quote_argument("-Da=p\\q#r"), "\"-Da=p\\\\q#r\"");
-}
-
-#[test]
-fn a_windows_path_is_quoted_with_each_backslash_escaped() {
-    // Inside double quotes, `java` reads `\\` as one backslash, and `\t` or `\n` as a control character.
-    assert_eq!(
-        quote_argument(r"-Didea.home.path=C:\Program Files\idea"),
-        r#""-Didea.home.path=C:\\Program Files\\idea""#
-    );
-    assert_eq!(quote_argument(r"-Dx=C:\temp\new\table"), r#""-Dx=C:\\temp\\new\\table""#);
-    assert_eq!(quote_argument(r"-Dx=C:\dir\"), r#""-Dx=C:\\dir\\""#);
-    assert_eq!(quote_argument(r"-Dx=\\?\C:\dir"), r#""-Dx=\\\\?\\C:\\dir""#);
-    assert_eq!(
-        quote_argument(r"C:\home dir\lib\a.jar;C:/out/lib/b.jar"),
-        r#""C:\\home dir\\lib\\a.jar;C:/out/lib/b.jar""#
-    );
-    // A backslash alone is a reason to quote. A drive path with forward slashes and no space stays as it is.
-    assert_eq!(quote_argument(r"-Dx=C:\dev\idea"), r#""-Dx=C:\\dev\\idea""#);
-    assert_eq!(quote_argument("-Dx=C:/dev/idea"), "-Dx=C:/dev/idea");
 }

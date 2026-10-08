@@ -2,11 +2,9 @@ aho_corasick
 anyhow
 cfg_if
 cli
-component
-distpath
+dev_launch
 encoding_rs
 equivalent
-filemeta
 foldhash
 hashbrown
 indexmap
@@ -17,13 +15,9 @@ memchr
 regex
 regex_automata
 regex_syntax
-same_file
 scopeguard
 serde
 serde_core
 serde_json
 simdutf8
-walkdir
-xxh3
-xxhash_rust
 zmij

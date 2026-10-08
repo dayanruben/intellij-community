@@ -10,13 +10,10 @@ license.workspace = true
 workspace = true
 
 [dependencies]
-cli.workspace = true
-component.workspace = true
-indexmap.workspace = true
-java-properties.workspace = true
-serde.workspace = true
-serde_json.workspace = true
 anyhow.workspace = true
+cli.workspace = true
+dev-launch.workspace = true
 
 [dev-dependencies]
+serde_json.workspace = true
 tempfile.workspace = true

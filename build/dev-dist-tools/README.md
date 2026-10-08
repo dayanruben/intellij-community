@@ -24,8 +24,9 @@ Run a test target from the ultimate root. From `community/`, drop the `@communit
 |---|---|---|
 | `crates/appinfo` | The application info: the descriptor XML round trip, the markers, the frontend merge, and the reader of the facts that `product-info.json` states. | `@community//build/dev-dist-tools/crates/appinfo:appinfo_test` |
 | `crates/cli` | The command line of every tool: the options `--key=value` and `--flag`, the positional arguments, the refusal of every other form, and the `ERROR:` line of a failure. | `@community//build/dev-dist-tools/crates/cli:cli_test` |
-| `crates/component` | The component contract of the collector, the composer and the argument file writer: the manifest, the types and the reader of the local layout, the core classpath order, and the host paths. | `@community//build/dev-dist-tools/crates/component:component_test` |
+| `crates/component` | The component contract of the collector and the composer: the manifest, the types and the reader of the local layout, the core classpath order, and the host paths. | `@community//build/dev-dist-tools/crates/component:component_test` |
 | `crates/contentreport` | The reader of an executed packaging recipe and of a built distribution, for `dev-dist` and `content-report`. | `@community//build/dev-dist-tools/crates/contentreport:contentreport_test` |
+| `crates/dev-launch` | The `java` command line of a dev distribution: the distribution properties, the class path, the main class, the custom command, and the text of the argument file. The argument file writer and the guest agent of `community/tools/vm` link it. It links no other crate of this workspace, and its `Cargo.toml` spells the `[package]` values inline, so a crate of another workspace can link it by path. | `@community//build/dev-dist-tools/crates/dev-launch:dev-launch_test` |
 | `crates/distpath` | The slash-path rules: the path inside a distribution, the jar entry name, the link target, and the lexical path functions `clean`, `dir` and `join`. | `@community//build/dev-dist-tools/crates/distpath:distpath_test` |
 | `crates/filemeta` | Inventory JSON version 1, the hash of a link target, and the directory creation with the mode 0755. | `@community//build/dev-dist-tools/crates/filemeta:filemeta_test` |
 | `crates/fscopy` | The copy that clones where the volume supports it, the mode helpers, and the path helpers. | `@community//build/dev-dist-tools/crates/fscopy:fscopy_test` |
@@ -39,7 +40,7 @@ Run a test target from the ultimate root. From `community/`, drop the `@communit
 | `bins/content-module-packer` | The packer and the inventory of each packed jar. | `@community//build/dev-dist-tools/bins/content-module-packer:content-module-packer_test` |
 | `bins/dev-dist-collector` | The collector: the inventory of a component and the plugin classpath record. | `@community//build/dev-dist-tools/bins/dev-dist-collector:dev-dist-collector_test` |
 | `bins/dev-dist-composer` | The composer: the composition spec, the composition and its copy step, and the local layout writer. It also writes the plugin classpath file and the fingerprint. It checks the home placement. | `@community//build/dev-dist-tools/bins/dev-dist-composer:dev-dist-composer_test` |
-| `bins/dev-launch-args` | The `jvm-args` command, which writes the argument file of an `intellij_dev_java_launcher` target. | `@community//build/dev-dist-tools/bins/dev-launch-args:dev-launch-args_test` |
+| `bins/dev-launch-args` | The `jvm-args` command, which writes the argument file of an `intellij_dev_java_launcher` target through `crates/dev-launch`. | `@community//build/dev-dist-tools/bins/dev-launch-args:dev-launch-args_test` |
 | `bins/plugin-descriptor-writer` | The descriptor writer. | `@community//build/dev-dist-tools/bins/plugin-descriptor-writer:plugin-descriptor-writer_test` and `:descriptor_rule_tests` |
 | `bins/plugin-remainder-packer` | The remainder packer. | `@community//build/dev-dist-tools/bins/plugin-remainder-packer:plugin-remainder-packer_test` and `:plugin-remainder-packer_cli_test` |
 | `bins/product-files` | The tool of `dev_dist_product_files`. | `@community//build/dev-dist-tools/bins/product-files:product-files_test` |
@@ -167,8 +168,9 @@ JDK answer for every glob of the corpus. A plan author who needs a new shape cha
 ### After a change of `Cargo.lock`
 
 `community/MODULE.bazel` generates the crate hub `@ddt` from `Cargo.toml`, `Cargo.lock` and `.cargo/config.toml` of
-this directory. The hub also resolves the triple `x86_64-unknown-linux-musl`, where no dev-dist tool runs, because the
-closure checks of `vm` and `air-trace` analyze `distpath` there. After a change of `Cargo.lock`, update the Bazel
+this directory. The hub also resolves the triples `aarch64-unknown-linux-musl` and `x86_64-unknown-linux-musl`, where
+no dev-dist tool runs. The guest agent of `community/tools/vm` links `dev-launch` for both, and the closure checks of
+`vm` and `air-trace` analyze `distpath` for x86_64. After a change of `Cargo.lock`, update the Bazel
 lockfiles of both roots:
 
 ```sh
