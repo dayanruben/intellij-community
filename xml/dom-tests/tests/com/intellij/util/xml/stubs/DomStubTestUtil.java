@@ -1,6 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.util.xml.stubs;
 
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
@@ -12,22 +13,49 @@ import com.intellij.psi.xml.XmlFile;
 import com.intellij.testFramework.TestDataFile;
 import com.intellij.testFramework.fixtures.CodeInsightTestFixture;
 import com.intellij.util.xml.DomElement;
+import com.intellij.util.xml.DomFileDescription;
 import com.intellij.util.xml.DomFileElement;
 import com.intellij.util.xml.DomManager;
+import com.intellij.util.xml.impl.DomManagerImpl;
+import com.intellij.util.xml.stubs.model.Foo;
 import org.jetbrains.annotations.NotNull;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * DOM stub helpers for a test with any base class.
- * A JUnit 5 test can call them without the JUnit 3 {@link DomStubTest} on the compile classpath.
  * Call them on the EDT.
  */
 public final class DomStubTestUtil {
+  private static final String HTTP_FOO_DTD = "http://foo.dtd";
+  private static final DomFileDescription<Foo> FOO_FILE_DESCRIPTION = new DomFileDescription<>(Foo.class, "foo", HTTP_FOO_DTD) {
+    @Override
+    public boolean hasStubs() {
+      return true;
+    }
+
+    @Override
+    public int getStubVersion() {
+      return 0;
+    }
+
+    @Override
+    protected void initializeFileDescription() {
+      registerNamespacePolicy("foo", HTTP_FOO_DTD);
+    }
+  };
+
   private DomStubTestUtil() {
+  }
+
+  /**
+   * Registers the stubbed DOM file description of the {@link Foo} test model until the disposal of {@code disposable}.
+   */
+  static void registerFooFileDescription(@NotNull Project project, @NotNull Disposable disposable) {
+    ((DomManagerImpl)DomManager.getDomManager(project)).registerFileDescription(FOO_FILE_DESCRIPTION, disposable);
   }
 
   public static @NotNull ElementStub getRootStub(@TestDataFile @NotNull String filePath, @NotNull CodeInsightTestFixture fixture) {
@@ -71,7 +99,7 @@ public final class DomStubTestUtil {
     assertNotNull(file);
     assertFalse(file.getNode().isParsed());
     ObjectStubTree<?> tree = StubTreeLoader.getInstance().readOrBuild(project, virtualFile, file);
-    assertNotNull("Can't build stubs for " + path, tree);
+    assertNotNull(tree, "Can't build stubs for " + path);
 
     psiManager.cleanupForNextTest();
 
