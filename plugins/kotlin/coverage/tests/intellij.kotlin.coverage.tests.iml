@@ -28,6 +28,7 @@
     <orderEntry type="module" module-name="intellij.platform.core.impl" />
     <orderEntry type="module" module-name="intellij.platform.indexing" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.java.coverage" />
+    <orderEntry type="module" module-name="intellij.platform.structuralSearch.plugin" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.java.coverage.tests" scope="TEST" />
   </component>
 </module>

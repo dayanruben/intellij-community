@@ -72,6 +72,16 @@
     <orderEntry type="module" module-name="intellij.java.testFramework.backend" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.junit4" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.junit6.params" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.completionMlRanking" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.platform.vcs.plugin" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.java.i18n" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.java.decompiler" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.xml.emmet" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.java.manifest" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.groovy" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.groovy.scripting" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.textmate.plugin" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.textmate" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.platform.util.jdom" scope="TEST" />
   </component>
 </module>
