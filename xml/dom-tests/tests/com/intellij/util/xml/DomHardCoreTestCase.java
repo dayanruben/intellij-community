@@ -27,7 +27,7 @@ import com.intellij.psi.xml.XmlTagValue;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.xml.events.DomEvent;
 import com.intellij.util.xml.impl.DomManagerImpl;
-import com.intellij.util.xml.impl.DomTestCase;
+import com.intellij.util.xml.impl.DomTestFixture;
 import org.jetbrains.annotations.NotNull;
 
 public abstract class DomHardCoreTestCase extends JavaCodeInsightTestCase {
@@ -50,7 +50,7 @@ public abstract class DomHardCoreTestCase extends JavaCodeInsightTestCase {
   }
 
   protected <T extends DomElement> T createElement(final String xml, final Class<T> aClass) throws IncorrectOperationException {
-    return DomTestCase.createElement(getDomManager(), xml, aClass);
+    return DomTestFixture.createElement(getDomManager(), xml, aClass);
   }
 
   protected void assertEventCount(final int size) {

@@ -16,91 +16,129 @@
 package com.intellij.util.xml.impl;
 
 import com.intellij.openapi.command.WriteCommandAction;
+import com.intellij.openapi.module.Module;
 import com.intellij.psi.xml.XmlTag;
+import com.intellij.testFramework.junit5.TestApplication;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
 import com.intellij.util.xml.DomElement;
 import com.intellij.util.xml.SubTag;
 import com.intellij.util.xml.events.DomEvent;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-public class IncrementalUpdateEventsTest extends DomTestCase {
+import static com.intellij.testFramework.EdtTestUtil.runInEdtAndWait;
+import static com.intellij.util.xml.impl.DomTestFixtures.domModuleFixture;
+import static com.intellij.util.xml.impl.DomTestFixtures.domTestFixture;
+
+@TestApplication
+public class IncrementalUpdateEventsTest {
+  private static final TestFixture<Module> moduleFixture = domModuleFixture();
+  private final TestFixture<DomTestFixture> domFixture = domTestFixture(moduleFixture);
   private MyElement myElement;
 
-  @Override
-  protected void setUp() throws Exception {
-    super.setUp();
-    myElement = createElement("<a><child/><child/><child-element/><child-element/></a>");
+  @BeforeEach
+  void setUp() {
+    runInEdtAndWait(() -> myElement = createElement("<a><child/><child/><child-element/><child-element/></a>"));
   }
 
+  @Test
   public void testRemove0() {
-    deleteTag(0);
-    putExpected(new DomEvent(myElement, false));
-    assertResultsAndClear();
+    runInEdtAndWait(() -> {
+      deleteTag(0);
+      domFixture.get().putExpected(new DomEvent(myElement, false));
+      domFixture.get().assertResultsAndClear();
 
-    deleteTag(0);
-    putExpected(new DomEvent(myElement, false));
-    assertResultsAndClear();
+      deleteTag(0);
+      domFixture.get().putExpected(new DomEvent(myElement, false));
+      domFixture.get().assertResultsAndClear();
 
-    deleteTag(0);
-    putExpected(new DomEvent(myElement, false));
-    assertResultsAndClear();
+      deleteTag(0);
+      domFixture.get().putExpected(new DomEvent(myElement, false));
+      domFixture.get().assertResultsAndClear();
 
-    deleteTag(0);
-    putExpected(new DomEvent(myElement, false));
-    assertResultsAndClear();
+      deleteTag(0);
+      domFixture.get().putExpected(new DomEvent(myElement, false));
+      domFixture.get().assertResultsAndClear();
+    });
   }
 
+  @Test
   public void testRemove1() {
-    deleteTag(1);
-    putExpected(new DomEvent(myElement, false));
-    assertResultsAndClear();
+    runInEdtAndWait(() -> {
+      deleteTag(1);
+      domFixture.get().putExpected(new DomEvent(myElement, false));
+      domFixture.get().assertResultsAndClear();
+    });
   }
 
+  @Test
   public void testRemove2() {
-    deleteTag(2);
-    putExpected(new DomEvent(myElement, false));
-    assertResultsAndClear();
+    runInEdtAndWait(() -> {
+      deleteTag(2);
+      domFixture.get().putExpected(new DomEvent(myElement, false));
+      domFixture.get().assertResultsAndClear();
 
-    deleteTag(2);
-    putExpected(new DomEvent(myElement, false));
-    assertResultsAndClear();
+      deleteTag(2);
+      domFixture.get().putExpected(new DomEvent(myElement, false));
+      domFixture.get().assertResultsAndClear();
+    });
   }
 
+  @Test
   public void testRemove3() {
-    deleteTag(3);
-    putExpected(new DomEvent(myElement, false));
-    assertResultsAndClear();
+    runInEdtAndWait(() -> {
+      deleteTag(3);
+      domFixture.get().putExpected(new DomEvent(myElement, false));
+      domFixture.get().assertResultsAndClear();
+    });
   }
 
+  @Test
   public void testAdd0() {
-    addChildTag(0);
-    putExpected(new DomEvent(myElement, false));
-    assertResultsAndClear();
+    runInEdtAndWait(() -> {
+      addChildTag(0);
+      domFixture.get().putExpected(new DomEvent(myElement, false));
+      domFixture.get().assertResultsAndClear();
+    });
   }
 
+  @Test
   public void testAdd1() {
-    addChildTag(1);
-    putExpected(new DomEvent(myElement, false));
-    assertResultsAndClear();
+    runInEdtAndWait(() -> {
+      addChildTag(1);
+      domFixture.get().putExpected(new DomEvent(myElement, false));
+      domFixture.get().assertResultsAndClear();
+    });
   }
 
+  @Test
   public void testAdd2() {
-    addChildElementTag(2);
-    putExpected(new DomEvent(myElement, false));
-    assertResultsAndClear();
+    runInEdtAndWait(() -> {
+      addChildElementTag(2);
+      domFixture.get().putExpected(new DomEvent(myElement, false));
+      domFixture.get().assertResultsAndClear();
+    });
   }
 
+  @Test
   public void testAdd3() {
-    addChildElementTag(3);
-    putExpected(new DomEvent(myElement, false));
-    assertResultsAndClear();
+    runInEdtAndWait(() -> {
+      addChildElementTag(3);
+      domFixture.get().putExpected(new DomEvent(myElement, false));
+      domFixture.get().assertResultsAndClear();
+    });
   }
 
+  @Test
   public void testAdd4() {
-    final XmlTag tag = myElement.getXmlTag();
-    tag.addAfter(createTag("<child-element/>"), tag.getSubTags()[3]);
-    putExpected(new DomEvent(myElement, false));
-    assertResultsAndClear();
+    runInEdtAndWait(() -> {
+      final XmlTag tag = myElement.getXmlTag();
+      tag.addAfter(domFixture.get().createTag("<child-element/>"), tag.getSubTags()[3]);
+      domFixture.get().putExpected(new DomEvent(myElement, false));
+      domFixture.get().assertResultsAndClear();
+    });
   }
 
   private MyElement getChild(final int index) {
@@ -109,12 +147,12 @@ public class IncrementalUpdateEventsTest extends DomTestCase {
 
   private void addChildTag(int index) {
     final XmlTag tag = myElement.getXmlTag();
-    tag.addBefore(createTag("<child/>"), tag.getSubTags()[index]);
+    tag.addBefore(domFixture.get().createTag("<child/>"), tag.getSubTags()[index]);
   }
 
   private void addChildElementTag(int index) {
     final XmlTag tag = myElement.getXmlTag();
-    tag.addBefore(createTag("<child-element/>"), tag.getSubTags()[index]);
+    tag.addBefore(domFixture.get().createTag("<child-element/>"), tag.getSubTags()[index]);
   }
 
 
@@ -123,7 +161,7 @@ public class IncrementalUpdateEventsTest extends DomTestCase {
   }
 
   private MyElement createElement(final String xml) {
-    return createElement(xml, MyElement.class);
+    return domFixture.get().createElement(xml, MyElement.class);
   }
 
   public interface MyElement extends DomElement {
