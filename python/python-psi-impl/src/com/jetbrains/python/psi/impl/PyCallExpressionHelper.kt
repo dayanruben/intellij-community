@@ -830,7 +830,7 @@ object PyCallExpressionHelper {
 
   @JvmStatic
   fun mapArguments(
-    expression: PyElement,
+    callSite: PyElement,
     arguments: List<PyExpression>,
     callableType: PyCallableType,
     context: TypeEvalContext,
@@ -839,11 +839,11 @@ object PyCallExpressionHelper {
     val parameters = callableType.getParameters(context)
         ?.let { unpackParameters(it, wrappedArguments, context) }
 
-    if (parameters == null) return PyArgumentsMapping.empty(expression, arguments)
+    if (parameters == null) return PyArgumentsMapping.empty(callSite, arguments)
 
     val mappingResults = analyzeArguments(wrappedArguments, parameters, context)
 
-    return PyArgumentsMapping(expression,
+    return PyArgumentsMapping(callSite,
                               arguments,
                               callableType,
                               mappingResults.mappedParameters.mapKeys { (argument, _) -> argument.expression!! },
@@ -856,16 +856,16 @@ object PyCallExpressionHelper {
   }
 
   @JvmStatic
-  fun mapArguments(expression: PyElement, resolveContext: PyResolveContext): List<PyArgumentsMapping> {
+  fun mapArguments(callSite: PyElement, resolveContext: PyResolveContext): List<PyArgumentsMapping> {
     val context = resolveContext.typeEvalContext
-    return when (expression) {
-      is PyCallExpression -> expression.multiResolveCallee(resolveContext)
-        .map { mapArguments(expression, it, context) }
-      is PyClass -> expression.resolveInitSubclassCallee(resolveContext)
-        .map { mapArguments(expression, expression.arguments, it, context) }
-      is PyQualifiedExpression -> multiResolveOperator(expression, resolveContext)
+    return when (callSite) {
+      is PyCallExpression -> callSite.multiResolveCallee(resolveContext)
+        .map { mapArguments(callSite, it, context) }
+      is PyClass -> callSite.resolveInitSubclassCallee(resolveContext)
+        .map { mapArguments(callSite, callSite.arguments, it, context) }
+      is PyQualifiedExpression -> multiResolveOperator(callSite, resolveContext)
         .flatMap { operator ->
-          PyTypeUtil.getCallableItems(operator.method).map { mapArguments(expression, operator.arguments, it, context) }
+          PyTypeUtil.getCallableItems(operator.method).map { mapArguments(callSite, operator.arguments, it, context) }
         }
       else -> emptyList()
     }
