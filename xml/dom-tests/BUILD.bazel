@@ -138,6 +138,8 @@ jvm_library(
         "//java/java-syntax:syntax_test_lib",
         "//libraries/kotlinx/coroutines/core",
         "//libraries/kotlinx/coroutines/core:core_test_lib",
+        "//platform/projectModel-api:projectModel",
+        "//platform/projectModel-api:projectModel_test_lib",
     ],
 )
 ### auto-generated section `build intellij.xml.dom.tests` end

@@ -17,6 +17,7 @@ package com.intellij.util.xml;
 
 import com.intellij.lang.ASTNode;
 import com.intellij.lang.Language;
+import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.NlsSafe;
@@ -32,71 +33,107 @@ import com.intellij.psi.ResolveState;
 import com.intellij.psi.scope.PsiScopeProcessor;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.SearchScope;
+import com.intellij.testFramework.junit5.TestApplication;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
 import com.intellij.util.IncorrectOperationException;
+import com.intellij.util.xml.impl.DomTestFixture;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.junit.jupiter.api.Test;
 
 import javax.swing.Icon;
 
-public class DomReferenceInjectorTest extends DomHardCoreTestCase {
+import static com.intellij.testFramework.EdtTestUtil.runInEdtAndWait;
+import static com.intellij.util.xml.DomReferenceTestUtil.assertReference;
+import static com.intellij.util.xml.impl.DomTestFixtures.domModuleFixture;
+import static com.intellij.util.xml.impl.DomTestFixtures.domTestFixture;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+@TestApplication
+public class DomReferenceInjectorTest {
+  private static final TestFixture<Module> moduleFixture = domModuleFixture();
+  private final TestFixture<DomTestFixture> domFixture = domTestFixture(moduleFixture);
+
+  @Test
   public void testBasic() {
-    MyElement element = createElement("<a><value>abc${prop}def</value></a>", MyElement.class);
-    assertEquals("abc${prop}def", element.getValue().getStringValue());
-    assertEquals("abc${prop}def", element.getValue().getValue());
+    runInEdtAndWait(() -> {
+      MyElement element = createElement("<a><value>abc${prop}def</value></a>");
+      assertEquals("abc${prop}def", element.getValue().getStringValue());
+      assertEquals("abc${prop}def", element.getValue().getValue());
+    });
   }
 
+  @Test
   public void testWithInjector() {
-    MyElement element = createElement("<a><value>abc${prop}def</value></a>", MyElement.class);
+    runInEdtAndWait(() -> {
+      MyElement element = createElement("<a><value>abc${prop}def</value></a>");
 
-    registerInjectorFor(element, null);
+      registerInjectorFor(element, null);
 
-    assertEquals("abcFOOdef", element.getValue().getStringValue());
-    assertEquals("abcFOOdef", element.getValue().getValue());
+      assertEquals("abcFOOdef", element.getValue().getStringValue());
+      assertEquals("abcFOOdef", element.getValue().getValue());
+    });
   }
 
+  @Test
   public void testCorrectlyCalculateOffsetWithInjector() {
-    MyElement element = createElement("<a><value>   abc${prop}def   </value></a>", MyElement.class);
+    runInEdtAndWait(() -> {
+      MyElement element = createElement("<a><value>   abc${prop}def   </value></a>");
 
-    registerInjectorFor(element, null);
+      registerInjectorFor(element, null);
 
-    assertEquals("abcFOOdef", element.getValue().getStringValue());
-    assertEquals("abcFOOdef", element.getValue().getValue());
+      assertEquals("abcFOOdef", element.getValue().getStringValue());
+      assertEquals("abcFOOdef", element.getValue().getValue());
+    });
   }
 
+  @Test
   public void testWithInjectorAndConverter() {
-    MyElement element = createElement("<a><converted-value>abc${prop}def</converted-value></a>", MyElement.class);
+    runInEdtAndWait(() -> {
+      MyElement element = createElement("<a><converted-value>abc${prop}def</converted-value></a>");
 
-    registerInjectorFor(element, null);
+      registerInjectorFor(element, null);
 
-    assertEquals("abcFOOdef", element.getConvertedValue().getStringValue());
-    assertEquals("abcBARdef", element.getConvertedValue().getValue());
+      assertEquals("abcFOOdef", element.getConvertedValue().getStringValue());
+      assertEquals("abcBARdef", element.getConvertedValue().getValue());
+    });
   }
 
+  @Test
   public void testReference() {
-    String text = "<a><value>abc${prop}def</value></a>";
-    MyElement element = createElement(text, MyElement.class);
+    runInEdtAndWait(() -> {
+      String text = "<a><value>abc${prop}def</value></a>";
+      MyElement element = createElement(text);
 
-    MyPsiElement targetElement = new MyPsiElement();
-    registerInjectorFor(element, targetElement);
+      MyPsiElement targetElement = new MyPsiElement();
+      registerInjectorFor(element, targetElement);
 
-    assertEquals("abcFOOdef", element.getValue().getStringValue());
-    assertEquals("abcFOOdef", element.getValue().getValue());
-    
-    assertReference(element.getValue(), targetElement, text.indexOf("${prop}") + 1);
+      assertEquals("abcFOOdef", element.getValue().getStringValue());
+      assertEquals("abcFOOdef", element.getValue().getValue());
+
+      assertReference(element.getValue(), targetElement, text.indexOf("${prop}") + 1);
+    });
   }
 
+  @Test
   public void testAttribute() {
-    String text = "<a attr=\"abc${prop}def\"/>";
-    MyElement element = createElement(text, MyElement.class);
+    runInEdtAndWait(() -> {
+      String text = "<a attr=\"abc${prop}def\"/>";
+      MyElement element = createElement(text);
 
-    MyPsiElement targetElement = new MyPsiElement();
-    registerInjectorFor(element, targetElement);
+      MyPsiElement targetElement = new MyPsiElement();
+      registerInjectorFor(element, targetElement);
 
-    assertEquals("abcFOOdef", element.getAttr().getStringValue());
-    assertEquals("abcFOOdef", element.getAttr().getValue());
+      assertEquals("abcFOOdef", element.getAttr().getStringValue());
+      assertEquals("abcFOOdef", element.getAttr().getValue());
 
-    assertReference(element.getAttr(), targetElement, text.indexOf("${prop}") + 1);
+      assertReference(element.getAttr(), targetElement, text.indexOf("${prop}") + 1);
+    });
+  }
+
+  private MyElement createElement(String xml) {
+    return domFixture.get().createElement(xml, MyElement.class);
   }
 
   private void registerInjectorFor(DomElement element, PsiElement targetElement) {

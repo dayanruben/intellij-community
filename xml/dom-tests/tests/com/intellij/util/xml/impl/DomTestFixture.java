@@ -2,10 +2,14 @@
 package com.intellij.util.xml.impl;
 
 import com.intellij.openapi.Disposable;
+import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.FileTypeRegistry;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.roots.ModuleRootManager;
+import com.intellij.openapi.vfs.VfsUtil;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiFileFactory;
 import com.intellij.psi.PsiManager;
@@ -14,15 +18,20 @@ import com.intellij.psi.impl.JavaPsiFacadeEx;
 import com.intellij.psi.xml.XmlElement;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.psi.xml.XmlTag;
+import com.intellij.testFramework.IndexingTestUtil;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.LocalTimeCounter;
 import com.intellij.util.xml.CallRegistry;
 import com.intellij.util.xml.DomElement;
 import com.intellij.util.xml.DomManager;
 import com.intellij.util.xml.TypeChooserManager;
+import com.intellij.util.text.UniqueNameGenerator;
 import com.intellij.util.xml.events.DomEvent;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
+
+import java.io.IOException;
+import java.util.Objects;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -139,12 +148,41 @@ public final class DomTestFixture {
     return element;
   }
 
+  /**
+   * Creates a new directory in the source root of the module.
+   */
+  public @NotNull VirtualFile createSourceDirectory() throws IOException {
+    return WriteAction.computeAndWait(() -> {
+      VirtualFile sourceRoot = ModuleRootManager.getInstance(myModule).getSourceRoots()[0];
+      String name = UniqueNameGenerator.generateUniqueName("src", it -> sourceRoot.findChild(it) == null);
+      return sourceRoot.createChildDirectory(this, name);
+    });
+  }
+
+  /**
+   * Creates a physical file in a new source directory, as {@code JavaPsiTestCase.createFile} did.
+   */
+  public @NotNull PsiFile createSourceFile(@NonNls @NotNull String fileName, @NonNls @NotNull String text) throws IOException {
+    VirtualFile dir = createSourceDirectory();
+    VirtualFile file = WriteAction.computeAndWait(() -> {
+      VirtualFile child = dir.createChildData(this, fileName);
+      VfsUtil.saveText(child, text);
+      return child;
+    });
+    IndexingTestUtil.waitUntilIndexesAreReady(getProject());
+    return Objects.requireNonNull(getPsiManager().findFile(file));
+  }
+
   public void putExpected(DomEvent event) {
     myCallRegistry.putExpected(event);
   }
 
   public void assertResultsAndClear() {
     myCallRegistry.assertResultsAndClear();
+  }
+
+  public void assertEventCount(int size) {
+    assertEquals(size, myCallRegistry.getSize(), myCallRegistry.toString());
   }
 
   public void incModCount() {

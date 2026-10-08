@@ -15,94 +15,124 @@
  */
 package com.intellij.util.xml;
 
+import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.command.WriteCommandAction;
+import com.intellij.openapi.fileEditor.impl.LoadTextUtil;
+import com.intellij.openapi.module.Module;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.xml.XmlFile;
+import com.intellij.testFramework.junit5.TestApplication;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
 import com.intellij.util.xml.events.DomEvent;
 import com.intellij.util.xml.impl.DomFileElementImpl;
+import com.intellij.util.xml.impl.DomTestFixture;
 import org.jetbrains.annotations.NotNull;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 
-public class DomVirtualFileEventsTest extends DomHardCoreTestCase{
+import static com.intellij.testFramework.EdtTestUtil.runInEdtAndWait;
+import static com.intellij.util.xml.impl.DomTestFixtures.domModuleFixture;
+import static com.intellij.util.xml.impl.DomTestFixtures.domTestFixture;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
-  @Override
-  protected void setUp() throws Exception {
-    super.setUp();
-    getDomManager().registerFileDescription(new DomFileDescription(MyElement.class, "a") {
+@TestApplication
+public class DomVirtualFileEventsTest {
+  private final TestFixture<Module> moduleFixture = domModuleFixture();
+  private final TestFixture<DomTestFixture> domFixture = domTestFixture(moduleFixture);
 
-      @Override
-      public boolean isMyFile(@NotNull final XmlFile file) {
-        return super.isMyFile(file) && file.getName().contains("a");
-      }
-    }, getTestRootDisposable());
+  @BeforeEach
+  void setUp() {
+    runInEdtAndWait(() -> {
+      domFixture.get().getDomManager().registerFileDescription(new DomFileDescription(MyElement.class, "a") {
+
+        @Override
+        public boolean isMyFile(@NotNull final XmlFile file) {
+          return super.isMyFile(file) && file.getName().contains("a");
+        }
+      }, domFixture.get().getDisposable());
+    });
   }
 
+  @Test
   public void testCreateFile() throws IOException {
-    WriteCommandAction.writeCommandAction(myProject).run(() -> {
-      final VirtualFile dir = getVirtualFile(createTempDirectory());
-      addSourceContentToRoots(getModule(), dir);
-      final VirtualFile childData = dir.createChildData(this, "abc.xml");
-      System.gc();
-      System.gc();
-      System.gc();
-      System.gc();
-      assertResultsAndClear();
-      setFileText(childData, "<a/>");
-      assertEventCount(0);
-      assertResultsAndClear();
+    runInEdtAndWait(() -> {
+      WriteCommandAction.writeCommandAction(domFixture.get().getProject()).run(() -> {
+        final VirtualFile dir = domFixture.get().createSourceDirectory();
+        final VirtualFile childData = dir.createChildData(this, "abc.xml");
+        System.gc();
+        System.gc();
+        System.gc();
+        System.gc();
+        domFixture.get().assertResultsAndClear();
+        setFileText(childData, "<a/>");
+        domFixture.get().assertEventCount(0);
+        domFixture.get().assertResultsAndClear();
+      });
     });
   }
 
+  @Test
   public void testDeleteFile() throws IOException {
-    WriteCommandAction.writeCommandAction(getProject()).run(() -> {
-      final VirtualFile dir = getVirtualFile(createTempDirectory());
-      addSourceContentToRoots(getModule(), dir);
-      final VirtualFile childData = dir.createChildData(this, "abc.xml");
-      assertResultsAndClear();
-      setFileText(childData, "<a/>");
-      final DomFileElementImpl<DomElement> fileElement = getFileElement(childData);
-      assertResultsAndClear();
+    runInEdtAndWait(() -> {
+      WriteCommandAction.writeCommandAction(domFixture.get().getProject()).run(() -> {
+        final VirtualFile dir = domFixture.get().createSourceDirectory();
+        final VirtualFile childData = dir.createChildData(this, "abc.xml");
+        domFixture.get().assertResultsAndClear();
+        setFileText(childData, "<a/>");
+        final DomFileElementImpl<DomElement> fileElement = getFileElement(childData);
+        domFixture.get().assertResultsAndClear();
 
-      childData.delete(this);
-      assertEventCount(1);
-      putExpected(new DomEvent(fileElement, false));
-      assertResultsAndClear();
-      assertFalse(fileElement.isValid());
+        childData.delete(this);
+        domFixture.get().assertEventCount(1);
+        domFixture.get().putExpected(new DomEvent(fileElement, false));
+        domFixture.get().assertResultsAndClear();
+        assertFalse(fileElement.isValid());
+      });
     });
   }
 
+  @Test
   public void testRenameFile() throws IOException {
-    WriteCommandAction.writeCommandAction(getProject()).run(() -> {
-      final VirtualFile dir = getVirtualFile(createTempDirectory());
-      addSourceContentToRoots(getModule(), dir);
-      final VirtualFile data = dir.createChildData(this, "abc.xml");
-      setFileText(data, "<a/>");
-      PsiDocumentManager.getInstance(getProject()).commitAllDocuments();
-      DomFileElementImpl<DomElement> fileElement = getFileElement(data);
-      assertEventCount(0);
-      assertResultsAndClear();
+    runInEdtAndWait(() -> {
+      WriteCommandAction.writeCommandAction(domFixture.get().getProject()).run(() -> {
+        final VirtualFile dir = domFixture.get().createSourceDirectory();
+        final VirtualFile data = dir.createChildData(this, "abc.xml");
+        setFileText(data, "<a/>");
+        PsiDocumentManager.getInstance(domFixture.get().getProject()).commitAllDocuments();
+        DomFileElementImpl<DomElement> fileElement = getFileElement(data);
+        domFixture.get().assertEventCount(0);
+        domFixture.get().assertResultsAndClear();
 
-      data.rename(this, "deaf.xml");
-      assertEventCount(1);
-      putExpected(new DomEvent(fileElement, false));
-      assertResultsAndClear();
-      assertEquals(fileElement, getFileElement(data));
-      assertTrue(fileElement.isValid());
-      fileElement = getFileElement(data);
+        data.rename(this, "deaf.xml");
+        domFixture.get().assertEventCount(1);
+        domFixture.get().putExpected(new DomEvent(fileElement, false));
+        domFixture.get().assertResultsAndClear();
+        assertEquals(fileElement, getFileElement(data));
+        assertTrue(fileElement.isValid());
+        fileElement = getFileElement(data);
 
-      data.rename(this, "fff.xml");
-      assertEventCount(1);
-      putExpected(new DomEvent(fileElement, false));
-      assertResultsAndClear();
-      assertNull(getFileElement(data));
-      assertFalse(fileElement.isValid());
+        data.rename(this, "fff.xml");
+        domFixture.get().assertEventCount(1);
+        domFixture.get().putExpected(new DomEvent(fileElement, false));
+        domFixture.get().assertResultsAndClear();
+        assertNull(getFileElement(data));
+        assertFalse(fileElement.isValid());
+      });
     });
   }
 
   private DomFileElementImpl<DomElement> getFileElement(final VirtualFile file) {
-    return getDomManager().getFileElement((XmlFile)getPsiManager().findFile(file));
+    return domFixture.get().getDomManager().getFileElement((XmlFile)domFixture.get().getPsiManager().findFile(file));
+  }
+
+  private static void setFileText(VirtualFile file, String text) throws IOException {
+    WriteAction.runAndWait(() -> LoadTextUtil.write(null, file, file, text, -1));
   }
 
   public interface MyElement extends DomElement {
