@@ -548,6 +548,13 @@ async fn a_release_succeeds_while_a_warm_daemon_holds_the_slot() {
         "{:#?}",
         fixture.guest.lines()
     );
+    // The warm daemon stays, and its lane IDEs are stopped.
+    let gc = format!("vm-guest-agent ide-gc --root {}/ide --stop-all", fixture.settings.vm_data);
+    assert!(
+        fixture.guest.lines().iter().any(|line| line.contains(&gc)),
+        "{:#?}",
+        fixture.guest.lines()
+    );
 }
 
 /// What the slot still exists to catch. The lifecycle lock excludes every iteration this host can start, so the residue

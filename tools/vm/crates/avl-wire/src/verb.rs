@@ -47,5 +47,12 @@ vocabulary! {
         /// it on a channel that carries bytes unchanged, and [`crate::pull::FileReceipt`] on standard error names what
         /// was sent.
         ReadFile = "read-file",
+        /// Prepares one context of the lane IDE from a [`crate::ide::IdePrepare`] on standard input, and answers
+        /// [`crate::ide::IdePrepared`]. The document carries the bridge token, so it never crosses an argv.
+        IdePrepare = "ide-prepare",
+        /// Cancels or keeps the live IDE runs under an IDE root, and removes the old log directories of each
+        /// context: `ide-gc --root <ideRoot> [--stop-all | --keep-product <digest>]`. It answers
+        /// [`crate::ide::IdeGcResult`].
+        IdeGc = "ide-gc",
     }
 }

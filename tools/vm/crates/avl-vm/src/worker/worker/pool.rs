@@ -12,6 +12,7 @@ use avl_host_sys::guest::ensure_host_paths;
 use serde_json::{Value, json};
 
 use super::{Manager, read_lease};
+use crate::lane::ide::{IdeRetention, gc_guest_ides, gc_note};
 use avl_base::RefusalExt;
 
 /// One `pool` invocation.
@@ -258,8 +259,37 @@ impl Manager {
     /// Tart stops the machine before the delete, so a stop that timed out also leaves the slot as it was.
     async fn recycle_one_worker(&self, ctx: &Ctx, worker: &str) -> Result<(), Refusal> {
         self.require_unleased(worker, "recycle", None)?;
+        self.stop_lane_ides(ctx, worker).await;
         self.unmake_worker(ctx, worker).await?;
         self.start_without_lifecycle_lock(ctx, worker).await.map(drop)
+    }
+
+    /// Stops the lane IDEs of a running worker before the recycle unmakes its slot, through the guest agent's
+    /// `ide-gc`. The gc sends each IDE a TERM and gives it the grace of a cancel to shut down, which the unmake does
+    /// not do.
+    ///
+    /// It is best effort, because a recycle repairs a worker whose guest may not answer, and the unmake ends every
+    /// process of the slot. A worker that is stopped, or whose state cannot be read, gets no guest call. A refusal of
+    /// the gc is a note.
+    async fn stop_lane_ides(&self, ctx: &Ctx, worker: &str) {
+        if !matches!(self.stopped_for_release(ctx, worker).await, Ok(false)) {
+            return;
+        }
+        let channel = self.channel(worker);
+        match gc_guest_ides(&self.guest(ctx, channel.as_ref()), IdeRetention::StopAll).await {
+            Ok(ides) => {
+                if let Some(note) = gc_note(&ides) {
+                    self.note(worker, format!("{note} before the recycle"));
+                }
+            }
+            Err(refusal) => self.note(
+                worker,
+                format!(
+                    "the lane IDEs of {worker} were not stopped before the recycle ({}); the unmake ends them",
+                    refusal.code
+                ),
+            ),
+        }
     }
 }
 

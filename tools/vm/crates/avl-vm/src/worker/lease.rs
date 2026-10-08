@@ -485,6 +485,12 @@ async fn release_one_lease(ctx: &Ctx, manager: &Manager, lease: &Lease, probe: &
     // can start; the slot's remaining job is a controller that crashed and left a run behind, so the probe answers
     // "executing" for everything it cannot prove idle.
     guest.reject_executing_run(probe, "release the lease").await?;
+    // The warm daemon survives the release, and its lane IDEs do not: the next holder gets no IDE of this one's runs.
+    // The daemon launches a new IDE on its next run.
+    let ides = crate::lane::ide::gc_guest_ides(&guest, crate::lane::ide::IdeRetention::StopAll).await?;
+    if let Some(note) = crate::lane::ide::gc_note(&ides) {
+        manager.reporter().note(format!("{note} on {worker}"), Some(&Scope::worker(worker)));
+    }
     // The next holder gets no file of this one's runs: a run removes its own, unless its controller died first.
     crate::lane::secrets::clear_run_secrets(&guest).await?;
     remove_lease(settings, lease)?;

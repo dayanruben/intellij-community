@@ -167,6 +167,14 @@ async fn command_daemon_stop_retires_the_state() {
     // A run whose controller died before its own removal left its secret files; the stop removes the directory.
     let removal = format!("/bin/rm -rf -- {}", fixture.settings.vm_run_secrets);
     assert!(fixture.channel().saw_call_containing(&removal), "{:#?}", fixture.channel().lines());
+    // A lane IDE outlives the daemon run, so the stop asks the guest agent to stop every one.
+    assert!(
+        fixture
+            .channel()
+            .saw_call_containing("vm-guest-agent ide-gc --root /vm/data/ide --stop-all"),
+        "{:#?}",
+        fixture.channel().lines()
+    );
 }
 
 // Without a record, `daemon stop` asks the supervisor what holds the slot: it retires a daemon run, says so when

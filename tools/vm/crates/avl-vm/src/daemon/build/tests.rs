@@ -156,6 +156,33 @@ async fn a_changed_static_flag_changes_the_runtime_digest() {
     assert_eq!(before.mount_digest, after.mount_digest);
 }
 
+// The IDE flags file is part of the IDE's identity: a restart keeps an IDE only of the same product, so a changed flag
+// must relaunch the IDE. It does not restage the daemon runtime.
+#[tokio::test]
+async fn a_changed_ide_flags_file_changes_the_product_digest() {
+    let fixture = Fixture::new().await;
+    let before = fixture.prepared().await;
+    let flags = runtime::runfiles_root(&fixture.bazel.descriptor_path).join("_main/ide/ide.jvm-flags.txt");
+    fs::write(&flags, "-ea\n-Dchanged=true\n").unwrap();
+    let after = fixture.prepared().await;
+    assert_ne!(before.product_digest, after.product_digest);
+    assert_ne!(before.mount_digest, after.mount_digest);
+    assert_eq!(before.runtime_digest, after.runtime_digest);
+    assert_eq!(before.launch_digest, after.launch_digest);
+}
+
+// The project the IDE opens is share-backed data: a changed archive refreshes the shares and keeps the product.
+#[tokio::test]
+async fn a_changed_ide_project_archive_changes_only_the_mount_digest() {
+    let fixture = Fixture::new().await;
+    let before = fixture.prepared().await;
+    let archive = runtime::runfiles_root(&fixture.bazel.descriptor_path).join("_main/ide/project.zip");
+    fs::write(&archive, "another project").unwrap();
+    let after = fixture.prepared().await;
+    assert_eq!(before.product_digest, after.product_digest);
+    assert_ne!(before.mount_digest, after.mount_digest);
+}
+
 // The daemon port is inside `@controller-boot`: changing it must restart the daemon, because the running one keeps
 // listening where it was told to.
 #[tokio::test]

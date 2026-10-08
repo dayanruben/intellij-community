@@ -353,7 +353,9 @@ impl State {
             | RunEventKind::ContainerSkipped(_)
             | RunEventKind::RunFailed(_)
             | RunEventKind::Summary(_)
-            | RunEventKind::Output(_) => {}
+            | RunEventKind::Output(_)
+            | RunEventKind::IdeLaunched(_)
+            | RunEventKind::IdeExited(_) => {}
         }
     }
 

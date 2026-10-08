@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use avl_base::phase::Timeline;
 use avl_host_sys::{Captured, Signal};
 use avl_host_testkit::agent::{agent_reply, argv_value, run_state};
-use avl_host_testkit::{answer_exit, answer_text, handler, refusal};
+use avl_host_testkit::{answer_exit, answer_text, handler, has, refusal, said};
 use avl_wire::stage::decode_launch_prep;
 use pretty_assertions::assert_eq;
 use serde_json::json;
@@ -524,10 +524,15 @@ async fn a_full_start_boots_polls_and_records_its_state() {
     // it sent, and the main class is named outright.
     let request = launch_prep_request(&fixture);
     let prefix = request.arg_file.prefix.join("\n");
+    let generation = format!("/vm/data/daemon-runtime/generations/{}", prep.runtime_digest);
     for fragment in [
         format!("-Dair.ui.daemon.controller.launch.digest={}", prep.launch_digest),
         "-Dair.ui.daemon.port=27100".to_owned(),
         format!("-Didea.home.path={}", fixture.root().display()),
+        // How the daemon launches the lane IDE: the installed agent, the context root, and the staged JVM home.
+        format!("-Dair.lane.agent={}", fixture.settings.vm_agent),
+        "-Dair.lane.ide.root=/vm/data/ide".to_owned(),
+        format!("-Dair.lane.java.home={generation}/jbr"),
     ] {
         assert!(prefix.contains(&fragment), "{fragment} missing from\n{prefix}");
     }
@@ -554,6 +559,11 @@ async fn a_full_start_boots_polls_and_records_its_state() {
         collections[0]
     );
 
+    // A start with no record of the daemon keeps no lane IDE.
+    let gcs = channel.calls_containing("vm-guest-agent ide-gc");
+    assert_eq!(gcs.len(), 1, "{gcs:?}");
+    assert!(gcs[0].ends_with("ide-gc --root /vm/data/ide --stop-all"), "{}", gcs[0]);
+
     // A green start cancels nothing.
     assert!(cancels(&fixture).is_empty());
 
@@ -563,9 +573,10 @@ async fn a_full_start_boots_polls_and_records_its_state() {
 }
 
 /// The phase table of a green start, in order.
-const PHASES: [&str; 11] = [
+const PHASES: [&str; 12] = [
     "install-agent",
     "stop-daemon",
+    "ide-gc",
     "reject-active-run",
     "remount",
     "parity-probe",
@@ -576,6 +587,67 @@ const PHASES: [&str; 11] = [
     "health-poll",
     "gc-runtimes",
 ];
+
+/// An `ide-gc` double that keeps one IDE when it is asked to keep a product, and stops one otherwise.
+fn answer_ide_gc(fixture: &Fixture) {
+    fixture.on(
+        "ide-gc",
+        handler(|argv, _| {
+            Ok(said(if has(argv, "--keep-product") {
+                r#"{"stopped":[],"kept":[{"launchKey":"launch-key-1","runId":"run-ide-launch-key-1"}],"removed":[]}"#
+            } else {
+                r#"{"stopped":[{"launchKey":"launch-key-1","runId":"run-ide-launch-key-1"}],"kept":[],"removed":[]}"#
+            }))
+        }),
+    );
+}
+
+// A restart keeps the lane IDEs of its product only when it refreshes no VirtioFS share: a remount unmounts the share
+// that the IDE runs from. The answer says what the gc did, which is what the timing line reads.
+#[tokio::test]
+async fn a_start_keeps_the_ides_of_its_product_only_when_it_does_not_remount() {
+    let (fixture, prep) = start_ready().await;
+    answer_ide_gc(&fixture);
+    let keep = IdeRetention::KeepProduct(&prep.product_digest);
+    let ctx = Ctx::background();
+
+    // No record: the start remounts, so it stops every IDE.
+    let (_, ides) = fixture.host.start_daemon_keeping(&ctx, &fixture.worker, &prep, keep).await.unwrap();
+    let gcs = fixture.channel().calls_containing("vm-guest-agent ide-gc");
+    assert_eq!(gcs.len(), 1, "{gcs:?}");
+    assert!(gcs[0].ends_with("ide-gc --root /vm/data/ide --stop-all"), "{}", gcs[0]);
+    assert_eq!((ides.kept.len(), ides.stopped.len()), (0, 1));
+    assert_eq!(remounts(&fixture), 1);
+
+    // A record of this launch and this mount: the start refreshes nothing, so the gc keeps the product.
+    ready_again(&fixture, &prep);
+    answer_ide_gc(&fixture);
+    let mut previous = fixture.daemon.host_state("run-ui-daemon-previous", &prep.launch_digest);
+    previous.last_mount_digest = prep.mount_digest.clone();
+    previous.write(&fixture.settings, &fixture.worker).unwrap();
+    let (_, ides) = fixture.host.start_daemon_keeping(&ctx, &fixture.worker, &prep, keep).await.unwrap();
+    let gcs = fixture.channel().calls_containing("vm-guest-agent ide-gc");
+    assert_eq!(gcs.len(), 1, "{gcs:?}");
+    assert!(
+        gcs[0].ends_with(&format!("ide-gc --root /vm/data/ide --keep-product {}", prep.product_digest)),
+        "{}",
+        gcs[0]
+    );
+    assert_eq!((ides.kept.len(), ides.stopped.len()), (1, 0));
+    assert_eq!(remounts(&fixture), 0);
+}
+
+// An IDE that the gc could not stop holds the shares and the slot root of its context, so the start refuses before it
+// remounts or stages anything.
+#[tokio::test]
+async fn a_failed_ide_gc_refuses_the_start() {
+    let (fixture, prep) = start_ready().await;
+    fixture.on("ide-gc", answer_exit(1));
+    let failure = refusal(start(&fixture, &prep).await);
+    assert_eq!(failure.code, "guest_agent_failed");
+    assert_eq!(remounts(&fixture), 0);
+    assert!(fixture.channel().calls_containing("vm-guest-agent stage").is_empty());
+}
 
 // The regression tripwire. What the collapse bought is that the ~1000 staged classpath paths stop crossing the exec
 // channel, and nothing about the request's shape would fail if a later change put them back - the start would

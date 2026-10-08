@@ -421,6 +421,16 @@ fn safe_evidence_paths_keeps_only_what_is_safe_to_fetch() {
     }
 }
 
+// The IDE writes its evidence into its context under `<vm_data>/ide/`: the heartbeat screenshots, and the thread
+// dump of a cancel before the kill.
+#[test]
+fn safe_evidence_paths_admits_the_files_of_an_ide_context() {
+    let log = "/home/admin/WorkerData/ide/a1b2c3/log/launch-1";
+    let screenshot = format!("{log}/screenshots/heartbeat-1.png");
+    let dump = format!("{log}/threadDump-before-kill-1791460800000.txt");
+    assert_eq!(safe_evidence_paths(&[expiry(&[&screenshot, &dump])]), [screenshot, dump]);
+}
+
 #[test]
 fn safe_evidence_paths_caps_the_count() {
     let paths = safe_evidence_paths(&[expiry(&["/a.png", "/b.png", "/c.png", "/d.png", "/e.png", "/f.png"])]);

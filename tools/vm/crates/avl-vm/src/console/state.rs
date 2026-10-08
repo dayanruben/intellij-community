@@ -628,7 +628,8 @@ impl State {
                 self.running.remove(worker);
                 self.per_worker.remove(worker);
             }
-            RunEventKind::WatchdogState(_) | RunEventKind::Output(_) => {}
+            // The lane IDE's life is the run journal's and the viewer's, not a line of the console.
+            RunEventKind::WatchdogState(_) | RunEventKind::Output(_) | RunEventKind::IdeLaunched(_) | RunEventKind::IdeExited(_) => {}
         }
     }
 

@@ -303,7 +303,7 @@ fn the_plan_record_carries_the_discovered_classes() {
 #[test]
 fn protocol_version_is_the_one_kotlin_declares() {
     // A literal, so bumping the constant without the Kotlin side is a deliberate two-file change.
-    assert_eq!(PROTOCOL_VERSION, 3, "`AIR_UI_DAEMON_PROTOCOL_VERSION` must move with it");
+    assert_eq!(PROTOCOL_VERSION, 4, "`AIR_UI_DAEMON_PROTOCOL_VERSION` must move with it");
 }
 
 // A dynamic node carries its factory's method and its own display name, so a progress line names both; a plain
@@ -396,5 +396,35 @@ proptest! {
         prop_assert!(whole.failure.is_none());
         prop_assert_eq!(whole.events.len(), 4);
         prop_assert_eq!(pieces, whole.events);
+    }
+}
+
+// The two records of the IDE life decode, keep their bytes, and refuse a field of the wrong kind or a null signal.
+#[test]
+fn the_ide_life_records_decode_and_refuse_a_wrong_field() {
+    let launched = r#"{"event":"ideLaunched","pid":4242,"launchName":"launch-1","launchKey":"k","logDir":"/data/ide/k/log/launch-1"}"#;
+    let event = decode(launched);
+    assert_eq!(event.event(), Event::IdeLaunched);
+    assert_eq!(event.to_raw().get(), launched);
+    let RunEventKind::IdeLaunched(record) = event.kind else {
+        panic!("read {:?}", event.kind);
+    };
+    assert_eq!((record.pid, record.log_dir.as_str()), (4242, "/data/ide/k/log/launch-1"));
+
+    let exited = |tail: &str| format!(r#"{{"event":"ideExited","pid":4242{tail}}}"#);
+    let RunEventKind::IdeExited(record) = decode(&exited(r#","exitCode":143,"signal":"SIGTERM""#)).kind else {
+        panic!("not an ideExited record");
+    };
+    assert_eq!((record.exit_code, record.signal.as_deref()), (143, Some("SIGTERM")));
+    let RunEventKind::IdeExited(record) = decode(&exited(r#","exitCode":0"#)).kind else {
+        panic!("not an ideExited record");
+    };
+    assert_eq!(record.signal, None);
+    for line in [
+        exited(r#","exitCode":0,"signal":null"#),
+        exited(""),
+        r#"{"event":"ideLaunched","pid":"4242","launchName":"l","launchKey":"k","logDir":"/d"}"#.to_owned(),
+    ] {
+        assert_eq!(protocol_code(&line), CODE_FIELD_MISSING, "{line}");
     }
 }

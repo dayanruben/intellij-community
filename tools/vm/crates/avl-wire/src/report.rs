@@ -461,6 +461,10 @@ pub const MAX_EVIDENCE_FILES: usize = 4;
 /// ASCII at most 512 characters after the slash, no traversal, a capture extension, no duplicates, and a hard
 /// count cap. Anything else is dropped silently, because evidence is a convenience on top of a verdict that
 /// already stands on its own. The *last* expiry, because the one that ended the run describes the end.
+///
+/// The guard holds no directory list, so it admits the files of an IDE context under `<vm_data>/ide/` as it admits
+/// every other guest directory: the heartbeat screenshots of `log/<launchName>` and the thread dump that a
+/// `cancel --thread-dump` writes there before the kill.
 pub fn safe_evidence_paths(events: &[RunEvent]) -> Vec<String> {
     let named = events.iter().rev().find_map(|event| match &event.kind {
         RunEventKind::WatchdogExpired(expired) => Some(expired.evidence.as_slice()),

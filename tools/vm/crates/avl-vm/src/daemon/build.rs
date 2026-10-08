@@ -251,7 +251,7 @@ fn stamp(descriptor: &RuntimeDescriptor, runfiles: &HostRunfiles, cache_path: &P
     runtime_entries.push(jbr_archive.identity);
     let runtime_digest = digest::path_sensitive_digest(&runtime_entries);
 
-    let product_digest = digest::product_identity(&ProductIdentityInput {
+    let distribution = digest::product_identity(&ProductIdentityInput {
         fingerprint: file(&descriptor.dev_dist.fingerprint)?.identity,
         config: file(&descriptor.dev_dist.config)?.identity,
         jbr_manifest: file(&descriptor.jbr.manifest)?.identity,
@@ -261,8 +261,16 @@ fn stamp(descriptor: &RuntimeDescriptor, runfiles: &HostRunfiles, cache_path: &P
             preloaded_only: descriptor.jbr.preloaded_only,
         },
     });
+    let product_digest = digest::path_sensitive_digest(&[
+        PathDigest::new("@distribution", &distribution),
+        file(&descriptor.ide.flags_file)?.identity,
+    ]);
 
-    let mut mount_entries = vec![PathDigest::new("@product", &product_digest)];
+    let mut mount_entries = vec![
+        PathDigest::new("@product", &product_digest),
+        file(&descriptor.ide.project_archive)?.identity,
+        PathDigest::new("@project-root", digest::sha256_text(&descriptor.ide.project_root)),
+    ];
     for data in &descriptor.data {
         mount_entries.push(declared_input(&mut cache, runfiles, data, true)?.identity);
     }

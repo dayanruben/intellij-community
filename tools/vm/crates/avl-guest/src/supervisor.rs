@@ -15,6 +15,7 @@ mod launch;
 mod log;
 mod state;
 mod supervise;
+mod thread_dump;
 
 #[cfg(test)]
 mod tests;
@@ -42,7 +43,7 @@ pub(crate) use launch::LaunchHost;
 pub(crate) use supervise::supervise;
 
 use crate::reply::AgentRefusalExt;
-use identity::{ProcessIdentity, identity_matches, supervisor_is_alive};
+use identity::{ProcessIdentity, child_is_alive, identity_matches, supervisor_is_alive};
 use state::{FinishExtra, RunPaths, finish_state, prepare_root, read_state, reconcile};
 
 pub(crate) const POLL_INTERVAL: Duration = Duration::from_millis(50);
@@ -312,6 +313,9 @@ pub(crate) fn cancel(system: &dyn System, args: &CancelArgs) -> Result<RunState,
     if current.phase == Phase::Finished {
         return Ok(current);
     }
+    if let Some(jcmd) = &args.thread_dump {
+        dump_threads(system, &root, &paths, &current, jcmd);
+    }
     let request = request_cancellation(system, &paths, run_id, args.grace_ms);
     if current.phase == Phase::Running && !supervisor_is_alive(system, &current) {
         return orphan_cancel(system, &root, current, &request);
@@ -336,6 +340,23 @@ pub(crate) fn cancel(system: &dyn System, args: &CancelArgs) -> Result<RunState,
         "cancel_timeout",
         format!("run {run_id} did not finish after cancellation"),
     ))
+}
+
+/// Takes the thread dump of the live child of `state` before the cancellation request exists, so the dump comes
+/// before the TERM on both paths: the supervisor's and the orphan cancel's. The supervisor log of the run names the
+/// dump file or the failure. A failed dump never stops the cancel: the cancel is the reason the dump is taken.
+fn dump_threads(system: &dyn System, root: &Path, paths: &RunPaths, state: &RunState, jcmd: &Path) {
+    let Some(pid) = state.pid.filter(|_| state.phase == Phase::Running && child_is_alive(system, state)) else {
+        return;
+    };
+    let directory = thread_dump::directory(root, &state.run_id);
+    let line = match thread_dump::capture(jcmd, pid, &directory, system.now()) {
+        Ok(file) => format!("thread dump of pid {pid} in {}", file.display()),
+        Err(error) => format!("thread dump of pid {pid} failed: {error}"),
+    };
+    if let Ok(log) = open_append(&paths.supervisor_log) {
+        let _ = writeln!(&log, "{} cancel {}: {line}", stamp(system.now()), state.run_id);
+    }
 }
 
 // --- contract --------------------------------------------------------------------------------------------------

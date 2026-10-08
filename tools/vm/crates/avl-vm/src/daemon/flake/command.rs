@@ -29,6 +29,7 @@ use crate::daemon::flake::{
 use crate::daemon::leased::Workers;
 use crate::daemon::shard::command::LeaseData;
 use crate::daemon::{Host, HostState, ParsedRun, PreparedBuild, RunAttempt, guest_free_bytes};
+use crate::lane::ide::{IdeRetention, gc_guest_ides};
 use crate::lane::secrets::RunSecrets;
 use avl_base::RefusalExt;
 
@@ -504,7 +505,16 @@ impl ResetIo for LiveReset {
 
     async fn daemon_stop(&self, ctx: &Ctx) -> Result<(), Refusal> {
         let state = HostState::read(self.host.settings(), &self.lease.worker);
-        self.host.stop_daemon(ctx, &self.lease.worker, state.as_ref()).await
+        self.host.stop_daemon(ctx, &self.lease.worker, state.as_ref()).await?;
+        // A lane IDE outlives its daemon, and its context is under the tree that the next step removes.
+        let channel = self.host.manager().channel(&self.lease.worker);
+        let guest = Guest {
+            ctx,
+            settings: self.host.settings(),
+            channel: channel.as_ref(),
+            reporter: self.host.reporter(),
+        };
+        gc_guest_ides(&guest, IdeRetention::StopAll).await.map(drop)
     }
 
     async fn guest_remove(&self, ctx: &Ctx, argv: &[String]) -> Result<(), Refusal> {

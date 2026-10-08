@@ -468,7 +468,7 @@ pub(crate) fn failing_run(iteration_id: &str) -> (Vec<String>, String) {
 // --- the runtime-descriptor fixture ------------------------------------------------------------------------------
 
 /// The runfiles every fixture descriptor declares, with their contents.
-pub(crate) const FIXTURE_RUNFILES: [(&str, &str); 8] = [
+pub(crate) const FIXTURE_RUNFILES: [(&str, &str); 10] = [
     ("_main/hot/a.jar", "hot-a"),
     ("_main/stable/one.jar", "stable-one"),
     ("_main/stable/two.jar", "stable-two"),
@@ -477,6 +477,8 @@ pub(crate) const FIXTURE_RUNFILES: [(&str, &str); 8] = [
     ("_main/dist/fingerprint.txt", "fingerprint"),
     ("_main/jbr/jbr.tar.gz", "jbr-archive"),
     ("_main/jbr/manifest.json", "jbr-manifest"),
+    ("_main/ide/ide.jvm-flags.txt", "-ea\n"),
+    ("_main/ide/project.zip", "ide-project"),
 ];
 
 /// The fixture's runtime descriptor, built for an arm64 Linux guest.
@@ -513,6 +515,11 @@ pub(crate) fn fixture_descriptor_for(jbr_platform: &str) -> Value {
             "manifest": file("_main/jbr/manifest.json"),
             "platform": jbr_platform,
             "preloadedOnly": false,
+        },
+        "ide": {
+            "flagsFile": file("_main/ide/ide.jvm-flags.txt"),
+            "projectArchive": file("_main/ide/project.zip"),
+            "projectRoot": "Project",
         },
         "data": [file("_main/data/project.zip")],
     })
@@ -862,6 +869,8 @@ impl DaemonFixture {
         let generation = format!("/vm/data/daemon-runtime/generations/{}", prep.runtime_digest);
         self.on("df", answer_text(PLENTIFUL_DF));
         self.on("active", handler(|_, _| Ok(active_reply(None))));
+        // A worker with no lane IDE: the gc of a start stops and keeps nothing.
+        self.on("ide-gc", answer_text(r#"{"stopped":[],"kept":[],"removed":[]}"#));
         for (verb, phase) in [("start", "running"), ("status", "running"), ("cancel", "finished")] {
             self.on(
                 verb,

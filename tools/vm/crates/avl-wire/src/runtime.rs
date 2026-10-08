@@ -26,7 +26,7 @@ mod tests;
 
 /// The version of the descriptor this controller reads. Unrelated to [`crate::daemon::PROTOCOL_VERSION`]: one
 /// describes a build artifact, the other a running process. Bump it with `_SCHEMA_VERSION` in the `.bzl`.
-pub const SCHEMA_VERSION: u32 = 5;
+pub const SCHEMA_VERSION: u32 = 6;
 
 /// What the descriptor must declare itself to be.
 ///
@@ -55,6 +55,9 @@ pub mod code {
     /// A logical path that is absolute or contains `..`. It is joined onto a runfiles root and then onto a
     /// *guest* staging root, so one that escapes is a write outside the tree this controller owns.
     pub const PATH_ESCAPES: &str = "daemon_runtime_path_escapes_runfiles";
+    /// An IDE project root that is empty, absolute or contains `..`. The guest agent joins it onto the directory it
+    /// unpacked the project archive into, so a root that escapes opens a directory outside that tree.
+    pub const PROJECT_ROOT_INVALID: &str = "daemon_runtime_project_root_invalid";
     /// Two different files claiming one staged name. The stage would materialize whichever it reached last, and
     /// the digest would be computed over both.
     pub const DUPLICATE_LOGICAL_PATH: &str = "daemon_runtime_duplicate_logical_path";
@@ -150,6 +153,24 @@ pub struct Jbr {
     pub preloaded_only: bool,
 }
 
+/// The keys of the `ide` section, as the descriptor spells them. The descriptor writer test of the Air lanes holds the
+/// Starlark rule to them.
+pub const IDE_SECTION_FIELDS: [&str; 3] = ["flagsFile", "projectArchive", "projectRoot"];
+
+/// What the lane IDE is launched from, beside the distribution: the JVM flags file and the project it opens.
+///
+/// `flags_file` is the Bazel-written file of IDE JVM flags, one flag per line: the default flags of a dev launch,
+/// the `--add-opens` of the platform and the lane's own. `project_archive` is the zip of the project, and
+/// `project_root` is the directory inside the archive that the IDE opens, a relative slash path.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IdeSection {
+    pub flags_file: RuntimeFile,
+    pub project_archive: RuntimeFile,
+    #[serde(deserialize_with = "non_empty")]
+    pub project_root: String,
+}
+
 /// The Bazel-owned launch contract, after validation.
 ///
 /// Unrelated to [`crate::stage::RuntimeManifest`] despite the overlap in vocabulary: this is what the *host
@@ -167,6 +188,7 @@ pub struct RuntimeDescriptor {
     pub classpath: ClasspathTiers,
     pub dev_dist: DevDist,
     pub jbr: Jbr,
+    pub ide: IdeSection,
     pub data: Vec<RuntimeFile>,
 }
 
@@ -184,6 +206,8 @@ struct DescriptorFields {
     dev_dist: DevDist,
     #[serde(deserialize_with = "object_only")]
     jbr: Jbr,
+    #[serde(deserialize_with = "object_only")]
+    ide: IdeSection,
     data: Vec<RuntimeFile>,
 }
 
@@ -319,6 +343,7 @@ pub fn parse_runtime_descriptor(
         classpath: fields.classpath,
         dev_dist: fields.dev_dist,
         jbr: fields.jbr,
+        ide: fields.ide,
         data: fields.data,
     };
 
@@ -343,6 +368,12 @@ pub fn parse_runtime_descriptor(
     {
         return Err(fail(code::PATH_ESCAPES, &format!("{field}.logicalPath escapes the runfiles root")));
     }
+    if escapes(&descriptor.ide.project_root) {
+        return Err(fail(
+            code::PROJECT_ROOT_INVALID,
+            &format!("ide.projectRoot {} escapes the project archive", descriptor.ide.project_root),
+        ));
+    }
 
     // The order of this list decides which duplicate a message names when there are two.
     let staged = descriptor
@@ -357,6 +388,8 @@ pub fn parse_runtime_descriptor(
             &descriptor.dev_dist.home,
             &descriptor.jbr.archive,
             &descriptor.jbr.manifest,
+            &descriptor.ide.flags_file,
+            &descriptor.ide.project_archive,
         ]);
     if let Some(duplicate) = first_duplicate(staged) {
         return Err(fail(code::DUPLICATE_LOGICAL_PATH, &format!("duplicate logical path {duplicate}")));
@@ -382,6 +415,8 @@ fn labelled_files(descriptor: &RuntimeDescriptor) -> Vec<(String, &RuntimeFile)>
         ("devDist.home".to_owned(), &descriptor.dev_dist.home),
         ("jbr.archive".to_owned(), &descriptor.jbr.archive),
         ("jbr.manifest".to_owned(), &descriptor.jbr.manifest),
+        ("ide.flagsFile".to_owned(), &descriptor.ide.flags_file),
+        ("ide.projectArchive".to_owned(), &descriptor.ide.project_archive),
     ]);
     labelled
 }

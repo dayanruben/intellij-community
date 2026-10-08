@@ -25,7 +25,7 @@ use serde_json::{Map, Value};
 mod tests;
 
 /// Must match `AIR_UI_DAEMON_PROTOCOL_VERSION` on the Kotlin side. Bump both together, or a boot fails by name.
-pub const PROTOCOL_VERSION: u32 = 3;
+pub const PROTOCOL_VERSION: u32 = 4;
 
 /// The Bazel target the runtime descriptor comes from.
 pub const LABEL: &str = "//plugins/air/tests/integration/ui:ui_daemon";
@@ -237,6 +237,10 @@ vocabulary! {
         Summary = "summary",
         /// A line of the daemon's stdout that is not JSON, kept so nothing is dropped.
         Output = "output",
+        /// The guest agent started the lane IDE for the daemon. The run journal keeps the life of the IDE with it.
+        IdeLaunched = "ideLaunched",
+        /// The lane IDE process ended.
+        IdeExited = "ideExited",
     }
 }
 
@@ -405,6 +409,28 @@ pub struct Output {
     pub text: String,
 }
 
+/// The lane IDE started: its process, its launch and the context that holds it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IdeLaunched {
+    pub pid: i64,
+    pub launch_name: String,
+    pub launch_key: String,
+    /// The guest directory of the IDE logs, `log/<launchName>` of the context.
+    pub log_dir: String,
+}
+
+/// The lane IDE process ended. `exit_code` is the supervisor's: the code of the process, else `128 + signal`.
+/// `signal` is absent when the process exited by itself.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IdeExited {
+    pub pid: i64,
+    pub exit_code: i32,
+    #[serde(default, deserialize_with = "crate::json::non_null", skip_serializing_if = "Option::is_none")]
+    pub signal: Option<String>,
+}
+
 /// The reading of one record, by kind. Serializes back to the record's own shape, `event` included.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(tag = "event", rename_all = "camelCase")]
@@ -421,6 +447,8 @@ pub enum RunEventKind {
     RunFailed(RunFailed),
     Summary(Summary),
     Output(Output),
+    IdeLaunched(IdeLaunched),
+    IdeExited(IdeExited),
 }
 
 /// One decoded record: what the daemon sent, and the reading of it.
@@ -468,6 +496,8 @@ impl RunEvent {
             RunEventKind::RunFailed(_) => Event::RunFailed,
             RunEventKind::Summary(_) => Event::Summary,
             RunEventKind::Output(_) => Event::Output,
+            RunEventKind::IdeLaunched(_) => Event::IdeLaunched,
+            RunEventKind::IdeExited(_) => Event::IdeExited,
         }
     }
 
@@ -586,6 +616,8 @@ pub fn decode_run_event(line: &[u8]) -> Result<RunEvent, DecodeError> {
         Event::RunFailed => RunEventKind::RunFailed(record(event, body)?),
         Event::Summary => RunEventKind::Summary(record(event, body)?),
         Event::Output => RunEventKind::Output(record(event, body)?),
+        Event::IdeLaunched => RunEventKind::IdeLaunched(record(event, body)?),
+        Event::IdeExited => RunEventKind::IdeExited(record(event, body)?),
     };
     Ok(RunEvent { raw: Some(raw), kind })
 }

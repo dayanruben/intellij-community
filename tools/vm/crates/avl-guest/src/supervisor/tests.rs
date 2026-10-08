@@ -53,7 +53,7 @@ fn the_finish_of_a_run_follows_its_cancellation() {
 }
 use super::*;
 use crate::cli::RunArgs;
-use crate::testing::run_agent;
+use crate::testing::{agent_launcher, run_agent};
 
 // --- a scripted world ----------------------------------------------------------------------------------------
 
@@ -328,6 +328,7 @@ fn cancel_args(root: &Path, grace_ms: u64) -> CancelArgs {
             run_id: "run-a".to_owned(),
         },
         grace_ms,
+        thread_dump: None,
     }
 }
 
@@ -686,22 +687,6 @@ fn agent_process() {
     std::process::exit(i32::from(exit));
 }
 
-/// A launcher that runs this test binary as the agent, the way `start` runs the installed one.
-fn agent_launcher(directory: &Path) -> PathBuf {
-    let test_binary = std::env::current_exe().unwrap();
-    avl_testkit::fake_executable(
-        directory,
-        "vm-guest-agent",
-        &format!(
-            "i=0\nfor argument in \"$@\"; do export \"AVL_GUEST_AGENT_ARG_$i=$argument\"; i=$((i+1)); done\n\
-             export AVL_GUEST_AGENT_ARGC=$i\n\
-             exec '{}' --exact supervisor::tests::agent_process --nocapture --test-threads=1 -q\n",
-            test_binary.display()
-        ),
-    )
-    .unwrap()
-}
-
 /// `start` launches a detached supervisor that runs the child in a session of its own; `status` and `log` see it
 /// running; `cancel` TERMs its group through the supervisor, which records the cancellation and frees the slot.
 #[test]
@@ -775,6 +760,7 @@ fn a_real_run_starts_reports_and_cancels() {
         &CancelArgs {
             run: run.clone(),
             grace_ms: 5_000,
+            thread_dump: None,
         },
     )
     .unwrap();
