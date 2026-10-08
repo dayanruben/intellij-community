@@ -1,6 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.util.xml
 
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.components.service
@@ -11,17 +12,24 @@ import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.extensions.impl.ExtensionPointImpl
 import com.intellij.openapi.util.Disposer
 import com.intellij.testFramework.common.timeoutRunBlocking
-import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import com.intellij.testFramework.junit5.TestApplication
+import com.intellij.testFramework.junit5.TestDisposable
 import com.intellij.util.xml.dom.XmlElement
 import com.intellij.util.xml.impl.DomImplementationClassEP
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
+import org.junit.jupiter.api.Assertions.assertInstanceOf
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
 
-class ConverterCacheCancellationTest : BasePlatformTestCase() {
-  override fun runInDispatchThread(): Boolean = false
+@TestApplication
+class ConverterCacheCancellationTest {
+  @TestDisposable
+  lateinit var disposable: Disposable
 
   // IJPL-257210
+  @Test
   fun testCancelledBuildOfConverterCacheDoesNotBreakLaterLookups() {
     registerLazyConverterImplementation()
     val converterManager = service<ConverterManager>()
@@ -39,7 +47,7 @@ class ConverterCacheCancellationTest : BasePlatformTestCase() {
       cancelledRead.join()
       assertTrue(cancelledRead.isCancelled)
 
-      assertInstanceOf(readAction { converterManager.getConverterInstance(MyConverter::class.java) }, MyConverterImpl::class.java)
+      assertInstanceOf(MyConverterImpl::class.java, readAction { converterManager.getConverterInstance(MyConverter::class.java) })
     }
   }
 
@@ -58,7 +66,7 @@ class ConverterCacheCancellationTest : BasePlatformTestCase() {
     point.registerExtensions(listOf(ExtensionDescriptor(implementation = null, os = null, orderId = null, order = LoadingOrder.ANY,
                                                         element = element, hasExtraAttributes = false)),
                              pluginDescriptor, null)
-    Disposer.register(testRootDisposable) {
+    Disposer.register(disposable) {
       point.unregisterExtensions({ _, adapter -> adapter.pluginDescriptor !== pluginDescriptor }, false)
     }
   }
