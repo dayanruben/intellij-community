@@ -19,6 +19,11 @@ jvm_library(
         "//plugins/kotlin/i18n",
         "//plugins/java-i18n",
         "//plugins/properties/properties-psi-impl:backend-psi",
+        "//xml/plugin",
+        "//platform/structure-view-impl/plugin",
+        "//aether-dependency-resolver/plugin",
+        "//platform/structuralsearch/plugin",
+        "//platform/testRunner/plugin",
     ],
 )
 
@@ -39,6 +44,11 @@ jvm_library(
         # do not sort,
         ":tests",
         "//plugins/kotlin:kotlin-plugin-community-main_test_lib",
+        "//xml/plugin:plugin_test_lib",
+        "//platform/structure-view-impl/plugin:plugin_test_lib",
+        "//aether-dependency-resolver/plugin:plugin_test_lib",
+        "//platform/structuralsearch/plugin:plugin_test_lib",
+        "//platform/testRunner/plugin:plugin_test_lib",
     ],
     deps = [
         # do not sort,

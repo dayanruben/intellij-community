@@ -31,6 +31,11 @@ jvm_library(
         "//libraries/kotlinc/low-level-api-fir:libraries-kotlinc-low-level-api-fir",
         "//libraries/kotlinc/analysis-api-platform-interface:libraries-kotlinc-analysis-api-platform-interface",
         "//libraries/kotlinc/symbol-light-classes:libraries-kotlinc-symbol-light-classes",
+        "//xml/plugin",
+        "//platform/structure-view-impl/plugin",
+        "//aether-dependency-resolver/plugin",
+        "//platform/structuralsearch/plugin",
+        "//platform/testRunner/plugin",
     ],
 )
 
@@ -53,6 +58,11 @@ jvm_library(
         "//plugins/kotlin:kotlin-plugin-community-main_test_lib",
         "//plugins/kotlin/fir:fir_test_lib",
         "//plugins/kotlin/uast/uast-kotlin-idea-fir:kotlin-uast-idea_test_lib",
+        "//xml/plugin:plugin_test_lib",
+        "//platform/structure-view-impl/plugin:plugin_test_lib",
+        "//aether-dependency-resolver/plugin:plugin_test_lib",
+        "//platform/structuralsearch/plugin:plugin_test_lib",
+        "//platform/testRunner/plugin:plugin_test_lib",
     ],
     deps = [
         # do not sort,

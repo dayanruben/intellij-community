@@ -179,7 +179,11 @@ jvm_library(
     ),
     module_name = "intellij.kotlin.highlighting.tests",
     visibility = ["//visibility:public"],
-    runtime_deps = ["//plugins/kotlin:kotlin-plugin-community-main"],
+    runtime_deps = [
+        # do not sort,
+        "//plugins/kotlin:kotlin-plugin-community-main",
+        "//plugins/gradle/plugin",
+    ],
 )
 
 jvm_library(
@@ -203,6 +207,7 @@ jvm_library(
         # do not sort,
         ":kotlin-highlighting-tests",
         "//plugins/kotlin:kotlin-plugin-community-main_test_lib",
+        "//plugins/gradle/plugin:plugin_test_lib",
     ],
     deps = [
         # do not sort,

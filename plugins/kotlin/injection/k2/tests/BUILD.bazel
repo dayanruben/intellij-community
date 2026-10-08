@@ -28,7 +28,11 @@ jvm_library(
     ),
     module_name = "intellij.kotlin.injection.tests",
     visibility = ["//visibility:public"],
-    runtime_deps = ["//plugins/kotlin:kotlin-plugin-community-main"],
+    runtime_deps = [
+        # do not sort,
+        "//plugins/kotlin:kotlin-plugin-community-main",
+        "//plugins/markdown/fenceInjection",
+    ],
 )
 
 jvm_library(
@@ -49,6 +53,7 @@ jvm_library(
         # do not sort,
         ":tests",
         "//plugins/kotlin:kotlin-plugin-community-main_test_lib",
+        "//plugins/markdown/fenceInjection:fenceInjection_test_lib",
     ],
     deps = [
         # do not sort,

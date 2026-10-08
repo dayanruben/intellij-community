@@ -144,6 +144,11 @@ jvm_library(
     ),
     module_name = "intellij.vcs.hg.tests",
     visibility = ["//visibility:public"],
+    runtime_deps = [
+        # do not sort,
+        "//platform/vcs/plugin",
+        "//xml/plugin",
+    ],
 )
 
 jvm_library(
@@ -169,6 +174,8 @@ jvm_library(
         "//platform/ide-core:ide-core_test_lib",
         "//platform/platform-impl:ide-impl_test_lib",
         "//platform/platform-util-io:ide-util-io_test_lib",
+        "//platform/vcs/plugin:plugin_test_lib",
+        "//xml/plugin:plugin_test_lib",
     ],
     deps = [
         # do not sort,

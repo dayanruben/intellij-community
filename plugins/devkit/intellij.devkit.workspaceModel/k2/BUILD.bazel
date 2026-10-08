@@ -133,6 +133,7 @@ jvm_library(
         "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api",
         "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common",
         "//plugins/kotlin:kotlin-plugin-community-main",
+        "//platform/structuralsearch/plugin",
     ],
 )
 
@@ -157,6 +158,7 @@ jvm_library(
         # do not sort,
         ":devkit-workspaceModel-k2-tests",
         "//plugins/kotlin:kotlin-plugin-community-main_test_lib",
+        "//platform/structuralsearch/plugin:plugin_test_lib",
     ],
     deps = [
         # do not sort,

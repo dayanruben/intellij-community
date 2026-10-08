@@ -84,6 +84,11 @@ jvm_library(
     ),
     module_name = "intellij.vcs.git.terminal.tests",
     visibility = ["//visibility:public"],
+    runtime_deps = [
+        # do not sort,
+        "//platform/recentFiles/plugin",
+        "//plugins/git4idea:vcs-git",
+    ],
 )
 
 jvm_library(
@@ -106,6 +111,8 @@ jvm_library(
         # do not sort,
         ":vcs-git-terminal-tests",
         "//platform/ide-core:ide-core_test_lib",
+        "//platform/recentFiles/plugin:plugin_test_lib",
+        "//plugins/git4idea:vcs-git_test_lib",
     ],
     deps = [
         # do not sort,

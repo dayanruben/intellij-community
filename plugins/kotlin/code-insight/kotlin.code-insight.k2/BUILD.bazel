@@ -239,6 +239,7 @@ jvm_library(
         # do not sort,
         "//plugins/kotlin:kotlin-plugin-community-main",
         "//libraries/kotlinc/symbol-light-classes:libraries-kotlinc-symbol-light-classes",
+        "//plugins/gradle/plugin",
     ],
 )
 
@@ -266,6 +267,7 @@ jvm_library(
         "//platform/platform-impl:ide-impl_test_lib",
         "//platform/ide-core-impl:ide-core-impl_test_lib",
         "//platform/ide-core:ide-core_test_lib",
+        "//plugins/gradle/plugin:plugin_test_lib",
     ],
     deps = [
         # do not sort,

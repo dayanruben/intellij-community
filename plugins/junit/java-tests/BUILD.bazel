@@ -10,7 +10,12 @@ jvm_library(
     ),
     module_name = "intellij.junit.java.tests",
     visibility = ["//visibility:public"],
-    runtime_deps = ["//platform/smRunner"],
+    runtime_deps = [
+        # do not sort,
+        "//platform/smRunner",
+        "//plugins/junit/properties",
+        "//java/manifest",
+    ],
 )
 
 jvm_library(
@@ -31,6 +36,8 @@ jvm_library(
         ":java-tests",
         "//platform/platform-util-io:ide-util-io_test_lib",
         "//platform/ide-core:ide-core_test_lib",
+        "//plugins/junit/properties:properties_test_lib",
+        "//java/manifest:manifest_test_lib",
     ],
     deps = [
         # do not sort,

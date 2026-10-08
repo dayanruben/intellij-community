@@ -35,6 +35,7 @@ jvm_library(
         "//platform/backend/workspace",
         "//plugins/kotlin/base/facet",
         "//plugins/kotlin/project-configuration",
+        "//platform/structuralsearch/plugin",
     ],
 )
 
@@ -56,6 +57,7 @@ jvm_library(
         ":tests",
         "//plugins/kotlin:kotlin-plugin-community-main_test_lib",
         "//platform/ide-core:ide-core_test_lib",
+        "//platform/structuralsearch/plugin:plugin_test_lib",
     ],
     deps = [
         # do not sort,

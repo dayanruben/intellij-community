@@ -26,6 +26,7 @@ jvm_library(
         "//platform/core-impl",
         "//platform/indexing-api:indexing",
         "//plugins/coverage",
+        "//platform/structuralsearch/plugin",
     ],
 )
 
@@ -48,6 +49,7 @@ jvm_library(
         "//plugins/kotlin:kotlin-plugin-community-main_test_lib",
         "//plugins/kotlin/gradle/gradle:gradle_test_lib",
         "//platform/indexing-api:indexing_test_lib",
+        "//platform/structuralsearch/plugin:plugin_test_lib",
     ],
     deps = [
         # do not sort,

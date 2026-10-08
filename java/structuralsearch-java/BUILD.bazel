@@ -91,6 +91,14 @@ jvm_library(
     ),
     module_name = "intellij.java.structuralSearch.tests",
     visibility = ["//visibility:public"],
+    runtime_deps = [
+        # do not sort,
+        "//plugins/groovy-scripting",
+        "//aether-dependency-resolver/plugin",
+        "//platform/testRunner/plugin",
+        "//plugins/java-decompiler/plugin:java-decompiler",
+        "//java/langInjection",
+    ],
 )
 
 jvm_library(
@@ -109,7 +117,15 @@ jvm_library(
         "//java/structuralsearch-java:structuralSearch_test_lib",
     ],
     visibility = ["//visibility:public"],
-    runtime_deps = [":structuralSearch-tests"],
+    runtime_deps = [
+        # do not sort,
+        ":structuralSearch-tests",
+        "//plugins/groovy-scripting:groovy-scripting_test_lib",
+        "//aether-dependency-resolver/plugin:plugin_test_lib",
+        "//platform/testRunner/plugin:plugin_test_lib",
+        "//plugins/java-decompiler/plugin:java-decompiler_test_lib",
+        "//java/langInjection:langInjection_test_lib",
+    ],
     deps = [
         # do not sort,
         "//java/java-indexing-api:indexing",

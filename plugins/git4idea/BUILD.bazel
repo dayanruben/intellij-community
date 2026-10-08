@@ -109,6 +109,10 @@ jvm_library(
         "//platform/lvcs-impl",
         "//fleet/rhizomedb",
         "//platform/vcs/plugin",
+        "//platform/recentFiles/plugin",
+        "//java/plugin",
+        "//aether-dependency-resolver/plugin",
+        "//java/java-backend:backend",
     ],
 )
 
@@ -150,6 +154,10 @@ jvm_library(
         "//platform/platform-impl/eel:ide-impl-wsl_test_lib",
         "//fleet/rhizomedb:rhizomedb_test_lib",
         "//platform/vcs/plugin:plugin_test_lib",
+        "//platform/recentFiles/plugin:plugin_test_lib",
+        "//java/plugin:plugin_test_lib",
+        "//aether-dependency-resolver/plugin:plugin_test_lib",
+        "//java/java-backend:backend_test_lib",
     ],
     deps = [
         # do not sort,

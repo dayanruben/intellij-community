@@ -18,6 +18,15 @@ jvm_library(
     ),
     module_name = "intellij.groovy.uast.tests",
     visibility = ["//visibility:public"],
+    runtime_deps = [
+        # do not sort,
+        "//xml/plugin",
+        "//platform/structure-view-impl/plugin",
+        "//aether-dependency-resolver/plugin",
+        "//plugins/groovy-scripting",
+        "//platform/testRunner/plugin",
+        "//platform/vcs/plugin",
+    ],
 )
 
 jvm_library(
@@ -33,7 +42,16 @@ jvm_library(
     ),
     module_name = "intellij.groovy.uast.tests",
     visibility = ["//visibility:public"],
-    runtime_deps = [":uast-tests"],
+    runtime_deps = [
+        # do not sort,
+        ":uast-tests",
+        "//xml/plugin:plugin_test_lib",
+        "//platform/structure-view-impl/plugin:plugin_test_lib",
+        "//aether-dependency-resolver/plugin:plugin_test_lib",
+        "//plugins/groovy-scripting:groovy-scripting_test_lib",
+        "//platform/testRunner/plugin:plugin_test_lib",
+        "//platform/vcs/plugin:plugin_test_lib",
+    ],
     deps = [
         # do not sort,
         "//java/openapi:java",
@@ -58,18 +76,6 @@ jvm_library(
         "//plugins/groovy:groovy_test_lib",
         "//libraries/junit4",
         "//libraries/junit4:junit4_test_lib",
-        "//xml/plugin",
-        "//xml/plugin:plugin_test_lib",
-        "//platform/structure-view-impl/plugin",
-        "//platform/structure-view-impl/plugin:plugin_test_lib",
-        "//aether-dependency-resolver/plugin",
-        "//aether-dependency-resolver/plugin:plugin_test_lib",
-        "//plugins/groovy-scripting",
-        "//plugins/groovy-scripting:groovy-scripting_test_lib",
-        "//platform/testRunner/plugin",
-        "//platform/testRunner/plugin:plugin_test_lib",
-        "//platform/vcs/plugin",
-        "//platform/vcs/plugin:plugin_test_lib",
     ],
 )
 ### auto-generated section `build intellij.groovy.uast.tests` end

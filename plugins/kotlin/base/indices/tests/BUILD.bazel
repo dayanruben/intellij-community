@@ -15,6 +15,11 @@ jvm_library(
         "@lib//:kotlin-stdlib",
         "//plugins/kotlin:kotlin-plugin-community-main",
         "//plugins/kotlin/base/indices",
+        "//xml/plugin",
+        "//platform/structure-view-impl/plugin",
+        "//aether-dependency-resolver/plugin",
+        "//platform/structuralsearch/plugin",
+        "//platform/testRunner/plugin",
     ],
 )
 
@@ -36,6 +41,11 @@ jvm_library(
         ":tests",
         "//plugins/kotlin:kotlin-plugin-community-main_test_lib",
         "//platform/ide-core:ide-core_test_lib",
+        "//xml/plugin:plugin_test_lib",
+        "//platform/structure-view-impl/plugin:plugin_test_lib",
+        "//aether-dependency-resolver/plugin:plugin_test_lib",
+        "//platform/structuralsearch/plugin:plugin_test_lib",
+        "//platform/testRunner/plugin:plugin_test_lib",
     ],
     deps = [
         # do not sort,

@@ -159,6 +159,8 @@ jvm_library(
         "//platform/core-ui",
         "//platform/platform-util-io:ide-util-io",
         "//platform/forms_rt:java-guiForms-rt",
+        "//platform/vcs/plugin",
+        "//platform/lvcs-impl",
     ],
 )
 
@@ -182,6 +184,8 @@ jvm_library(
         "//platform/ide-core-impl:ide-core-impl_test_lib",
         "//platform/ide-core:ide-core_test_lib",
         "//platform/platform-util-io:ide-util-io_test_lib",
+        "//platform/vcs/plugin:plugin_test_lib",
+        "//platform/lvcs-impl:lvcs-impl_test_lib",
     ],
     deps = [
         # do not sort,
