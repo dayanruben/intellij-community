@@ -13,6 +13,7 @@ import com.intellij.openapi.application.readAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.Service.Level
 import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.extensions.ExtensionNotApplicableException
@@ -31,6 +32,7 @@ import com.intellij.openapi.vcs.changes.ChangeListManager
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiManager
 import com.intellij.util.ui.update.DebouncedUpdates
+import com.intellij.util.ui.update.UpdateQueue
 import com.intellij.vcs.CacheableAnnotationProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -40,11 +42,11 @@ import kotlin.time.Duration.Companion.milliseconds
 
 @Service(Level.PROJECT)
 internal class AnnotationsPreloader(private val project: Project, coroutineScope: CoroutineScope) {
-  private val updateQueue = DebouncedUpdates.forScope<VirtualFile>(
+  private val updateQueue: UpdateQueue<VirtualFile> = DebouncedUpdates.forScope<VirtualFile>(
     coroutineScope,
     "Annotations preloader queue",
     1000.milliseconds
-  ).withContext(Dispatchers.Default)
+  ).withContext(Dispatchers.IO)
     .runBatchedDistinct { files: Set<VirtualFile> ->
       var hasPreloadedAnnotations = false
       for (file in files) {
@@ -120,7 +122,7 @@ internal class AnnotationsPreloader(private val project: Project, coroutineScope
   }
 
   companion object {
-    private val LOG = logger<AnnotationsPreloader>()
+    private val LOG: Logger = logger<AnnotationsPreloader>()
 
     // TODO: check cores number?
     internal fun isEnabled(): Boolean {
