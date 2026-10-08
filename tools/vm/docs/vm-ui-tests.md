@@ -143,11 +143,10 @@ guest. They are TCC admission, the console-login wait, the APFS storage initiali
 provenance. A Docker row of `status` has no field for any of them.
 
 A Linux guest has no seat until something starts an X server. The entrypoint of the image starts
-`Xvfb :88` and `fluxbox`, and it waits for the display to answer. IDE Starter then takes the
-branch it already has: `LinuxIdeDistribution.linuxCommandLine` wraps a launch in `xvfb-run` only
-when `DISPLAY` is unset, and `XorgWindowManagerHandler` checks the window manager through EWMH. So
-every IDE of a lane reuses one display. A server image also carries none of the shared libraries the
-IDE's own native code links against. `GUEST_PACKAGES` names them, and their absence is quiet.
+`Xvfb :88` and `fluxbox`, and it waits for the display to answer. The IDE gets `DISPLAY=:88` through the
+environment of the daemon, and the guest agent's `ide-prepare` refuses `ide_display_missing` on a Linux guest
+without `DISPLAY`. So every IDE of a lane reuses one display. A server image also carries none of the shared
+libraries the IDE's own native code links against. `GUEST_PACKAGES` names them, and their absence is quiet.
 
 So each boot ends with the guest proving itself. `validate-guest` refuses the boot unless four things
 hold. The C library is glibc, the display answers, a window manager is registered on it, and `ldd`
@@ -333,8 +332,9 @@ route exists. No lane time is measured for this route.
 Two `jps_test` targets launch an IDE: `//plugins/air/tests/integration/ui:ui_test` and
 `//plugins/air/tests/integration/gui-chat:gui-chat_test`. Their runfiles carry everything a run
 needs. The IDE arrives as an already-assembled distribution: `//build:idea_air_lane_dist_linux` on
-the default guest, and `//build:idea_air_lane_dist` on a macOS one. `-Didea.ide.config.path` names
-that distribution's `_ide_config` companion target rather than the distribution itself.
+the default guest, and `//build:idea_air_lane_dist` on a macOS one. `-Dair.lane.ide.config` names
+that distribution's `_ide_config` companion target rather than the distribution itself. Beside it the targets
+carry the guest agent, the IDE flags file and the JBR archive that the IDE runs on.
 
 `run` resolves the selector with bt's resolution logic. It runs `bazel build` on the host against
 its warm cache, then it launches the built test stub in the guest. The launch environment is the one
@@ -344,9 +344,10 @@ lands on a read-only mount.
 The guest sees host paths through two read-only shares, the repository root and Bazel's output user
 root, and a **parity layout** makes them position-identical. The repository path exists in the guest
 as a real directory of per-entry symlinks onto the read-only mount. `out` alone is redirected to a
-guest-local writable directory, and the output user root is a single symlink. IDE Starter's
-`GlobalPaths` writes everything under `<checkout>/out`, so that one redirect is what makes a
-read-only checkout runnable. The IDE itself is read, not written.
+guest-local writable directory, and the output user root is a single symlink. A test JVM writes
+under `<checkout>/out`, so that one redirect is what makes a read-only checkout runnable. The IDE
+distribution itself is read, not written, and the IDE writes its data into its context under
+`$AIR_VM_DATA/ide`.
 
 Both shares arrive on Apple's one VirtioFS automount device, and the controller mounts that device
 itself: at `/mnt/AirVmShares` on a Linux guest and `/Volumes/AirVmShares` on a macOS one
@@ -371,12 +372,9 @@ as one config per guest, `air-lane-linux` and `air-lane-macos`. `vm.cmd` and `tr
 their own binaries with `--config=air-lane-linux`, so a wrapper call keeps the analysis of a Linux
 lane build.
 
-IDE Starter still fetches the starter JBR, and the guest never actually downloads it: both targets
-expose their dependency set as runfiles and pass the generated manifests through
-`intellij.build.download.preloaded.manifest`, so the downloader copies a runfile into a guest-local
-cache. The lanes also pass `intellij.build.download.preloaded.only=true`, which makes the manifests
-the complete inventory, so an undeclared URL fails before network access. See
-`build/spec/dev-launch-downloads.spec.md`.
+A lane IDE downloads nothing. Under the daemon it runs on the daemon's own staged JVM, which the
+controller stages from the JBR archive of the runtime descriptor. A standalone lane run stages the JBR
+archive of its target with the guest agent's `stage`, and the IDE runs on that JVM.
 
 **Remounting is a correctness requirement, not hygiene.** A VirtioFS guest keeps a dead node for any
 file the host rewrites after the mount. `stat` then still answers from the cache, while `open` fails
@@ -387,7 +385,9 @@ Linux worker on 2026-08-13.
 
 `umount` answers "target is busy" while anything in the guest still holds the mount open. The IDE
 holds it, because the IDE runs from the share, and so does any in-flight run that reads share-backed
-data. The daemon does not, and the next section states how that is asserted.
+data. The daemon does not, and the next section states how that is asserted. Each lane IDE is a run of
+the guest agent's supervisor, so after a quiesce the controller asks the supervisor about every IDE
+context. A run that is not finished refuses the remount as `daemon_mount_quiesce_failed`.
 
 ### Guest-local writable state
 
@@ -395,7 +395,8 @@ Everything a worker writes lives under `$AIR_VM_DATA`, in seven directories and 
 
 | directory | holds |
 | --- | --- |
-| `out` | IDE Starter's whole tree, through the parity layout's one writable redirect |
+| `out` | what a test JVM writes under `<checkout>/out`, through the parity layout's one writable redirect |
+| `ide` | one context for each launch key of the lane IDE: its `config`, `system`, `plugins`, `log` and `project` directories, its argument file `ide-jvm.args`, its launch record `launch.json`, and the run directories of its supervisor slot |
 | `tmp` | temporary files |
 | `build-download` | the persistent build-dependency cache |
 | `daemon` | the daemon's own state and each iteration's results |
@@ -415,8 +416,8 @@ guest process, the **UI-test daemon** (`//plugins/air/tests/integration/ui:ui_da
 launches, is [ADR 0104](../../../../plugins/air/docs/decisions/0104-the-daemon-caches-a-process-not-a-build.md).
 
 The daemon is the same JVM the `ui_test` target would start, on half its classpath. The **stable**
-tier is the platform, the lambda framework, IDE Starter and the daemon's own module, and it is the
-JVM's app classpath. The **hot** tier is everything built from `plugins/air` except the daemon's own
+tier is the platform and framework jars and the daemon's own module, and it is the JVM's app
+classpath. The **hot** tier is everything built from `plugins/air` except the daemon's own
 module. It is withheld from the app classpath, and each iteration loads it in a child classloader,
 from a guest-local content-addressed store the controller pushes into. A hot jar that reaches the
 app classpath is not a degraded mode but a silent one: parent-first delegation would answer every
@@ -434,12 +435,24 @@ own classpath at boot.
 Every UI lane runs through this one daemon, because its classpath is the union of both IDE-launching
 targets. A lane is only a JUnit filter. Air's own `AirLaneIde`, in the daemon's stable module, then
 carries the warm IDE across whole controller iterations
-([ADR 0138](../../../../plugins/air/docs/decisions/0138-air-owns-its-lane-ide.md)). The IDE has no run budget a lane can reach. It
-ends only when something stops it: `--fresh-ide`, a quiesce, the watchdog, daemon shutdown, or its own
-crash. An IDE that ended on its own, or whose driver stopped answering, is found by the host's probe at the
-next suite boundary and relaunched on its context, so the lane pays a launch and no timeout. The IDE never survives a daemon restart, because the
-daemon's own JVM owns its process: [ADR 0112](../../../../plugins/air/docs/decisions/0112-the-ide-cannot-outlive-its-daemon.md)
-records why a reattach was not an option either.
+([ADR 0138](../../../../plugins/air/docs/decisions/0138-air-owns-its-lane-ide.md)).
+
+The guest agent launches the IDE and owns its process
+([ADR 0220](../../../../plugins/air/docs/decisions/0220-the-guest-agent-launches-the-lane-ide.md)). The daemon
+decides what to launch and when. The agent's `ide-prepare` writes the context `$AIR_VM_DATA/ide/<launchKey>` and
+the argument file of the IDE. The IDE is then the supervisor run `run-ide-<launchName>` in that context, so the
+context is also its run slot. The IDE argv is `java @<context>/ide-jvm.args <project>`. The bridge token is
+only in that file, which is private, and never in the process table.
+
+The IDE has no run budget. It ends only when something stops it: `--fresh-ide`, a quiesce, the watchdog, the
+controller, or its own crash. An IDE that ended on its own, or whose bridge stopped answering, is found by the
+host's probe at the next suite boundary and relaunched on its context, so the lane pays a launch and no timeout.
+
+**The IDE outlives a daemon restart of the same product.** A cancel of the daemon run does not reach the IDE run.
+A restart for a change of the stable tier keeps each live IDE whose launch record names the product of the build,
+and the timing line reports `ide keep`. The new daemon adopts that IDE on its first attach. Every other daemon
+start, `daemon stop`, a lease release and a pool recycle stop every lane IDE of the worker through the agent's
+`ide-gc`. A start that remounts a VirtioFS share also stops every IDE, because each IDE runs from the share.
 
 ### Two traps of a manual `daemon start`
 
@@ -462,7 +475,7 @@ iteration's timing line reports the one it took.
 | --- | --- | --- |
 | test code, meaning the Air test-only modules | hot-jar digest diff | a push plus a fresh classloader. The IDE is reused, and there is **no remount** |
 | product inputs, meaning anything inside the prepared distribution | product stamp diff | quiesce, remount, resume, then launch the IDE again. The daemon JVM survives, and nothing is assembled |
-| the daemon's parent tier, meaning platform and framework jars | stable digest diff | an automatic daemon restart |
+| the daemon's parent tier, meaning platform and framework jars | stable digest diff | an automatic daemon restart. The IDE of the same product survives it, and the timing line reports `ide keep` |
 | the container's declaration, meaning the image tag, the shares or the display | create-record diff | a recreate plus a cold daemon start; Docker only |
 
 The three questions are asked independently, and one file may answer yes to more than one. An Air
@@ -471,9 +484,9 @@ is what would let a run report green against an IDE built from the previous comm
 
 The product stamp reads the `fingerprint.txt` that the dev build wrote inside the distribution's
 tree artifact. It is an xxh3 over every entry's content hash, so stamping never walks a
-multi-gigabyte tree. The stamp folds into the lane's `IdeStartConfig` key
-(`AirFlowLaneHost.configKey`), so a relaunch is the framework's own key-change path rather than a
-new mechanism.
+multi-gigabyte tree. The stamp folds into the lane config key (`AirFlowLaneHost.configKey`), so a
+relaunch is the host's own key-change path rather than a new mechanism. The launch record of each IDE
+context names the product digest, which is how a restart knows which IDE it may keep.
 
 Nothing the daemon holds open lives on the share, and `AirUiDaemonServer.requireStagedRuntime`
 asserts that rather than arranging it: it refuses to serve unless `user.dir`, every stable classpath
@@ -486,15 +499,18 @@ and there are two remount windows:
   Docker, the controller refreshes the shares with the 2 s settle instead of a remount. The timing
   line still reads `ide remount`.
 - **Between daemons**, for a stable-tier change. `start_daemon` in `crates/avl-vm/src/daemon/start.rs`
-  remounts after the old daemon stops and before the new one starts. On Docker, the controller
-  refreshes the shares with the 2 s settle instead of a remount.
+  remounts after the old daemon stops and before the new one starts. Before the remount, the guest
+  agent's `ide-gc` keeps or stops the lane IDEs. On Docker, the controller refreshes the shares with
+  the 2 s settle instead of a remount, so an IDE of the same product survives it.
 
 `--fresh-ide` is cheaper than either. No host bytes changed, so it only stops the IDE.
 
 `run` starts or restarts the daemon by itself whenever the build it just prepared does not match the
-one running. The daemon holds the guest supervisor's single run slot for its whole lifetime, so
-`exec` is refused until `daemon stop`. A lease release keeps that warm daemon:
-[ADR 0106](decisions/0106-a-warm-daemon-survives-a-lease-release.md).
+one running. The daemon holds the guest supervisor's run slot for its whole lifetime, so
+`exec` is refused until `daemon stop`. Each lane IDE has a slot of its own, so it does not hold that
+slot. A lease release keeps that warm daemon:
+[ADR 0106](decisions/0106-a-warm-daemon-survives-a-lease-release.md). The release stops the lane IDEs,
+so the next holder gets none of them.
 
 The controller reaches the daemon through the relay, never through the guest network. For each pooled
 HTTP connection, the controller spawns `tart exec -i <worker> <agent> relay <port>`. On Parallels, it
@@ -558,14 +574,16 @@ the gaps around executions, so another scenario does not make a lane-size consta
 lifecycle events move its deadlines; console, log, HTTP and XML activity never claim that a scenario
 made progress. The skill owns the budgets and their overrides.
 
-On expiry the daemon kills the IDE first, because the remote driver ignores interruption inside an
-RMI read. It then waits for the run thread to unwind. The `/run` request can set
+On expiry the daemon kills the IDE first, because an in-IDE operation that never answers holds the
+run thread. The kill is a cancel of the IDE run through the guest agent, which first writes a thread
+dump of the IDE into its log directory. The daemon then waits for the run thread to unwind. The `/run` request can set
 `wedgeGraceTimeoutSec`, which defaults to 60 s. This budget has no command-line or environment
 override. If the thread remains alive, the daemon flushes partial JUnit XML and exits with code 3.
 Measured twice, against a cold IDE and a warm one, the thread did not unwind either time. Expect the
 exit rather than the unwind. Recovery is automatic and costs one daemon boot. The controller
 reports a stream that ends mid-run as `daemon_died` (exit 70). `daemon log` still works after the
-daemon is gone.
+daemon is gone. The next run starts a new daemon, and that start stops a lane IDE that the dead daemon
+left alive.
 
 **The versioned JSON report is the contract, and JUnit XML is only the daemon's producer format.**
 The controller fetches the XML through an authenticated endpoint, and it falls back to a guest pull
@@ -613,9 +631,9 @@ measured ([ADR 0190](decisions/0190-the-docker-engine-is-the-default-worker.md))
 2026-10-01, and each is one sample. The lane time on 26.04 is not measured yet, because the tree held another
 session's half-finished edits. ADR 0191 names the runs that are still owed.
 
-The **daemon** is the expensive warm state, several times the IDE it holds. So work aimed at
-carrying the IDE across a restart is aimed at the smaller half. Read those rows against the
-invalidation ladder. A test-only edit pays the 11 s row. An Air product edit pays about 61 s,
+The **daemon** is the expensive warm state, several times the IDE it holds. A restart that keeps the
+IDE saves the launch and its readiness dwell, and it pays the rest of the restart. Read those rows
+against the invalidation ladder. A test-only edit pays the 11 s row. An Air product edit pays about 61 s,
 including its host build. Only a platform, framework or `uiDaemon` edit pays the restart.
 `ide remount` in the timing line is a label rather than a duration, so one run cannot price the IDE
 action.
@@ -646,7 +664,7 @@ passed 12 of 12. The lane flake rate is 0, with a two-sided 95 % Wilson interval
 Quote the interval rather than the zero. The loaded complement is
 [ADR 0110](decisions/0110-the-truncation-chain-is-a-daemon-kill-under-load.md).
 
-A failing scenario spends its driver timeouts before it reports, so **read a slow lane as a red
+A failing scenario spends its operation timeouts before it reports, so **read a slow lane as a red
 lane** until the per-class numbers say otherwise. A warm full-lane iteration is about 196 s.
 
 ## Artifacts and diagnostics
@@ -656,23 +674,26 @@ Normal execution requires neither Peekaboo nor guest Screen Recording or Accessi
 | what | where in the guest |
 | --- | --- |
 | JUnit XML, per iteration. A wedged exit flushes partial XML | `$AIR_VM_DATA/daemon/iterations/<iterationId>/test.xml` |
-| `idea.log`, screenshots, `ui-hierarchy/`, `acp/`, per IDE launch | `$AIR_VM_DATA/out/ide-tests/tests/IU-LOCAL/air/<launch>/log/` |
-| the same launch, as a CI publisher would collect it. **Reclaimable, so never pull from here** | `$AIR_VM_DATA/out/ide-tests/tests/teamcity-artifacts-for-publish/air/` |
+| `idea.log`, the heartbeat screenshots and the other IDE logs, per IDE launch | `$AIR_VM_DATA/ide/<launchKey>/log/<launchName>/` |
+| the thread dump of an IDE that the watchdog or a stop killed | `threadDump-before-kill-<millis>.txt` in that same directory |
+| the standard output and error of one IDE launch, and its supervisor log | `$AIR_VM_DATA/ide/<launchKey>/run-ide-<launchName>/` |
 
-Three properties of those paths are worth stating. Each IDE launch writes its own timestamped
-directory, so iterations never overwrite each other, and `TEST_UNDECLARED_OUTPUTS_DIR` stays empty
-for that reason. A recycle gets its own `recycle-N` directory, so list the suite's directory rather
-than assuming the path. An iteration id includes the daemon boot identity, and each result directory
-is reserved with an atomic create. So a restarted daemon cannot make stale XML authoritative.
+Three properties of those paths are worth stating. Each IDE launch writes its own log directory, so
+iterations never overwrite each other, and `TEST_UNDECLARED_OUTPUTS_DIR` stays empty for that reason.
+The first launch of a context is `start-<stamp>`, and a relaunch is `recycle-N`, so list the `log`
+directory rather than assuming the path. The guest agent keeps the newest five log directories of each
+context, and always the one of a live IDE. An iteration id includes the daemon boot identity, and each
+result directory is reserved with an atomic create. So a restarted daemon cannot make stale XML
+authoritative.
 
 `ls` aims `pull`, and both work throughout the daemon's lifetime, because neither wants the
 supervisor's run slot. Both take the worker's operation lock, which `run` holds for the whole lane,
 so both fail `lease_busy` (exit 75) during an iteration. The fix is to wait, not to stop the daemon
 that makes the next iteration fast.
 
-The driver's in-process Robot screenshots and the Remote Driver UI hierarchies are the evidence of
-record on Linux and Parallels. On a Tart macOS worker only the hierarchies are, and ADR 0113 says
-why.
+The trace bundles and the heartbeat screenshots of the IDE log directory are the evidence of record
+on Linux and Parallels. On a Tart macOS worker a Robot screenshot is black, and ADR 0113 says why. Read
+the Swing tree of the trace there instead.
 
 A macOS worker has two VNC servers with two different auth models. Both are a diagnostic channel and
 never test control. The skill's `references/macos-pool.md` says which to open and how.
@@ -824,7 +845,8 @@ every guest-side verb:
 
 | verbs | concern |
 | --- | --- |
-| `start`, `status`, `active`, `log`, `cancel` | the run supervisor |
+| `start`, `status`, `active`, `log`, `cancel` | the run supervisor, for the daemon and for each lane IDE. `cancel --thread-dump <jcmd>` writes a thread dump of the process before the signal |
+| `ide-prepare`, `ide-gc` | the lane IDE: the preparation of one context and its argument file, and the stop of the IDE runs that a worker must not keep, with the removal of old log directories |
 | `stage`, `stage-check`, `launch-prep`, `gc` | the runtime stager, the probe that answers whether a generation is already staged, and one daemon launch's preparation |
 | `contract` | what the agent declares about itself, its own digest included. An install that would push a binary the guest already has is skipped |
 | `validate-guest` | the Linux boot |
@@ -851,8 +873,8 @@ is how a run slot or a staged generation stops matching what the host believes.
   it.
 - **No GUI automation on Tart.** Worker start enforces fail-closed, grant-free TCC admission. Peekaboo
   needs Accessibility and Screen Recording grants baked into the golden image, which would fail that
-  admission by construction. Robot screenshots and Remote Driver UI hierarchies are Tart's test
-  artifacts. The host-side VNC framebuffer is diagnostics only.
+  admission by construction. The trace bundles are Tart's test artifacts. The host-side VNC
+  framebuffer is diagnostics only.
 - **No registry publish.** The reference in `community/tools/vm/provision/versions.env` is inert metadata. A denylist
   audit is not proof against an unknown path, so a publication needs a separate explicit review of
   the complete installed-file inventory.

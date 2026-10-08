@@ -68,7 +68,7 @@
     },
     {
       "name": "ui",
-      "description": "deterministic UI-flow scenarios (launches a real IDE via IDE Starter)",
+      "description": "deterministic UI-flow scenarios (launches a real IDE through the guest agent)",
       "target": "//plugins/air/tests/integration/ui/...",
       "extra": [
         "--build_tests_only",

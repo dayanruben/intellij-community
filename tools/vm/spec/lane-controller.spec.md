@@ -15,6 +15,12 @@ targets:
   - ../crates/avl-guest/src/linux/validate.rs
   - ../crates/avl-guest/src/relay.rs
   - ../crates/avl-guest/src/read_file.rs
+  - ../crates/avl-guest/src/ide.rs
+  - ../crates/avl-guest/src/ide/prepare.rs
+  - ../crates/avl-guest/src/ide/gc.rs
+  - ../crates/avl-guest/src/ide/reap.rs
+  - ../crates/avl-guest/src/supervisor/thread_dump.rs
+  - ../crates/avl-wire/src/ide.rs
   - ../crates/avl-wire/src/supervisor.rs
   - ../crates/avl-wire/src/verb.rs
   - ../crates/avl-wire/src/pull.rs
@@ -83,6 +89,7 @@ targets:
   - ../crates/avl-host-sys/src/guest/storage.rs
   - ../crates/avl-vm/src/lane/lanes.rs
   - ../crates/avl-vm/src/lane/env.rs
+  - ../crates/avl-vm/src/lane/ide.rs
   - ../crates/avl-vm/src/lane/bazel.rs
   - ../crates/avl-vm/src/lane/affected.rs
   - ../crates/avl-vm/src/lane/affected/tests.rs
@@ -307,6 +314,10 @@ The rest of the scenario matrix is in
 - The daemon environment is part of the launch identity. A changed value restarts the daemon.
   [@test] ../crates/avl-vm/src/daemon/build/tests.rs
 
+- The controller tells the daemon how to launch the lane IDE. It names the installed guest agent, the directory of
+  the IDE contexts, and the home of the staged JVM. The IDE runs on that JVM too.
+  [@test] ../crates/avl-vm/src/daemon/start/tests.rs
+
 - A run that rules out each of its classes is not a run that matched no class. The controller gives the
   reason of each class, and does not tell the person to look at the selector.
   [@test] ../crates/avl-vm/src/daemon/command/tests.rs
@@ -423,6 +434,14 @@ The daemon's half and the IDE's half of supervision are in
   its reason, in every output form.
   [@test] ../crates/avl-wire/src/progress/tests.rs
   [@test] ../crates/avl-vm/src/console/state/tests.rs
+
+- The run journal holds the life of the lane IDE. An `ideLaunched` record names the pid, the launch name, the
+  launch key and the log directory. An `ideExited` record names the pid, the exit code and the signal.
+  [@test] ../crates/avl-wire/src/daemon/tests.rs
+
+- The watchdog evidence may name a file of an IDE context. Examples are a heartbeat screenshot and the thread
+  dump before a kill.
+  [@test] ../crates/avl-wire/src/report/tests.rs
 
 - On the daemon control channel, a field that is absent is absent, and is not null. The controller tells
   the two apart. The controller refuses an explicit null on that channel.
@@ -611,6 +630,34 @@ The daemon's half and the IDE's half of supervision are in
   name against the spelling the installed agents already send.
   [@test] ../crates/avl-wire/src/verb/tests.rs
 
+- The guest agent reads the launch document of the lane IDE on standard input. A refusal names a field or a key,
+  and never a value. A property value can be the bridge token.
+  [@test] ../crates/avl-wire/src/ide/tests.rs
+  [@test] ../crates/avl-guest/src/ide/prepare/tests.rs
+
+- The agent writes the bridge token only into the argument file of the IDE, which has mode 0600. The launch record
+  of the context holds no property value.
+  [@test] ../crates/avl-guest/src/ide/prepare/tests.rs
+
+- The agent owns the data directories of the IDE. A launch document or a flags file that sets one of their paths
+  is refused.
+  [@test] ../crates/avl-wire/src/ide/tests.rs
+  [@test] ../crates/avl-guest/src/ide/prepare/tests.rs
+
+- A preparation on a Linux guest without `DISPLAY` refuses `ide_display_missing`. A preparation for a context
+  whose IDE runs refuses `ide_running`.
+  [@test] ../crates/avl-guest/src/ide/prepare/tests.rs
+
+- A preparation kills the JCEF helpers that name its context, and no other process.
+  [@test] ../crates/avl-guest/src/ide/reap/tests.rs
+
+- `cancel --thread-dump` writes a thread dump of the process before the signal. The dump of an IDE run goes into
+  the log directory of its launch. A failed dump keeps its file.
+  [@test] ../crates/avl-guest/src/supervisor/thread_dump/tests.rs
+
+- `ide-gc` keeps the newest log directories of each context. It always keeps the log directory of a live IDE.
+  [@test] ../crates/avl-guest/src/ide/gc/tests.rs
+
 - The supervisor gives the schema version in each reply. The controller refuses a reply that has a version
   it does not know.
   [@test] ../crates/avl-host-sys/src/guest/supervisor/tests.rs
@@ -664,6 +711,30 @@ The daemon's half and the IDE's half of supervision are in
   run process.
   [@test] ../crates/avl-vm/src/worker/lease/tests.rs
   [@test] ../crates/avl-vm/src/worker/worker/tests.rs
+
+- A lane IDE is a supervisor run in the slot of its own context. A cancel of the daemon run does not stop it.
+  [@test] ../crates/avl-guest/src/ide/prepare/tests.rs
+
+- A daemon restart for a change of the stable tier keeps each live lane IDE of the same product. The decision and
+  the timing line say `keep`.
+  [@test] ../crates/avl-vm/src/daemon/iterate/tests.rs
+  [@test] ../crates/avl-guest/src/ide/gc/tests.rs
+
+- Every other daemon start stops every lane IDE of the worker. A restart that remounts a VirtioFS share also stops
+  them, because each IDE runs from the share.
+  [@test] ../crates/avl-vm/src/daemon/start/tests.rs
+
+- `daemon stop` and a lease release stop every lane IDE of the worker. The next holder gets no IDE of the previous
+  runs. A pool recycle stops them too, before it unmakes the worker.
+  [@test] ../crates/avl-vm/src/daemon/command/tests.rs
+  [@test] ../crates/avl-vm/src/worker/lease/tests.rs
+
+- A daemon start whose stop of the lane IDEs fails refuses. It remounts nothing and stages nothing.
+  [@test] ../crates/avl-vm/src/daemon/start/tests.rs
+
+- A remount fails closed while a lane IDE runs. After the quiesce, a run that is not finished refuses
+  `daemon_mount_quiesce_failed`.
+  [@test] ../crates/avl-vm/src/daemon/iterate/tests.rs
 
 - A run without a receipt gives its lease back when its daemon start fails the health poll.
   [@test] ../crates/avl-vm/src/daemon/command/tests.rs
@@ -722,5 +793,6 @@ The [controller to-do list](../docs/ui-lane-controller-todo.md) holds the open w
 - [ADR 0059](../docs/decisions/0059-the-ui-lane-tooling-is-rust.md)
 - [ADR 0106](../docs/decisions/0106-a-warm-daemon-survives-a-lease-release.md)
 - [ADR 0182](../docs/decisions/0182-the-daemon-is-reached-through-the-exec-channel.md)
+- [ADR 0220](../../../../plugins/air/docs/decisions/0220-the-guest-agent-launches-the-lane-ide.md)
 - [Flow UI Scenarios](../../../../plugins/air/spec/docs/flow-ui-scenarios.spec.md)
 - [Scenario Traces](scenario-trace.spec.md)

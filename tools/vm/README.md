@@ -81,15 +81,17 @@ controller holds the modules `bench`, `console`, `daemon`, `lane` and `worker`, 
 The crates form a DAG with the contracts at the bottom. `avl-wire`,
 `avl-trace` and `avl-testkit` depend on no sibling, and `avl-trace-tools` stands on `avl-trace` alone. `avl-record`
 links `avl-trace` and no other sibling, so the recorder links no packer, no discovery and no URL code. `avl-base`
-stands on `avl-wire`, and on `avl-trace-tools` for the viewer links its renderer prints. `avl-guest` depends on
-`avl-wire` and `avl-trace-tools` alone and never on `avl-base`, so the agent links no controller code. `bt-junit`
-of BT's workspace, the JUnit XML reader, is linked by the three crates that read a `test.xml`: `avl-report`,
+stands on `avl-wire`, and on `avl-trace-tools` for the viewer links its renderer prints. Of the siblings, `avl-guest`
+depends on `avl-wire` and `avl-trace-tools` alone and never on `avl-base`, so the agent links no controller code.
+`bt-junit` of BT's workspace, the JUnit XML reader, is linked by the three crates that read a `test.xml`: `avl-report`,
 `avl-vm` and `air-trace`. The agent links no crate of BT. `bt-core` is linked by `avl-affected` and by the
 two crates that resolve a lane or a selector, `avl-vm` and `air-trace`.
 `avl-host-sys`, `avl-trace-tools`, `air-trace` and `avl-vm` link `fscopy` of the dev-dist tools for the
 real path. `refusal` of BT's workspace holds the refusal type, and `avl-base`, `avl-affected`, `air-trace` and
-`avl-guest` link it. `avl-affected` also links `distpath` of the dev-dist tools for the slash paths of BT.
-`avl.bzl` maps each of these five crates to its label in the community module
+`avl-guest` link it. `avl-affected` also links `distpath` of the dev-dist tools for the slash paths of BT. `avl-guest`
+links `dev-launch` of the dev-dist tools, which composes the argument file of the lane IDE. Through it the agent links
+`java-properties` and a regex engine.
+`avl.bzl` maps each of these six crates to its label in the community module
 (`_CROSS_MODULE_CRATES`), so Bazel builds it once. That build links the community module's `serde` and `regex`, so a value crosses as JSON text, and
 `avl-affected` compiles its patterns with its own `regex!`. `avl-host-testkit` is only ever a
 dev-dependency, and nothing depends on `avl-vm`.
@@ -129,15 +131,15 @@ and copy `<bin>_closure.txt` from `out/bazel-bin` over `closure.txt`.
 
 | concern | crate | owns |
 | --- | --- | --- |
-| contracts | `avl-wire` | the documents that cross a boundary: the run supervisor and every guest verb's name, staging and the generation layout, the Bazel runtime descriptor and the daemon's JVM @-file, the daemon control channel, progress records and the run journal, the agent-facing report, the runfiles MANIFEST reader, the host-to-guest path table `PathMap`, and the receipt of a raw pull. Each is declared once for both ends |
+| contracts | `avl-wire` | the documents that cross a boundary: the run supervisor and every guest verb's name, staging and the generation layout, the Bazel runtime descriptor and the daemon's JVM @-file, the daemon control channel, the documents of the lane IDE (the launch document of `ide-prepare`, its answer, the launch record and the answer of `ide-gc`), progress records and the run journal, the agent-facing report, the runfiles MANIFEST reader, the host-to-guest path table `PathMap`, and the receipt of a raw pull. Each is declared once for both ends |
 | | `avl-trace` | the scenario traces that the recorder writes: the lane protocol, OTLP, the bundle with its manifest encoder and decoder and its file names, and the bridge's trace routes. The golden transcript and bundles are its `testdata`, a public filegroup the Kotlin contract tests read. The transcript of the routes of `air-trace serve` is there too, and the docs site's test reads it |
 | | `avl-trace-tools` | the tools over the traces, which the recorder does not run: the deterministic zips with the media stored (`air-trace pack` and the guest's `trace-pack-ready`), the discovery of bundles in directories and zips, and the viewer URLs with the default port of `air-trace serve` |
 | base | `avl-base` | the exit vocabulary `Exit` and the controller's refusal, `refusal::Refusal<Exit>` with the constructors of `RefusalExt`, the `{ok,…}` envelope, the `AIR_VM_*` settings and their per-guest defaults (`src/config.rs`), phase timing, ids, the journal and history, atomic file publication. The image pins are read from `community/tools/vm/provision/versions.env` at compile time |
-| guest | `avl-guest` | the guest half and the agent binary: the run supervisor, the runtime stager, the Linux boot and macOS image verbs, `trace-pack-ready`, the `relay` verb that bridges its stdin and stdout to a loopback port inside the guest, the `runfiles-tree` verb that builds a runfiles tree from the MANIFEST of a Windows host, and the `read-file` verb that writes one file on stdout unchanged for a pull |
+| guest | `avl-guest` | the guest half and the agent binary: the run supervisor, the runtime stager, the Linux boot and macOS image verbs, the lane IDE contexts (`ide-prepare` writes the context directories, the argument file and the launch record of one IDE, `ide-gc` stops IDE runs and removes old logs, and `cancel --thread-dump` writes a thread dump before the kill), `trace-pack-ready`, the `relay` verb that bridges its stdin and stdout to a loopback port inside the guest, the `runfiles-tree` verb that builds a runfiles tree from the MANIFEST of a Windows host, and the `read-file` verb that writes one file on stdout unchanged for a pull |
 | host system | `avl-host-sys` | subprocesses, each with its timeout, and the byte stream of an exec channel child, the one wait loop with its budget and backoff (`Poll`), the batched lookup of the pinned files (`external_files`), the process-wide interrupt service and the operation context, locks and host-process identity, private files, the one mapping of host paths to guest paths (`GuestPaths`), the choice of a runfiles tree or a MANIFEST (`HostRunfiles`); what a guest must be to run host-built outputs (the read-only share set and its mount, the parity layout, TCC admission, the agent install, the run supervisor, the Linux guest's packages); the detached trace viewer: its probe and the one start of a detached server, which `air-trace serve --detach` and the controller share (`viewer`) |
 | workers | `avl-vm` (`worker`) | the three backends, Tart, Parallels and Docker, of which a Windows host has Docker only (the binaries, the share grammars, the sealed golden, worker provenance, the Docker image and its containers), the Lima engine VM of a Docker pool on a macOS host, one dispatch for each lifecycle operation, the one resolver of the pinned tools (`PinnedTools`), readiness gates and the `pool` commands, lease ownership, receipts and the `lease` commands |
 | reports | `avl-report` | the content digests that decide whether a staged generation is reused, report assembly, the shard merge ladder and the flake arithmetic |
-| lanes | `avl-vm` (`lane`) | lane and selector resolution for the controller, the `suites` command, the host Bazel build, the guest launch environment, and `exec`, `peekaboo`, `pull`, `ls`, `vnc`, `status` |
+| lanes | `avl-vm` (`lane`) | lane and selector resolution for the controller, the `suites` command, the host Bazel build, the guest launch environment, the lane IDEs that the controller stops or keeps and the check that no IDE runs from the shares (`ide`), and `exec`, `peekaboo`, `pull`, `ls`, `vnc`, `status` |
 | runs | `avl-vm` (`daemon`) | `run`, `shard`, `flake` and `daemon`: the HTTP client that reaches the guest daemon through the relay, staging, the hot-jar push, iterations, the verdict, the pull of each iteration's traces beside its report, the shard split and the flake trial chains, and the leased-run driver the three share: build first, lease, one body per worker, release, and the interrupt policy |
 | bench | `avl-vm` (`bench`) | `vm bench`, the start-up measurement of the IDE on this host: the generation of a dev distribution, the Starter-shaped IDE launch and its supervision, the session, the readers of the files the IDE writes (the start-up report, the trace, the FUS log, the class log, the CPU profile), the gate, the summary and the digest |
 | | `avl-vm` | the `vm` binary: the clap command tree, which renders the help, the global arguments and the dispatch, the output form and renderer the descriptors allow, the live terminal dashboard of `run`, `shard` and `flake` (`console`), `image validate\|build`, and the viewer a prose run starts (`ensure_viewer`, through `avl_host_sys::viewer`) |
@@ -248,8 +250,8 @@ The extension watches only the workspace `Cargo.toml` and `Cargo.lock`. A depend
 `[dev-dependencies]` and `[dependencies]` of a member leaves `Cargo.lock` unchanged. Then touch the workspace
 `Cargo.toml`, for example with a comment line, and run the command again.
 
-A member names a crate of another workspace by path: `bt-core`, `bt-junit` and `refusal` of BT, and `distpath` and
-`fscopy` of the dev-dist tools. rules_rs finds such a path only from a direct dependency of a member, so each member
+A member names a crate of another workspace by path: `bt-core`, `bt-junit` and `refusal` of BT, and `dev-launch`,
+`distpath` and `fscopy` of the dev-dist tools. rules_rs finds such a path only from a direct dependency of a member, so each member
 that uses the crate names it. rules_rs also reads the `Cargo.toml` of the crate without its own workspace. So that
 crate spells its `[package]` values inline, with no `.workspace = true`. A fetch of its repository proves it:
 
