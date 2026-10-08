@@ -38,6 +38,7 @@ class ProjectGeneratorManager {
       val pluginId = pluginDescriptor.pluginId
       if (!isCorePlugin(pluginDescriptor)
           && pluginId.idString != "com.jetbrains.pycharm.pro.customization"
+          && pluginId.idString != "com.intellij.idea.customization"
       ) {
         LOG.error("Only bundled plugin can define ${extensionPoint.name}: ${pluginDescriptor}")
         continue

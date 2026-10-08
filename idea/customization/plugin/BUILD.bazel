@@ -3,7 +3,14 @@ load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 ### auto-generated section `dev intellij.idea.customization.plugin` start
 dev_dist_plugin(
-    content_modules = ["intellij.idea.customization.backend"],
+    content_modules = [
+        # do not sort,
+        "intellij.idea.customization.base",
+        "intellij.idea.customization.backend",
+        "intellij.platform.ide.nonModalWelcomeScreen",
+        "intellij.platform.ide.nonModalWelcomeScreen.frontend",
+        "intellij.platform.ide.nonModalWelcomeScreen.backend",
+    ],
     main_module = "intellij.idea.customization.plugin",
 )
 ### auto-generated section `dev intellij.idea.customization.plugin` end
@@ -21,6 +28,7 @@ jvm_library(
         ["resources/**/*"],
     ),
     visibility = ["//visibility:public"],
+    runtime_deps = ["//idea/customization/base"],
 )
 
 jvm_library(
@@ -32,7 +40,11 @@ jvm_library(
     ),
     module_name = "intellij.idea.customization.plugin",
     visibility = ["//visibility:public"],
-    runtime_deps = [":plugin"],
+    runtime_deps = [
+        # do not sort,
+        ":plugin",
+        "//idea/customization/base:base_test_lib",
+    ],
 )
 ### auto-generated section `build intellij.idea.customization.plugin` end
 

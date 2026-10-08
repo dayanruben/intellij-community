@@ -12,7 +12,7 @@ internal object WelcomeScreenSingleFileOpeningCollector : CounterUsagesCollector
     PROJECT,
   }
 
-  private val GROUP = EventLogGroup("welcome.screen.single.file.opening", 2)
+  private val GROUP = EventLogGroup("welcome.screen.single.file.opening", 3)
 
   private val fieldOpeningStrategy: EnumEventField<OpeningStrategy> = EventFields.Enum("opening_strategy", OpeningStrategy::class.java)
 

@@ -63,6 +63,7 @@
     <orderEntry type="module" module-name="intellij.xml.impl" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.ide.startup.importSettings" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.idea.community.customization" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.idea.customization.plugin" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.java.plugin" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.copyright" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.platform.testFramework" scope="RUNTIME" />
