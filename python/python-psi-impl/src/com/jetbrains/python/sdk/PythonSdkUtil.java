@@ -1,6 +1,7 @@
 package com.jetbrains.python.sdk;
 
 import com.intellij.openapi.module.Module;
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -10,6 +11,7 @@ import com.intellij.python.sdk.backend.PythonEnvironmentExtKt;
 import com.intellij.python.sdk.backend.PythonInterpreter;
 import com.intellij.python.sdk.backend.PythonInterpreterKt;
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread;
+import com.jetbrains.python.project.PyProject;
 import com.jetbrains.python.sdk.skeleton.PySkeletonUtil;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
@@ -21,8 +23,9 @@ import java.util.List;
 /**
  * Old API only for external usages, non-deprecated yet because there is no alternative API.
  */
-@SuppressWarnings("unused")
 public final class PythonSdkUtil {
+  private PythonSdkUtil() {
+  }
 
   /** The `id` the venv provider declares in `intellij.python.venv.xml`. */
   private static final String VENV_KIND_ID = "venv";
@@ -33,8 +36,22 @@ public final class PythonSdkUtil {
     return com.jetbrains.python.sdk.legacy.PythonSdkUtil.isPythonSdk(sdk);
   }
 
+  /**
+   * @deprecated Use {@link #getAllSdks(Project)} or {@link #getAllSdks(PyProject)}
+   */
+  @Deprecated(forRemoval = true)
   public static @Unmodifiable @NotNull List<@NotNull Sdk> getAllSdks() {
     return com.jetbrains.python.sdk.legacy.PythonSdkUtil.getAllSdks();
+  }
+
+  @ApiStatus.Experimental
+  public static @Unmodifiable @NotNull List<@NotNull Sdk> getAllSdks(@NotNull Project project) {
+    return com.jetbrains.python.sdk.legacy.PythonSdkUtil.getAllSdks(project);
+  }
+
+  @ApiStatus.Experimental
+  public static @Unmodifiable @NotNull List<@NotNull Sdk> getAllSdks(@NotNull PyProject pyProject) {
+    return com.jetbrains.python.sdk.legacy.PythonSdkUtil.getAllSdks(pyProject);
   }
 
   public static @Nullable Sdk findPythonSdk(@Nullable Module module) {
@@ -45,6 +62,8 @@ public final class PythonSdkUtil {
     return com.jetbrains.python.sdk.legacy.PythonSdkUtil.isRemote(sdk);
   }
 
+
+  @SuppressWarnings("unused") // Used by ext. plugin
   public static @NlsSafe String getUserSite() {
     return com.jetbrains.python.sdk.legacy.PythonSdkUtil.getUserSite();
   }
@@ -59,15 +78,11 @@ public final class PythonSdkUtil {
 
   // It is only here for external plugins
   @RequiresBackgroundThread(generateAssertion = false)
+  @SuppressWarnings("unused") // Used by ext. plugin
   public static @Nullable String getPythonExecutable(@NotNull String rootPath) {
     return com.jetbrains.python.sdk.legacy.PythonSdkUtil.getPythonExecutable(rootPath);
   }
 
-
-  @ApiStatus.Internal
-  public static @Nullable Sdk findSdkByKey(@NotNull String key) {
-    return com.jetbrains.python.sdk.legacy.PythonSdkUtil.findSdkByKey(key);
-  }
 
   @ApiStatus.Internal
   public static @Nullable Sdk findPythonSdk(final @NotNull PsiElement element) {
@@ -84,6 +99,7 @@ public final class PythonSdkUtil {
    * Also, on some systems, first of all in system distributions of Python on Linux, there might be no
    * "site-packages" at all, and this method returns {@code null} accordingly in this case.
    */
+  @SuppressWarnings("unused") // Used by ext. plugin
   public static @Nullable VirtualFile getSitePackagesDirectory(@NotNull Sdk pythonSdk) {
     return PySkeletonUtil.getSitePackagesDirectory(pythonSdk);
   }

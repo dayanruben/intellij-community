@@ -28,13 +28,14 @@ object ProductModeCapabilities {
    * `true` for it, but it is not a frontend process.
    */
   internal val ProductMode.providesFrontendModule: Boolean
-    get() = this == ProductMode.MONOLITH || this == ProductMode.FRONTEND ||
-            this == ProductMode.LIGHT || this == ProductMode.LIGHT_WITH_RD_CONNECTION // TODO: Subject to change when product mode for monolith light is ready
+    get() = this == ProductMode.MONOLITH || this == ProductMode.FRONTEND || isLight
 
-  /** `true` when the mode needs the remote development plugin. A monolith and a language server run without it. */
+  /**
+   * `true` when the mode needs the remote development plugin.
+   * A monolith, a standalone light process and a language server run without it.
+   */
   internal val ProductMode.requiresRemoteDevPlugin: Boolean
-    get() = this == ProductMode.FRONTEND || this == ProductMode.BACKEND ||
-            this == ProductMode.LIGHT || this == ProductMode.LIGHT_WITH_RD_CONNECTION // TODO: Subject to change when product mode for monolith light is ready
+    get() = isFrontendProcess || this == ProductMode.BACKEND
 
   @ApiStatus.Internal
   @VisibleForTesting
@@ -63,11 +64,16 @@ object ProductModeCapabilities {
     setModuleAvailability(FRONTEND_MODULE_ID, productMode.providesFrontendModule)
     setModuleAvailability(BACKEND_MODULE_ID, productMode.providesBackendModule)
 
+    // temporary marker, see community/platform/backend/baseline/README.md
+    val backendBaseline = PluginModuleId("intellij.platform.backend.baseline", PluginModuleId.JETBRAINS_NAMESPACE)
+    setModuleAvailability(backendBaseline, productMode.providesBackendModule || productMode == ProductMode.LIGHT_MONOLITH)
+
     val platformSplit = PluginModuleId("intellij.platform.split", PluginModuleId.JETBRAINS_NAMESPACE)
     val backendSplit = PluginModuleId("intellij.platform.backend.split", PluginModuleId.JETBRAINS_NAMESPACE)
     setModuleAvailability(backendSplit, productMode == ProductMode.BACKEND)
 
-    val frontendSplitBase = PluginModuleId("intellij.platform.frontend.split.base", PluginModuleId.JETBRAINS_NAMESPACE)
+    val frontendSplitBase = PluginModuleId("intellij.platform.frontend.split.baseline", PluginModuleId.JETBRAINS_NAMESPACE)
+    setModuleAvailability(frontendSplitBase, productMode.isFrontendProcess)
     val frontendSplit = PluginModuleId("intellij.platform.frontend.split", PluginModuleId.JETBRAINS_NAMESPACE)
     when {
       productMode.isLight -> {
@@ -76,8 +82,6 @@ object ProductModeCapabilities {
         val platformSplitConnection = PluginModuleId("intellij.platform.split.connection", PluginModuleId.JETBRAINS_NAMESPACE)
         val rdClient = PluginModuleId("intellij.rd.client", PluginModuleId.JETBRAINS_NAMESPACE)
         val cwmPluginCommon = PluginModuleId("intellij.cwm.plugin.common", PluginModuleId.JETBRAINS_NAMESPACE)
-
-        setModuleAvailability(frontendSplitBase, true)
 
         for (moduleId in listOf(frontendSplit, platformSplit, rpc, rdClient, cwmPluginCommon)) {
           setModuleAvailability(moduleId, false)
@@ -91,7 +95,6 @@ object ProductModeCapabilities {
       }
       else -> {
         setModuleAvailability(platformSplit, productMode == ProductMode.FRONTEND || productMode == ProductMode.BACKEND)
-        setModuleAvailability(frontendSplitBase, productMode == ProductMode.FRONTEND)
         setModuleAvailability(frontendSplit, productMode == ProductMode.FRONTEND)
       }
     }

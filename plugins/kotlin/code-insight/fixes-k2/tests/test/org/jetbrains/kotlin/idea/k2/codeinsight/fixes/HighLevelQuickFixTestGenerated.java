@@ -9463,6 +9463,11 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
             runTest("../../../idea/tests/testData/quickfix/expressions/uselessElvisInNestedParens.kt");
         }
 
+        @TestMetadata("uselessElvisLeftIsNull.kt")
+        public void testUselessElvisLeftIsNull() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/expressions/uselessElvisLeftIsNull.kt");
+        }
+
         @TestMetadata("uselessElvisRightIsNull.kt")
         public void testUselessElvisRightIsNull() throws Exception {
             runTest("../../../idea/tests/testData/quickfix/expressions/uselessElvisRightIsNull.kt");
@@ -11803,6 +11808,11 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
                 runTest("../../../idea/tests/testData/quickfix/nullables/removeCallableReferenceStaticLhsNullableType.kt");
             }
 
+            @TestMetadata("removeCallableReferenceStaticLhsNullableTypeArgument.kt")
+            public void testRemoveCallableReferenceStaticLhsNullableTypeArgument() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/nullables/removeCallableReferenceStaticLhsNullableTypeArgument.kt");
+            }
+
             @TestMetadata("removeCallableReferenceStaticLhsNullableWithComment.kt")
             public void testRemoveCallableReferenceStaticLhsNullableWithComment() throws Exception {
                 runTest("../../../idea/tests/testData/quickfix/nullables/removeCallableReferenceStaticLhsNullableWithComment.kt");
@@ -11811,6 +11821,11 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
             @TestMetadata("removeCallableReferenceStaticLhsNullableWithSpace.kt")
             public void testRemoveCallableReferenceStaticLhsNullableWithSpace() throws Exception {
                 runTest("../../../idea/tests/testData/quickfix/nullables/removeCallableReferenceStaticLhsNullableWithSpace.kt");
+            }
+
+            @TestMetadata("removeCallableReferenceUnsafeNullable.kt")
+            public void testRemoveCallableReferenceUnsafeNullable() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/nullables/removeCallableReferenceUnsafeNullable.kt");
             }
 
             @TestMetadata("removeCompanionExtensionNullableReceiver.kt")

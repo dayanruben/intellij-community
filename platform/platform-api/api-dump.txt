@@ -2054,7 +2054,6 @@ a:com.intellij.openapi.diagnostic.ErrorReportSubmitter
 - a:getReportActionText():java.lang.String
 - getReporterAccount():java.lang.String
 - setPluginDescriptor(com.intellij.openapi.extensions.PluginDescriptor):V
-- submit(com.intellij.openapi.diagnostic.IdeaLoggingEvent[],java.awt.Component):com.intellij.openapi.diagnostic.SubmittedReportInfo
 - submit(com.intellij.openapi.diagnostic.IdeaLoggingEvent[],java.lang.String,java.awt.Component,com.intellij.util.Consumer):Z
 c:com.intellij.openapi.diagnostic.IdeaLoggingEvent
 - <init>(java.lang.String,java.lang.Throwable):V
@@ -5487,16 +5486,12 @@ com.intellij.platform.ide.productMode.IdeProductMode
 - s:getInstance():com.intellij.platform.ide.productMode.IdeProductMode
 - s:isBackend():Z
 - s:isFrontend():Z
-- s:isLight():Z
 - s:isMonolith():Z
-- s:isUnifiedIde():Z
 f:com.intellij.platform.ide.productMode.IdeProductMode$Companion
 - f:getInstance():com.intellij.platform.ide.productMode.IdeProductMode
 - f:isBackend():Z
 - f:isFrontend():Z
-- f:isLight():Z
 - f:isMonolith():Z
-- f:isUnifiedIde():Z
 a:com.intellij.pom.NavigatableAdapter
 - com.intellij.pom.Navigatable
 - <init>():V

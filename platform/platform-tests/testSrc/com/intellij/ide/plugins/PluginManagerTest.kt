@@ -161,39 +161,58 @@ class PluginManagerTest {
     val modes = listOf(
       ProductMode.MONOLITH to listOf(
         "+ intellij.platform.backend",
+        "+ intellij.platform.backend.baseline",
         "- intellij.platform.backend.split",
         "+ intellij.platform.frontend",
         "- intellij.platform.frontend.split",
-        "- intellij.platform.frontend.split.base",
+        "- intellij.platform.frontend.split.baseline",
         "+ intellij.platform.jps.build.dependencyGraph",
         "- intellij.platform.split",
       ),
       ProductMode.BACKEND to listOf(
         "+ intellij.platform.backend",
+        "+ intellij.platform.backend.baseline",
         "+ intellij.platform.backend.split",
         "- intellij.platform.frontend",
         "- intellij.platform.frontend.split",
-        "- intellij.platform.frontend.split.base",
+        "- intellij.platform.frontend.split.baseline",
         "+ intellij.platform.jps.build.dependencyGraph",
         "+ intellij.platform.split",
       ),
       ProductMode.FRONTEND to listOf(
         "- intellij.platform.backend",
+        "- intellij.platform.backend.baseline",
         "- intellij.platform.backend.split",
         "+ intellij.platform.frontend",
         "+ intellij.platform.frontend.split",
-        "+ intellij.platform.frontend.split.base",
+        "+ intellij.platform.frontend.split.baseline",
         "- intellij.platform.jps.build.dependencyGraph",
         "+ intellij.platform.split",
       ),
-      ProductMode.LIGHT to listOf(
+      ProductMode.LIGHT_REMOTE to listOf(
         "- intellij.cwm.plugin.common",
         "- intellij.platform.backend",
+        "- intellij.platform.backend.baseline",
         "- intellij.platform.backend.split",
         "- intellij.platform.debugger",
         "+ intellij.platform.frontend",
         "- intellij.platform.frontend.split",
-        "+ intellij.platform.frontend.split.base",
+        "+ intellij.platform.frontend.split.baseline",
+        "- intellij.platform.jps.build.dependencyGraph",
+        "- intellij.platform.rpc",
+        "- intellij.platform.split",
+        "- intellij.platform.split.connection",
+        "- intellij.rd.client",
+      ),
+      ProductMode.LIGHT_MONOLITH to listOf(
+        "- intellij.cwm.plugin.common",
+        "- intellij.platform.backend",
+        "+ intellij.platform.backend.baseline",
+        "- intellij.platform.backend.split",
+        "- intellij.platform.debugger",
+        "+ intellij.platform.frontend",
+        "- intellij.platform.frontend.split",
+        "- intellij.platform.frontend.split.baseline",
         "- intellij.platform.jps.build.dependencyGraph",
         "- intellij.platform.rpc",
         "- intellij.platform.split",
@@ -203,11 +222,12 @@ class PluginManagerTest {
       ProductMode.LIGHT_WITH_RD_CONNECTION to listOf(
         "- intellij.cwm.plugin.common",
         "- intellij.platform.backend",
+        "- intellij.platform.backend.baseline",
         "- intellij.platform.backend.split",
         "- intellij.platform.debugger",
         "+ intellij.platform.frontend",
         "- intellij.platform.frontend.split",
-        "+ intellij.platform.frontend.split.base",
+        "+ intellij.platform.frontend.split.baseline",
         "- intellij.platform.jps.build.dependencyGraph",
         "- intellij.platform.rpc",
         "- intellij.platform.split",
@@ -216,10 +236,11 @@ class PluginManagerTest {
       ),
       ProductMode.LANGUAGE_SERVER to listOf(
         "+ intellij.platform.backend",
+        "+ intellij.platform.backend.baseline",
         "- intellij.platform.backend.split",
         "- intellij.platform.frontend",
         "- intellij.platform.frontend.split",
-        "- intellij.platform.frontend.split.base",
+        "- intellij.platform.frontend.split.baseline",
         "- intellij.platform.split",
       ),
     )
@@ -238,7 +259,7 @@ class PluginManagerTest {
   fun `essential plugins are derived from the product mode`() {
     val remoteDev = PluginId.getId("com.jetbrains.remoteDevelopment")
     val declared = listOf(PluginId.getId("com.intellij.java"))
-    val modesWithRemoteDev = setOf(ProductMode.BACKEND, ProductMode.FRONTEND, ProductMode.LIGHT, ProductMode.LIGHT_WITH_RD_CONNECTION)
+    val modesWithRemoteDev = setOf(ProductMode.BACKEND, ProductMode.FRONTEND, ProductMode.LIGHT_REMOTE, ProductMode.LIGHT_WITH_RD_CONNECTION)
     ProductMode.entries.forEach { mode ->
       val expected = listOf(PluginManagerCore.CORE_ID, declared.single()) + listOfNotNull(remoteDev.takeIf { mode in modesWithRemoteDev })
       assertThat(computeEssentialPlugins(declared, productMode = mode))

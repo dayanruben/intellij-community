@@ -15,10 +15,11 @@ import com.intellij.python.lsp.core.typeEngine.PyTypeEngineProjectSettings
 import com.intellij.python.lsp.core.typeEngine.PyTypeEngineProvider
 import com.intellij.python.lsp.core.typeEngine.PyTypeEngineType
 import com.intellij.python.lsp.core.typeEngine.PyTypeEngineUsageCollector
-import com.intellij.python.pyrefly.PyreflyPyTool
 import com.intellij.python.pytools.backend.ProjectLevelPyTool
 import com.intellij.python.pytools.backend.setEnabledOn
 import com.intellij.python.pytools.backend.PyToolsState
+import com.intellij.python.sdk.backend.PythonInterpreter
+import com.intellij.python.sdk.backend.findPythonInterpreterIfReady
 import com.intellij.python.typeEngine.common.PyTypeEngineApi
 import com.intellij.python.typeEngine.common.PyTypeEngineEvent
 import com.intellij.python.typeEngine.common.PyTypeEngineEventRequest
@@ -56,29 +57,29 @@ private object PyTypeEngineApiImpl : PyTypeEngineApi {
       .map { readAction { state(project) } }
   }
 
+  /**
+   * Selects the engine, then turns off the tools that the request names.
+   *
+   * The selection does not turn on the tool of the selected engine.
+   */
   override suspend fun select(request: PyTypeEngineSelectionRequest): PyTypeEngineStateDto {
     val project = request.projectId.findProject()
-    val toolsState = PyToolsState.getInstance(project)
-    ProjectLevelPyTool.findByPackageName(request.selected.packageName)?.let { tool ->
-      val isBundledPyreflyEnabled = tool is PyreflyPyTool && PyreflyPyTool.isBundledPyreflyEnabled()
-      if (!isBundledPyreflyEnabled && !toolsState.isEnabled(tool)) {
-        tool.setEnabledOn(project, true)
-      }
-    }
-    request.disabledToolPackages.forEach { packageName ->
-      ProjectLevelPyTool.findByPackageName(packageName)?.let { tool ->
-        if (toolsState.isEnabled(tool)) {
-          tool.setEnabledOn(project, false)
-        }
-      }
-    }
-
     val settings = PyTypeEngineProjectSettings.getInstance(project)
     val selected = request.selected.toBackendType()
     if (settings.typeEngine != selected) {
       settings.typeEngine = selected
       PyTypeEngineUsageCollector.logEngineChanged(project, selected)
       PyTypeEngineSettingsModificationTracker.getInstance(project).incModificationCount()
+    }
+
+    // The engine goes first. Turning off the tool of the selected engine also deselects that engine.
+    val toolsState = PyToolsState.getInstance(project)
+    request.disabledToolPackages.forEach { packageName ->
+      ProjectLevelPyTool.findByPackageName(packageName)?.let { tool ->
+        if (toolsState.isEnabled(tool)) {
+          tool.setEnabledOn(project, false)
+        }
+      }
     }
     return state(project)
   }
@@ -123,7 +124,7 @@ private fun stateChanges(project: Project): Flow<Unit> = callbackFlow {
     override fun moduleSdkUpdated(module: Module, prevSdk: Sdk?, newSdk: Sdk?) = publish()
   })
   connection.subscribe(PythonPackageManager.PACKAGE_MANAGEMENT_TOPIC, object : PythonPackageManagementListener {
-    override fun packagesChanged(sdk: Sdk) = publish()
+    override fun packagesChanged(interpreter: PythonInterpreter) = publish()
   })
   publish()
   awaitClose { connection.disconnect() }
@@ -136,7 +137,11 @@ private fun state(project: Project): PyTypeEngineStateDto {
     when (type) {
       PyTypeEngineId.PYCHARM -> true
       PyTypeEngineId.TY -> TyUtil.isTyInstalled()
-      else -> sdks.any { sdk -> PythonPackageManager.forSdk(project, sdk).hasInstalledPackageSnapshot(type.packageName) }
+      else -> sdks.any { sdk ->
+        // A read action, so it does not wait. Before the first registry computation, the engine is not installed.
+        val interpreter = project.findPythonInterpreterIfReady(sdk) ?: return@any false
+        PythonPackageManager.forPythonInterpreter(project, interpreter).hasInstalledPackageSnapshot(type.packageName)
+      }
     }
   }
   return PyTypeEngineStateDto(

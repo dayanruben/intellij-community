@@ -42,6 +42,18 @@ class UnresolvedLinkLabelInspectionTest: BasePlatformTestCase() {
   }
 
   @Test
+  fun `test link label is not reported`() {
+    myFixture.addFileToProject("docs/test.kt", "")
+    listOf(
+      "[@test] docs/test.kt",
+      "A requirement uses [@test] docs/test.kt",
+      "- A requirement uses [@test] docs/test.kt",
+      "- A requirement\n  [@test] docs/test.kt",
+      "- A requirement\n  - A nested requirement\n    [@test] docs/test.kt",
+    ).forEach(::doTest)
+  }
+
+  @Test
   fun `test resolved label of collapsed reference link is not reported`() {
     doTest("""
       Here is a link to [Google][].
@@ -153,9 +165,37 @@ class UnresolvedLinkLabelInspectionTest: BasePlatformTestCase() {
     """)
   }
 
-  private fun doTest(content: String) {
+  @Test
+  fun `test link markers are not reference labels`() {
+    doTest("""
+      [@test] ../../frontend/acp/testSrc/ExampleTest.kt
+      [@test] ../../frontend/acp/testSrc/OtherTest.kt (`checks the behavior`)
+      - The test checks the result.
+        [@test] ../../frontend/acp/testSrc/ResultTest.kt
+    """, fileName = "example.spec.md")
+  }
+
+  @Test
+  fun `test link markers in ordinary Markdown are not reference labels`() {
+    doTest("""
+      [@test] path/to/ExampleTest.kt
+    """)
+  }
+
+  @Test
+  fun `test markers without a test link remain reference labels`() {
+    doTest("""
+      [<warning descr="Cannot resolve link label @test">@test</warning>]
+
+      [text][<warning descr="Cannot resolve link label @test">@test</warning>]
+
+      [<warning descr="Cannot resolve link label other">other</warning>] path/to/ExampleTest.kt
+    """, fileName = "example.spec.md")
+  }
+
+  private fun doTest(content: String, fileName: String = "some.md") {
     myFixture.enableInspections(UnresolvedLinkLabelInspection())
-    myFixture.configureByText("some.md", content.trimIndent())
+    myFixture.configureByText(fileName, content.trimIndent())
     myFixture.checkHighlighting()
   }
 }

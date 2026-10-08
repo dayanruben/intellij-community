@@ -13,6 +13,7 @@ import com.intellij.util.ArrayUtil
 import com.intellij.util.containers.ContainerUtil
 import com.intellij.xml.util.XmlStringUtil
 import com.jetbrains.python.ProtectionLevel
+import com.jetbrains.python.PyCustomType
 import com.jetbrains.python.PyNames
 import com.jetbrains.python.PyPsiBundle
 import com.jetbrains.python.PythonRuntimeService
@@ -42,6 +43,7 @@ import com.jetbrains.python.psi.PyUtil
 import com.jetbrains.python.psi.impl.ParamHelper
 import com.jetbrains.python.psi.impl.PyBuiltinCache
 import com.jetbrains.python.psi.impl.PyCallExpressionHelper
+import com.jetbrains.python.psi.impl.PyCallExpressionHelper.getSpecialMethodCallType
 import com.jetbrains.python.psi.impl.PyPsiUtils
 import com.jetbrains.python.psi.impl.PyTargetExpressionImpl
 import com.jetbrains.python.psi.impl.PyTypeProvider
@@ -52,6 +54,7 @@ import com.jetbrains.python.psi.types.PyLiteralStringType.Companion.match
 import com.jetbrains.python.psi.types.PyLiteralType.Companion.match
 import com.jetbrains.python.psi.types.PyRecursiveTypeVisitor.PyTypeTraverser
 import com.jetbrains.python.psi.types.PyTypeChecker.convertToType
+import com.jetbrains.python.psi.types.PyTypeChecker.expandTupleTypeParameters
 import com.jetbrains.python.psi.types.PyTypeChecker.match
 import com.jetbrains.python.psi.types.PyTypeChecker.recordFrame
 import com.jetbrains.python.psi.types.PyTypeChecker.recordLeaf
@@ -64,8 +67,6 @@ import com.jetbrains.python.sdk.legacy.PythonSdkUtil
 import org.jetbrains.annotations.ApiStatus
 import java.util.Collections
 import java.util.Optional
-import kotlin.collections.component1
-import kotlin.collections.component2
 import kotlin.contracts.ExperimentalContracts
 import kotlin.contracts.contract
 import kotlin.jvm.optionals.getOrDefault
@@ -463,6 +464,10 @@ object PyTypeChecker {
     }
 
     if (actual is PyIntersectionType) {
+      return Optional.of(match(expected, actual, context))
+    }
+
+    if (actual is PyCustomType) {
       return Optional.of(match(expected, actual, context))
     }
 
@@ -1016,6 +1021,11 @@ object PyTypeChecker {
     }
   }
 
+  // PyCustomType operates as an implicit intersection of its "typesToMimic"
+  private fun match(expected: PyType, actual: PyCustomType, context: MatchContext): Boolean {
+    return actual.typesToMimic.any { type: PyType? -> match(expected, type, context).orElse(false)!! }
+  }
+
   private fun match(
     expected: PyClassType,
     actual: PyClassType,
@@ -1228,8 +1238,10 @@ object PyTypeChecker {
 
   /** The subclass member's element type as compared against the protocol: `self` bound to [actual] and dropped, then
    *  the subclass's own type substitutions applied. */
-  private fun subclassElementType(expected: PyClassType, actual: PyClassType, subclassElementMember: PyTypeMember,
-                                  actualSubstitutions: GenericSubstitutions, protocolContext: MatchContext): PyType? {
+  private fun subclassElementType(
+    expected: PyClassType, actual: PyClassType, subclassElementMember: PyTypeMember,
+    actualSubstitutions: GenericSubstitutions, protocolContext: MatchContext,
+  ): PyType? {
     val context = protocolContext.context
     var subclassElementType = substituteSelfInProtocolMember(actual, subclassElementMember.type, context)
     subclassElementType = dropSelfInProtocolMember(expected, subclassElementType, context)
@@ -1426,7 +1438,7 @@ object PyTypeChecker {
   }
 
   private fun match(expected: PyStructuralType, actual: PyClassType, context: TypeEvalContext): Boolean {
-    if (overridesGetAttr(actual.pyClass, context)) {
+    if (overridesGetAttr(actual, context)) {
       return true
     }
     val actualAttributes = actual.getMemberNames(true, context)
@@ -2762,19 +2774,20 @@ object PyTypeChecker {
   }
 
   @JvmStatic
-  fun overridesGetAttr(cls: PyClass, context: TypeEvalContext): Boolean {
-    val type = context.getType(cls)
-    if (type != null) {
-      if (resolveTypeMember(type, PyNames.GETATTR, context) != null) {
-        return true
-      }
-      val method = resolveTypeMember(type, PyNames.GETATTRIBUTE, context)
-      if (method != null && !PyBuiltinCache.getInstance(cls).isBuiltin(method)) {
-        return true
-      }
-    }
-    return false
+  @JvmOverloads
+  fun overridesGetAttr(classType: PyClassType, context: TypeEvalContext, name: String? = null): Boolean {
+    return getGetAttrType(classType, context, name) != null
   }
+
+  private fun getGetAttrType(classType: PyClassType, context: TypeEvalContext, name: String? = null): Ref<PyType?>? {
+    val pyClass = classType.pyClass
+    val nameArg = if (name != null) PyLiteralType.stringLiteral(pyClass, name) else PyLiteralStringType.create(pyClass)
+    val arguments = listOf(PyCallableArgument(nameArg))
+    return getSpecialMethodCallType(classType, PyNames.GETATTR, arguments, context, onlyMatched = true) ?:
+           // For some reason __getattribute__ is declared directly on `builtins.object` returning `Any`
+           getSpecialMethodCallType(classType, PyNames.GETATTRIBUTE, arguments, context, onlyMatched = true, skipObject = true)
+  }
+
 
   private fun resolveTypeMember(type: PyType, name: String, context: TypeEvalContext): PsiElement? {
     val resolveContext = PyResolveContext.defaultContext(context)

@@ -45,6 +45,7 @@ private val FREEZE_NOTIFIER_EP: ExtensionPointName<FreezeNotifier> = ExtensionPo
 
 private val LOG = fileLogger()
 
+@Suppress("UseOptimizedEelFunctions")
 internal class IdeaFreezeReporter : FreezeListener {
   private var dumpTask: IdeaFreezeSamplingTask? = null
   private var freezeTelemetry: FreezeReporterTelemetry? = null
@@ -236,7 +237,7 @@ internal class IdeaFreezeReporter : FreezeListener {
       }
 
       LOG.debug("Reporting freeze to MessagePool")
-      reportToIndicator(loggingEvent) // always put freezes to MessagePool
+      MessagePool.getInstance().addErrorMessage(loggingEvent) // always put freezes to MessagePool
 
       val reason = PluginUtil.getInstance().findPluginId(loggingEvent.throwable)
       if (reason != null) {
@@ -326,8 +327,7 @@ internal class IdeaFreezeReporter : FreezeListener {
         Files.writeString(reportDir.resolve("$REPORT_PREFIX.txt"), reportText)
       }
     }
-    catch (_: IOException) {
-    }
+    catch (_: IOException) { }
 
     if (commonStack.isNullOrEmpty() || commonStack.any { skippedFrame(it) }) {
       return null
@@ -360,10 +360,6 @@ ${if (finished) "" else if (appClosing) "IDE is closing. " else "IDE KILLED! "}S
 
     return LogMessage(Freeze(pluginId, IdeaLogger.ourLastActionId, commonStack), message, attachments + report)
   }
-}
-
-internal fun reportToIndicator(event: LogMessage) {
-  MessagePool.getInstance().addErrorMessage(event)
 }
 
 @ApiStatus.Internal
@@ -574,6 +570,7 @@ internal class UnfinishedFreezeReportService(val coroutineScope: CoroutineScope)
             stacktraceCommonPart = deserializeStackTrace(readText())
           }
           catch (_: Exception) {
+            currentCoroutineContext().ensureActive()
           }
         }
         APP_INFO_FILE_NAME == name -> {
@@ -608,7 +605,7 @@ internal class UnfinishedFreezeReportService(val coroutineScope: CoroutineScope)
       event.appInfo = appInfo
 
       LOG.info("Reporting deadlock ${dir.name} to user")
-      reportToIndicator(event)
+      MessagePool.getInstance().addErrorMessage(event)
     }
   }
 
@@ -641,7 +638,7 @@ private fun cleanup(dir: Path) {
     Files.deleteIfExists(dir.resolve(APP_INFO_FILE_NAME))
   }
   catch (e: IOException) {
-    LOG.debug("Unable to cleanup reporting dirs", e)
+    LOG.debug("Unable to clean up reporting dirs", e)
   }
 }
 

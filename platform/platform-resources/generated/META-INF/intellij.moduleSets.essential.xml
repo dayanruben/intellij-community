@@ -73,6 +73,7 @@
     <module name="intellij.libraries.bouncy.castle.pgp" loading="embedded"/>
     <module name="intellij.libraries.blockmap" loading="embedded"/>
     <module name="intellij.libraries.caffeine" loading="embedded"/>
+    <module name="intellij.libraries.jspecify" loading="embedded"/>
     <module name="intellij.libraries.classgraph" loading="embedded"/>
     <module name="intellij.libraries.cli.parser" loading="embedded"/>
     <module name="intellij.libraries.commons.cli"/>
@@ -278,8 +279,8 @@
     <module name="intellij.platform.icons.impl.intellij" loading="embedded"/>
     <module name="intellij.platform.consoleView" loading="embedded"/>
     <module name="intellij.platform.consoleView.impl" loading="embedded"/>
-    <module name="intellij.platform.execution" loading="embedded"/>
-    <module name="intellij.platform.execution.impl" loading="embedded"/>
+    <module name="intellij.platform.execution"/>
+    <module name="intellij.platform.execution.impl"/>
     <module name="intellij.platform.lvcs" loading="embedded"/>
     <module name="intellij.platform.configurationStore.impl" loading="embedded"/>
     <module name="intellij.platform.lang.core" loading="embedded"/>
@@ -304,7 +305,6 @@
     <module name="intellij.platform.vfs.impl" loading="embedded"/>
     <module name="intellij.platform.ide.json" loading="embedded"/>
     <module name="intellij.platform.ide.dnd" loading="embedded"/>
-    <module name="intellij.platform.ide.editorSkeleton" loading="embedded"/>
     <module name="intellij.platform.ide.codeinsight.inline" loading="embedded"/>
     <module name="intellij.platform.pasta" loading="embedded"/>
     <module name="intellij.platform.diagnostic.startUpPerformanceReporter" loading="embedded"/>
@@ -351,6 +351,7 @@
     <!-- region nested: split.core -->
     <!-- region nested: split.core > rpc.backend.extended -->
     <module name="intellij.platform.rpc.backend"/>
+    <module name="intellij.platform.kernel.backend.baseline"/>
     <module name="intellij.platform.kernel.backend"/>
     <module name="intellij.platform.kernel.impl"/>
     <module name="intellij.platform.rpc.topics"/>
@@ -361,6 +362,7 @@
     <!-- region direct modules -->
     <module name="intellij.platform.settings.local"/>
     <module name="intellij.platform.backend"/>
+    <module name="intellij.platform.backend.baseline"/>
     <module name="intellij.platform.project.backend"/>
     <module name="intellij.platform.progress.backend"/>
     <module name="intellij.platform.lang.impl.backend"/>
@@ -428,7 +430,7 @@
     <module name="intellij.platform.ide.socketConnection"/>
     <module name="intellij.platform.ide.filterField"/>
     <module name="intellij.platform.ide.migLayout"/>
-    <module name="intellij.platform.pluginManager.shared.base"/>
+    <module name="intellij.platform.pluginManager.shared.baseline"/>
     <module name="intellij.platform.pluginManager.shared"/>
     <module name="intellij.platform.pluginManager.backend"/>
     <module name="intellij.platform.pluginManager.frontend"/>

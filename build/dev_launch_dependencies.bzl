@@ -203,13 +203,13 @@ def _extracted_repo_impl(repository_ctx):
         "BUILD",
         """
 package(default_visibility = ["//visibility:public"])
-files = glob(["**"], exclude = ["BUILD", "BUILD.bazel"], allow_empty = False)
+files = glob(["**"], exclude = %s, allow_empty = False)
 exports_files(files)
 filegroup(
     name = "files",
     srcs = files,
 )
-""",
+""" % repr(["BUILD", "BUILD.bazel"] + repository_ctx.attr.excludes),
     )
     return repository_ctx.repo_metadata(reproducible = bool(repository_ctx.attr.sha256) or bool(result.sha256))
 
@@ -220,11 +220,14 @@ dev_launch_extracted_repo = repository_rule(
     downloader reads it from there. Extraction stayed behind, in `<communityRoot>/build/download` - a cache in the
     checkout, which a build reading a shared read-only project tree cannot write, and which no action declares. So an
     archive whose *contents* the assembly reads is extracted here, the same way `bun` is (see the ultimate MODULE.bazel),
-    and the consumer is handed files rather than a directory it has to populate.
+    and the consumer is handed files rather than a directory it has to populate. The `excludes` globs drop the junk
+    entries an archive carries, such as `.DS_Store`.
     """,
     implementation = _extracted_repo_impl,
     environ = [DEFAULT_CANONICAL_ID_ENV],
     attrs = {
+        # globs of the extracted files that the `files` filegroup leaves out, beside the BUILD files
+        "excludes": attr.string_list(),
         # optional, exactly as in dev_launch_deps_repo: these URLs carry their version, so the same URL is the same
         # artifact and an unpinned fetch costs a re-download only when the version moves
         "sha256": attr.string(),
@@ -458,26 +461,17 @@ def _dev_launch_deps_community_impl(module_ctx):
     )
 
     # downloadPyrefly - one archive per platform holds `<os>-<arch>/pyrefly`, and one archive holds the `license` tree.
-    # The Python community plugin layout copies files of the unpacked archives, so only `_extracted` is a plugin input.
+    # The Python community plugin layout copies files of the unpacked archives, so each archive is an extracted
+    # repository alone.
     pyrefly_build = pinned(community, _COMMUNITY_DEPENDENCIES, "pyreflyBuild")
-    pyrefly_license_url = pyrefly_url(None, pyrefly_build)
-    dev_launch_deps_repo(
-        name = "dev_launch_pyrefly_license",
-        urls = [pyrefly_license_url],
-    )
     dev_launch_extracted_repo(
         name = "dev_launch_pyrefly_license_extracted",
-        url = pyrefly_license_url,
+        url = pyrefly_url(None, pyrefly_build),
     )
     for platform in HOST_PLATFORMS:
-        url = pyrefly_url(platform, pyrefly_build)
-        dev_launch_deps_repo(
-            name = "dev_launch_%s_pyrefly" % platform,
-            urls = [url],
-        )
         dev_launch_extracted_repo(
             name = "dev_launch_%s_pyrefly_extracted" % platform,
-            url = url,
+            url = pyrefly_url(platform, pyrefly_build),
         )
 
     jcef_build = pinned(community, _COMMUNITY_DEPENDENCIES, "jcefBuild")

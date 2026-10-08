@@ -259,8 +259,8 @@ object CoreModuleSets {
 
     embeddedModule("intellij.platform.consoleView")
     embeddedModule("intellij.platform.consoleView.impl")
-    embeddedModule("intellij.platform.execution")
-    embeddedModule("intellij.platform.execution.impl")
+    module("intellij.platform.execution")
+    module("intellij.platform.execution.impl")
 
     // intellij.platform.lang depends on it
     embeddedModule("intellij.platform.lvcs")
@@ -290,7 +290,6 @@ object CoreModuleSets {
     embeddedModule("intellij.platform.vfs.impl")
     embeddedModule("intellij.platform.ide.json")
     embeddedModule("intellij.platform.ide.dnd")
-    embeddedModule("intellij.platform.ide.editorSkeleton")
     embeddedModule("intellij.platform.ide.codeinsight.inline")
     embeddedModule("intellij.platform.pasta")
     embeddedModule("intellij.platform.diagnostic.startUpPerformanceReporter")
@@ -423,6 +422,7 @@ object CoreModuleSets {
     // Base RPC (rpcMinimal) already available from corePlatform
     // Only add backend/frontend/topics functionality
     module("intellij.platform.rpc.backend")
+    module("intellij.platform.kernel.backend.baseline")
     module("intellij.platform.kernel.backend")
     module("intellij.platform.kernel.impl")
 

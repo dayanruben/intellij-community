@@ -40,6 +40,9 @@
     <extensionPoint name="lang.treePatcher" beanClass="com.intellij.lang.LanguageExtensionPoint" dynamic="true">
       <with attribute="implementationClass" implements="com.intellij.psi.templateLanguages.TreePatcher"/>
     </extensionPoint>
+    <extensionPoint name="psi.batchReferenceProcessingSuppressor"
+                    interface="com.intellij.psi.impl.PsiFileEx$BatchReferenceProcessingSuppressor"
+                    dynamic="true"/>
   </extensionPoints>
   <extensions defaultExtensionNs="com.intellij">
     <applicationService serviceInterface="com.intellij.lang.PsiBuilderFactory"
@@ -65,5 +68,7 @@
     <applicationService serviceInterface="com.intellij.diagnostic.PluginProblemReporter"
                         serviceImplementation="com.intellij.diagnostic.PluginProblemReporterImpl"/>
     <projectService serviceImplementation="com.intellij.psi.impl.source.resolve.ResolveCache"/>
+    <applicationService serviceInterface="com.intellij.psi.meta.MetaDataRegistrar"
+                        serviceImplementation="com.intellij.psi.impl.meta.MetaRegistry"/>
   </extensions>
 </idea-plugin>

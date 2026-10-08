@@ -73,7 +73,6 @@
     <module name="intellij.platform.ide.core.impl"/>
     <module name="intellij.platform.ide.core.plugins"/>
     <module name="intellij.platform.ide.dnd"/>
-    <module name="intellij.platform.ide.editorSkeleton"/>
     <module name="intellij.platform.ide.json"/>
     <module name="intellij.platform.ide.observable"/>
     <module name="intellij.platform.ide.progress"/>
@@ -437,6 +436,7 @@
                     interface="com.intellij.ide.plugins.PluginCategoryPromotionProvider"
                     dynamic="false"/>
     <extensionPoint qualifiedName="com.intellij.openAnotherToolHandler" interface="com.intellij.openapi.updateSettings.impl.pluginsAdvertisement.OpenAnotherToolHandler" dynamic="true"/>
+    <extensionPoint qualifiedName="com.intellij.editorTabsFactory" interface="com.intellij.openapi.fileEditor.impl.EditorTabsFactory" dynamic="false"/>
     <extensionPoint dynamic="true" qualifiedName="com.intellij.editorTabsConfigurable" beanClass="com.intellij.application.options.editor.EditorTabsConfigurableEP">
       <with attribute="instance" implements="com.intellij.openapi.options.UnnamedConfigurable" />
     </extensionPoint>
@@ -636,6 +636,9 @@
                        helpTopic="configurable.group.language.help.topic"
                        displayNameKey="configurable.group.language.settings.display.name"
                        descriptionKey="configurable.group.language.settings.description"/>
+    <groupConfigurable id="ai" weight="15"
+                       displayNameKey="configurable.group.ai.settings.display.name"
+                       descriptionKey="configurable.group.ai.settings.description"/>
     <groupConfigurable id="tools" weight="10"
                        helpTopic="configurable.group.tools.help.topic"
                        displayNameKey="configurable.group.tools.settings.display.name"

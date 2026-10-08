@@ -61,6 +61,7 @@
     <module name="intellij.platform.lang"/>
     <module name="intellij.platform.lang.core"/>
     <module name="intellij.platform.lang.impl"/>
+    <module name="intellij.platform.productMode"/>
     <module name="intellij.platform.projectModel"/>
     <module name="intellij.platform.projectModel.impl"/>
     <module name="intellij.platform.refactoring"/>
@@ -80,7 +81,7 @@
     <module name="intellij.performanceTesting.vcs"/>
     <module name="intellij.performanceTesting.debugger"/>
     <module name="intellij.performanceTesting.frontend"/>
-    <module name="intellij.performanceTesting.frontend.base"/>
+    <module name="intellij.performanceTesting.frontend.baseline"/>
     <module name="intellij.performanceTesting.problemsView"/>
     <module name="intellij.performanceTesting.structureView"/>
     <module name="intellij.performanceTesting.backend"/>

@@ -83,7 +83,7 @@ object CommunityModuleSets {
     module("intellij.platform.ide.filterField")
     module("intellij.platform.ide.migLayout")
 
-    module("intellij.platform.pluginManager.shared.base")
+    module("intellij.platform.pluginManager.shared.baseline")
     module("intellij.platform.pluginManager.shared")
     module("intellij.platform.pluginManager.backend")
     module("intellij.platform.pluginManager.frontend")
@@ -142,6 +142,7 @@ object CommunityModuleSets {
 
     module("intellij.platform.settings.local")
     module("intellij.platform.backend")
+    module("intellij.platform.backend.baseline")
     module("intellij.platform.project.backend")
     module("intellij.platform.progress.backend")
     module("intellij.platform.lang.impl.backend")
@@ -370,6 +371,8 @@ object CommunityModuleSets {
     // Packaging of those modules to the all IDEs is required to load a JetBrains Client from the big IDE distribution.
     onDemandModule("intellij.rd.client", restricted = true)
     onDemandModule("intellij.rd.client.debugger", restricted = true)
+    onDemandModule("intellij.rd.client.baseline", restricted = true)
+    // the old ID of `intellij.rd.client.baseline`, kept for the plugins that still depend on it
     onDemandModule("intellij.rd.client.base", restricted = true)
     onDemandModule("intellij.rd.client.internal", restricted = true)
   }
@@ -379,8 +382,8 @@ object CommunityModuleSets {
    * JetBrains Client, Rider, and the Radler plugin grant it.
    */
   fun rdClientActivation(): ModuleActivation = ModuleActivation.create(
-    required = listOf("intellij.rd.client", "intellij.rd.client.base"),
-    allowed = listOf("intellij.rd.client.debugger", "intellij.rd.client.internal", "intellij.rd.client.testFramework"),
+    required = listOf("intellij.rd.client", "intellij.rd.client.baseline"),
+    allowed = listOf("intellij.rd.client.debugger", "intellij.rd.client.base", "intellij.rd.client.internal", "intellij.rd.client.testFramework"),
   )
 
   /**

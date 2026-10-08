@@ -423,6 +423,7 @@ class KotlinK2QuickFixRegistrar : KotlinQuickFixRegistrar() {
         registerFactory(ReplaceWithDotCallFixFactory.replaceWithDotCallFactory)
         registerPsiQuickFixes(KaFirDiagnostic.UnnecessaryNotNullAssertion::class, RemoveExclExclCallFix)
         registerPsiQuickFixes(KaFirDiagnostic.UselessElvis::class, RemoveUselessElvisFix)
+        registerPsiQuickFixes(KaFirDiagnostic.UselessElvisLeftIsNull::class, RemoveUselessElvisFix.replaceWithRightFactory)
         registerPsiQuickFixes(KaFirDiagnostic.UselessElvisRightIsNull::class, RemoveUselessElvisFix)
         registerPsiQuickFixes(KaFirDiagnostic.UselessCast::class, RemoveUselessCastFix)
         registerFactory(UselessIsCheckFactories.uselessIsCheckFactory)
@@ -481,6 +482,7 @@ class KotlinK2QuickFixRegistrar : KotlinQuickFixRegistrar() {
         registerFactory(RemoveCallableReferenceStaticLhsFixFactories.warning)
         registerFactory(RemoveCallableReferenceStaticLhsFixFactories.error)
         registerFactory(RemoveCallableReferenceStaticLhsFixFactories.wrongReceiver)
+        registerFactory(RemoveCallableReferenceStaticLhsFixFactories.unsafeCallableReference)
 
         registerFactory(ConvertToBlockBodyFixFactory.convertToBlockBodyFixFactory)
         registerFactory(SimplifyComparisonFixFactory.simplifyComparisonFixFactory)
