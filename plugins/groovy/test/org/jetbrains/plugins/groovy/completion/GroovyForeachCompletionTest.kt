@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.groovy.completion
 
 import com.intellij.testFramework.LightProjectDescriptor
@@ -14,7 +14,7 @@ class GroovyForeachCompletionTest : GroovyCompletionTestBase() {
     return TestUtils.getAbsoluteTestDataPath() + "groovy/completion/foreach"
   }
 
-  fun testValueVariableType() = doVariantableTest("int", "final")
+  fun testValueVariableType() = doHasVariantsTest("int", "final")
 
   fun testValueVariableTypeWithIndexVariable() = doVariantableTest("int", "final")
 

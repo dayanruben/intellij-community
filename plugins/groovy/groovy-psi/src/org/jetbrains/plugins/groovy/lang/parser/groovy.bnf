@@ -802,14 +802,24 @@ private mb_type_element ::= type_element_followed_by_identifier?
 for_statement ::= [non_empty_annotation_list mb_nl] 'for' after_for { pin = 2 }
 private after_for ::= for_header mb_nl loop_body { pin = 1 }
 private for_header ::= '(' mb_nl <<insideParentheses for_clause>> mb_nl ')' { pin = 1 }
-private for_clause ::= for_in_clause | traditional_for_clause
+private for_clause ::= for_in_clause | for_in_clause2 | traditional_for_clause
 
-for_in_clause ::= (two_for_in_parameters | single_for_in_parameter) (':' | 'in') mb_nl expression { pin = 1 consumeTokenMethod = 'consumeTokenFast' }
+for_in_clause ::= single_for_in_parameter (':' | 'in') mb_nl expression
+{
+  pin = 2
+  consumeTokenMethod = 'consumeTokenFast'
+}
+for_in_clause2 ::= two_for_in_parameters (':' | 'in') mb_nl expression
+{
+  pin = 1
+  consumeTokenMethod = 'consumeTokenFast'
+  elementType = for_in_clause
+}
 private two_for_in_parameters ::= for_in_parameter ',' mb_nl for_in_parameter
 private single_for_in_parameter ::= for_in_parameter !(',')
-for_in_parameter ::= (modifier_list mb_nl mb_type_element) (weak_keyword | IDENTIFIER) mb_nl !('=' | ';') | clear_variants_and_fail { elementType = parameter }
+for_in_parameter ::= (modifier_list mb_nl mb_type_element) (weak_keyword | IDENTIFIER) mb_nl !('=' | ';') { elementType = parameter }
 
-traditional_for_clause ::= empty for_clause_initialization? mb_nl ';' mb_nl expression? mb_nl ';' mb_nl expression_list? { pin = 1 }
+traditional_for_clause ::= for_clause_initialization? mb_nl ';' mb_nl expression? mb_nl ';' mb_nl expression_list? { pin = 1 }
 private for_clause_initialization ::= for_variable_declaration | expression
 
 private for_variable_declaration ::= <<declaration fvd_after_modifiers fvd_after_no_modifiers>>

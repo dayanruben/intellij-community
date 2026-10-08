@@ -25,7 +25,7 @@ Groovy script
           PsiElement(int)('int')
         PsiWhiteSpace(' ')
         PsiElement(identifier)('j')
-      PsiErrorElement:')' unexpected
+      PsiErrorElement:':' or in expected, got ')'
         <empty list>
     PsiElement())(')')
     PsiWhiteSpace(' ')
@@ -52,7 +52,7 @@ Groovy script
       PsiWhiteSpace(' ')
       builtin type class expression
         PsiElement(int)('int')
-      PsiErrorElement:';' expected, got 'j'
+      PsiErrorElement:';' or identifier expected, got 'j'
         <empty list>
       PsiWhiteSpace(' ')
       Expression list
