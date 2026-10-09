@@ -171,6 +171,7 @@ async fn the_run_request_body_carries_every_key_and_empty_lists() {
             "hotJars": [prep.hot_jars[0].sha256],
             "activeExecutionTimeoutSec": 1_800,
             "progressGapTimeoutSec": 300,
+            "idePlugins": [{"destination": "bridge/lib/bridge.jar", "sha256": prep.plugin_files[0].host.sha256}],
         })
     );
     assert_eq!(execution.iteration_id.as_deref(), Some("it-1"));
@@ -934,9 +935,11 @@ fn a_selector_becomes_either_a_selection_or_a_class_name_filter() {
             hot_jars: Vec::new(),
             active_execution_timeout_sec: 0,
             progress_gap_timeout_sec: 0,
+            ide_plugins: Vec::new(),
         })
         .unwrap();
         assert!(encoded["selectors"].is_array(), "{filter}: {encoded}");
+        assert!(encoded["idePlugins"].is_array(), "{filter}: {encoded}");
         assert!(encoded["junit5Filters"].is_array(), "{filter}: {encoded}");
     }
 }

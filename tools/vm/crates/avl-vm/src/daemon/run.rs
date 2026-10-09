@@ -608,6 +608,16 @@ pub(crate) struct RunRequestBody<'a> {
     pub(crate) hot_jars: Vec<&'a str>,
     pub(crate) active_execution_timeout_sec: u64,
     pub(crate) progress_gap_timeout_sec: u64,
+    /// The context plugin files, which the daemon installs into the plugin directory of the IDE context.
+    pub(crate) ide_plugins: Vec<IdePlugin<'a>>,
+}
+
+/// One context plugin file of the `/run` request: its destination below the plugin directory of the IDE context, and
+/// the digest that the push stored it under.
+#[derive(Serialize)]
+pub(crate) struct IdePlugin<'a> {
+    pub(crate) destination: &'a str,
+    pub(crate) sha256: &'a str,
 }
 
 impl Host {
@@ -636,6 +646,14 @@ impl Host {
             hot_jars: prep.hot_jars.iter().map(|jar| jar.sha256.as_str()).collect(),
             active_execution_timeout_sec: policy.active_execution.as_secs(),
             progress_gap_timeout_sec: policy.progress_gap.as_secs(),
+            ide_plugins: prep
+                .plugin_files
+                .iter()
+                .map(|file| IdePlugin {
+                    destination: &file.destination,
+                    sha256: &file.host.sha256,
+                })
+                .collect(),
         })?;
         let mut watchdog = TransportWatchdog::armed(policy.progress_gap + TRANSPORT_MARGIN);
         let run_failed = |message: String| Refusal::new("daemon_run_failed", Exit::SOFTWARE, message);
