@@ -124,6 +124,7 @@ import com.intellij.util.ArrayUtil;
 import com.intellij.util.CommonJavaRefactoringUtil;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.text.UniqueNameGenerator;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -339,6 +340,7 @@ public final class CreateFromUsageUtils {
                               && !method.hasModifierProperty(PsiModifier.ABSTRACT);
     GuessTypeParameters guesser = new GuessTypeParameters(project, JavaPsiFacade.getElementFactory(project), builder, substitutor);
     PostprocessReformattingAspect postprocessReformattingAspect = PostprocessReformattingAspect.getInstance(project);
+    Set<String> usedNames = new HashSet<>();
 
     //255 is the maximum number of method parameters
     for (int i = 0; i < Math.min(arguments.size(), 255); i++) {
@@ -353,6 +355,7 @@ public final class CreateFromUsageUtils {
       if (names.length == 0) {
         names = new String[]{"p" + i};
       }
+      names = uniqueNames(names, usedNames);
 
       argType = getParameterTypeByArgumentType(argType, psiManager, resolveScope);
       PsiParameter parameter = parameterList.getParameter(i);
@@ -1121,6 +1124,21 @@ public final class CreateFromUsageUtils {
   }
 
   /**
+   * Makes the suggested names unique among the names of the previous parameters. Then it adds the first
+   * name of the result into the used names.
+   *
+   * @param names     the suggested names of one parameter
+   * @param usedNames the names of the previous parameters
+   * @return the names which are not in the used names, in the order of the suggested names
+   */
+  static @NonNls String @NotNull [] uniqueNames(@NonNls String @NotNull [] names, @NotNull Set<String> usedNames) {
+    String[] result = ContainerUtil.map2Array(names, String.class,
+                                              name -> UniqueNameGenerator.generateUniqueNameOneBased(name, usedNames));
+    usedNames.add(result[0]);
+    return result;
+  }
+
+  /**
    * Could be used for record component name as well
    */
   public static class ParameterNameExpression extends Expression {
@@ -1153,25 +1171,13 @@ public final class CreateFromUsageUtils {
       Set<LookupElement> set = new LinkedHashSet<>();
 
       for (String name : myNames) {
-        if (parameterNames.contains(name)) {
-          int j = 1;
-          while (parameterNames.contains(name + j)) j++;
-          name += j;
-        }
-
-        set.add(LookupElementBuilder.create(name));
+        set.add(LookupElementBuilder.create(UniqueNameGenerator.generateUniqueNameOneBased(name, parameterNames)));
       }
 
       String[] suggestedNames = ExpressionUtil.getNames(context);
       if (suggestedNames != null) {
         for (String name : suggestedNames) {
-          if (parameterNames.contains(name)) {
-            int j = 1;
-            while (parameterNames.contains(name + j)) j++;
-            name += j;
-          }
-
-          set.add(LookupElementBuilder.create(name));
+          set.add(LookupElementBuilder.create(UniqueNameGenerator.generateUniqueNameOneBased(name, parameterNames)));
         }
       }
 

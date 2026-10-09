@@ -38,8 +38,10 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 public class CreateRecordFromNewFix extends CreateClassFromNewFix {
   public CreateRecordFromNewFix(PsiNewExpression newExpression) {
@@ -102,6 +104,7 @@ public class CreateRecordFromNewFix extends CreateClassFromNewFix {
       }
     }
     List<ComponentData> components = new ArrayList<>();
+    Set<String> usedNames = new HashSet<>();
     //255 is the maximum number of record components
     for (int i = 0; i < Math.min(elements.length, 255); i++) {
       PsiCaseLabelElement element = elements[i];
@@ -113,6 +116,7 @@ public class CreateRecordFromNewFix extends CreateClassFromNewFix {
       if (names.length == 0) {
         names = new String[]{"c" + i};
       }
+      names = CreateFromUsageUtils.uniqueNames(names, usedNames);
 
       type = CreateFromUsageUtils.getParameterTypeByArgumentType(type, psiManager, resolveScope);
       components.add(new ComponentData(type, names));
