@@ -1,3 +1,5 @@
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+
 /**
  * For services that are configured by "Python integrated tools" window.
  * Each service stores it's state on 2 levels: app level (used as template for the new projects) and module level.
