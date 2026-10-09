@@ -6,7 +6,6 @@ import com.intellij.python.sdk.backend.resolvePythonHome
 import com.jetbrains.python.venvReader.VirtualEnvReader
 import com.jetbrains.python.sdk.add.v2.PathHolder
 import com.intellij.python.community.impl.poetry.backend.PoetryPyTool
-import com.intellij.python.pytools.common.FusId
 import com.intellij.openapi.util.io.toNioPathOrNull
 import com.intellij.python.community.impl.poetry.common.icons.PythonCommunityImplPoetryCommonIcons
 import com.jetbrains.python.PyInternalExecApi
@@ -29,7 +28,7 @@ import javax.swing.Icon
 object PyPoetrySdkFlavor : CPythonSdkFlavor<PyFlavorData.Empty>() {
   override fun getIcon(): Icon = PythonCommunityImplPoetryCommonIcons.Poetry
   override fun getFlavorDataClass(): Class<PyFlavorData.Empty> = PyFlavorData.Empty::class.java
-  override fun getManager(): FusId = PoetryPyTool.getInstance().fusId
+  override fun getManagerId(): String = PoetryPyTool.getInstance().fusId.value
 
   /** Poetry names an environment by where it is, see [poetryEnvRefOf]. */
   override fun toolEnvRefOf(pythonBinary: PathHolder, data: PyFlavorData.Empty): String? = poetryEnvRefOf(pythonBinary)

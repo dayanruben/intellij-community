@@ -26,6 +26,7 @@ import com.jetbrains.python.errorProcessing.PyResult
 import com.jetbrains.python.newProjectWizard.collector.PythonNewProjectWizardCollector
 import com.jetbrains.python.poetry.PoetryPyProjectTomlPythonVersionsService
 import com.jetbrains.python.sdk.add.v2.CustomNewEnvironmentCreator
+import com.jetbrains.python.sdk.add.v2.EelOrTarget
 import com.jetbrains.python.sdk.add.v2.FileSystem
 import com.jetbrains.python.sdk.add.v2.PathHolder
 import com.jetbrains.python.sdk.add.v2.PythonInterpreterSelectionMethod.SELECT_EXISTING
@@ -66,6 +67,15 @@ internal class EnvironmentCreatorPoetry<P : PathHolder>(
     model.fileSystem.persistCustomToolPath(pathHolder, pyTool)
   }
 
+  /**
+   * Whether this machine can hold an in-project `.venv`: an Eel machine can, a legacy target cannot. Poetry creates the
+   * in-project environment in the project directory, which is local to the Eel machine only.
+   */
+  private val inProjectEnvSupported: Boolean = when (model.fileSystem.eelOrTarget) {
+    is EelOrTarget.IsEel -> true
+    is EelOrTarget.IsTarget -> false
+  }
+
   private val isInProjectEnvFlow = MutableStateFlow(service<PoetryConfigService>().state.isInProjectEnv)
   private val isInProjectEnvProp = propertyGraph.property(isInProjectEnvFlow.value)
 
@@ -78,7 +88,7 @@ internal class EnvironmentCreatorPoetry<P : PathHolder>(
 
   override fun setupUI(panel: Panel, validationRequestor: DialogValidationRequestor) {
     super.setupUI(panel, validationRequestor)
-    addInProjectCheckbox(panel)
+    if (inProjectEnvSupported) addInProjectCheckbox(panel)
   }
 
   override fun onShown(scope: CoroutineScope) {
@@ -101,7 +111,7 @@ internal class EnvironmentCreatorPoetry<P : PathHolder>(
       model.projectPathFlows.projectPathWithDefault
         .combine(isInProjectEnvFlow) { p, i -> Pair(p, i) }
         .collect { (path, isInProjectEnv) ->
-          if (!isInProjectEnv) {
+          if (!inProjectEnvSupported || !isInProjectEnv) {
             venvExistenceValidationState.set(Invisible)
             return@collect
           }
@@ -134,7 +144,8 @@ internal class EnvironmentCreatorPoetry<P : PathHolder>(
         poetryExecutable = poetryExecutable,
         installPackages = false,
         errorSink = errorSink,
-        inProjectEnv = isInProjectEnvFlow.value,
+        // The saved choice is shared by all machines, so a target ignores it.
+        inProjectEnv = inProjectEnvSupported && isInProjectEnvFlow.value,
         targetPanelExtension = model.state.targetPanelExtension.get(),
       )
     }
