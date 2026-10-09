@@ -33,7 +33,7 @@ internal class UnhandledExceptionReportingTest {
 
   @Test
   fun `FUS reports the real cause and the kind`() {
-    val events = collect { LifecycleUsageTriggerCollector.onError(null, TestCause("boom"), UnhandledExceptionKind.INTERACTIVE, null) }
+    val events = collect { LifecycleUsageTriggerCollector.onErrorAsync(TestCause("boom"), UnhandledExceptionKind.INTERACTIVE) {} }
 
     assertThat(events).singleElement().satisfies({
       assertThat(it.event.data["error"]).isEqualTo(TestCause::class.java.name)
@@ -43,7 +43,7 @@ internal class UnhandledExceptionReportingTest {
 
   @Test
   fun `FUS reports a background unhandled exception`() {
-    val events = collect { LifecycleUsageTriggerCollector.onError(null, TestCause("boom"), UnhandledExceptionKind.BACKGROUND, null) }
+    val events = collect { LifecycleUsageTriggerCollector.onErrorAsync(TestCause("boom"), UnhandledExceptionKind.BACKGROUND) {} }
 
     assertThat(events).singleElement().satisfies({
       assertThat(it.event.data["unhandled_exception_interactive"]).isEqualTo(false)
@@ -52,7 +52,7 @@ internal class UnhandledExceptionReportingTest {
 
   @Test
   fun `FUS adds no field to an exception that was handled`() {
-    val events = collect { LifecycleUsageTriggerCollector.onError(null, TestCause("boom"), UnhandledExceptionKind.HANDLED, null) }
+    val events = collect { LifecycleUsageTriggerCollector.onErrorAsync(TestCause("boom"), UnhandledExceptionKind.HANDLED) {} }
 
     assertThat(events).singleElement().satisfies({
       assertThat(it.event.data).doesNotContainKey("unhandled_exception_interactive")

@@ -1,14 +1,17 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.featureStatistics.fusCollectors;
 
+import com.intellij.diagnostic.DefaultIdeaErrorLogger;
 import com.intellij.diagnostic.VMOptions;
 import com.intellij.ide.GeneralSettings;
+import com.intellij.ide.plugins.PluginUtil;
 import com.intellij.internal.DebugAttachDetector;
 import com.intellij.internal.statistic.collectors.fus.MethodNameRuleValidator;
 import com.intellij.internal.statistic.collectors.fus.ProjectlessData;
 import com.intellij.internal.statistic.eventLog.EventLogGroup;
 import com.intellij.internal.statistic.eventLog.events.BooleanEventField;
 import com.intellij.internal.statistic.eventLog.events.ClassEventField;
+import com.intellij.internal.statistic.eventLog.events.EventDataCollector;
 import com.intellij.internal.statistic.eventLog.events.EventField;
 import com.intellij.internal.statistic.eventLog.events.EventFields;
 import com.intellij.internal.statistic.eventLog.events.EventId;
@@ -28,15 +31,19 @@ import com.intellij.openapi.diagnostic.UnhandledExceptionKind;
 import com.intellij.openapi.extensions.PluginId;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
+import com.intellij.openapi.util.NotNullLazyValue;
 import com.intellij.openapi.util.text.Strings;
 import com.intellij.openapi.wm.ex.WelcomeScreenProjectProvider;
 import com.intellij.util.containers.ContainerUtil;
+import kotlin.Unit;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 
 import static com.intellij.internal.statistic.utils.PluginInfoDetectorKt.getPlatformPlugin;
 import static com.intellij.internal.statistic.utils.PluginInfoDetectorKt.getPluginInfoById;
@@ -241,14 +248,54 @@ public final class LifecycleUsageTriggerCollector extends CounterUsagesCollector
   }
 
   /**
+   * Logs the `ide.error` event. The event log thread finds the plugin and builds the frames, so the caller does not wait.
+   * When no event logger builds the event, the collector finds no plugin and does not call `onPluginFound`.
+   *
    * @param realCause              the cause without an {@link UnhandledException} wrapper
    * @param unhandledExceptionKind how the exception reached the collector. See IJPL-100 and IJPL-254578.
+   * @param onPluginFound          gets the plugin that caused the error, at most once, on the event log thread
    */
-  public static void onError(
+  public static void onErrorAsync(
+    @NotNull Throwable realCause,
+    @NotNull UnhandledExceptionKind unhandledExceptionKind,
+    @NotNull Consumer<? super @NotNull PluginId> onPluginFound
+  ) {
+    var time = System.currentTimeMillis();
+    // Each event logger runs the data builder. Build the data once, so that each throttle counts the error once.
+    var errorData = NotNullLazyValue.atomicLazy(() -> {
+      var pluginUtil = PluginUtil.getInstance();
+      if (pluginUtil == null) return List.<EventPair<?>>of();
+
+      var pluginId = pluginUtil.findPluginId(realCause);
+      var data = buildErrorData(pluginId, realCause, unhandledExceptionKind, time);
+      if (pluginId != null) {
+        try {
+          onPluginFound.accept(pluginId);
+        }
+        catch (Exception e) {
+          LOG.warn(e);
+        }
+      }
+      return data;
+    });
+    IDE_ERROR.log(null, (EventDataCollector data) -> {
+      var pairs = errorData.getValue();
+      if (pairs.isEmpty()) {
+        data.skip();
+      }
+      else {
+        data.addAll(pairs);
+      }
+      return Unit.INSTANCE;
+    });
+  }
+
+  /// Returns an empty list when the data cannot be built.
+  private static @NotNull List<EventPair<?>> buildErrorData(
     @Nullable PluginId pluginId,
     @NotNull Throwable realCause,
     @NotNull UnhandledExceptionKind unhandledExceptionKind,
-    @Nullable VMOptions.MemoryKind memoryErrorKind
+    long time
   ) {
     try {
       var description = new ThrowableDescription(realCause);
@@ -259,17 +306,18 @@ public final class LifecycleUsageTriggerCollector extends CounterUsagesCollector
       if (unhandledExceptionKind != UnhandledExceptionKind.HANDLED) {
         data.add(unhandledExceptionInteractiveField.with(unhandledExceptionKind == UnhandledExceptionKind.INTERACTIVE));
       }
+      var memoryErrorKind = DefaultIdeaErrorLogger.getOOMErrorKind(realCause);
       if (memoryErrorKind != null) {
         data.add(memoryErrorKindField.with(memoryErrorKind));
       }
 
-      if (ourErrorRateThrottle.tryPass(System.currentTimeMillis())) {
+      if (ourErrorRateThrottle.tryPass(time)) {
         var frames = description.getLastFrames(50);
         var frameHash = frames.hashCode();
 
         data.add(errorHashField.with(frameHash));
 
-        if (ourErrorIdentityThrottle.tryPass(frameHash, System.currentTimeMillis())) {
+        if (ourErrorIdentityThrottle.tryPass(frameHash, time)) {
           data.add(errorFramesField.with(frames));
           data.add(errorSizeField.with(description.getSize()));
         }
@@ -277,11 +325,11 @@ public final class LifecycleUsageTriggerCollector extends CounterUsagesCollector
       else {
         data.add(tooManyErrorsField.with(true));
       }
-
-      IDE_ERROR.log(data);
+      return data;
     }
     catch (Exception e) {
       LOG.warn(e);
+      return List.of();
     }
   }
 
