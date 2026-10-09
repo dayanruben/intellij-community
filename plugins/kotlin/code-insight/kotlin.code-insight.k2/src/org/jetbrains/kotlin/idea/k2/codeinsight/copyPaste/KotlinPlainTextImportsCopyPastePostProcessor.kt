@@ -7,6 +7,7 @@ import com.intellij.codeInsight.editorActions.TextBlockTransferableData
 import com.intellij.openapi.application.runWriteAction
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.RangeMarker
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Ref
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiFile
@@ -67,7 +68,7 @@ internal class KotlinPlainTextImportsCopyPastePostProcessor : CopyPastePostProce
     }
 
     override fun processTransferableData(
-        project: com.intellij.openapi.project.Project,
+        project: Project,
         editor: Editor,
         bounds: RangeMarker,
         caretOffset: Int,
@@ -117,7 +118,7 @@ internal class KotlinPlainTextImportsCopyPastePostProcessor : CopyPastePostProce
         }
 
     private fun parseLeadingImportBlock(
-        project: com.intellij.openapi.project.Project,
+        project: Project,
         pastedText: String
     ): ImportBlock? {
         val importLines = mutableListOf<String>()
