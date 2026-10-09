@@ -33,6 +33,11 @@ class LexerTestFixtureTest {
   }
 
   @Test
+  fun testTrimRemovesControlChars() {
+    fixture.doTest("ab", "WORD ('ab')\u0005")
+  }
+
+  @Test
   fun testPathToTestDataFile() {
     assertEquals("pathToTestDataFile", fixture.testName)
     assertEquals(IdeaTestExecutionPolicy.getHomePathWithPolicy() + "/lexer/data/pathToTestDataFile.txt", fixture.getPathToTestDataFile(".txt"))

@@ -62,7 +62,7 @@ class LexerTestFixture internal constructor(
   fun doTest(text: String, expected: String?, lexer: Lexer) {
     val result = printTokens(text, 0, lexer)
     if (expected != null) {
-      assertEquals(StringUtil.convertLineSeparators(expected.trim()), StringUtil.convertLineSeparators(result.trim()))
+      assertEquals(StringUtil.convertLineSeparators(expected.trim { it <= ' ' }), StringUtil.convertLineSeparators(result.trim { it <= ' ' }))
     }
     else {
       PlatformTestUtil.assertSameLinesWithFile(getPathToTestDataFile(expectedFileExtension), result)
@@ -99,7 +99,7 @@ class LexerTestFixture internal constructor(
     catch (e: IOException) {
       fail("can't load file $fileName: ${e.message}")
     }
-    return StringUtil.convertLineSeparators(if (trimTestData) fileText.trim() else fileText)
+    return StringUtil.convertLineSeparators(if (trimTestData) fileText.trim { it <= ' ' } else fileText)
   }
 
   /**
@@ -266,6 +266,7 @@ class LexerTestFixture internal constructor(
  * The test data files are in [dirPath]. [dirPath] is absolute, or relative to the home path as `LexerTestCase.getDirPath` is.
  * [expectedFileExtension] is the extension of the expected file. It starts with a dot.
  * When [trimTestData] is `true`, [LexerTestFixture.loadTestDataFile] trims the text of the file.
+ * The trim is the same as Java `String.trim`. It removes each char up to U+0020 at both ends.
  * When [checkRestart] is `false`, [LexerTestFixture.doTest] does not call [LexerTestFixture.checkCorrectRestart].
  *
  * The fixture takes the name of the current test method, so declare it as an instance property.
