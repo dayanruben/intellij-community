@@ -2,28 +2,29 @@
 package com.intellij.jsonpath
 
 import com.intellij.jsonpath.lexer.JsonPathLexer
-import com.intellij.lexer.Lexer
-import com.intellij.testFramework.LexerTestCase
+import com.intellij.platform.testFramework.junit5.codeInsight.fixture.lexerFixture
+import com.intellij.testFramework.junit5.fixture.TestFixtures
+import org.junit.jupiter.api.Test
 
-class JsonPathLexerTest : LexerTestCase() {
+@TestFixtures
+class JsonPathLexerTest {
   private val ROOT: String = "\$"
+  private val lexer by lexerFixture("unused") { JsonPathLexer() }
 
-  override fun createLexer(): Lexer = JsonPathLexer()
-  override fun getDirPath(): String = "unused"
-
+  @Test
   fun testRoot() {
-    doTest("\$", "\$ ('\$')")
-    doTest("@", "@ ('@')")
-    doTest("name", "IDENTIFIER ('name')")
+    lexer.doTest("\$", "\$ ('\$')")
+    lexer.doTest("@", "@ ('@')")
+    lexer.doTest("name", "IDENTIFIER ('name')")
 
-    doTest("\$[0]", """
+    lexer.doTest("\$[0]", """
       $ROOT ('$ROOT')
       [ ('[')
       INTEGER_NUMBER ('0')
       ] (']')
     """.trimIndent())
 
-    doTest("@[-100]", """
+    lexer.doTest("@[-100]", """
       @ ('@')
       [ ('[')
       INTEGER_NUMBER ('-100')
@@ -31,38 +32,39 @@ class JsonPathLexerTest : LexerTestCase() {
     """.trimIndent())
   }
 
+  @Test
   fun testDottedPaths() {
-    doTest("\$.path", """
+    lexer.doTest("\$.path", """
       $ROOT ('$ROOT')
       . ('.')
       IDENTIFIER ('path')
     """.trimIndent())
 
-    doTest("\$..path", """
+    lexer.doTest("\$..path", """
       $ROOT ('$ROOT')
       .. ('..')
       IDENTIFIER ('path')
     """.trimIndent())
 
-    doTest("@.path", """
+    lexer.doTest("@.path", """
       @ ('@')
       . ('.')
       IDENTIFIER ('path')
     """.trimIndent())
 
-    doTest("@..path", """
+    lexer.doTest("@..path", """
       @ ('@')
       .. ('..')
       IDENTIFIER ('path')
     """.trimIndent())
 
-    doTest("\$.path", """
+    lexer.doTest("\$.path", """
       $ROOT ('$ROOT')
       . ('.')
       IDENTIFIER ('path')
     """.trimIndent())
 
-    doTest("\$.long.path.with.root", """
+    lexer.doTest("\$.long.path.with.root", """
       $ROOT ('$ROOT')
       . ('.')
       IDENTIFIER ('long')
@@ -74,7 +76,7 @@ class JsonPathLexerTest : LexerTestCase() {
       IDENTIFIER ('root')
     """.trimIndent())
 
-    doTest("@.long.path.with.eval", """
+    lexer.doTest("@.long.path.with.eval", """
       @ ('@')
       . ('.')
       IDENTIFIER ('long')
@@ -87,8 +89,9 @@ class JsonPathLexerTest : LexerTestCase() {
     """.trimIndent())
   }
 
+  @Test
   fun testQuotedPaths() {
-    doTest("\$['quoted']['path']", """
+    lexer.doTest("\$['quoted']['path']", """
       $ROOT ('$ROOT')
       [ ('[')
       SINGLE_QUOTED_STRING (''quoted'')
@@ -97,7 +100,7 @@ class JsonPathLexerTest : LexerTestCase() {
       SINGLE_QUOTED_STRING (''path'')
       ] (']')
     """.trimIndent())
-    doTest("\$.['quoted'].path", """
+    lexer.doTest("\$.['quoted'].path", """
       $ROOT ('$ROOT')
       . ('.')
       [ ('[')
@@ -106,7 +109,7 @@ class JsonPathLexerTest : LexerTestCase() {
       . ('.')
       IDENTIFIER ('path')
     """.trimIndent())
-    doTest("\$.[\"quo\\ted\"]", """
+    lexer.doTest("\$.[\"quo\\ted\"]", """
       $ROOT ('$ROOT')
       . ('.')
       [ ('[')
@@ -115,8 +118,9 @@ class JsonPathLexerTest : LexerTestCase() {
     """.trimIndent())
   }
 
+  @Test
   fun testFilterExpression() {
-    doTest("\$.demo[?(@.filter > 2)]", """
+    lexer.doTest("\$.demo[?(@.filter > 2)]", """
       $ROOT ('$ROOT')
       . ('.')
       IDENTIFIER ('demo')
@@ -134,7 +138,7 @@ class JsonPathLexerTest : LexerTestCase() {
       ] (']')
     """.trimIndent())
 
-    doTest("\$.demo[?(@.filter == 7.2)]", """
+    lexer.doTest("\$.demo[?(@.filter == 7.2)]", """
       $ROOT ('$ROOT')
       . ('.')
       IDENTIFIER ('demo')
@@ -152,7 +156,7 @@ class JsonPathLexerTest : LexerTestCase() {
       ] (']')
     """.trimIndent())
 
-    doTest("\$.demo[?(@.filter != 'value')]", """
+    lexer.doTest("\$.demo[?(@.filter != 'value')]", """
       $ROOT ('$ROOT')
       . ('.')
       IDENTIFIER ('demo')
@@ -170,7 +174,7 @@ class JsonPathLexerTest : LexerTestCase() {
       ] (']')
     """.trimIndent())
 
-    doTest("\$.demo[?(@.filter == true)]", """
+    lexer.doTest("\$.demo[?(@.filter == true)]", """
       $ROOT ('$ROOT')
       . ('.')
       IDENTIFIER ('demo')
@@ -188,7 +192,7 @@ class JsonPathLexerTest : LexerTestCase() {
       ] (']')
     """.trimIndent())
 
-    doTest("\$.demo[?(@.filter != false)]", """
+    lexer.doTest("\$.demo[?(@.filter != false)]", """
       $ROOT ('$ROOT')
       . ('.')
       IDENTIFIER ('demo')
@@ -206,7 +210,7 @@ class JsonPathLexerTest : LexerTestCase() {
       ] (']')
     """.trimIndent())
 
-    doTest("\$.demo[?(@.null != null)]", """
+    lexer.doTest("\$.demo[?(@.null != null)]", """
       $ROOT ('$ROOT')
       . ('.')
       IDENTIFIER ('demo')
@@ -224,7 +228,7 @@ class JsonPathLexerTest : LexerTestCase() {
       ] (']')
     """.trimIndent())
 
-    doTest("\$.demo[?('a' in @.in)]", """
+    lexer.doTest("\$.demo[?('a' in @.in)]", """
       $ROOT ('$ROOT')
       . ('.')
       IDENTIFIER ('demo')
@@ -243,8 +247,9 @@ class JsonPathLexerTest : LexerTestCase() {
     """.trimIndent())
   }
 
+  @Test
   fun testBooleanOperations() {
-    doTest("\$.demo[?(@.a>=10 && $.b<=2)]", """
+    lexer.doTest("\$.demo[?(@.a>=10 && $.b<=2)]", """
       $ROOT ('$ROOT')
       . ('.')
       IDENTIFIER ('demo')
@@ -269,8 +274,9 @@ class JsonPathLexerTest : LexerTestCase() {
     """.trimIndent())
   }
 
+  @Test
   fun testIndexExpression() {
-    doTest("\$.demo[(@.length - 1)]", """
+    lexer.doTest("\$.demo[(@.length - 1)]", """
       $ROOT ('$ROOT')
       . ('.')
       IDENTIFIER ('demo')
@@ -288,8 +294,9 @@ class JsonPathLexerTest : LexerTestCase() {
     """.trimIndent())
   }
 
+  @Test
   fun testRegexLiteral() {
-    doTest("\$.demo[?(@.attr =~ /[a-z]/)]", """
+    lexer.doTest("\$.demo[?(@.attr =~ /[a-z]/)]", """
       $ROOT ('$ROOT')
       . ('.')
       IDENTIFIER ('demo')
@@ -307,7 +314,7 @@ class JsonPathLexerTest : LexerTestCase() {
       ] (']')
     """.trimIndent())
 
-    doTest("\$.demo[?(@.attr =~ /[0-9]/i)]", """
+    lexer.doTest("\$.demo[?(@.attr =~ /[0-9]/i)]", """
       $ROOT ('$ROOT')
       . ('.')
       IDENTIFIER ('demo')
@@ -325,7 +332,7 @@ class JsonPathLexerTest : LexerTestCase() {
       ] (']')
     """.trimIndent())
 
-    doTest("\$.demo[?(@.attr =~ /[0-9]/iu)]", """
+    lexer.doTest("\$.demo[?(@.attr =~ /[0-9]/iu)]", """
       $ROOT ('$ROOT')
       . ('.')
       IDENTIFIER ('demo')
@@ -343,7 +350,7 @@ class JsonPathLexerTest : LexerTestCase() {
       ] (']')
     """.trimIndent())
 
-    doTest("\$.demo[?(@ =~ /test/U)]", """
+    lexer.doTest("\$.demo[?(@ =~ /test/U)]", """
       $ROOT ('$ROOT')
       . ('.')
       IDENTIFIER ('demo')
@@ -360,8 +367,9 @@ class JsonPathLexerTest : LexerTestCase() {
     """.trimIndent())
   }
 
+  @Test
   fun testWildcardMultiplyOperators() {
-    doTest("\$.demo[*].demo[?(@.attr * 2 == 10)]", """
+    lexer.doTest("\$.demo[*].demo[?(@.attr * 2 == 10)]", """
       $ROOT ('$ROOT')
       . ('.')
       IDENTIFIER ('demo')
@@ -389,8 +397,9 @@ class JsonPathLexerTest : LexerTestCase() {
     """.trimIndent())
   }
 
+  @Test
   fun testArrayLiteralsInCondition() {
-    doTest("@[?(@.attr in [1, 2, 3])]", """
+    lexer.doTest("@[?(@.attr in [1, 2, 3])]", """
       @ ('@')
       [ ('[')
       ? ('?')
@@ -415,8 +424,9 @@ class JsonPathLexerTest : LexerTestCase() {
     """.trimIndent())
   }
 
+  @Test
   fun testObjectLiteralsInCondition() {
-    doTest("\$[?(@.attr in {'a': 1, 'b': { }, 'c': [1, 2]})]", """
+    lexer.doTest("\$[?(@.attr in {'a': 1, 'b': { }, 'c': [1, 2]})]", """
       $ROOT ('${'$'}')
       [ ('[')
       ? ('?')
@@ -457,8 +467,9 @@ class JsonPathLexerTest : LexerTestCase() {
     """.trimIndent())
   }
 
+  @Test
   fun testNamedOperator() {
-    doTest("\$.x[?(@.a in \$.b)].in.avg()", """
+    lexer.doTest("\$.x[?(@.a in \$.b)].in.avg()", """
       $ROOT ('$ROOT')
       . ('.')
       IDENTIFIER ('x')
@@ -485,8 +496,9 @@ class JsonPathLexerTest : LexerTestCase() {
     """.trimIndent())
   }
 
+  @Test
   fun testArrayOnTheLeft() {
-    doTest("@[?([1] contains 1)]", """
+    lexer.doTest("@[?([1] contains 1)]", """
       @ ('@')
       [ ('[')
       ? ('?')
