@@ -10,6 +10,7 @@ import java.io.IOException
 import java.nio.file.Path
 import kotlin.io.path.readText
 
+@Deprecated("Use the JUnit 5 syntaxLexerFixture from intellij.platform.testFramework.junit5.codeInsight")
 abstract class LexerTestCase : UsefulTestCase() {
   protected abstract val dirPath: String
 
