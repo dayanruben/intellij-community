@@ -1,25 +1,25 @@
 package com.intellij.mermaid.lang.lexer
 
-import com.intellij.lexer.Lexer
 import com.intellij.mermaid.lang.MermaidTestingUtil
-import com.intellij.testFramework.LexerTestCase
+import com.intellij.platform.testFramework.junit5.codeInsight.fixture.lexerFixture
+import com.intellij.testFramework.PlatformTestUtil
+import com.intellij.testFramework.junit5.fixture.TestFixtures
 
-abstract class MermaidLexerTestCase : LexerTestCase() {
+@TestFixtures
+abstract class MermaidLexerTestCase {
   abstract val diagramName: String
 
-  override fun createLexer(): Lexer {
-    return MermaidLexer()
-  }
+  private val dirPath = "${MermaidTestingUtil.TEST_DATA_PATH}/lexer"
 
-  override fun getDirPath(): String {
-    return "${MermaidTestingUtil.TEST_DATA_PATH}/lexer"
-  }
+  private val lexer by lexerFixture(dirPath) { MermaidLexer() }
 
-  override fun getPathToTestDataFile(extension: String): String {
-    return dirPath + "/" + diagramName + "/" + getTestName(true) + extension
-  }
-
-  override fun getTestName(lowercaseFirstLetter: Boolean): String {
-    return MermaidTestingUtil.getTestName(name, lowercaseFirstLetter)
+  protected fun doTest(text: String, expected: String? = null) {
+    if (expected != null) {
+      lexer.doTest(text, expected)
+      return
+    }
+    val testName = lexer.testName.trimStart().replace(' ', '_')
+    PlatformTestUtil.assertSameLinesWithFile("$dirPath/$diagramName/$testName.txt", lexer.printTokens(text, 0))
+    lexer.checkCorrectRestart(text)
   }
 }

@@ -1,9 +1,12 @@
 package com.intellij.mermaid.lang.lexer
 
+import org.junit.jupiter.api.Test
+
 class XYChartTest : MermaidLexerTestCase() {
   override val diagramName: String
     get() = "xychart"
 
+  @Test
   fun `test simple xychart`() {
     val content = """
       xychart-beta

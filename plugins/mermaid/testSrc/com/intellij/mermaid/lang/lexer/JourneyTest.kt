@@ -1,9 +1,12 @@
 package com.intellij.mermaid.lang.lexer
 
+import org.junit.jupiter.api.Test
+
 class JourneyTest : MermaidLexerTestCase() {
   override val diagramName: String
     get() = "journey"
 
+  @Test
   fun `test simple journey title and section title`() {
     val content = """
     journey
@@ -13,6 +16,7 @@ class JourneyTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test journey title and section title with whitespaces`() {
     val content = """
     journey
@@ -22,6 +26,7 @@ class JourneyTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test journey title and section title with whitespaces and sharp`() {
     val content = """
     journey
@@ -32,6 +37,7 @@ class JourneyTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test journey with one section and tasks`() {
     val content = """
     journey
@@ -43,6 +49,7 @@ class JourneyTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test journey with sharp after task`() {
     val content = """
     journey
@@ -53,6 +60,7 @@ class JourneyTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test journey with sharp in task`() {
     val content = """
     journey
@@ -63,6 +71,7 @@ class JourneyTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test journey with two sections`() {
     val content = """
     journey
@@ -75,6 +84,7 @@ class JourneyTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test journey task with whitespaces`() {
     val content = """
     journey
@@ -85,6 +95,7 @@ class JourneyTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test journey`() {
     val content = """
     journey
@@ -95,6 +106,7 @@ class JourneyTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test journey with comments`() {
     val content = """
     journey %% This is comment 

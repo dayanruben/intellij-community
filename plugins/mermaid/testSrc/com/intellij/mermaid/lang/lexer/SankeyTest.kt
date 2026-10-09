@@ -1,9 +1,12 @@
 package com.intellij.mermaid.lang.lexer
 
+import org.junit.jupiter.api.Test
+
 class SankeyTest : MermaidLexerTestCase() {
   override val diagramName: String
     get() = "sankey"
 
+  @Test
   fun `test sankey`() {
     val content = """
       sankey-beta

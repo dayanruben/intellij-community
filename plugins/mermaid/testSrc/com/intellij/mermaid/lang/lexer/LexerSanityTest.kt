@@ -1,9 +1,12 @@
 package com.intellij.mermaid.lang.lexer
 
+import org.junit.jupiter.api.Test
+
 class LexerSanityTest: MermaidLexerTestCase() {
   override val diagramName: String
     get() = "common"
 
+  @Test
   fun `test line comment`() {
     val content = """
     %% This is comment
@@ -11,6 +14,7 @@ class LexerSanityTest: MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test line comment not eating next newline`() {
     val content = """
     %% This is comment
@@ -19,6 +23,7 @@ class LexerSanityTest: MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test empty directive`() {
     val content = """
     %%{}%%
@@ -26,6 +31,7 @@ class LexerSanityTest: MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test empty directive with whitespaces`() {
     val content = """
     %%{    }%%
@@ -33,6 +39,7 @@ class LexerSanityTest: MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test directive with single simple numeric property`() {
     val content = """
     %%{ some: 42 }%%
@@ -40,6 +47,7 @@ class LexerSanityTest: MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test directive with single simple quoted property`() {
     val content = """
     %%{ some: "42" }%%
@@ -47,6 +55,7 @@ class LexerSanityTest: MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test directive with multiple simple properties`() {
     val content = """
     %%{ some: "42", other: 42, more: "value" }%%
@@ -54,6 +63,7 @@ class LexerSanityTest: MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test directive with single simple property and whitespaces and newlines`() {
     val content = """
     %%{   some
@@ -70,6 +80,7 @@ class LexerSanityTest: MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test packet diagram`() {
     val content = """
     packet-beta
@@ -78,6 +89,7 @@ class LexerSanityTest: MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test architecture diagram`() {
     val content = """
     architecture-beta
@@ -86,6 +98,7 @@ class LexerSanityTest: MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test kanban diagram`() {
     val content = """
     kanban
@@ -95,6 +108,7 @@ class LexerSanityTest: MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test bare sankey spelling`() {
     val content = """
     sankey
@@ -103,6 +117,7 @@ class LexerSanityTest: MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test bare xychart spelling`() {
     val content = """
     xychart
@@ -111,6 +126,7 @@ class LexerSanityTest: MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test bare block spelling`() {
     val content = """
     block
@@ -119,6 +135,7 @@ class LexerSanityTest: MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test railroad diagram variant`() {
     val content = """
     railroad-ebnf-beta
@@ -127,6 +144,7 @@ class LexerSanityTest: MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test cynefin diagram`() {
     val content = """
     cynefin-beta
@@ -138,6 +156,7 @@ class LexerSanityTest: MermaidLexerTestCase() {
 
   // The point of the generic fallback: an unmodelled family still gets comments, accessibility
   // statements and frontmatter rather than turning the whole file into one error.
+  @Test
   fun `test generic diagram keeps comments and acc statements`() {
     val content = """
     treemap-beta
@@ -148,6 +167,7 @@ class LexerSanityTest: MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test generic diagram after frontmatter`() {
     val content = """
     ---
@@ -161,6 +181,7 @@ class LexerSanityTest: MermaidLexerTestCase() {
 
   // swimlane-beta reuses the flowchart grammar rather than the generic fallback, because upstream has no
   // swimlane parser of its own.
+  @Test
   fun `test swimlane reuses flowchart`() {
     val content = """
     swimlane-beta LR
@@ -169,6 +190,7 @@ class LexerSanityTest: MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test bare requirement spelling`() {
     val content = """
     requirement

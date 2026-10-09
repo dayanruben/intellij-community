@@ -1,9 +1,12 @@
 package com.intellij.mermaid.lang.lexer
 
+import org.junit.jupiter.api.Test
+
 class StateTest : MermaidLexerTestCase() {
   override val diagramName: String
     get() = "state"
 
+  @Test
   fun `test different state definition`() {
     val content = """
     stateDiagram-v2
@@ -14,6 +17,7 @@ class StateTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test transitions`() {
     val content = """
     stateDiagram-v2
@@ -23,6 +27,7 @@ class StateTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test special start and end states`() {
     val content = """
     stateDiagram-v2
@@ -32,6 +37,7 @@ class StateTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test composite states`() {
     val content = """
     stateDiagram-v2
@@ -51,6 +57,7 @@ class StateTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test state annotation`() {
     val content = """
     stateDiagram-v2
@@ -67,6 +74,7 @@ class StateTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test notes`() {
     val content = """
     stateDiagram-v2
@@ -81,6 +89,7 @@ class StateTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test diagram with concurrency`() {
     val content = """
     stateDiagram-v2
@@ -97,6 +106,7 @@ class StateTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test direction`() {
     val content = """
     stateDiagram
@@ -111,6 +121,7 @@ class StateTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test comments`() {
     val content = """
     %% this is a comment
@@ -125,6 +136,7 @@ class StateTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test class def`() {
     val content = """
     stateDiagram-v2

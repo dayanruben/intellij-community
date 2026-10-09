@@ -1,9 +1,12 @@
 package com.intellij.mermaid.lang.lexer
 
+import org.junit.jupiter.api.Test
+
 class PieTest: MermaidLexerTestCase() {
   override val diagramName: String
     get() = "pie"
 
+  @Test
   fun `test pie with title with newline at the end`() {
     val content = """
     pie
@@ -13,6 +16,7 @@ class PieTest: MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test with value and newlines`() {
     val content = """
     pie
@@ -25,6 +29,7 @@ class PieTest: MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test full complex`() {
     val content = """
     pie %% This is comment

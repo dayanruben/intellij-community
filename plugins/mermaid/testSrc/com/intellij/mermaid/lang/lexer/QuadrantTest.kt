@@ -1,9 +1,12 @@
 package com.intellij.mermaid.lang.lexer
 
+import org.junit.jupiter.api.Test
+
 class QuadrantTest : MermaidLexerTestCase() {
   override val diagramName: String
     get() = "quadrant"
 
+  @Test
   fun `test simple quadrant`() {
     val content = """
       quadrantChart

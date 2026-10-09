@@ -1,9 +1,12 @@
 package com.intellij.mermaid.lang.lexer
 
+import org.junit.jupiter.api.Test
+
 class GitGraphTest : MermaidLexerTestCase() {
   override val diagramName: String
     get() = "gitGraph"
 
+  @Test
   fun `test simple git graph`() {
     val content = """
     gitGraph
@@ -21,6 +24,7 @@ class GitGraphTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test commit id`() {
     val content = """
     gitGraph
@@ -29,6 +33,7 @@ class GitGraphTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test commit type`() {
     val content = """
     gitGraph
@@ -39,6 +44,7 @@ class GitGraphTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test commit tags`() {
     val content = """
     gitGraph
@@ -49,6 +55,7 @@ class GitGraphTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test cherry pick`() {
     val content = """
     gitGraph
@@ -57,6 +64,7 @@ class GitGraphTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test order`() {
     val content = """
     gitGraph
@@ -65,6 +73,7 @@ class GitGraphTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test merge`() {
     val content = """
     gitGraph
@@ -80,6 +89,7 @@ class GitGraphTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test quoted branch names`() {
     val content = """
     gitGraph
@@ -93,6 +103,7 @@ class GitGraphTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test colon`() {
     val content = """
     gitGraph:
@@ -101,6 +112,7 @@ class GitGraphTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test dir`() {
     val content = """
     gitGraph LR:
@@ -109,6 +121,7 @@ class GitGraphTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test another dir`() {
     val content = """
     gitGraph TB:

@@ -1,9 +1,12 @@
 package com.intellij.mermaid.lang.lexer
 
+import org.junit.jupiter.api.Test
+
 class ClassDiagramTest : MermaidLexerTestCase() {
   override val diagramName: String
     get() = "class"
 
+  @Test
   fun `test simple class definition`() {
     val content = """
     classDiagram
@@ -14,6 +17,7 @@ class ClassDiagramTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test class definition in brackets`() {
     val content = """
     classDiagram
@@ -25,6 +29,7 @@ class ClassDiagramTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test class with generics`() {
     val content = """
     classDiagram
@@ -41,6 +46,7 @@ class ClassDiagramTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test identifiers at end of member`() {
     val content = """
     classDiagram
@@ -51,6 +57,7 @@ class ClassDiagramTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test class relationships RL`() {
     val content = """
     classDiagram
@@ -66,6 +73,7 @@ class ClassDiagramTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test class relationships LR`() {
     val content = """
     classDiagram
@@ -81,6 +89,7 @@ class ClassDiagramTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test class relationships RL without spaces`() {
     val content = """
     classDiagram
@@ -114,6 +123,7 @@ class ClassDiagramTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test class relationships LR without spaces`() {
     val content = """
     classDiagram
@@ -147,6 +157,7 @@ class ClassDiagramTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test class two-way relationship`() {
     val content = """
     classDiagram
@@ -155,6 +166,7 @@ class ClassDiagramTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test class relationship with label`() {
     val content = """
     classDiagram
@@ -163,6 +175,7 @@ class ClassDiagramTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test class relationship with cardinality`() {
     val content = """
     classDiagram
@@ -173,6 +186,7 @@ class ClassDiagramTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test class with annotation`() {
     val content = """
     classDiagram
@@ -185,6 +199,7 @@ class ClassDiagramTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test class with annotation in struct`() {
     val content = """
     classDiagram
@@ -197,6 +212,7 @@ class ClassDiagramTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test class with direction`() {
     val content = """
     classDiagram
@@ -208,6 +224,7 @@ class ClassDiagramTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test class with style`() {
     val content = """
     classDiagram
@@ -219,6 +236,7 @@ class ClassDiagramTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test click statements`() {
     val content = """
     classDiagram
@@ -233,6 +251,7 @@ class ClassDiagramTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test class attributes with square parenthesis`() {
     val content = """
     classDiagram
@@ -250,6 +269,7 @@ class ClassDiagramTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test complex attribute`() {
     val content = """
     classDiagram
@@ -263,6 +283,7 @@ class ClassDiagramTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test notes`() {
     val content = """
     classDiagram
@@ -281,6 +302,7 @@ class ClassDiagramTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test class labels`() {
     val content = """
     classDiagram
@@ -291,6 +313,7 @@ class ClassDiagramTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test backticks`() {
     val content = """
     classDiagram
@@ -301,6 +324,7 @@ class ClassDiagramTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test hyphens in names`() {
     val content = """
     classDiagram
@@ -311,6 +335,7 @@ class ClassDiagramTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test namespace`() {
     val content = """
     classDiagram
@@ -325,6 +350,7 @@ class ClassDiagramTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test namespace after class`() {
     val content = """
     classDiagram
@@ -340,6 +366,7 @@ class ClassDiagramTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test keywords in identifiers`() {
     val keywords = listOf(
       "direction",

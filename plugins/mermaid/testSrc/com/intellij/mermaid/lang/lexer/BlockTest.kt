@@ -1,9 +1,12 @@
 package com.intellij.mermaid.lang.lexer
 
+import org.junit.jupiter.api.Test
+
 class BlockTest : MermaidLexerTestCase() {
   override val diagramName: String
     get() = "block"
 
+  @Test
   fun `test complex block diagram`() {
     val content = """
       block-beta

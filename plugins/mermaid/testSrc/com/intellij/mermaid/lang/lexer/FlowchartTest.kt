@@ -1,9 +1,12 @@
 package com.intellij.mermaid.lang.lexer
 
+import org.junit.jupiter.api.Test
+
 class FlowchartTest : MermaidLexerTestCase() {
   override val diagramName: String
     get() = "flowchart"
 
+  @Test
   fun `test simple flowchart`() {
     val content = """
     flowchart TD
@@ -12,6 +15,7 @@ class FlowchartTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test flowchart node with shape metadata`() {
     val content = """
     flowchart TD
@@ -20,6 +24,7 @@ class FlowchartTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test flowchart edge with id and animation`() {
     val content = """
     flowchart LR
@@ -29,6 +34,7 @@ class FlowchartTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test flowchart node metadata without spaces`() {
     val content = """
     flowchart RL
@@ -37,6 +43,7 @@ class FlowchartTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test flowchart node metadata spanning lines`() {
     val content = """
     flowchart TD
@@ -48,6 +55,7 @@ class FlowchartTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test flowchart node metadata with numeric and url values`() {
     val content = """
     flowchart TD
@@ -56,6 +64,7 @@ class FlowchartTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test flowchart with named nodes`() {
     val content = """
     flowchart TD
@@ -64,6 +73,7 @@ class FlowchartTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test flowchart with troubled name`() {
     val content = """
     flowchart TD
@@ -72,6 +82,7 @@ class FlowchartTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test flowchart with link text`() {
     val content = """
     flowchart TD
@@ -80,6 +91,7 @@ class FlowchartTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test flowchart with arrow link and text`() {
     val content = """
     flowchart TD
@@ -88,6 +100,7 @@ class FlowchartTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test flowchart with link text in the end`() {
     val content = """
     flowchart LR
@@ -96,6 +109,7 @@ class FlowchartTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test flowchart with link with arrow head and text`() {
     val content = """
     flowchart LR
@@ -104,6 +118,7 @@ class FlowchartTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test flowchart with dotted link with text`() {
     val content = """
     flowchart TD
@@ -112,6 +127,7 @@ class FlowchartTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test flowchart with chaining of links`() {
     val content = """
     flowchart TD
@@ -120,6 +136,7 @@ class FlowchartTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test flowchart with another chaining of links`() {
     val content = """
     flowchart TD
@@ -128,6 +145,7 @@ class FlowchartTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test flowchart with ampersand chaining of nodes`() {
     val content = """
     flowchart LR
@@ -136,6 +154,7 @@ class FlowchartTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test flowchart with multi directional arrows`() {
     val content = """
     flowchart LR
@@ -146,6 +165,7 @@ class FlowchartTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test flowchart with subgraphs`() {
     val content = """
     flowchart TB
@@ -166,6 +186,7 @@ class FlowchartTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test flowchart with complex subgraphs`() {
     val content = """
     flowchart LR
@@ -186,6 +207,7 @@ class FlowchartTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test flowchart with semicolon sep`() {
     val content = """
     flowchart LR
@@ -194,6 +216,7 @@ class FlowchartTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test flowchart with styles`() {
     val content = """
     flowchart LR
@@ -211,6 +234,7 @@ class FlowchartTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test flowchart with comments`() {
     val content = """
     flowchart TD %% This is comment
@@ -220,6 +244,7 @@ class FlowchartTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test click statements`() {
     val content = """
     flowchart LR
@@ -241,6 +266,7 @@ class FlowchartTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test frontmatter`() {
     val content = """
     ---
@@ -253,6 +279,7 @@ class FlowchartTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test shapes with slashes`() {
     val content = """
     flowchart
@@ -279,6 +306,7 @@ class FlowchartTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test node called default`() {
     val content = """
     graph TD
@@ -288,6 +316,7 @@ class FlowchartTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test style for node called default`() {
     val content = """
     flowchart TD

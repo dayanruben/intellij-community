@@ -1,9 +1,12 @@
 package com.intellij.mermaid.lang.lexer
 
+import org.junit.jupiter.api.Test
+
 class MindmapTest : MermaidLexerTestCase() {
   override val diagramName: String
     get() = "mindmap"
 
+  @Test
   fun `test simple`() {
     val content = """
     mindmap
@@ -15,6 +18,7 @@ class MindmapTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test node shapes`() {
     val content = """
     mindmap
@@ -30,6 +34,7 @@ class MindmapTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test double quoted node description`() {
     val content = """
     mindmap
@@ -38,6 +43,7 @@ class MindmapTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test icons`() {
     val content = """
     mindmap
@@ -50,6 +56,7 @@ class MindmapTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test classes`() {
     val content = """
     mindmap
@@ -62,6 +69,7 @@ class MindmapTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test id with colon`() {
     val content = """
     mindmap
@@ -80,6 +88,7 @@ class MindmapTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test comments`() {
     val content = """
     mindmap

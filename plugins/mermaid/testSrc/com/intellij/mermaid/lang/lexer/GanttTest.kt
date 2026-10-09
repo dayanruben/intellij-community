@@ -1,9 +1,12 @@
 package com.intellij.mermaid.lang.lexer
 
+import org.junit.jupiter.api.Test
+
 class GanttTest : MermaidLexerTestCase() {
   override val diagramName: String
     get() = "gantt"
 
+  @Test
   fun `test simple gantt`() {
     val content = """
     gantt
@@ -19,6 +22,7 @@ class GanttTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test full complex`() {
     val content = """
     gantt
@@ -55,6 +59,7 @@ class GanttTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test click statements`() {
     val content = """
     gantt
@@ -69,6 +74,7 @@ class GanttTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test today marker`() {
     val content = """
     gantt
@@ -78,6 +84,7 @@ class GanttTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test tickInterval`() {
     val content = """
     gantt

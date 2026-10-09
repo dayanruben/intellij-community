@@ -1,9 +1,12 @@
 package com.intellij.mermaid.lang.lexer
 
+import org.junit.jupiter.api.Test
+
 class SequenceTest : MermaidLexerTestCase() {
   override val diagramName: String
     get() = "sequence"
 
+  @Test
   fun `test simple sequence`() {
     val content = """
     sequenceDiagram
@@ -14,6 +17,7 @@ class SequenceTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test sequence with activations`() {
     val content = """
     sequenceDiagram
@@ -25,6 +29,7 @@ class SequenceTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test sequence with short activations`() {
     val content = """
     sequenceDiagram
@@ -34,6 +39,7 @@ class SequenceTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test sequence with notes`() {
     val content = """
     sequenceDiagram
@@ -45,6 +51,7 @@ class SequenceTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test sequence with comments`() {
     val content = """
     sequenceDiagram %% this is a comment
@@ -56,6 +63,7 @@ class SequenceTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test sequence with json formatted link`() {
     val content = """
     sequenceDiagram
@@ -65,6 +73,7 @@ class SequenceTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test sequence with loop`() {
     val content = """
     sequenceDiagram
@@ -76,6 +85,7 @@ class SequenceTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test autonumber`() {
     val content = """
     sequenceDiagram
@@ -87,6 +97,7 @@ class SequenceTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test critical region`() {
     val content = """
     sequenceDiagram
@@ -101,6 +112,7 @@ class SequenceTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test break`() {
     val content = """
     sequenceDiagram
@@ -114,6 +126,7 @@ class SequenceTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test actors names with dash`() {
     val content = """
     sequenceDiagram
@@ -124,6 +137,7 @@ class SequenceTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test box`() {
     val content = """
     sequenceDiagram
@@ -143,6 +157,7 @@ class SequenceTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test par_over`() {
     val content = """
     sequenceDiagram
@@ -166,6 +181,7 @@ class SequenceTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test different signals and spacing`() {
     val content = """
     sequenceDiagram
@@ -192,6 +208,7 @@ class SequenceTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test directives`() {
     val content = """
     %%{init: { "theme": "forest"}}%%
@@ -205,6 +222,7 @@ class SequenceTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test entity codes`() {
     val content = """
     sequenceDiagram

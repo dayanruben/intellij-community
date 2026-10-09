@@ -1,9 +1,12 @@
 package com.intellij.mermaid.lang.lexer
 
+import org.junit.jupiter.api.Test
+
 class RequirementTest : MermaidLexerTestCase() {
   override val diagramName: String
     get() = "requirement"
 
+  @Test
   fun `test simple class requirement diagram`() {
     val content = """
     requirementDiagram
@@ -22,6 +25,7 @@ class RequirementTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test full complex requirement diagram`() {
     val content = """
     requirementDiagram

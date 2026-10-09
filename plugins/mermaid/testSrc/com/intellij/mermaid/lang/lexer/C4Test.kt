@@ -1,9 +1,12 @@
 package com.intellij.mermaid.lang.lexer
 
+import org.junit.jupiter.api.Test
+
 class C4Test : MermaidLexerTestCase() {
   override val diagramName: String
     get() = "c4"
 
+  @Test
   fun `test c4 context`() {
     val content = """
     C4Context
@@ -52,6 +55,7 @@ class C4Test : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test c4 container`() {
     val content = """
     C4Container
@@ -93,6 +97,7 @@ class C4Test : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test c4 component`() {
     val content = """
     C4Component
@@ -135,6 +140,7 @@ class C4Test : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test c4 dynamic`() {
     val content = """
     C4Dynamic
@@ -157,6 +163,7 @@ class C4Test : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test c4 deployment`() {
     val content = """
     C4Deployment

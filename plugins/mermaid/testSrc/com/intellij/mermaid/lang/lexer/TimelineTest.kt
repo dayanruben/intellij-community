@@ -1,9 +1,12 @@
 package com.intellij.mermaid.lang.lexer
 
+import org.junit.jupiter.api.Test
+
 class TimelineTest : MermaidLexerTestCase() {
   override val diagramName: String
     get() = "timeline"
 
+  @Test
   fun `test simple timeline`() {
     val content = """
     timeline
@@ -17,6 +20,7 @@ class TimelineTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test complex timeline`() {
     val content = """
     timeline
@@ -32,6 +36,7 @@ class TimelineTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test with ignored tokens`() {
     val content = """
     timeline

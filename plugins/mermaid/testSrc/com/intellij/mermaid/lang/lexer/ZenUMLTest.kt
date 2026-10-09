@@ -1,9 +1,12 @@
 package com.intellij.mermaid.lang.lexer
 
+import org.junit.jupiter.api.Test
+
 class ZenUMLTest : MermaidLexerTestCase() {
   override val diagramName: String
     get() = "zenUML"
 
+  @Test
   fun `test zenUML`() {
     val content = """
     zenuml

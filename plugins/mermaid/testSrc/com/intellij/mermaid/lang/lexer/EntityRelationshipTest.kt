@@ -1,8 +1,11 @@
 package com.intellij.mermaid.lang.lexer
 
+import org.junit.jupiter.api.Test
+
 class EntityRelationshipTest : MermaidLexerTestCase() {
   // Regression guard: `direction` is only a keyword when a direction value follows, so an entity may be
   // called `direction`. Matches upstream, which requires the value too.
+  @Test
   fun `test entity named direction`() {
     val content = """
     erDiagram
@@ -14,6 +17,7 @@ class EntityRelationshipTest : MermaidLexerTestCase() {
   override val diagramName: String
     get() = "entityRelationship"
 
+  @Test
   fun `test simple entity relationship`() {
     val content = """
     erDiagram
@@ -24,6 +28,7 @@ class EntityRelationshipTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test entity with attributes`() {
     val content = """
     erDiagram
@@ -38,6 +43,7 @@ class EntityRelationshipTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test entity with attribute keys and comments`() {
     val content = """
     erDiagram
@@ -53,6 +59,7 @@ class EntityRelationshipTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test entity relationship with double quoted label`() {
     val content = """
     erDiagram
@@ -62,6 +69,7 @@ class EntityRelationshipTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test entity names with double quotes`() {
     val content = """
     erDiagram
@@ -79,6 +87,7 @@ class EntityRelationshipTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test cardinality aliases`() {
     val content = """
     erDiagram
@@ -89,6 +98,7 @@ class EntityRelationshipTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test attr keys`() {
     val content = """
     erDiagram
@@ -100,6 +110,7 @@ class EntityRelationshipTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test parent-child relationship`() {
     val content = """
     erDiagram
@@ -109,6 +120,7 @@ class EntityRelationshipTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test keyword in attribute`() {
     val content = """
     erDiagram
@@ -117,6 +129,7 @@ class EntityRelationshipTest : MermaidLexerTestCase() {
     doTest(content)
   }
 
+  @Test
   fun `test entity alias`() {
     val content = """
     erDiagram
