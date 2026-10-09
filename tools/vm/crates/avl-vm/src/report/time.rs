@@ -106,6 +106,9 @@ pub(crate) struct Relaunches {
     pub(crate) total_ms: f64,
     /// By span key: `restart:ide` and `restart:recycle`.
     pub(crate) by_key: BTreeMap<String, KeyTime>,
+    /// The `relaunch` spans by key, such as `relaunch:quit/exit` or `relaunch:ready/phase`: where the time of the
+    /// relaunches went.
+    pub(crate) parts: BTreeMap<String, KeyTime>,
 }
 
 /// The count and the time of the spans of one key.
@@ -397,6 +400,11 @@ fn measure(files: &RunFiles) -> RunTime {
                 by_key.count += 1;
                 by_key.total_ms += span.duration_ms;
             }
+            if span.kind.as_deref() == Some(SpanKind::Relaunch.as_str()) {
+                let part = relaunches.parts.entry(span.key.clone()).or_default();
+                part.count += 1;
+                part.total_ms += span.duration_ms;
+            }
             let under = children.get(span.id.as_str()).copied().unwrap_or(0.0);
             // The self time of the root is the time of the scenario outside every lane span.
             let title = if span.parent.is_empty() {
@@ -575,6 +583,22 @@ impl TimeReport {
         );
         for (key, time) in &run.relaunches.by_key {
             let _ = writeln!(text, "    {key:<22}{:>9}  {}", seconds(time.total_ms), time.count);
+        }
+        if !run.relaunches.parts.is_empty() {
+            text.push_str(
+                "the parts of the relaunches
+",
+            );
+            for (key, time) in &run.relaunches.parts {
+                let average = time.total_ms / time.count.max(1) as f64;
+                let _ = writeln!(
+                    text,
+                    "  {key:<28}{:>9}  {}, {} each",
+                    seconds(time.total_ms),
+                    counted(time.count, "span"),
+                    seconds(average)
+                );
+            }
         }
         if !run.top_cases.is_empty() {
             text.push_str("the longest test cases\n");

@@ -363,6 +363,11 @@ fn a_run_is_its_cases_the_time_around_them_its_launches_and_its_relaunches() {
     assert_eq!(run.bundles, 2, "the zip the report and the journal both name is read once");
     assert_eq!((run.relaunches.count, secs(run.relaunches.total_ms)), (1, "125.0".to_owned()));
     assert_eq!(run.relaunches.by_key.keys().collect::<Vec<_>>(), ["restart:ide"]);
+    assert_eq!(
+        run.relaunches.parts.keys().collect::<Vec<_>>(),
+        ["relaunch:quit", "relaunch:quit/exit", "relaunch:ready"]
+    );
+    assert_eq!(secs(run.relaunches.parts["relaunch:quit/exit"].total_ms), "119.0");
     assert_eq!(run.top_cases[0].name, "keep-session-read-state");
     let quit_exit = run.top_spans.iter().find(|span| span.key == "relaunch:quit/exit").unwrap();
     assert_eq!(
@@ -391,6 +396,10 @@ fn a_run_is_its_cases_the_time_around_them_its_launches_and_its_relaunches() {
           IDE launches                    4  3 exits
           relaunches                 125.0s  1 restart span in 2 bundles
             restart:ide              125.0s  1
+        the parts of the relaunches
+          relaunch:quit                  120.0s  1 span, 120.0s each
+          relaunch:quit/exit             119.0s  1 span, 119.0s each
+          relaunch:ready                   5.0s  1 span, 5.0s each
         the longest test cases
              412.3s  AirSessionReadStateGeneratedFlowUiTest  keep-session-read-state
              389.0s  AirRenameSessionGeneratedFlowUiTest  rename-closed-project-session
@@ -441,6 +450,10 @@ fn a_baseline_adds_the_ratio_of_each_class_and_the_median_over_the_classes_above
           IDE launches                    4  3 exits
           relaunches                 125.0s  1 restart span in 2 bundles
             restart:ide              125.0s  1
+        the parts of the relaunches
+          relaunch:quit                  120.0s  1 span, 120.0s each
+          relaunch:quit/exit             119.0s  1 span, 119.0s each
+          relaunch:ready                   5.0s  1 span, 5.0s each
         the longest test cases
              412.3s  AirSessionReadStateGeneratedFlowUiTest  keep-session-read-state
              389.0s  AirRenameSessionGeneratedFlowUiTest  rename-closed-project-session

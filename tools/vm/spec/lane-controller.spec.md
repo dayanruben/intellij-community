@@ -471,8 +471,9 @@ The daemon's half and the IDE's half of supervision are in
 - `report time <run or iteration>` says where the time of a run went. It reads the journal of the run, the report of
   each iteration and the spans of the trace bundles, and needs no worker. The answer is the total, and the time
   inside the test cases and outside them. It adds the launches of the lane IDE and the time of the `restart` spans.
-  It also names the ten longest test cases and the ten lane spans with the most self time. An iteration id names
-  that iteration of the newest run that reported it. A file that cannot be read is a note of the answer.
+  It shows the time of each `relaunch` part, such as the wait for the process. It also names the ten longest test
+  cases and the ten lane spans with the most self time. An iteration id names that iteration of the newest run that
+  reported it. A file that cannot be read is a note of the answer.
   [@test] ../crates/avl-vm/src/report/time/tests.rs
   [@test] ../crates/avl-vm/src/cli/tests.rs
 
