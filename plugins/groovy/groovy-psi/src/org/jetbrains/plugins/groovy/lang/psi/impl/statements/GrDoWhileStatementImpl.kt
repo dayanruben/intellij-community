@@ -1,13 +1,12 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
-package org.jetbrains.plugins.groovy.lang.psi.impl
+package org.jetbrains.plugins.groovy.lang.psi.impl.statements
 
 import com.intellij.lang.ASTNode
 import com.intellij.psi.PsiElement
 import org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.KW_DO
 import org.jetbrains.plugins.groovy.lang.psi.GroovyElementVisitor
-import org.jetbrains.plugins.groovy.lang.psi.api.GrDoWhileStatement
+import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrDoWhileStatement
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrStatement
-import org.jetbrains.plugins.groovy.lang.psi.impl.statements.GrWhileStatementBase
 import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil.skipWhitespacesAndComments
 
 internal class GrDoWhileStatementImpl(node: ASTNode) : GrWhileStatementBase(node), GrDoWhileStatement {

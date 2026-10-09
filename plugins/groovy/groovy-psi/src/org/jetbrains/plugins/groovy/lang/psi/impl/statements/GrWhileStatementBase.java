@@ -18,9 +18,9 @@ import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil;
 /**
  * @author Bas Leijdekkers
  */
-public abstract class GrWhileStatementBase extends GroovyPsiElementImpl implements GrLoopStatement, GrControlStatement {
+abstract class GrWhileStatementBase extends GroovyPsiElementImpl implements GrLoopStatement, GrControlStatement {
 
-  public GrWhileStatementBase(@NotNull ASTNode node) {
+  GrWhileStatementBase(@NotNull ASTNode node) {
     super(node);
   }
 

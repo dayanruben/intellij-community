@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.groovy.codeInspection.style
 
 import com.intellij.codeInspection.CleanupLocalInspectionTool
@@ -8,7 +8,7 @@ import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiElementVisitor
 import org.jetbrains.plugins.groovy.GroovyBundle
 import org.jetbrains.plugins.groovy.codeInspection.fixes.RemoveElementQuickFix
-import org.jetbrains.plugins.groovy.lang.psi.api.GrImportAlias
+import org.jetbrains.plugins.groovy.lang.psi.api.toplevel.imports.GrImportAlias
 import org.jetbrains.plugins.groovy.lang.psi.api.toplevel.imports.GrImportStatement
 
 class GrUnnecessaryAliasInspection : LocalInspectionTool(), CleanupLocalInspectionTool {
