@@ -1,10 +1,11 @@
 package com.intellij.mermaid.lang.lexer
 
+import com.intellij.testFramework.junit5.fixture.TestFixtures
 import org.junit.jupiter.api.Test
 
-class JourneyTest : MermaidLexerTestCase() {
-  override val diagramName: String
-    get() = "journey"
+@TestFixtures
+class JourneyTest {
+  private val lexer by mermaidLexerFixture("journey")
 
   @Test
   fun `test simple journey title and section title`() {
@@ -13,7 +14,7 @@ class JourneyTest : MermaidLexerTestCase() {
       title My working day
       section Go to work
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -23,7 +24,7 @@ class JourneyTest : MermaidLexerTestCase() {
       title     My working day
       section       Go to work
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -34,7 +35,7 @@ class JourneyTest : MermaidLexerTestCase() {
       section       Go to# work
     
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -46,7 +47,7 @@ class JourneyTest : MermaidLexerTestCase() {
         Make tea: 5: Me
         Go upstairs: 3: Me
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -57,7 +58,7 @@ class JourneyTest : MermaidLexerTestCase() {
       section Go to work
         Make tea: 5: Me#123
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -68,7 +69,7 @@ class JourneyTest : MermaidLexerTestCase() {
       section Go to work
         Make tea: #5: Me
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -81,7 +82,7 @@ class JourneyTest : MermaidLexerTestCase() {
       section Go home
         Go downstairs: 5: Me
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -92,7 +93,7 @@ class JourneyTest : MermaidLexerTestCase() {
       section Go to work
             Make tea  :    5   :   Me
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -103,7 +104,7 @@ class JourneyTest : MermaidLexerTestCase() {
       section Go to work
          : Make tea: 5: Me
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -115,6 +116,6 @@ class JourneyTest : MermaidLexerTestCase() {
         Make tea: 5: Me %% This is not comment
         %% This is comment
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 }

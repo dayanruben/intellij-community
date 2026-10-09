@@ -1,17 +1,18 @@
 package com.intellij.mermaid.lang.lexer
 
+import com.intellij.testFramework.junit5.fixture.TestFixtures
 import org.junit.jupiter.api.Test
 
-class LexerSanityTest: MermaidLexerTestCase() {
-  override val diagramName: String
-    get() = "common"
+@TestFixtures
+class LexerSanityTest {
+  private val lexer by mermaidLexerFixture("common")
 
   @Test
   fun `test line comment`() {
     val content = """
     %% This is comment
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -20,7 +21,7 @@ class LexerSanityTest: MermaidLexerTestCase() {
     %% This is comment
     
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -28,7 +29,7 @@ class LexerSanityTest: MermaidLexerTestCase() {
     val content = """
     %%{}%%
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -36,7 +37,7 @@ class LexerSanityTest: MermaidLexerTestCase() {
     val content = """
     %%{    }%%
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -44,7 +45,7 @@ class LexerSanityTest: MermaidLexerTestCase() {
     val content = """
     %%{ some: 42 }%%
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -52,7 +53,7 @@ class LexerSanityTest: MermaidLexerTestCase() {
     val content = """
     %%{ some: "42" }%%
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -60,7 +61,7 @@ class LexerSanityTest: MermaidLexerTestCase() {
     val content = """
     %%{ some: "42", other: 42, more: "value" }%%
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -77,7 +78,7 @@ class LexerSanityTest: MermaidLexerTestCase() {
          
          }%%
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -86,7 +87,7 @@ class LexerSanityTest: MermaidLexerTestCase() {
     packet-beta
       0-15: "Source Port"
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -95,7 +96,7 @@ class LexerSanityTest: MermaidLexerTestCase() {
     architecture-beta
       group api(cloud)[API]
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -105,7 +106,7 @@ class LexerSanityTest: MermaidLexerTestCase() {
       Todo
         [Create documentation]
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -114,7 +115,7 @@ class LexerSanityTest: MermaidLexerTestCase() {
     sankey
       a,b,1
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -123,7 +124,7 @@ class LexerSanityTest: MermaidLexerTestCase() {
     xychart
       line [1, 2, 3]
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -132,7 +133,7 @@ class LexerSanityTest: MermaidLexerTestCase() {
     block
       a b c
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -141,7 +142,7 @@ class LexerSanityTest: MermaidLexerTestCase() {
     railroad-ebnf-beta
       expr = term , { "+" , term } ;
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -151,7 +152,7 @@ class LexerSanityTest: MermaidLexerTestCase() {
       title Decisions
       domain complex
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   // The point of the generic fallback: an unmodelled family still gets comments, accessibility
@@ -164,7 +165,7 @@ class LexerSanityTest: MermaidLexerTestCase() {
       accTitle: Treemap title
       "Section"
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -176,7 +177,7 @@ class LexerSanityTest: MermaidLexerTestCase() {
     packet
       0-15: "Source Port"
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   // swimlane-beta reuses the flowchart grammar rather than the generic fallback, because upstream has no
@@ -187,7 +188,7 @@ class LexerSanityTest: MermaidLexerTestCase() {
     swimlane-beta LR
       A --> B
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -201,6 +202,6 @@ class LexerSanityTest: MermaidLexerTestCase() {
       verifymethod: test
       }
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 }

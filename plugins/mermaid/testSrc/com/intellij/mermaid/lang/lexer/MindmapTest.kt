@@ -1,10 +1,11 @@
 package com.intellij.mermaid.lang.lexer
 
+import com.intellij.testFramework.junit5.fixture.TestFixtures
 import org.junit.jupiter.api.Test
 
-class MindmapTest : MermaidLexerTestCase() {
-  override val diagramName: String
-    get() = "mindmap"
+@TestFixtures
+class MindmapTest {
+  private val lexer by mermaidLexerFixture("mindmap")
 
   @Test
   fun `test simple`() {
@@ -15,7 +16,7 @@ class MindmapTest : MermaidLexerTestCase() {
           B
           C    
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -31,7 +32,7 @@ class MindmapTest : MermaidLexerTestCase() {
         id{{I am a hexagon}}
         I am the default shape
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -40,7 +41,7 @@ class MindmapTest : MermaidLexerTestCase() {
     mindmap
       id["I am [(a)] square"]
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -53,7 +54,7 @@ class MindmapTest : MermaidLexerTestCase() {
         B(B)
         ::icon(mdi mdi-skull-outline)
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -66,7 +67,7 @@ class MindmapTest : MermaidLexerTestCase() {
         B(B)
         C
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -85,7 +86,7 @@ class MindmapTest : MermaidLexerTestCase() {
         :::id
         ::::id
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -98,6 +99,6 @@ class MindmapTest : MermaidLexerTestCase() {
         B(B)
         C
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 }

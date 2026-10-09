@@ -1,10 +1,11 @@
 package com.intellij.mermaid.lang.lexer
 
+import com.intellij.testFramework.junit5.fixture.TestFixtures
 import org.junit.jupiter.api.Test
 
-class C4Test : MermaidLexerTestCase() {
-  override val diagramName: String
-    get() = "c4"
+@TestFixtures
+class C4Test {
+  private val lexer by mermaidLexerFixture("c4")
 
   @Test
   fun `test c4 context`() {
@@ -52,7 +53,7 @@ class C4Test : MermaidLexerTestCase() {
       
       UpdateLayoutConfig(${'$'}c4ShapeInRow="3", ${'$'}c4BoundaryInRow="1")
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -94,7 +95,7 @@ class C4Test : MermaidLexerTestCase() {
       Rel(backend_api, banking_system, "Uses", "sync/async, XML/HTTPS")
       UpdateRelStyle(backend_api, banking_system, ${'$'}offsetY="-50", ${'$'}offsetX="-140") 
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -137,7 +138,7 @@ class C4Test : MermaidLexerTestCase() {
       UpdateRelStyle(security, db, ${'$'}offsetY="-40")
       UpdateRelStyle(mbsfacade, mbs, ${'$'}offsetY="-40")
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -160,7 +161,7 @@ class C4Test : MermaidLexerTestCase() {
       UpdateRelStyle(c2, c3, ${'$'}textColor="red", ${'$'}offsetX="-40", ${'$'}offsetY="60")
       UpdateRelStyle(c3, c4, ${'$'}textColor="red", ${'$'}offsetY="-40", ${'$'}offsetX="10")
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -215,6 +216,6 @@ class C4Test : MermaidLexerTestCase() {
       UpdateRelStyle(api, db2, ${'$'}offsetX="-40", ${'$'}offsetY="-20")
       UpdateRelStyle(db, db2, ${'$'}offsetY="-10")
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 }

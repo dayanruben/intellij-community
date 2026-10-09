@@ -1,10 +1,11 @@
 package com.intellij.mermaid.lang.lexer
 
+import com.intellij.testFramework.junit5.fixture.TestFixtures
 import org.junit.jupiter.api.Test
 
-class RequirementTest : MermaidLexerTestCase() {
-  override val diagramName: String
-    get() = "requirement"
+@TestFixtures
+class RequirementTest {
+  private val lexer by mermaidLexerFixture("requirement")
 
   @Test
   fun `test simple class requirement diagram`() {
@@ -22,7 +23,7 @@ class RequirementTest : MermaidLexerTestCase() {
   
       test_entity - satisfies -> test_req
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -94,6 +95,6 @@ class RequirementTest : MermaidLexerTestCase() {
       test_entity3 - verifies -> test_req5
       test_req <- copies - test_entity2
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 }

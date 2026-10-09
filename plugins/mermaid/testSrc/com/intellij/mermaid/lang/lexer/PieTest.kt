@@ -1,10 +1,11 @@
 package com.intellij.mermaid.lang.lexer
 
+import com.intellij.testFramework.junit5.fixture.TestFixtures
 import org.junit.jupiter.api.Test
 
-class PieTest: MermaidLexerTestCase() {
-  override val diagramName: String
-    get() = "pie"
+@TestFixtures
+class PieTest {
+  private val lexer by mermaidLexerFixture("pie")
 
   @Test
   fun `test pie with title with newline at the end`() {
@@ -13,7 +14,7 @@ class PieTest: MermaidLexerTestCase() {
       title Pets will be available
     
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -26,7 +27,7 @@ class PieTest: MermaidLexerTestCase() {
       "Dogs" : 386
     
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -37,6 +38,6 @@ class PieTest: MermaidLexerTestCase() {
       "Dogs" : 386 %% This is comment
       %% This is comment
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 }

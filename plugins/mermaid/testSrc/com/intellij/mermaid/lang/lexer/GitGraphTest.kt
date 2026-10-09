@@ -1,10 +1,11 @@
 package com.intellij.mermaid.lang.lexer
 
+import com.intellij.testFramework.junit5.fixture.TestFixtures
 import org.junit.jupiter.api.Test
 
-class GitGraphTest : MermaidLexerTestCase() {
-  override val diagramName: String
-    get() = "gitGraph"
+@TestFixtures
+class GitGraphTest {
+  private val lexer by mermaidLexerFixture("gitGraph")
 
   @Test
   fun `test simple git graph`() {
@@ -21,7 +22,7 @@ class GitGraphTest : MermaidLexerTestCase() {
       commit
       commit
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -30,7 +31,7 @@ class GitGraphTest : MermaidLexerTestCase() {
     gitGraph
       commit id: "Alpha"
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -41,7 +42,7 @@ class GitGraphTest : MermaidLexerTestCase() {
       commit id: "Reverse" type: REVERSE
       commit type: HIGHLIGHT
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -52,7 +53,7 @@ class GitGraphTest : MermaidLexerTestCase() {
       commit id: "Reverse" type: REVERSE tag: "RC_1"
       commit tag: "8.8.4" type: HIGHLIGHT id: "Highlight"
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -61,7 +62,7 @@ class GitGraphTest : MermaidLexerTestCase() {
     gitGraph
       cherry-pick id : "A"
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -70,7 +71,7 @@ class GitGraphTest : MermaidLexerTestCase() {
     gitGraph
       branch test1 order: 1
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -86,7 +87,7 @@ class GitGraphTest : MermaidLexerTestCase() {
       merge nice_feature type: REVERSE tag: "customTag" 
       commit id: "9"
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -100,7 +101,7 @@ class GitGraphTest : MermaidLexerTestCase() {
       checkout main
       merge "branch"
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -109,7 +110,7 @@ class GitGraphTest : MermaidLexerTestCase() {
     gitGraph:
       commit
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -118,7 +119,7 @@ class GitGraphTest : MermaidLexerTestCase() {
     gitGraph LR:
       commit
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -127,6 +128,6 @@ class GitGraphTest : MermaidLexerTestCase() {
     gitGraph TB:
       commit
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 }

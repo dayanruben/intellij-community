@@ -1,10 +1,11 @@
 package com.intellij.mermaid.lang.lexer
 
+import com.intellij.testFramework.junit5.fixture.TestFixtures
 import org.junit.jupiter.api.Test
 
-class TimelineTest : MermaidLexerTestCase() {
-  override val diagramName: String
-    get() = "timeline"
+@TestFixtures
+class TimelineTest {
+  private val lexer by mermaidLexerFixture("timeline")
 
   @Test
   fun `test simple timeline`() {
@@ -17,7 +18,7 @@ class TimelineTest : MermaidLexerTestCase() {
       2005 : Youtube
       2006 : Twitter
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -33,7 +34,7 @@ class TimelineTest : MermaidLexerTestCase() {
         Industry 4.0 : Internet, Robotics, Internet of Things
         Industry 5.0 : Artificial intelligence, Big data,3D printing
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -50,7 +51,7 @@ class TimelineTest : MermaidLexerTestCase() {
         #Industry 4.0 : Internet, Robotics, Internet of Things
         Industry 5.0 : Artificial intelligence, Big data,3D printing
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
 }

@@ -1,10 +1,11 @@
 package com.intellij.mermaid.lang.lexer
 
+import com.intellij.testFramework.junit5.fixture.TestFixtures
 import org.junit.jupiter.api.Test
 
-class SequenceTest : MermaidLexerTestCase() {
-  override val diagramName: String
-    get() = "sequence"
+@TestFixtures
+class SequenceTest {
+  private val lexer by mermaidLexerFixture("sequence")
 
   @Test
   fun `test simple sequence`() {
@@ -14,7 +15,7 @@ class SequenceTest : MermaidLexerTestCase() {
       actor J as John
       A B --> J: Hello John, how are you? ; J -->> A B : Great! # And you? J -->> A B
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -26,7 +27,7 @@ class SequenceTest : MermaidLexerTestCase() {
       John-->>Alice: Great!
       deactivate John
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -36,7 +37,7 @@ class SequenceTest : MermaidLexerTestCase() {
       Alice->>+John: Hello John, how are you?
       John-->>-Alice: Great!
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -48,7 +49,7 @@ class SequenceTest : MermaidLexerTestCase() {
       Alice->John: Hello John, how are you?
       Note over Alice,John: A typical interaction
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -60,7 +61,7 @@ class SequenceTest : MermaidLexerTestCase() {
       %% this is a comment
       John-->>Alice: Great!
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -70,7 +71,7 @@ class SequenceTest : MermaidLexerTestCase() {
       participant Alice
       links Alice: {"Dashboard": "https://dashboard.contoso.com/alice", "Wiki": "https://wiki.contoso.com/alice"}
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -82,7 +83,7 @@ class SequenceTest : MermaidLexerTestCase() {
           participant Bob; John-->Alice: Great!; Alice -> Bob: WOWO
       end
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -94,7 +95,7 @@ class SequenceTest : MermaidLexerTestCase() {
       autonumber 5 2
       autonumber off
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -109,7 +110,7 @@ class SequenceTest : MermaidLexerTestCase() {
         Service-->Service: Log different error
       end
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -123,7 +124,7 @@ class SequenceTest : MermaidLexerTestCase() {
       end
       API-->BillingService: Start billing process
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -134,7 +135,7 @@ class SequenceTest : MermaidLexerTestCase() {
       actor J-J as JohnJunior
       A -->> J-J
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -154,7 +155,7 @@ class SequenceTest : MermaidLexerTestCase() {
       A->>B: Hello Bob, how is Charly ?
       B->>C: Hello Charly, how are you?
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -178,7 +179,7 @@ class SequenceTest : MermaidLexerTestCase() {
         Note left of Bob: Alice/Bob Note
       end
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -205,7 +206,7 @@ class SequenceTest : MermaidLexerTestCase() {
       Bob--) Alice: I am good thanks!
       Bob --) Alice: I am good thanks!
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -219,7 +220,7 @@ class SequenceTest : MermaidLexerTestCase() {
       John-->>Alice: Great!
       Alice-)John: See you later!
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -229,6 +230,6 @@ class SequenceTest : MermaidLexerTestCase() {
       A->>B: I #9829; you!
       B->>A: I #9829; you #infin; times more!
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 }

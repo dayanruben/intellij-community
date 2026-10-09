@@ -1,10 +1,11 @@
 package com.intellij.mermaid.lang.lexer
 
+import com.intellij.testFramework.junit5.fixture.TestFixtures
 import org.junit.jupiter.api.Test
 
-class BlockTest : MermaidLexerTestCase() {
-  override val diagramName: String
-    get() = "block"
+@TestFixtures
+class BlockTest {
+  private val lexer by mermaidLexerFixture("block")
 
   @Test
   fun `test complex block diagram`() {
@@ -82,6 +83,6 @@ class BlockTest : MermaidLexerTestCase() {
           f
         end
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 }

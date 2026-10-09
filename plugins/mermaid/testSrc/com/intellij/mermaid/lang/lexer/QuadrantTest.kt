@@ -1,10 +1,11 @@
 package com.intellij.mermaid.lang.lexer
 
+import com.intellij.testFramework.junit5.fixture.TestFixtures
 import org.junit.jupiter.api.Test
 
-class QuadrantTest : MermaidLexerTestCase() {
-  override val diagramName: String
-    get() = "quadrant"
+@TestFixtures
+class QuadrantTest {
+  private val lexer by mermaidLexerFixture("quadrant")
 
   @Test
   fun `test simple quadrant`() {
@@ -26,6 +27,6 @@ class QuadrantTest : MermaidLexerTestCase() {
         Campaign E: [0.40, 0.34]
         Campaign F: [0.35, 0.78]
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 }

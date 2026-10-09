@@ -1,10 +1,11 @@
 package com.intellij.mermaid.lang.lexer
 
+import com.intellij.testFramework.junit5.fixture.TestFixtures
 import org.junit.jupiter.api.Test
 
-class SankeyTest : MermaidLexerTestCase() {
-  override val diagramName: String
-    get() = "sankey"
+@TestFixtures
+class SankeyTest {
+  private val lexer by mermaidLexerFixture("sankey")
 
   @Test
   fun `test sankey`() {
@@ -21,6 +22,6 @@ class SankeyTest : MermaidLexerTestCase() {
         Pumped heat,"Heating and cooling, ""homes""${'"'},193.026
         Pumped heat,"Heating and cooling, ""commercial""${'"'},70.672
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 }

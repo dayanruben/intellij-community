@@ -1,8 +1,12 @@
 package com.intellij.mermaid.lang.lexer
 
+import com.intellij.testFramework.junit5.fixture.TestFixtures
 import org.junit.jupiter.api.Test
 
-class EntityRelationshipTest : MermaidLexerTestCase() {
+@TestFixtures
+class EntityRelationshipTest {
+  private val lexer by mermaidLexerFixture("entityRelationship")
+
   // Regression guard: `direction` is only a keyword when a direction value follows, so an entity may be
   // called `direction`. Matches upstream, which requires the value too.
   @Test
@@ -11,11 +15,8 @@ class EntityRelationshipTest : MermaidLexerTestCase() {
     erDiagram
       direction ||--|| CAR : owns
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
-
-  override val diagramName: String
-    get() = "entityRelationship"
 
   @Test
   fun `test simple entity relationship`() {
@@ -25,7 +26,7 @@ class EntityRelationshipTest : MermaidLexerTestCase() {
       ORDER ||--|{ LINE-ITEM : contains
       CUSTOMER }|..|{ DELIVERY-ADDRESS : uses
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -40,7 +41,7 @@ class EntityRelationshipTest : MermaidLexerTestCase() {
       }
       ORDER ||--|{ LINE-ITEM : contains
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -56,7 +57,7 @@ class EntityRelationshipTest : MermaidLexerTestCase() {
       }
       PERSON ||--o{ NAMED-DRIVER : is
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -66,7 +67,7 @@ class EntityRelationshipTest : MermaidLexerTestCase() {
       CUSTOMER ||--o{ ORDER : "pla ce s"
       ORDER ||--|{ LINE-ITEM : ""
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -84,7 +85,7 @@ class EntityRelationshipTest : MermaidLexerTestCase() {
     
       "Service::User" }o--o{ "Service::Log" : has_many
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -95,7 +96,7 @@ class EntityRelationshipTest : MermaidLexerTestCase() {
       ORDER one to one or more LINE-ITEM : contains
       CUSTOMER }| optionally to |{ DELIVERY-ADDRESS : uses
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -107,7 +108,7 @@ class EntityRelationshipTest : MermaidLexerTestCase() {
         string driverLicence PK, FK
       }
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -117,7 +118,7 @@ class EntityRelationshipTest : MermaidLexerTestCase() {
       PROJECT u--|{ TEAM_MEMBER : parent
       TEAM_MEMBER }|--u PROJECT : child
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -126,7 +127,7 @@ class EntityRelationshipTest : MermaidLexerTestCase() {
     erDiagram
       BOOK{string *title}
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -142,6 +143,6 @@ class EntityRelationshipTest : MermaidLexerTestCase() {
       }
       p ||--o| c: has
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 }

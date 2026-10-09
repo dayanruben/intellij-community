@@ -1,10 +1,11 @@
 package com.intellij.mermaid.lang.lexer
 
+import com.intellij.testFramework.junit5.fixture.TestFixtures
 import org.junit.jupiter.api.Test
 
-class FlowchartTest : MermaidLexerTestCase() {
-  override val diagramName: String
-    get() = "flowchart"
+@TestFixtures
+class FlowchartTest {
+  private val lexer by mermaidLexerFixture("flowchart")
 
   @Test
   fun `test simple flowchart`() {
@@ -12,7 +13,7 @@ class FlowchartTest : MermaidLexerTestCase() {
     flowchart TD
       Start --> Stop
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -21,7 +22,7 @@ class FlowchartTest : MermaidLexerTestCase() {
     flowchart TD
       A@{ shape: rect, label: "Hello" }
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -31,7 +32,7 @@ class FlowchartTest : MermaidLexerTestCase() {
       A e1@--> B
       e1@{ animate: true }
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -40,7 +41,7 @@ class FlowchartTest : MermaidLexerTestCase() {
     flowchart RL
       A@{shape: manual-file, label: "File Handling"}
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -52,7 +53,7 @@ class FlowchartTest : MermaidLexerTestCase() {
         label: "Multi line"
       }
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -61,7 +62,7 @@ class FlowchartTest : MermaidLexerTestCase() {
     flowchart TD
       A@{ img: "https://mermaid.js.org/favicon.svg", pos: "t", h: 60, constraint: "on" }
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -70,7 +71,7 @@ class FlowchartTest : MermaidLexerTestCase() {
     flowchart TD
       id1[Start] --> id2["Stop"]
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -79,7 +80,7 @@ class FlowchartTest : MermaidLexerTestCase() {
     flowchart TD
       id1["This is the (text) in the box"]
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -88,7 +89,7 @@ class FlowchartTest : MermaidLexerTestCase() {
     flowchart TD
       A-- This is the text! ---B
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -97,7 +98,7 @@ class FlowchartTest : MermaidLexerTestCase() {
     flowchart TD
       A-- This is the text! -->B
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -106,7 +107,7 @@ class FlowchartTest : MermaidLexerTestCase() {
     flowchart LR
       A---|This is the text|B
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -115,7 +116,7 @@ class FlowchartTest : MermaidLexerTestCase() {
     flowchart LR
       A-->|This is the text|B
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -124,7 +125,7 @@ class FlowchartTest : MermaidLexerTestCase() {
     flowchart TD
       A-. This is the text! .->B
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -133,7 +134,7 @@ class FlowchartTest : MermaidLexerTestCase() {
     flowchart TD
       A -- te-xt1 --> B -- text2 --> C
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -142,7 +143,7 @@ class FlowchartTest : MermaidLexerTestCase() {
     flowchart TD
       A -- te-xt1 --> B -->|text2| C
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -151,7 +152,7 @@ class FlowchartTest : MermaidLexerTestCase() {
     flowchart LR
       a --> b & c--> d
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -162,7 +163,7 @@ class FlowchartTest : MermaidLexerTestCase() {
       B <--> C
       C x--x D
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -183,7 +184,7 @@ class FlowchartTest : MermaidLexerTestCase() {
       three --> two
       two --> c2
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -204,7 +205,7 @@ class FlowchartTest : MermaidLexerTestCase() {
       A --> TOP --> B
       B1 --> B2
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -213,7 +214,7 @@ class FlowchartTest : MermaidLexerTestCase() {
     flowchart LR
       q-->a;w;e;
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -231,7 +232,7 @@ class FlowchartTest : MermaidLexerTestCase() {
       classDef someclass fill:#f96;
       class B,C someclass
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -241,7 +242,7 @@ class FlowchartTest : MermaidLexerTestCase() {
       Start --> Stop %% This is comment
       %% This is comment
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -263,7 +264,7 @@ class FlowchartTest : MermaidLexerTestCase() {
       click B href "https://www.github.com"
       click href "https://www.github.com" "This is a tooltip for a link"
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -276,7 +277,7 @@ class FlowchartTest : MermaidLexerTestCase() {
     flowchart LR
       id
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -303,7 +304,7 @@ class FlowchartTest : MermaidLexerTestCase() {
       C[\foo \\]
       D[\foo \/]
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -313,7 +314,7 @@ class FlowchartTest : MermaidLexerTestCase() {
       classDef default fill:#a34,stroke:#000,stroke-width:4px,color:#fff 
       hello --> default
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -324,6 +325,6 @@ class FlowchartTest : MermaidLexerTestCase() {
       hello --> default
       style default stroke:#000,stroke-width:4px
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 }

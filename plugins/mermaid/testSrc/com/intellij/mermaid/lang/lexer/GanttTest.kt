@@ -1,10 +1,11 @@
 package com.intellij.mermaid.lang.lexer
 
+import com.intellij.testFramework.junit5.fixture.TestFixtures
 import org.junit.jupiter.api.Test
 
-class GanttTest : MermaidLexerTestCase() {
-  override val diagramName: String
-    get() = "gantt"
+@TestFixtures
+class GanttTest {
+  private val lexer by mermaidLexerFixture("gantt")
 
   @Test
   fun `test simple gantt`() {
@@ -19,7 +20,7 @@ class GanttTest : MermaidLexerTestCase() {
       Task in sec      :2014-01-12  , 12d
       another task      : 24d
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -56,7 +57,7 @@ class GanttTest : MermaidLexerTestCase() {
       Add gantt diagram to demo page      :20h
       Add another diagram to demo page    :48h
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -71,7 +72,7 @@ class GanttTest : MermaidLexerTestCase() {
       click cl2 call printArguments("test1", "test2", test3)
       click cl3 call printTask()
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -81,7 +82,7 @@ class GanttTest : MermaidLexerTestCase() {
       todayMarker off
       todayMarker stroke-width:5px,stroke:#0f0,opacity:0.5
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
   @Test
@@ -90,6 +91,6 @@ class GanttTest : MermaidLexerTestCase() {
     gantt
       tickInterval 1day
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 }
