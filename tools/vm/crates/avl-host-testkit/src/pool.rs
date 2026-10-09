@@ -8,7 +8,8 @@
 //!
 //! A Docker pool can also leave `DOCKER_BIN` unset and run on the Lima engine: then [`HostPool::pinned_bazel`]
 //! resolves the pinned Docker CLI and the pinned `limactl` to the fakes of the same directory. Or it runs on the Apple
-//! `container` engine, with the fake `container` of the same directory named by `CONTAINER_BIN`.
+//! `container` engine, with the fake `container` of the same directory named by `CONTAINER_BIN`, and the fake `curl`
+//! of the same directory named by `AIR_VM_HOST_CURL`, which stands in for the file mirror.
 //!
 //! A Windows host has no fake `tart` and the Docker backend only. There the directory holds the fake `docker` alone,
 //! and `TART_BIN` is not set.
@@ -170,7 +171,8 @@ impl HostPoolBuilder {
     /// Runs the Docker pool on the Apple `container` engine, whatever the host is: the settings load as a macOS host
     /// loads them, with `AIR_VM_DOCKER_ENGINE=container` and neither `DOCKER_BIN` nor `DOCKER_HOST`, so the real engine
     /// rule chooses the engine. `CONTAINER_BIN` names the fake `container` beside the fake `docker`, and `AIR_VM_DNS`
-    /// names a nameserver, so no suite reads the resolver of its host.
+    /// names a nameserver, so no suite reads the resolver of its host. `AIR_VM_HOST_CURL` names the fake `curl`, so no
+    /// suite downloads from the file mirror.
     #[must_use]
     pub const fn with_container_engine(mut self) -> Self {
         self.container_engine = true;
@@ -237,10 +239,12 @@ impl HostPoolBuilder {
             }
             if self.container_engine {
                 let container = fake.install_beside(Binary::Container);
+                let curl = fake.install_beside(Binary::Curl);
                 environment.extend([
                     ("AIR_VM_DOCKER_ENGINE".to_owned(), "container".to_owned()),
                     ("CONTAINER_BIN".to_owned(), container.executable().to_string_lossy().into_owned()),
                     ("AIR_VM_DNS".to_owned(), "192.0.2.53".to_owned()),
+                    ("AIR_VM_HOST_CURL".to_owned(), curl.executable().to_string_lossy().into_owned()),
                 ]);
             }
             // One slot, because the fake `docker` holds one container. The production pool has two; a suite that

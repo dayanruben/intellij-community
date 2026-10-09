@@ -1029,6 +1029,64 @@ fn the_docker_registry_is_a_registry_path_or_off() {
     assert_eq!(refusal.code, "invalid_environment");
 }
 
+/// The file mirror is an http or https URL the controller appends a path to, and `off` turns the mirror pull off. On
+/// the Apple `container` engine a push goes to the mirror, so it needs the mirror and not the registry. The token is
+/// read, and its `Debug` hides the value.
+#[test]
+fn the_image_mirror_is_a_url_or_off() {
+    let config = load(docker(), &env(&[]));
+    assert_eq!(config.image_mirror.as_deref(), Some(IMAGE_MIRROR_DEFAULT));
+    assert_eq!(config.image_mirror_token, None);
+    assert_eq!(config.host_curl, "curl");
+    for (value, want) in [
+        ("https://mirror.example/files", Some("https://mirror.example/files")),
+        ("http://localhost:8080", Some("http://localhost:8080")),
+        ("off", None),
+    ] {
+        let config = load(docker(), &env(&[("AIR_VM_IMAGE_MIRROR", value)]));
+        assert_eq!(config.image_mirror.as_deref(), want, "{value:?}");
+    }
+    for value in [
+        "mirror.example/files",
+        "https://",
+        "https://mirror.example/",
+        "https:///files",
+        "https://a b",
+        "ftp://x",
+    ] {
+        let refusal = refuse(docker(), &env(&[("AIR_VM_IMAGE_MIRROR", value)]));
+        assert_eq!(refusal.code, "invalid_environment", "{value}");
+        assert!(refusal.message.contains("AIR_VM_IMAGE_MIRROR"), "{}", refusal.message);
+    }
+
+    let apple = |pairs: &[(&str, &str)]| {
+        let mut all = vec![("AIR_VM_DOCKER_ENGINE", "container"), ("AIR_VM_DOCKER_PUSH", "1")];
+        all.extend_from_slice(pairs);
+        env(&all)
+    };
+    let config = load_on(HostOs::Macos, docker(), &apple(&[("AIR_VM_DOCKER_REGISTRY", "off")]));
+    assert!(config.runs_container_engine() && config.docker_push);
+    let refusal = refuse_on(HostOs::Macos, docker(), &apple(&[("AIR_VM_IMAGE_MIRROR", "off")]));
+    assert_eq!(refusal.code, "invalid_environment");
+    assert!(refusal.message.contains("AIR_VM_IMAGE_MIRROR=off"), "{}", refusal.message);
+    // The other engines keep the registry rule.
+    let refusal = refuse_on(
+        HostOs::Macos,
+        docker(),
+        &env(&[("AIR_VM_DOCKER_PUSH", "1"), ("AIR_VM_DOCKER_REGISTRY", "off")]),
+    );
+    assert!(refusal.message.contains("AIR_VM_DOCKER_REGISTRY=off"), "{}", refusal.message);
+
+    let config = load(
+        docker(),
+        &env(&[("AIR_VM_IMAGE_MIRROR_TOKEN", "secret-token"), ("AIR_VM_HOST_CURL", "/usr/bin/curl")]),
+    );
+    assert_eq!(config.image_mirror_token.as_ref().map(Secret::expose), Some("secret-token"));
+    assert_eq!(config.host_curl, "/usr/bin/curl");
+    let printed = format!("{config:?}");
+    assert!(!printed.contains("secret-token") && printed.contains("Secret(..)"), "{printed}");
+}
+
 /// A container shares the kernel of the engine's Linux VM, so there is no macOS guest to put in it. Refused here,
 /// once, like the Parallels Linux pairing.
 #[test]

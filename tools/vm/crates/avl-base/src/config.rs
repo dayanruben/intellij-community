@@ -934,8 +934,19 @@ pub struct Config {
     pub docker_registry: Option<String>,
     /// Whether the controller publishes the image it builds to [`Config::docker_registry`] (`AIR_VM_DOCKER_PUSH`),
     /// for every published platform. With it on, the controller always builds and never pulls. Off by default: a
-    /// developer's build stays local, and a CI job or an operator opts in.
+    /// developer's build stays local, and a CI job or an operator opts in. On the Apple `container` engine the
+    /// publish goes to [`Config::image_mirror`] instead, for the platform of the host only.
     pub docker_push: bool,
+    /// The file mirror the Apple `container` engine pulls the worker image from, as an OCI archive
+    /// (`AIR_VM_IMAGE_MIRROR`). The archive is `<mirror>/<docker_image>/<tag digest>-linux-<arch>.tar`. `None` when
+    /// the operator set `off`: that engine then builds and never pulls. The other engines pull from
+    /// [`Config::docker_registry`].
+    pub image_mirror: Option<String>,
+    /// The bearer token of an upload to [`Config::image_mirror`] (`AIR_VM_IMAGE_MIRROR_TOKEN`). Only a publish on the
+    /// Apple `container` engine reads it, and a publish without it is refused.
+    pub image_mirror_token: Option<Secret>,
+    /// The host `curl` that downloads and uploads the image archive (`AIR_VM_HOST_CURL`).
+    pub host_curl: String,
 
     pub repo_share_name: String,
     pub bazel_share_name: String,
@@ -1286,8 +1297,25 @@ impl Config {
                  path components) or `{DOCKER_REGISTRY_OFF}`, not {registry:?}"
             )));
         }
+        let image_mirror = Some(reader.string("AIR_VM_IMAGE_MIRROR", IMAGE_MIRROR_DEFAULT)).filter(|mirror| mirror != IMAGE_MIRROR_OFF);
+        if let Some(mirror) = image_mirror.as_deref()
+            && !is_mirror_url(mirror)
+        {
+            reader.refuse(Refusal::invalid_environment(format!(
+                "AIR_VM_IMAGE_MIRROR must be an http:// or https:// URL without a trailing '/' and without \
+                 whitespace, or `{IMAGE_MIRROR_OFF}`, not {mirror:?}"
+            )));
+        }
         let docker_push = reader.boolean("AIR_VM_DOCKER_PUSH", false);
-        if docker_push && docker_registry.is_none() {
+        // The Apple `container` engine publishes to the file mirror, and every other engine to the registry.
+        if docker_push && backend == Backend::Docker && docker_engine == DockerEngine::AppleContainer {
+            if image_mirror.is_none() {
+                reader.refuse(Refusal::invalid_environment(format!(
+                    "AIR_VM_DOCKER_PUSH asks for a push and AIR_VM_IMAGE_MIRROR={IMAGE_MIRROR_OFF} names no file \
+                     mirror to upload to; the Apple container engine publishes there"
+                )));
+            }
+        } else if docker_push && docker_registry.is_none() {
             reader.refuse(Refusal::invalid_environment(format!(
                 "AIR_VM_DOCKER_PUSH asks for a push and AIR_VM_DOCKER_REGISTRY={DOCKER_REGISTRY_OFF} names no \
                  registry to push to"
@@ -1337,6 +1365,9 @@ impl Config {
             docker_base_image: pins::docker_base_image().to_owned(),
             docker_registry,
             docker_push,
+            image_mirror,
+            image_mirror_token: reader.optional("AIR_VM_IMAGE_MIRROR_TOKEN").map(Secret),
+            host_curl: reader.string("AIR_VM_HOST_CURL", "curl"),
             repo_share_name,
             bazel_share_name,
             configured_bazel_user_root: reader.path("AIR_VM_BAZEL_USER_ROOT", || host.bazel_user_root(&home)),
@@ -1660,6 +1691,44 @@ pub const DOCKER_REGISTRY_DEFAULT: &str = "registry.jetbrains.team/p/ij/containe
 
 /// The `AIR_VM_DOCKER_REGISTRY` value that turns the pull and the push off.
 pub const DOCKER_REGISTRY_OFF: &str = "off";
+
+/// The file mirror the Apple `container` engine pulls the worker image archive from unless `AIR_VM_IMAGE_MIRROR` says
+/// otherwise. Anonymous download works there, so a lane host needs no token; an upload needs one.
+pub const IMAGE_MIRROR_DEFAULT: &str = "https://packages.jetbrains.team/files/p/ij/intellij-build-dependencies";
+
+/// The `AIR_VM_IMAGE_MIRROR` value that turns the mirror pull and the mirror publish off.
+pub const IMAGE_MIRROR_OFF: &str = "off";
+
+/// A mirror URL the controller appends `/<repository>/<archive>` to: an `http://` or `https://` URL with a host, no
+/// trailing `/`, and no whitespace or control character, because the value goes into an argv and a note.
+fn is_mirror_url(value: &str) -> bool {
+    let rest = value
+        .strip_prefix("https://")
+        .or_else(|| value.strip_prefix("http://"))
+        .unwrap_or_default();
+    !rest.is_empty()
+        && !rest.starts_with('/')
+        && !rest.ends_with('/')
+        && !rest.chars().any(|character| character.is_whitespace() || character.is_control())
+}
+
+/// A credential read from the environment. Its `Debug` hides the value, because a [`Config`] can be printed into a
+/// log or a refusal.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Secret(String);
+
+impl Secret {
+    /// The value, for the one place that hands it to the service it is for.
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Debug for Secret {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("Secret(..)")
+    }
+}
 
 /// A registry path as the head of an image reference: a host, an optional `:port` on it, then repository path
 /// components in the grammar of [`is_image_repository`]. No trailing `/`, because the controller joins with one.

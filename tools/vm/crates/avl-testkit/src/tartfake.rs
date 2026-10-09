@@ -110,12 +110,22 @@
 //! - `create`, `start`, `stop` and `delete` are the state machine of the fake `docker`. `create` prints the name and
 //!   writes it over [`Answer::ContainerId`], because the Apple id is the name. `delete` without `-f` or `--force`
 //!   exits 1 for a running container.
-//! - `build … -t <ref> …`, `image pull <ref>` (from [`Answer::PullExit`]) and `image tag <src> <ref>` add `<ref>` to
-//!   the images, and `image delete <ref>` removes it. `image inspect <ref>` exits as the `docker` one and prints a
-//!   JSON array whose variant labels hold [`Answer::ImageRevision`]. `image push` exits from [`Answer::PushExit`].
+//! - `build … -t <ref> …` and `image tag <src> <ref>` add `<ref>` to the images, and `image delete <ref>` removes it.
+//!   `image load -i <file>` adds each line of the file, so an archive of the fake is the list of its references.
+//!   `image save … -o <file> <ref>` writes `<ref>` into the file. `image inspect <ref>` exits as the `docker` one and
+//!   prints a JSON array whose variant labels hold [`Answer::ImageRevision`]. `image pull` and `image push` exit 3:
+//!   the controller pulls and publishes the image archive over the file mirror.
 //! - `volume inspect` says `volume not found`, exit 1. `logs` prints [`Answer::ContainerLog`], and `logs --boot`
 //!   prints [`Answer::ContainerBootLog`]. `builder`, `volume delete` and anything else exit from [`Answer::Exit`].
 //! - The `exec` arms are the `tart` ones.
+//!
+//! The fake host `curl`, which `AIR_VM_HOST_CURL` points at. It answers the two transfers of the image archive:
+//!
+//! - `… --output <file> <url>` copies [`Answer::MirrorArchive`] to the file, exit 0. No such file is an archive the
+//!   mirror does not hold: `curl: (22) The requested URL returned error: 404` on stderr, exit 22.
+//! - `… --upload-file <file> --header @<header> <url>` copies the file to [`MIRROR_UPLOAD`], the header file to
+//!   [`MIRROR_HEADER`], and the permission column of `ls -ln` of the header file to [`MIRROR_HEADER_MODE`]. It exits
+//!   from [`Answer::PushExit`].
 //!
 //! The shared verbs, which both answer:
 //!
@@ -165,6 +175,8 @@ pub enum Binary {
     Limactl,
     /// The fake Apple `container`, which `CONTAINER_BIN` points at.
     Container,
+    /// The fake host `curl`, which `AIR_VM_HOST_CURL` points at.
+    Curl,
 }
 
 impl Binary {
@@ -176,6 +188,7 @@ impl Binary {
             Self::Docker => "docker",
             Self::Limactl => "limactl",
             Self::Container => "container",
+            Self::Curl => "curl",
         }
     }
 }
@@ -248,7 +261,7 @@ pub enum Answer {
     ContainerId,
     /// Exit code of `docker pull`, default 1. A `0` makes the pulled reference present.
     PullExit,
-    /// Exit code of `docker buildx build --push`, the publish, default 0.
+    /// Exit code of `docker buildx build --push`, the publish, default 0, and of the upload of the fake `curl`.
     PushExit,
     /// What `docker image inspect --format {{index .Config.Labels …}}` prints: the revision label of the image.
     /// Unseeded, it prints nothing, as an image without the label does.
@@ -267,6 +280,9 @@ pub enum Answer {
     ContainerLog,
     /// What `container logs --boot` prints.
     ContainerBootLog,
+    /// The image archive that the file mirror holds, which a download of the fake `curl` copies: one image reference
+    /// per line, which `container image load` adds. Absent is an archive the mirror does not hold.
+    MirrorArchive,
     /// The first argument of the calls of any fake of this directory that exit 0 and print nothing, such as
     /// `inspect` or `--version`: a probe that gave no answer.
     SilentVerb,
@@ -319,6 +335,7 @@ impl Answer {
             Self::ContainerStartExit => "container-start-exit.txt",
             Self::ContainerLog => "container-log.txt",
             Self::ContainerBootLog => "container-boot-log.txt",
+            Self::MirrorArchive => "mirror-archive.txt",
             Self::SilentVerb => "silent-verb.txt",
             Self::KilledVerb => "killed-verb.txt",
         }
@@ -330,6 +347,15 @@ pub(crate) const CALLS: &str = "calls.txt";
 
 /// The copy of the template the last `limactl start` of a template was given, beside the executable.
 pub const LIMA_TEMPLATE_COPY: &str = "lima-template.yaml";
+
+/// The copy of the file the last upload of the fake `curl` sent, beside the executable.
+pub const MIRROR_UPLOAD: &str = "mirror-upload.txt";
+
+/// The copy of the header file of the last upload of the fake `curl`, beside the executable.
+pub const MIRROR_HEADER: &str = "mirror-header.txt";
+
+/// The permission column of `ls -ln` of the header file of the last upload, such as `-rw-------`.
+pub const MIRROR_HEADER_MODE: &str = "mirror-header-mode.txt";
 
 /// Separates the arguments of one recorded call (ASCII unit separator), so an argument may hold spaces and
 /// newlines - a `prlctl exec` shell string often does - and still come back whole.
@@ -363,6 +389,30 @@ exit 0'
   cat "$dir/.call-$$" >> "$dir/calls.txt"; } || { echo "fake $self: cannot record the call in $dir/calls.txt" >&2; exit 125; }
 [ -f "$dir/killed-verb.txt" ] && [ "$1" = "$(cat "$dir/killed-verb.txt")" ] && kill -KILL $$
 [ -f "$dir/silent-verb.txt" ] && [ "$1" = "$(cat "$dir/silent-verb.txt")" ] && exit 0
+if [ "$self" = curl ]; then
+  out=; upload=; header=; prev=
+  for word in "$@"; do
+    case "$prev" in
+      --output) out=$word ;;
+      --upload-file) upload=$word ;;
+      --header) header=${word#@} ;;
+    esac
+    prev=$word
+  done
+  if [ -n "$upload" ]; then
+    cp "$upload" "$dir/mirror-upload.txt"
+    if [ -n "$header" ]; then
+      cat "$header" > "$dir/mirror-header.txt"
+      ls -ln "$header" | cut -c1-10 > "$dir/mirror-header-mode.txt"
+    fi
+    ucode=$(cat "$dir/push-exit.txt" 2>/dev/null || echo 0)
+    [ "$ucode" = 0 ] || { echo "curl: (22) The requested URL returned error: 403" >&2; exit "$ucode"; }
+    exit 0
+  fi
+  if [ -f "$dir/mirror-archive.txt" ]; then cp "$dir/mirror-archive.txt" "$out"; exit 0; fi
+  echo "curl: (22) The requested URL returned error: 404" >&2
+  exit 22
+fi
 if [ "$self" = limactl ]; then
   [ -n "$LIMA_HOME" ] || { echo "fake limactl: LIMA_HOME is not set" >&2; exit 2; }
   lstate="$dir/lima-state.txt"
@@ -491,17 +541,24 @@ else
             revision=$(cat "$dir/image-revision.txt" 2>/dev/null)
             printf '[{"variants":[{"config":{"config":{"Labels":{"org.opencontainers.image.revision":"%s"}}}}]}]\n' "$revision"
             exit 0 ;;
-          pull)
-            pcode=$(cat "$dir/pull-exit.txt" 2>/dev/null || echo 1)
-            [ "$pcode" = 0 ] && printf '%s\n' "$3" >> "$dir/images.txt"
-            exit "$pcode" ;;
+          load)
+            loaded=; prev=
+            for word in "$@"; do [ "$prev" = -i ] && loaded=$word; prev=$word; done
+            [ "$code" = 0 ] || { echo "Error: cannot load $loaded" >&2; exit "$code"; }
+            cat "$loaded" >> "$dir/images.txt"
+            exit 0 ;;
+          save)
+            saved=; prev=
+            for word in "$@"; do [ "$prev" = -o ] && saved=$word; prev=$word; done
+            [ "$code" = 0 ] && printf '%s\n' "$ref" > "$saved"
+            exit "$code" ;;
+          pull|push) echo "fake container: the controller uses the file mirror, not image $2" >&2; exit 3 ;;
           tag) [ "$code" = 0 ] && printf '%s\n' "$4" >> "$dir/images.txt"; exit "$code" ;;
           delete)
             if [ "$code" = 0 ] && [ -f "$dir/images.txt" ]; then
               awk -v r="$ref" '$0 != r' "$dir/images.txt" > "$dir/images.txt.new" && mv "$dir/images.txt.new" "$dir/images.txt"
             fi
             exit "$code" ;;
-          push) exit "$(cat "$dir/push-exit.txt" 2>/dev/null || echo 0)" ;;
         esac
         exit "$code" ;;
       volume)

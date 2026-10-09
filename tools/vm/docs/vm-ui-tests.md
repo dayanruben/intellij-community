@@ -283,6 +283,11 @@ env -u DOCKER_HOST AIR_VM_DOCKER_ENGINE=container ./community/tools/vm.cmd run A
 - **The nameserver.** The DNS proxy of the engine does not answer on every host. So each build and each container
   gets `--dns`: `AIR_VM_DNS`, else the first nameserver of the host outside the loopback, else `1.1.1.1`. A guest
   that needs a name that only a VPN resolver knows needs `AIR_VM_DNS`.
+- **The image.** This engine does not pull from the registry, because the registry answers its anonymous layer
+  requests with `406 Not Acceptable`. It downloads the image archive
+  `<AIR_VM_IMAGE_MIRROR>/air-ui-worker/<tag digest>-linux-arm64.tar` from the JetBrains file mirror and loads it. It
+  builds when the mirror does not hold the tag. `AIR_VM_DOCKER_PUSH=1` with `AIR_VM_IMAGE_MIRROR_TOKEN` uploads the
+  archive of the host platform after the build. This engine publishes no other platform.
 - **The sizes.** `AIR_VM_MEMORY_MB` is the memory of one worker, 8192 MiB by default, and `AIR_VM_CPU` its CPUs. A
   running worker returns no memory to the host until it stops. Each build gives the builder the CPUs of a worker and
   4 GiB.

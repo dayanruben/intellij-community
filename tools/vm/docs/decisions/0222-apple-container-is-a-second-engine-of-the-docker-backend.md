@@ -105,9 +105,9 @@ The spike also found these facts, and the decision follows them:
    | `volume rm --force` | `volume inspect`, then `volume delete` when the volume exists |
    | `logs --tail 40` | `logs -n 40`, and `logs --boot -n 40` |
    | `build --tag` | `build --progress plain -c <cpus> -m 4g --dns <ip> -t` |
-   | `pull`, `tag`, `image rm` | `image pull`, `image tag`, `image delete` |
+   | `pull`, `tag`, `image rm` | the download of the image archive, `image load`, `image delete` (item 11) |
    | `image inspect --format {{index .Config.Labels …}}` | `image inspect`, the label of `[0].variants[].config.config.Labels` |
-   | `buildx build --platform … --push` | `build --platform …`, then `image push` |
+   | `buildx build --platform … --push` | `image save --platform linux/<arch>`, then the upload of the archive (item 11) |
    | `version --format …` and the CLI plugins | `system status --format json`, no plugins |
 
    The engine itself is `crates/avl-vm/src/worker/container.rs`: the status, the start, the check, the builder and
@@ -127,6 +127,25 @@ The spike also found these facts, and the decision follows them:
 10. **The pool commands own the builder, never the server.** `pool recycle all` runs `builder stop` and `builder
     delete` under the image lock, and accepts a builder that does not exist. `pool stop` stops the containers only.
     `status` prints `engine=container` and the `engineStatus` `running` or `stopped`, and it never starts the server.
+11. **The image comes from the file mirror, not from the registry.** The registry pull of this engine fails on every
+    blob. Space answers `406 Not Acceptable` instead of `401` to an anonymous blob request whose `Accept` names a layer
+    media type, and the client of apple/containerization starts each blob request anonymously and asks for a token
+    only after a `401`. The text of the two upstream issues is with the user who filed them. So this engine pulls an
+    OCI archive from the Space file mirror `AIR_VM_IMAGE_MIRROR`, whose default is
+    `https://packages.jetbrains.team/files/p/ij/intellij-build-dependencies`, and `off` turns the pull off.
+    - The archive is `<mirror>/<AIR_VM_DOCKER_IMAGE>/<tag digest>-linux-<arch>.tar`, for example
+      `air-ui-worker/3d61c9831be6-linux-arm64.tar`.
+    - The host `curl` (`AIR_VM_HOST_CURL`) downloads it into `<runtime root>/docker-context/<digest>/` with `--fail`,
+      and the pull log keeps what `curl` says. `image load -i` loads it under the tag, and the archive is removed.
+    - The revision label check is the one of every pull. A download that fails is a note and a build, as a failed
+      registry pull is: a 404 for a tag that nobody published yet is the ordinary case. A load that fails, an archive
+      without the tag, and a label that is not the digest are a note and a build too.
+    - `AIR_VM_DOCKER_PUSH` saves the built tag with `image save --platform linux/<arch>` and uploads the archive to
+      the same URL with an HTTP PUT. The bearer token comes from `AIR_VM_IMAGE_MIRROR_TOKEN`, through a header file
+      of mode 0600 that is removed after the upload, so the token is never in an argv. A push without the token is
+      refused `image_mirror_token_missing` before the build. A host publishes only its own platform on this engine,
+      and the registry publish of the Docker dialect builds both.
+    - The image record `docker-image.json` and `status` keep their shape: a mirror pull is `pulled`.
 
 ## Consequences
 
@@ -139,14 +158,17 @@ The spike also found these facts, and the decision follows them:
 - A worker returns no memory while it runs. A worker that the controller does not need must stop to free the memory.
 - `1.1.1.1` resolves public names only. A guest that needs a name that only a VPN resolver knows needs `AIR_VM_DNS`.
 - The suite drives the engine over a fake `container` (`avl-testkit`), which prints the JSON shapes the spike
-  recorded.
+  recorded, and the file mirror over a fake `curl`.
+- A cold host gets the worker image as an archive of about 265 MB instead of a build of about 2 minutes, when the
+  mirror holds the archive of the tag. A tag that changes needs one publish from a Mac before other hosts skip the
+  build.
 
 The live lane on this engine, on 2026-10-09, `run AgentSessionToolWindowComposerUiTest`:
 
 | step | cold run | warm run |
 |---|---|---|
 | the host build | 14.7 s, and 7.1 s for the guest agent | 11.1 s |
-| the pull of the published image | failed after 2.2 s (see the follow-ups) | none |
+| the pull of the published image | failed after 2.2 s (see item 11) | none |
 | the image build, with the first start of the builder VM | 121 s | none |
 | `create`, then `start` | 1.0 s | none |
 | the agent install and `validate-guest` | 7.0 s | none |
@@ -162,10 +184,8 @@ it.
 
 ## Follow-ups
 
-- The pull of the published image fails on this engine. `image pull` of
-  `registry.jetbrains.team/p/ij/containers-public/air-ui-worker:<tag>` got `406 Not Acceptable` for a blob on
-  2026-10-09, so the controller builds the image on each host, as after any failed pull. Find out which header the
-  Space registry refuses.
+- The Docker dialect still pulls from the registry. A later change may move it to the file mirror too, so that both
+  engines have one image source.
 - The builder VM keeps running after a build, with 1.47 GiB in use of its 4 GiB on 2026-10-09. A `builder stop` after
   the build would free that memory.
 

@@ -11,7 +11,8 @@
 //!   only installs the agent and runs `validate-guest` ([`validate_argv`]). Before a build, the controller pulls the
 //!   tag from `AIR_VM_DOCKER_REGISTRY` (ADR 0184): the tag names the same bytes wherever the image was built, and the
 //!   image's `org.opencontainers.image.revision` label carries the tag digest, so a pulled image that does not say
-//!   the digest is dropped and built instead.
+//!   the digest is dropped and built instead. The Apple `container` engine pulls the tag from the file mirror
+//!   `AIR_VM_IMAGE_MIRROR` instead, as an OCI archive (ADR 0222), and checks the same label.
 //! - **the container** is made by `docker create` with the shares as read-only bind mounts and `WorkerData` in a
 //!   named volume. The shares are arguments of the create, as they are arguments of `tart run` on Tart, so a
 //!   share-set change makes the container again. The create arguments are recorded ([`CreateRecord`]), and a record
@@ -46,11 +47,13 @@
 //! `image tag`, `image delete`, and an `inspect` that answers JSON only. Each command of this module renders its argv
 //! and parses its answer in the dialect of the engine. The lifecycle above it stays one.
 
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use avl_base::config::{CONTAINER_LABEL, docker_buildx_label, docker_cli_label};
+use avl_base::config::{CONTAINER_LABEL, Secret, docker_buildx_label, docker_cli_label};
+use avl_base::fs::private_temporary;
 use avl_base::{Config, Exit, GuestArch, OrRefuse, Refusal, Reporter, SCHEMA_VERSION, Scope};
 use avl_host_sys::fs::real_path;
 use avl_host_sys::guest::share_mount_path;
@@ -100,8 +103,12 @@ const DOCKER_BUILD_TIMEOUT: Duration = Duration::from_hours(1);
 const DOCKER_PULL_TIMEOUT: Duration = Duration::from_mins(30);
 
 /// The timeout of the publish. It builds the image for each published platform, the other one under emulation, and
-/// pushes them.
+/// pushes them. The upload of the image archive to the file mirror has the same timeout.
 const DOCKER_PUBLISH_TIMEOUT: Duration = Duration::from_hours(2);
+
+/// The timeout of the Apple `image load` and `image save` of the image archive, about 265 MB. The save took 2 s on
+/// 2026-10-09.
+const IMAGE_ARCHIVE_TIMEOUT: Duration = Duration::from_mins(10);
 
 #[cfg(test)]
 #[cfg(unix)]
@@ -859,28 +866,20 @@ impl Docker {
     /// attestation: it adds an `unknown/unknown` manifest per platform to the index, which older clients list as a
     /// platform, and the tag digest is the provenance this controller reads.
     ///
-    /// The Apple dialect has no `buildx`: the build for both platforms, the other one under Rosetta, tags the registry
-    /// reference, and `image push` ([`Docker::push_argv`]) publishes it.
+    /// The Docker dialect only: the Apple dialect publishes the image archive to the file mirror
+    /// ([`Docker::save_argv`], [`Docker::upload_argv`]).
     pub(crate) fn publish_argv(&self, tag: &str, remote: &str, context: &Path) -> Vec<String> {
         let platforms = PUBLISHED_PLATFORMS.join(",");
-        let mut argv = match self.dialect() {
-            Dialect::Docker => self.command(&[
-                "buildx",
-                "build",
-                "--platform",
-                &platforms,
-                "--provenance=false",
-                "--push",
-                "--tag",
-                remote,
-            ]),
-            Dialect::AppleContainer => {
-                let mut argv = self.command(&["build"]);
-                argv.extend(self.apple_builder_arguments());
-                argv.extend(["--platform".to_owned(), platforms, "-t".to_owned(), remote.to_owned()]);
-                argv
-            }
-        };
+        let mut argv = self.command(&[
+            "buildx",
+            "build",
+            "--platform",
+            &platforms,
+            "--provenance=false",
+            "--push",
+            "--tag",
+            remote,
+        ]);
         argv.extend(self.build_arguments(tag));
         argv.push(context.to_string_lossy().into_owned());
         argv
@@ -907,17 +906,97 @@ impl Docker {
             .map(|registry| format!("{registry}/{}:{}", self.settings.docker_image, tag_digest(tag)))
     }
 
-    /// The push of the Apple dialect after its publish build, or `None` in the Docker dialect, whose publish pushes.
-    pub(crate) fn push_argv(&self, remote: &str) -> Option<Vec<String>> {
-        (self.dialect() == Dialect::AppleContainer).then(|| self.command(&["image", "push", remote]))
+    /// `docker pull` of a registry reference. The Docker dialect only: the Apple dialect pulls from the file mirror.
+    pub(crate) fn pull_argv(&self, remote: &str) -> Vec<String> {
+        self.command(&["pull", remote])
     }
 
-    /// `docker pull` of a registry reference, `image pull` in the Apple dialect.
-    pub(crate) fn pull_argv(&self, remote: &str) -> Vec<String> {
-        match self.dialect() {
-            Dialect::Docker => self.command(&["pull", remote]),
-            Dialect::AppleContainer => self.command(&["image", "pull", remote]),
-        }
+    /// The URL of the image archive of the tag on the file mirror, or `None` when the mirror is off:
+    /// `<mirror>/<repository>/<digest>-linux-<arch>.tar`. The Apple dialect pulls it and publishes it.
+    pub(crate) fn mirror_url(&self, tag: &str) -> Option<String> {
+        self.settings
+            .image_mirror
+            .as_ref()
+            .map(|mirror| format!("{mirror}/{}/{}", self.settings.docker_image, self.archive_name(tag)))
+    }
+
+    /// The file name of the image archive of the tag, the last part of [`Docker::mirror_url`].
+    fn archive_name(&self, tag: &str) -> String {
+        format!("{}-linux-{}.tar", tag_digest(tag), self.settings.guest_arch.oci_arch())
+    }
+
+    /// The directory of one image digest under the runtime root: the build context, and the image archive of a pull.
+    fn digest_directory(&self, tag: &str) -> PathBuf {
+        self.settings.runtime_root.join("docker-context").join(tag_digest(tag))
+    }
+
+    /// The download of the image archive with the host `curl`. `--fail` makes an HTTP error an exit of `curl`, and the
+    /// error text goes to the pull log.
+    pub(crate) fn download_argv(&self, url: &str, archive: &Path) -> Vec<String> {
+        let archive = archive.to_string_lossy();
+        [
+            self.settings.host_curl.as_str(),
+            "--fail",
+            "--silent",
+            "--show-error",
+            "--location",
+            "--output",
+            &archive,
+            url,
+        ]
+        .map(str::to_owned)
+        .to_vec()
+    }
+
+    /// `image load` of a downloaded image archive. The image gets the reference name it was saved under, the tag.
+    pub(crate) fn load_argv(&self, archive: &Path) -> Vec<String> {
+        self.command(&["image", "load", "-i", &archive.to_string_lossy()])
+    }
+
+    /// `image save` of the tag for the platform of the host, into an OCI archive.
+    pub(crate) fn save_argv(&self, tag: &str, archive: &Path) -> Vec<String> {
+        self.command(&[
+            "image",
+            "save",
+            "--platform",
+            &format!("linux/{}", self.settings.guest_arch.oci_arch()),
+            "-o",
+            &archive.to_string_lossy(),
+            tag,
+        ])
+    }
+
+    /// The upload of the image archive with the host `curl`, an HTTP PUT. The authorization header is in a private
+    /// file, so the token is never in an argv.
+    pub(crate) fn upload_argv(&self, archive: &Path, header: &Path, url: &str) -> Vec<String> {
+        let archive = archive.to_string_lossy();
+        let header = format!("@{}", header.display());
+        [
+            self.settings.host_curl.as_str(),
+            "--fail",
+            "--silent",
+            "--show-error",
+            "--upload-file",
+            &archive,
+            "--header",
+            &header,
+            url,
+        ]
+        .map(str::to_owned)
+        .to_vec()
+    }
+
+    /// The token of an upload to the file mirror. A publish on the Apple `container` engine without it is refused
+    /// `image_mirror_token_missing`, before the build.
+    fn mirror_token(&self) -> Result<&Secret, Refusal> {
+        self.settings.image_mirror_token.as_ref().ok_or_else(|| {
+            Refusal::new(
+                "image_mirror_token_missing",
+                Exit::USAGE,
+                "AIR_VM_DOCKER_PUSH asks for a publish, and the Apple container engine uploads the image archive to \
+                 AIR_VM_IMAGE_MIRROR with the bearer token AIR_VM_IMAGE_MIRROR_TOKEN, which is not set",
+            )
+        })
     }
 
     /// `docker image inspect` that prints the revision label of an image, and nothing else. The Apple dialect answers
@@ -990,15 +1069,19 @@ impl Docker {
     /// With `AIR_VM_DOCKER_PUSH` the operator wants the registry to hold what this checkout builds, so the
     /// controller builds whether or not the engine has the tag, never pulls, and publishes the tag for every
     /// platform of [`PUBLISHED_PLATFORMS`] after the build.
+    ///
+    /// The Apple dialect pulls the image archive from the file mirror, and publishes the archive of the platform of
+    /// the host there. Its publish needs the mirror token, and a missing token is refused before the build.
     pub(crate) async fn ensure_image(&self, ctx: &Ctx) -> Result<String, Refusal> {
         let tag = self.image_tag();
+        if self.settings.docker_push && self.dialect() == Dialect::AppleContainer {
+            self.mirror_token()?;
+        }
         if !self.settings.docker_push {
             if self.image_present(ctx, &tag).await? {
                 return Ok(tag);
             }
-            if let Some(remote) = self.remote_reference(&tag)
-                && self.pull(ctx, &tag, &remote).await?
-            {
+            if self.pull(ctx, &tag).await? {
                 self.write_image_record(&tag, ImageSource::Pulled)?;
                 return Ok(tag);
             }
@@ -1026,12 +1109,25 @@ impl Docker {
                 other => other.into(),
             })?;
         self.write_image_record(&tag, ImageSource::Built)?;
-        if self.settings.docker_push
-            && let Some(remote) = self.remote_reference(&tag)
-        {
-            self.publish(ctx, &tag, &remote, &context).await?;
+        if self.settings.docker_push {
+            self.publish(ctx, &tag, &context).await?;
         }
         Ok(tag)
+    }
+
+    /// Pulls the tag in the dialect of the engine: from the registry in the Docker dialect, from the file mirror in
+    /// the Apple one. Answers whether the engine now has the tag. A source that is off pulls nothing.
+    async fn pull(&self, ctx: &Ctx, tag: &str) -> Result<bool, Refusal> {
+        match self.dialect() {
+            Dialect::Docker => match self.remote_reference(tag) {
+                Some(remote) => self.pull_from_registry(ctx, tag, &remote).await,
+                None => Ok(false),
+            },
+            Dialect::AppleContainer => match self.mirror_url(tag) {
+                Some(url) => self.pull_from_mirror(ctx, tag, &url).await,
+                None => Ok(false),
+            },
+        }
     }
 
     /// Pulls `remote`, checks its revision label against the tag digest, and tags it with the local name. Answers
@@ -1040,7 +1136,7 @@ impl Docker {
     /// `false` is a pull that failed, or an image that does not say the digest, and both leave a note: the failed
     /// pull names its log, and the mismatch (`docker_image_mismatch`) names both digests and is removed from the
     /// engine, so no later `image inspect` finds it. A refusal is a host problem, a missing CLI or an interrupt.
-    async fn pull(&self, ctx: &Ctx, tag: &str, remote: &str) -> Result<bool, Refusal> {
+    async fn pull_from_registry(&self, ctx: &Ctx, tag: &str, remote: &str) -> Result<bool, Refusal> {
         let log = self.settings.docker_pull_log_path();
         remove_if_present(&log)?;
         self.note(None, format!("pulling the Docker image {remote} (log: {})", log.display()));
@@ -1059,38 +1155,115 @@ impl Docker {
             }
             Err(other) => return Err(other.into()),
         }
+        if !self.revision_matches(ctx, tag, remote, remote).await? {
+            return Ok(false);
+        }
+        self.checked(ctx, &["tag", remote, tag], DOCKER_QUERY_TIMEOUT).await?;
+        Ok(true)
+    }
+
+    /// Downloads the image archive of the tag from `url` with the host `curl`, loads it with `image load`, and checks
+    /// the revision label of the loaded tag against the tag digest. Answers whether the engine now has the tag.
+    ///
+    /// The archive goes into the directory of the digest under the runtime root, and is removed after a load. A
+    /// download that fails is a note and a build, as a failed registry pull is. A tag that nobody published yet is
+    /// the ordinary case: the mirror answers 404. The pull log keeps what `curl` said. A load that fails, an archive
+    /// that holds no image of the tag, and a label that is not the digest are a note and a build too.
+    async fn pull_from_mirror(&self, ctx: &Ctx, tag: &str, url: &str) -> Result<bool, Refusal> {
+        let log = self.settings.docker_pull_log_path();
+        remove_if_present(&log)?;
+        let directory = self.digest_directory(tag);
+        std::fs::create_dir_all(&directory).or_refuse("state_write_failed", Exit::FAILURE, || {
+            format!("cannot create the image directory {}", directory.display())
+        })?;
+        let archive = directory.join(self.archive_name(tag));
+        remove_if_present(&archive)?;
+        self.note(None, format!("downloading the Docker image archive {url} (log: {})", log.display()));
+        match self
+            .runner
+            .checked_to_file(ctx, &self.download_argv(url, &archive), &log, &log_options(DOCKER_PULL_TIMEOUT))
+            .await
+        {
+            Ok(_) => {}
+            Err(ProcError::Exited { refusal, .. }) => {
+                self.note(
+                    None,
+                    format!("{}; building the image instead; the pull log is {}", refusal.message, log.display()),
+                );
+                return Ok(false);
+            }
+            Err(other) => return Err(other.into()),
+        }
+        let loaded = self
+            .runner
+            .checked(ctx, &self.load_argv(&archive), &SpawnOptions::within(IMAGE_ARCHIVE_TIMEOUT))
+            .await;
+        remove_if_present(&archive)?;
+        match loaded {
+            Ok(_) => {}
+            Err(ProcError::Exited { refusal, .. }) => {
+                self.note(None, format!("{}; building the image instead", refusal.message));
+                return Ok(false);
+            }
+            Err(other) => return Err(other.into()),
+        }
+        if !self.image_present(ctx, tag).await? {
+            self.note(
+                None,
+                format!("docker_image_mismatch: the archive {url} loaded no image {tag}; building the image instead"),
+            );
+            return Ok(false);
+        }
+        self.revision_matches(ctx, tag, tag, &format!("{tag} from {url}")).await
+    }
+
+    /// Whether the revision label of `reference` is the digest of the tag. An image whose label is another one leaves
+    /// the note `docker_image_mismatch`, which names both digests, and is removed from the engine, so no later
+    /// `image inspect` finds it. `source` names the image in the note.
+    async fn revision_matches(&self, ctx: &Ctx, tag: &str, reference: &str, source: &str) -> Result<bool, Refusal> {
         let revision = self
             .runner
-            .checked(ctx, &self.revision_argv(remote), &SpawnOptions::within(DOCKER_QUERY_TIMEOUT))
+            .checked(ctx, &self.revision_argv(reference), &SpawnOptions::within(DOCKER_QUERY_TIMEOUT))
             .await?;
         let digest = tag_digest(tag);
         let said = self.revision_of(&revision.stdout);
-        if said != digest {
-            self.note(
-                None,
-                format!(
-                    "docker_image_mismatch: the pulled image {remote} says revision {said:?} and the tag digest is \
-                     {digest}; removing it and building the image instead"
-                ),
-            );
-            let remove = match self.dialect() {
-                Dialect::Docker => ["image", "rm", remote],
-                Dialect::AppleContainer => ["image", "delete", remote],
-            };
-            self.checked(ctx, &remove, DOCKER_REMOVE_TIMEOUT).await?;
-            return Ok(false);
+        if said == digest {
+            return Ok(true);
         }
+        self.note(
+            None,
+            format!(
+                "docker_image_mismatch: the pulled image {source} says revision {said:?} and the tag digest is \
+                 {digest}; removing it and building the image instead"
+            ),
+        );
+        let remove = match self.dialect() {
+            Dialect::Docker => ["image", "rm", reference],
+            Dialect::AppleContainer => ["image", "delete", reference],
+        };
+        self.checked(ctx, &remove, DOCKER_REMOVE_TIMEOUT).await?;
+        Ok(false)
+    }
+
+    /// Publishes the tag in the dialect of the engine: to the registry in the Docker dialect, to the file mirror in the
+    /// Apple one. A source that is off publishes nothing; the settings refuse a push to a source that is off.
+    async fn publish(&self, ctx: &Ctx, tag: &str, context: &Path) -> Result<(), Refusal> {
         match self.dialect() {
-            Dialect::Docker => self.checked(ctx, &["tag", remote, tag], DOCKER_QUERY_TIMEOUT).await?,
-            Dialect::AppleContainer => self.checked(ctx, &["image", "tag", remote, tag], DOCKER_QUERY_TIMEOUT).await?,
+            Dialect::Docker => match self.remote_reference(tag) {
+                Some(remote) => self.publish_to_registry(ctx, tag, &remote, context).await,
+                None => Ok(()),
+            },
+            Dialect::AppleContainer => match self.mirror_url(tag) {
+                Some(url) => self.publish_to_mirror(ctx, tag, &url, context).await,
+                None => Ok(()),
+            },
         }
-        Ok(true)
     }
 
     /// Builds the tag for every published platform and pushes the index as `remote`. A failure is
     /// `docker_push_failed`: the operator asked for the publish, so a publish that did not happen is not a build
     /// that succeeded.
-    async fn publish(&self, ctx: &Ctx, tag: &str, remote: &str, context: &Path) -> Result<(), Refusal> {
+    async fn publish_to_registry(&self, ctx: &Ctx, tag: &str, remote: &str, context: &Path) -> Result<(), Refusal> {
         let log = self.settings.docker_push_log_path();
         remove_if_present(&log)?;
         self.note(
@@ -1110,31 +1283,64 @@ impl Docker {
                 &log_options(DOCKER_PUBLISH_TIMEOUT),
             )
             .await
-            .map_err(|error| match error {
-                ProcError::Exited { refusal, .. } => Refusal::new(
-                    "docker_push_failed",
-                    refusal.exit,
-                    format!("{}; the push log is {}", refusal.message, log.display()),
-                ),
-                other => other.into(),
-            })?;
-        let Some(push) = self.push_argv(remote) else {
-            return Ok(());
-        };
-        self.runner
-            .checked(ctx, &push, &SpawnOptions::within(DOCKER_PUBLISH_TIMEOUT))
-            .await
-            .map_err(|error| match error {
-                ProcError::Exited { refusal, .. } => Refusal::new("docker_push_failed", refusal.exit, refusal.message),
-                other => other.into(),
-            })
+            .map_err(|error| push_failed(error, &log))
             .map(drop)
+    }
+
+    /// Saves the tag for the platform of the host into an OCI archive in the build context, and uploads it to `url`
+    /// with an HTTP PUT. The archive is removed after the upload. A failure is `docker_push_failed`.
+    ///
+    /// The engine saves one platform, so a host publishes its own platform only. The authorization header is in a
+    /// private file beside the archive, removed after the upload, so the token is never in an argv.
+    async fn publish_to_mirror(&self, ctx: &Ctx, tag: &str, url: &str, context: &Path) -> Result<(), Refusal> {
+        let token = self.mirror_token()?;
+        let log = self.settings.docker_push_log_path();
+        remove_if_present(&log)?;
+        let archive = context.join(self.archive_name(tag));
+        remove_if_present(&archive)?;
+        self.note(
+            None,
+            format!(
+                "publishing the Docker image {tag} to {url} for linux/{} only, the platform of this host (log: {})",
+                self.settings.guest_arch.oci_arch(),
+                log.display()
+            ),
+        );
+        self.runner
+            .checked(ctx, &self.save_argv(tag, &archive), &SpawnOptions::within(IMAGE_ARCHIVE_TIMEOUT))
+            .await
+            .map_err(|error| push_failed(error, &log))?;
+        let uploaded = self.upload(ctx, &archive, url, token, &log).await;
+        let removed = remove_if_present(&archive);
+        uploaded.and(removed)
+    }
+
+    /// The HTTP PUT of the archive to `url`, with `Authorization: Bearer <token>` read by `curl` from a private file.
+    async fn upload(&self, ctx: &Ctx, archive: &Path, url: &str, token: &Secret, log: &Path) -> Result<(), Refusal> {
+        let directory = archive.parent().unwrap_or_else(|| Path::new("."));
+        let failed = || format!("cannot write the authorization header file in {}", directory.display());
+        let mut header = private_temporary(directory, "mirror-authorization").or_refuse("state_write_failed", Exit::FAILURE, failed)?;
+        writeln!(header, "Authorization: Bearer {}", token.expose())
+            .and_then(|()| header.flush())
+            .or_refuse("state_write_failed", Exit::FAILURE, failed)?;
+        let uploaded = self
+            .runner
+            .checked_to_file(
+                ctx,
+                &self.upload_argv(archive, header.path(), url),
+                log,
+                &log_options(DOCKER_PUBLISH_TIMEOUT),
+            )
+            .await;
+        // The drop removes the header file.
+        drop(header);
+        uploaded.map_err(|error| push_failed(error, log)).map(drop)
     }
 
     /// Writes the Dockerfile and the entrypoint into a fresh build context under the runtime root, one directory per
     /// image digest. Fresh, so a context left by an interrupted build cannot add a file the digest does not cover.
     fn write_build_context(&self, tag: &str) -> Result<PathBuf, Refusal> {
-        let context = self.settings.runtime_root.join("docker-context").join(tag_digest(tag));
+        let context = self.digest_directory(tag);
         let failed = || format!("cannot write the Docker build context {}", context.display());
         match std::fs::remove_dir_all(&context) {
             Ok(()) => {}
@@ -1494,6 +1700,18 @@ pub(crate) fn container_unusable(worker: &str, word: &str) -> Refusal {
              `docker unpause {worker}` resumes a paused one, and `pool recycle {worker}` makes any of them again"
         ),
     )
+}
+
+/// The refusal of a publish step that failed: `docker_push_failed`, which names the push log, for a step that exited.
+fn push_failed(error: ProcError, log: &Path) -> Refusal {
+    match error {
+        ProcError::Exited { refusal, .. } => Refusal::new(
+            "docker_push_failed",
+            refusal.exit,
+            format!("{}; the push log is {}", refusal.message, log.display()),
+        ),
+        other => other.into(),
+    }
 }
 
 fn docker_missing(message: String) -> Refusal {

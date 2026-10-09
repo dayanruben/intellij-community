@@ -106,12 +106,12 @@ fn the_pinned_container_has_the_major_version_the_controller_speaks() {
 #[cfg(unix)]
 mod lifecycle {
     use avl_base::config::CONTAINER_WORKER_MEMORY_MIB;
-    use avl_testkit::tartfake::Answer;
+    use avl_testkit::tartfake::{Answer, MIRROR_HEADER, MIRROR_HEADER_MODE, MIRROR_UPLOAD};
 
     use pretty_assertions::assert_eq;
 
     use super::*;
-    use crate::worker::docker::Docker;
+    use crate::worker::docker::{Docker, ImageSource};
     use crate::worker::testing::Fixture;
     use crate::worker::worker::{PoolCommand, PoolTarget, StartState};
 
@@ -131,6 +131,219 @@ mod lifecycle {
     }
 
     const START: &str = "system start --enable-kernel-install";
+
+    /// The head of the download of the image archive, as the fake `curl` records it without its program.
+    const DOWNLOAD: &str = "--fail --silent --show-error --location --output ";
+
+    fn digest(tag: &str) -> &str {
+        tag.rsplit(':').next().unwrap()
+    }
+
+    fn strings(words: &[&str]) -> Vec<String> {
+        words.iter().map(|word| (*word).to_owned()).collect()
+    }
+
+    /// The mirror URL is `<mirror>/<repository>/<digest>-linux-<arch>.tar`. The download, the load, the save and the
+    /// upload are the argv of the design, and the token is in no argv.
+    #[test]
+    fn the_mirror_commands_are_the_argv_of_the_design() {
+        let fixture = Fixture::docker_builder()
+            .container_engine()
+            .env("AIR_VM_IMAGE_MIRROR_TOKEN", "secret-token")
+            .build();
+        let backend = docker(&fixture);
+        let tag = "air-ui-worker:3d61c9831be6";
+        let url = "https://packages.jetbrains.team/files/p/ij/intellij-build-dependencies/air-ui-worker/3d61c9831be6-linux-arm64.tar";
+        assert_eq!(backend.mirror_url(tag).as_deref(), Some(url));
+        let curl = fixture.settings.host_curl.as_str();
+        let archive = Path::new("/runtime/docker-context/3d61c9831be6/3d61c9831be6-linux-arm64.tar");
+        assert_eq!(
+            backend.download_argv(url, archive),
+            strings(&[
+                curl,
+                "--fail",
+                "--silent",
+                "--show-error",
+                "--location",
+                "--output",
+                "/runtime/docker-context/3d61c9831be6/3d61c9831be6-linux-arm64.tar",
+                url,
+            ])
+        );
+        let program = backend.program();
+        assert_eq!(
+            backend.load_argv(archive)[1..],
+            strings(&["image", "load", "-i", &archive.display().to_string()])
+        );
+        assert_eq!(
+            backend.save_argv(tag, archive)[1..],
+            strings(&[
+                "image",
+                "save",
+                "--platform",
+                "linux/arm64",
+                "-o",
+                &archive.display().to_string(),
+                tag
+            ])
+        );
+        assert_eq!(backend.load_argv(archive)[0], program);
+        let header = Path::new("/runtime/docker-context/3d61c9831be6/.mirror-authorization-x.tmp");
+        let upload = backend.upload_argv(archive, header, url);
+        assert_eq!(
+            upload,
+            strings(&[
+                curl,
+                "--fail",
+                "--silent",
+                "--show-error",
+                "--upload-file",
+                &archive.display().to_string(),
+                "--header",
+                "@/runtime/docker-context/3d61c9831be6/.mirror-authorization-x.tmp",
+                url,
+            ])
+        );
+        assert!(!upload.iter().any(|word| word.contains("secret-token")), "{upload:?}");
+
+        let off = Fixture::docker_builder()
+            .container_engine()
+            .env("AIR_VM_IMAGE_MIRROR", "off")
+            .build();
+        assert_eq!(docker(&off).mirror_url(tag), None);
+    }
+
+    /// An archive on the mirror serves the worker: it is downloaded, loaded under the tag, checked against the tag
+    /// digest through its revision label, and recorded as pulled. Nothing is built, and the archive is removed.
+    #[tokio::test]
+    async fn an_archive_on_the_mirror_is_loaded_and_not_built() {
+        let fixture = Fixture::docker_container();
+        let backend = docker(&fixture);
+        backend.require_available(&ctx(), "").await.unwrap();
+        let tag = backend.image_tag();
+        fixture.fake.answer(Answer::MirrorArchive, format!("{tag}\n"));
+        fixture.fake.answer(Answer::ImageRevision, digest(&tag));
+        fixture.fake.forget_calls();
+        assert_eq!(backend.ensure_image(&ctx()).await.unwrap(), tag);
+        let calls = fixture.fake.calls();
+        let url = backend.mirror_url(&tag).unwrap();
+        let download = &calls[position(&calls, DOWNLOAD)];
+        assert!(download.ends_with(&format!("-linux-arm64.tar {url}")), "{download}");
+        assert!(position(&calls, DOWNLOAD) < position(&calls, "image load -i "));
+        let load = position(&calls, "image load -i ");
+        assert!(calls[load..].contains(&format!("image inspect {tag}")), "{calls:#?}");
+        assert!(
+            !calls
+                .iter()
+                .any(|call| call.starts_with("build ") || call.starts_with("image pull ") || call.starts_with("image tag ")),
+            "{calls:#?}"
+        );
+        assert_eq!(backend.read_image_record().unwrap().source, ImageSource::Pulled);
+        let directory = fixture.settings.runtime_root.join("docker-context").join(digest(&tag));
+        assert!(!directory.join(format!("{}-linux-arm64.tar", digest(&tag))).exists());
+        assert!(!fixture.settings.docker_build_log_path().exists());
+    }
+
+    /// A loaded image whose revision label is not the tag digest is deleted from the engine and the image is built. An
+    /// archive that holds no image of the tag is built too.
+    #[tokio::test]
+    async fn an_archive_of_other_bytes_is_not_trusted_and_the_image_is_built() {
+        let fixture = Fixture::docker_container();
+        let backend = docker(&fixture);
+        backend.require_available(&ctx(), "").await.unwrap();
+        let tag = backend.image_tag();
+        fixture.fake.answer(Answer::MirrorArchive, format!("{tag}\n"));
+        fixture.fake.answer(Answer::ImageRevision, "deadbeefcafe");
+        assert_eq!(backend.ensure_image(&ctx()).await.unwrap(), tag);
+        let calls = fixture.fake.calls();
+        assert!(position(&calls, &format!("image delete {tag}")) < position(&calls, "build "));
+        assert_eq!(backend.read_image_record().unwrap().source, ImageSource::Built);
+
+        let fixture = Fixture::docker_container();
+        let backend = docker(&fixture);
+        backend.require_available(&ctx(), "").await.unwrap();
+        fixture.fake.answer(Answer::MirrorArchive, "air-ui-worker:000000000000\n");
+        assert_eq!(backend.ensure_image(&ctx()).await.unwrap(), tag);
+        let calls = fixture.fake.calls();
+        assert!(position(&calls, "image load -i ") < position(&calls, "build "));
+        assert!(!calls.iter().any(|call| call.starts_with("image delete ")), "{calls:#?}");
+        assert_eq!(backend.read_image_record().unwrap().source, ImageSource::Built);
+    }
+
+    /// `AIR_VM_IMAGE_MIRROR=off` builds and never downloads.
+    #[tokio::test]
+    async fn a_mirror_of_off_downloads_nothing() {
+        let fixture = Fixture::docker_builder()
+            .container_engine()
+            .env("AIR_VM_IMAGE_MIRROR", "off")
+            .build();
+        docker(&fixture).require_available(&ctx(), "").await.unwrap();
+        docker(&fixture).ensure_image(&ctx()).await.unwrap();
+        let calls = fixture.fake.calls();
+        assert!(!calls.iter().any(|call| call.starts_with("--fail")), "{calls:#?}");
+        position(&calls, "build ");
+        assert!(!fixture.settings.docker_pull_log_path().exists());
+    }
+
+    /// A publish without the mirror token is refused before the build, with its own code.
+    #[tokio::test]
+    async fn a_publish_without_a_token_is_refused_before_the_build() {
+        let fixture = Fixture::docker_builder().container_engine().env("AIR_VM_DOCKER_PUSH", "1").build();
+        docker(&fixture).require_available(&ctx(), "").await.unwrap();
+        fixture.fake.forget_calls();
+        let refusal = docker(&fixture).ensure_image(&ctx()).await.unwrap_err();
+        assert_eq!((refusal.code.as_ref(), refusal.exit), ("image_mirror_token_missing", Exit::USAGE));
+        assert!(refusal.message.contains("AIR_VM_IMAGE_MIRROR_TOKEN"), "{}", refusal.message);
+        assert!(fixture.fake.calls().is_empty(), "{:#?}", fixture.fake.calls());
+    }
+
+    /// The publish builds, saves the archive of the host platform into the build context, and uploads it to the mirror
+    /// URL. The token travels in a private header file, never in an argv, and the archive and the header file are gone
+    /// after the upload. A failed upload is `docker_push_failed` and names the push log.
+    #[tokio::test]
+    async fn a_publish_uploads_the_archive_of_the_host_platform() {
+        let fixture = Fixture::docker_builder()
+            .container_engine()
+            .env("AIR_VM_DOCKER_PUSH", "1")
+            .env("AIR_VM_IMAGE_MIRROR_TOKEN", "secret-token")
+            .build();
+        let backend = docker(&fixture);
+        backend.require_available(&ctx(), "").await.unwrap();
+        let tag = backend.ensure_image(&ctx()).await.unwrap();
+        let calls = fixture.fake.calls();
+        let context = fixture.settings.runtime_root.join("docker-context").join(digest(&tag));
+        let archive = context.join(format!("{}-linux-arm64.tar", digest(&tag)));
+        let save = format!("image save --platform linux/arm64 -o {} {tag}", archive.display());
+        assert!(position(&calls, "build ") < position(&calls, &save));
+        let upload_head = format!("--fail --silent --show-error --upload-file {} --header @", archive.display());
+        assert!(position(&calls, &save) < position(&calls, &upload_head));
+        let upload = &calls[position(&calls, &upload_head)];
+        assert!(upload.ends_with(&format!(" {}", backend.mirror_url(&tag).unwrap())), "{upload}");
+        assert!(!calls.iter().any(|call| call.contains("secret-token")), "{calls:#?}");
+        assert!(
+            !calls.iter().any(|call| call.starts_with("--fail --silent --show-error --location")),
+            "{calls:#?}"
+        );
+        let beside = |name: &str| std::fs::read_to_string(fixture.fake.directory().join(name)).unwrap();
+        assert_eq!(beside(MIRROR_UPLOAD), format!("{tag}\n"));
+        assert_eq!(beside(MIRROR_HEADER), "Authorization: Bearer secret-token\n");
+        assert_eq!(beside(MIRROR_HEADER_MODE).trim(), "-rw-------");
+        let left: Vec<_> = std::fs::read_dir(&context)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|name| name.ends_with(".tar") || name.contains("mirror-authorization"))
+            .collect();
+        assert!(left.is_empty(), "{left:?}");
+        assert_eq!(backend.read_image_record().unwrap().source, ImageSource::Built);
+
+        fixture.fake.answer(Answer::PushExit, "22");
+        let refusal = docker(&fixture).ensure_image(&ctx()).await.unwrap_err();
+        let log = fixture.settings.docker_push_log_path();
+        assert_eq!(refusal.code, "docker_push_failed");
+        assert!(refusal.message.contains(&log.display().to_string()), "{}", refusal.message);
+        assert!(std::fs::read_to_string(&log).unwrap().contains("returned error: 403"));
+        assert!(!archive.exists());
+    }
 
     /// The gate starts a server that is down, once, and logs the start. The next gate finds it running. Nothing runs a
     /// Docker CLI, nothing names a Docker configuration, and nothing stops the server.
@@ -194,9 +407,9 @@ mod lifecycle {
         assert!(std::fs::read_to_string(&log).unwrap().contains("the start failed"));
     }
 
-    /// The whole start in the Apple dialect: `image pull`, then a build that names the builder sizes and the
-    /// nameserver, then a create with the memory, the CPUs and the nameserver of a worker and without `--hostname`, then
-    /// the start. A second start keeps the running container.
+    /// The whole start in the Apple dialect: the download of the image archive, which the mirror does not hold, then a
+    /// build that names the builder sizes and the nameserver, then a create with the memory, the CPUs and the
+    /// nameserver of a worker and without `--hostname`, then the start. A second start keeps the running container.
     #[tokio::test]
     async fn a_start_speaks_the_apple_dialect() {
         let fixture = Fixture::docker_container();
@@ -207,7 +420,10 @@ mod lifecycle {
         );
         let calls = fixture.fake.calls();
         let cpus = fixture.settings.vm_cpu;
-        assert!(position(&calls, "image pull ") < position(&calls, "build "));
+        assert!(position(&calls, DOWNLOAD) < position(&calls, "build "));
+        assert!(!calls.iter().any(|call| call.starts_with("image pull ")), "{calls:#?}");
+        let log = std::fs::read_to_string(fixture.settings.docker_pull_log_path()).unwrap();
+        assert!(log.contains("returned error: 404"), "{log}");
         let build = &calls[position(&calls, "build ")];
         assert!(
             build.starts_with(&format!(
