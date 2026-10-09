@@ -288,19 +288,44 @@ async fn non_record_lines_are_kept_as_output() {
     );
 }
 
-// The push offers the hot tier by digest and uploads only what the guest does not hold.
+// The push offers the hot tier and the context plugin files by digest, and uploads only what the guest does not hold.
 #[tokio::test]
-async fn push_hot_jars_uploads_only_missing_digests() {
+async fn push_jars_uploads_only_missing_digests() {
     let (fixture, prep, state) = executing().await;
     let ctx = Ctx::background();
-    assert_eq!(push_hot_jars(&ctx, fixture.host.daemon(), &state, &prep).await.unwrap(), 0);
+    assert_eq!(push_jars(&ctx, fixture.host.daemon(), &state, &prep).await.unwrap(), 0);
+    let sha = prep.hot_jars[0].sha256.clone();
+    let plugin = prep.plugin_files[0].host.sha256.clone();
+    fixture.daemon.script().missing = vec![sha.clone()];
+    assert_eq!(push_jars(&ctx, fixture.host.daemon(), &state, &prep).await.unwrap(), 1);
+    {
+        let script = fixture.daemon.script();
+        assert_eq!(script.uploads.len(), 1);
+        assert!(script.uploads[0].contains(&sha), "the upload names the digest");
+        let body: Value = serde_json::from_slice(&script.jars_body).unwrap();
+        assert_eq!(body, json!({ "jars": [sha, plugin] }));
+    }
+    fixture.daemon.script().missing = vec![plugin.clone()];
+    assert_eq!(push_jars(&ctx, fixture.host.daemon(), &state, &prep).await.unwrap(), 1);
+    let script = fixture.daemon.script();
+    assert!(
+        script.uploads[1].contains(&plugin),
+        "a changed plugin file travels by the same push"
+    );
+}
+
+// A plugin file whose bytes equal a hot jar is offered and uploaded once.
+#[tokio::test]
+async fn a_digest_that_two_files_share_is_offered_once() {
+    let (fixture, mut prep, state) = executing().await;
+    prep.plugin_files[0].host = prep.hot_jars[0].clone();
     let sha = prep.hot_jars[0].sha256.clone();
     fixture.daemon.script().missing = vec![sha.clone()];
-    assert_eq!(push_hot_jars(&ctx, fixture.host.daemon(), &state, &prep).await.unwrap(), 1);
-    let script = fixture.daemon.script();
-    assert_eq!(script.uploads.len(), 1);
-    assert!(script.uploads[0].contains(&sha), "the upload names the digest");
-    let body: Value = serde_json::from_slice(&script.jars_body).unwrap();
+    assert_eq!(
+        push_jars(&Ctx::background(), fixture.host.daemon(), &state, &prep).await.unwrap(),
+        1
+    );
+    let body: Value = serde_json::from_slice(&fixture.daemon.script().jars_body).unwrap();
     assert_eq!(body, json!({ "jars": [sha] }));
 }
 
@@ -358,7 +383,7 @@ async fn a_small_push_opens_no_relay_more() {
     let (fixture, mut prep, state) = executing().await;
     let directory = tempfile::tempdir().unwrap();
     missing_hot_jars(&fixture, &mut prep, directory.path(), 4, 64 * 1024);
-    let pushed = push_hot_jars(&Ctx::background(), fixture.host.daemon(), &state, &prep).await;
+    let pushed = push_jars(&Ctx::background(), fixture.host.daemon(), &state, &prep).await;
     assert_eq!(pushed.unwrap(), 4);
     assert_eq!(relays(&fixture), 1, "{:?}", fixture.channel().lines());
     assert_eq!(fixture.daemon.script().uploads.len(), 4);
@@ -374,7 +399,7 @@ async fn the_hot_jars_upload_with_a_bounded_concurrency() {
     let hold = CancellationToken::new();
     fixture.daemon.script().upload_hold = Some(hold.clone());
     let ctx = Ctx::background();
-    let push = push_hot_jars(&ctx, fixture.host.daemon(), &state, &prep);
+    let push = push_jars(&ctx, fixture.host.daemon(), &state, &prep);
     let release = async {
         wait_for_uploads_in_flight(&fixture, 2).await;
         hold.cancel();
@@ -408,7 +433,7 @@ async fn a_failed_upload_ends_the_others_and_keeps_its_refusal() {
         script.upload_refused = Some((refused.sha256.clone(), 500));
     }
     let ctx = Ctx::background();
-    let push = push_hot_jars(&ctx, fixture.host.daemon(), &state, &prep);
+    let push = push_jars(&ctx, fixture.host.daemon(), &state, &prep);
     let refusal = tokio::time::timeout(Duration::from_secs(60), push)
         .await
         .expect("the push waited for the uploads that were still in flight")

@@ -46,10 +46,16 @@ pub(crate) struct PreparedBuild {
     /// The test tier by host path and content digest, in classpath order: what `/jars` is asked about and what a
     /// missing digest is uploaded from.
     pub hot_jars: Vec<PathDigest>,
+    /// The files of the context plugins, in descriptor order: pushed with the hot tier, and installed by the daemon into
+    /// the plugin directory of the IDE context.
+    pub plugin_files: Vec<PluginFile>,
     pub runtime_digest: String,
     pub launch_digest: String,
     pub product_digest: String,
     pub mount_digest: String,
+    /// The identity of [`Self::plugin_files`]: each destination with its content digest. Neither the product digest
+    /// nor the mount digest reads it, so a change of the context plugins alone refreshes no share.
+    pub plugins_digest: String,
     /// The immutable environment the daemon is exec'd with that no build produces: what every lane sets by value,
     /// plus the guest's Node. Its [`lane_environment_digest`] is part of the launch digest, so a change here
     /// re-execs the daemon.
@@ -60,6 +66,24 @@ pub(crate) struct PreparedBuild {
     /// Bazel's cost, and this controller's own hashing, timed apart so neither can hide inside the other.
     pub build: Duration,
     pub stamp: Duration,
+}
+
+/// One file of a context plugin: its destination below the plugin directory of the IDE context, and its bytes on the
+/// host by path and content digest, as `/jars` is asked about them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PluginFile {
+    pub destination: String,
+    pub host: PathDigest,
+}
+
+/// The identity of the context plugin files: each destination with its content digest, so a moved file and a changed
+/// file both change it.
+pub(crate) fn plugins_digest(files: &[PluginFile]) -> String {
+    let entries: Vec<PathDigest> = files
+        .iter()
+        .map(|file| PathDigest::new(&file.destination, &file.host.sha256))
+        .collect();
+    digest::path_sensitive_digest(&entries)
 }
 
 /// Where one host build writes its log and caches its file digests.
@@ -217,13 +241,15 @@ pub(crate) fn declared_input(
 /// The digests of one descriptor's inputs, which is all the stamp reads from disk.
 struct Stamped {
     hot_jars: Vec<PathDigest>,
+    plugin_files: Vec<PluginFile>,
     runtime_digest: String,
     product_digest: String,
     mount_digest: String,
 }
 
 /// Hashes every declared input of a descriptor through the digest cache and composes three of the four identities;
-/// the launch digest needs the settings and is composed by the caller. Blocking: the first sweep reads gigabytes.
+/// the launch digest needs the settings and is composed by the caller. The context plugin files are hashed here too,
+/// and their identity is composed apart from the other four. Blocking: the first sweep reads gigabytes.
 fn stamp(descriptor: &RuntimeDescriptor, runfiles: &HostRunfiles, cache_path: &Path) -> Result<Stamped, Refusal> {
     let mut cache = FileDigestCache::open(cache_path);
     let mut file = |file: &RuntimeFile| declared_input(&mut cache, runfiles, file, false);
@@ -232,6 +258,14 @@ fn stamp(descriptor: &RuntimeDescriptor, runfiles: &HostRunfiles, cache_path: &P
     for jar in &descriptor.classpath.hot {
         let declared = file(jar)?;
         hot_jars.push(PathDigest::new(declared.host_path.to_string_lossy(), declared.identity.sha256));
+    }
+    let mut plugin_files = Vec::with_capacity(descriptor.ide.plugins.len());
+    for plugin in &descriptor.ide.plugins {
+        let declared = file(&plugin.file)?;
+        plugin_files.push(PluginFile {
+            destination: plugin.destination.clone(),
+            host: PathDigest::new(declared.host_path.to_string_lossy(), declared.identity.sha256),
+        });
     }
     let mut runtime_entries = Vec::with_capacity(descriptor.classpath.stable.len() + 2);
     for jar in &descriptor.classpath.stable {
@@ -281,6 +315,7 @@ fn stamp(descriptor: &RuntimeDescriptor, runfiles: &HostRunfiles, cache_path: &P
     })?;
     Ok(Stamped {
         hot_jars,
+        plugin_files,
         runtime_digest,
         product_digest,
         mount_digest,
@@ -332,6 +367,8 @@ impl Host {
             guest_runfiles_root,
             descriptor,
             hot_jars: stamped.hot_jars,
+            plugins_digest: plugins_digest(&stamped.plugin_files),
+            plugin_files: stamped.plugin_files,
             runtime_digest: stamped.runtime_digest,
             launch_digest,
             product_digest: stamped.product_digest,

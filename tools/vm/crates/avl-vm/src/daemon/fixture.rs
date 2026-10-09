@@ -116,6 +116,7 @@ impl Fixture {
         state.runtime_digest = prep.runtime_digest.clone();
         state.last_product_digest = prep.product_digest.clone();
         state.last_mount_digest = prep.mount_digest.clone();
+        state.last_plugins_digest = prep.plugins_digest.clone();
         state.write(&self.settings, worker).expect("the daemon state is written");
         daemon
     }

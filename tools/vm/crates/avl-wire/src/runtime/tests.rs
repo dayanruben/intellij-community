@@ -20,12 +20,22 @@ fn file(logical_path: &str, owner: &str) -> Value {
     })
 }
 
+fn plugin(destination: &str) -> Value {
+    json!({
+        "destination": destination,
+        "file": file(
+            &format!("_main/plugins/air/tests/integration/bridge_plugin_dir/{destination}"),
+            "//plugins/air/tests/integration:bridge_plugin_dir",
+        ),
+    })
+}
+
 /// The descriptor every refusal below is one mutation away from. A value rather than a literal, so a case can
 /// *delete* a field: a missing field and an empty one are different mistakes, and only the first is what an older
 /// Bazel rule actually emits.
 fn valid_descriptor() -> Value {
     json!({
-        "schemaVersion": 6,
+        "schemaVersion": 7,
         "kind": "air-ui-daemon-runtime",
         "mainClass": "com.intellij.air.uiDaemon.AirUiDaemonMain",
         "staticJvmFlags": ["-Xmx4g", "-Dsun.io.useCanonCaches=false", "-Dair.ui.runfiles=${RUNFILES_ROOT}/_main"],
@@ -47,6 +57,10 @@ fn valid_descriptor() -> Value {
         },
         "ide": {
             "flagsFile": file("_main/plugins/air/tests/integration/ui/ide_flags.jvm-flags.txt", "//plugins/air/tests/integration/ui:ide_flags"),
+            "plugins": [
+                plugin("air-integrationTests-bridge-plugin/lib/air-integrationTests-bridge-plugin.jar"),
+                plugin("air-integrationTests-bridge-plugin/lib/modules/intellij.air.integrationTests.bridge.jar"),
+            ],
             "projectArchive": file("_main/external/air_integration_test_deps/simpleJavaProject.zip", "@air_integration_test_deps//:simpleJavaProject.zip"),
             "projectRoot": "BookmarksTestProject",
         },
@@ -82,7 +96,7 @@ fn parse(descriptor: &Value) -> RuntimeDescriptor {
 #[test]
 fn a_well_formed_descriptor_parses_into_the_launch_contract() {
     let parsed = parse(&valid_descriptor());
-    assert_eq!((parsed.schema_version, parsed.kind.as_str()), (6, DESCRIPTOR_KIND));
+    assert_eq!((parsed.schema_version, parsed.kind.as_str()), (7, DESCRIPTOR_KIND));
     assert_eq!(parsed.main_class, "com.intellij.air.uiDaemon.AirUiDaemonMain");
     assert_eq!((parsed.classpath.hot.len(), parsed.classpath.stable.len()), (1, 2));
     // The stable tier keeps its order: a classpath is ordered.
@@ -107,6 +121,19 @@ fn a_well_formed_descriptor_parses_into_the_launch_contract() {
         parsed.ide.flags_file.logical_path,
         "_main/plugins/air/tests/integration/ui/ide_flags.jvm-flags.txt"
     );
+    // The plugin files keep their order and their destination below the plugin directory of the context.
+    let destinations: Vec<&str> = parsed.ide.plugins.iter().map(|plugin| plugin.destination.as_str()).collect();
+    assert_eq!(
+        destinations,
+        [
+            "air-integrationTests-bridge-plugin/lib/air-integrationTests-bridge-plugin.jar",
+            "air-integrationTests-bridge-plugin/lib/modules/intellij.air.integrationTests.bridge.jar",
+        ]
+    );
+    assert_eq!(
+        parsed.ide.plugins[0].file.owner,
+        "//plugins/air/tests/integration:bridge_plugin_dir"
+    );
 }
 
 /// The refusal corpus: every way the Bazel-owned contract can be wrong, the code a caller branches on, and a
@@ -126,14 +153,14 @@ fn corpus() -> Vec<(&'static str, Vec<u8>, &'static str, &'static [&'static str]
             "a JSON array has no schema version",
             b"[]".to_vec(),
             code::SCHEMA_VERSION,
-            &["schemaVersion is absent, expected 6"],
+            &["schemaVersion is absent, expected 7"],
         ),
-        // The version before the IDE section: a controller of this version cannot launch the IDE from it.
+        // The version before the context plugins: a controller of this version cannot install them from it.
         (
-            "a descriptor of the version before the IDE section",
-            bytes(set(valid(), "/schemaVersion", json!(5))),
+            "a descriptor of the version before the context plugins",
+            bytes(set(valid(), "/schemaVersion", json!(6))),
             code::SCHEMA_VERSION,
-            &["schemaVersion is 5, expected 6"],
+            &["schemaVersion is 6, expected 7"],
         ),
         (
             "an older rule emits no schema version",
@@ -143,9 +170,9 @@ fn corpus() -> Vec<(&'static str, Vec<u8>, &'static str, &'static [&'static str]
         ),
         (
             "a schema version this controller predates",
-            bytes(set(valid(), "/schemaVersion", json!(7))),
+            bytes(set(valid(), "/schemaVersion", json!(8))),
             code::SCHEMA_VERSION,
-            &["schemaVersion is 7, expected 6"],
+            &["schemaVersion is 8, expected 7"],
         ),
         (
             "the schema version arrives as text",
@@ -381,6 +408,75 @@ fn corpus() -> Vec<(&'static str, Vec<u8>, &'static str, &'static [&'static str]
             code::PATH_ESCAPES,
             &["ide.flagsFile.logicalPath escapes the runfiles root"],
         ),
+        (
+            "no IDE plugins",
+            bytes(drop_field(valid(), "/ide/plugins")),
+            code::FIELD_INVALID,
+            &["ide", "plugins"],
+        ),
+        (
+            "an IDE plugin file that is an array",
+            bytes(set(valid(), "/ide/plugins/0", json!(["a", "b"]))),
+            code::FIELD_INVALID,
+            &["ide.plugins[0]"],
+        ),
+        (
+            "an IDE plugin file with an empty destination",
+            bytes(set(valid(), "/ide/plugins/0/destination", json!(""))),
+            code::FIELD_INVALID,
+            &["ide.plugins[0].destination", "empty"],
+        ),
+        (
+            "an IDE plugin file that climbs out of the plugin directory",
+            bytes(set(
+                valid(),
+                "/ide/plugins/0/destination",
+                json!("air-integrationTests-bridge-plugin/../../config/x.jar"),
+            )),
+            code::PLUGIN_DESTINATION_INVALID,
+            &["ide.plugins[0].destination air-integrationTests-bridge-plugin/../../config/x.jar is not a file inside a plugin directory"],
+        ),
+        (
+            "an IDE plugin file at the top of the plugin directory",
+            bytes(set(valid(), "/ide/plugins/0/destination", json!("loose.jar"))),
+            code::PLUGIN_DESTINATION_INVALID,
+            &["ide.plugins[0].destination loose.jar"],
+        ),
+        (
+            "an absolute IDE plugin destination",
+            bytes(set(valid(), "/ide/plugins/0/destination", json!("/plugins/x/lib/x.jar"))),
+            code::PLUGIN_DESTINATION_INVALID,
+            &["ide.plugins[0].destination /plugins/x/lib/x.jar"],
+        ),
+        (
+            "two IDE plugin files with one destination",
+            bytes(set(
+                valid(),
+                "/ide/plugins/1/destination",
+                json!("air-integrationTests-bridge-plugin/lib/air-integrationTests-bridge-plugin.jar"),
+            )),
+            code::PLUGIN_DESTINATION_INVALID,
+            &["ide.plugins[1].destination air-integrationTests-bridge-plugin/lib/air-integrationTests-bridge-plugin.jar is claimed twice"],
+        ),
+        (
+            "an IDE plugin file outside the runfiles tree",
+            bytes(set(valid(), "/ide/plugins/1/file/logicalPath", json!("/etc/x.jar"))),
+            code::PATH_ESCAPES,
+            &["ide.plugins[1].file.logicalPath escapes the runfiles root"],
+        ),
+        // The plugin files travel by the push, so the rule must take them out of the data list.
+        (
+            "an IDE plugin file that is also declared data",
+            bytes(set(
+                valid(),
+                "/data/0/logicalPath",
+                json!(
+                    "_main/plugins/air/tests/integration/bridge_plugin_dir/air-integrationTests-bridge-plugin/lib/air-integrationTests-bridge-plugin.jar"
+                ),
+            )),
+            code::DUPLICATE_LOGICAL_PATH,
+            &["duplicate logical path _main/plugins/air/tests/integration/bridge_plugin_dir/"],
+        ),
         // The project archive is a runfile of every lane, so the rule must take it out of the data list.
         (
             "an IDE project archive that is also declared data",
@@ -431,7 +527,9 @@ fn every_way_the_descriptor_can_be_wrong_is_its_own_refusal() {
 #[test]
 fn the_validator_refuses_nothing_it_should_accept() {
     // A float that is the same number in JSON.
-    parse(&set(valid_descriptor(), "/schemaVersion", json!(6.0)));
+    parse(&set(valid_descriptor(), "/schemaVersion", json!(7.0)));
+    // A build with no context plugin installs nothing.
+    assert!(parse(&set(valid_descriptor(), "/ide/plugins", json!([]))).ide.plugins.is_empty());
     // An empty data list is a build that mounts nothing.
     assert!(parse(&set(valid_descriptor(), "/data", json!([]))).data.is_empty());
     // A project root of more than one segment.

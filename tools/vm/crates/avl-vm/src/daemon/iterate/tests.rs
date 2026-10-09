@@ -34,11 +34,27 @@ const BUILD: DaemonDigests<'static> = DaemonDigests {
     launch: "launch-1",
     mount: "mount-1",
     runtime: "runtime-1",
+    plugins: "plugins-1",
 };
 
 fn healthy(launch: &'static str, mount: &'static str, runtime: &'static str, ide_running: bool) -> HealthyDaemon<'static> {
+    healthy_with_plugins(launch, mount, runtime, "plugins-1", ide_running)
+}
+
+fn healthy_with_plugins(
+    launch: &'static str,
+    mount: &'static str,
+    runtime: &'static str,
+    plugins: &'static str,
+    ide_running: bool,
+) -> HealthyDaemon<'static> {
     HealthyDaemon {
-        recorded: DaemonDigests { launch, mount, runtime },
+        recorded: DaemonDigests {
+            launch,
+            mount,
+            runtime,
+            plugins,
+        },
         ide_running,
     }
 }
@@ -69,6 +85,30 @@ fn the_daemon_decision_names_the_axis_that_moved() {
         (
             Some(healthy("launch-1", "mount-1", "runtime-1", false)),
             true,
+            DaemonAction::Relaunch { stop_ide: false },
+        ),
+        // Only the context plugins moved: a relaunch on the same context, and no remount.
+        (
+            Some(healthy_with_plugins("launch-1", "mount-1", "runtime-1", "plugins-0", true)),
+            false,
+            DaemonAction::RelaunchForPlugins,
+        ),
+        // A record of an older controller holds no plugin identity, so nothing is decided on it.
+        (
+            Some(healthy_with_plugins("launch-1", "mount-1", "runtime-1", "", true)),
+            false,
+            DaemonAction::Reuse,
+        ),
+        // A moved mount wins: the remount gives a fresh context, which installs the plugins anyway.
+        (
+            Some(healthy_with_plugins("launch-1", "mount-0", "runtime-1", "plugins-0", true)),
+            false,
+            DaemonAction::Remount,
+        ),
+        // An IDE that is not running is launched again, and the launch installs the plugins.
+        (
+            Some(healthy_with_plugins("launch-1", "mount-1", "runtime-1", "plugins-0", false)),
+            false,
             DaemonAction::Relaunch { stop_ide: false },
         ),
         (
@@ -364,6 +404,35 @@ async fn a_daemon_without_a_running_ide_relaunches_it() {
         "{decisions:?}"
     );
     assert!(!decisions.iter().any(|decision| decision["action"] == "reuse"), "{decisions:?}");
+}
+
+// A change of the context plugins alone relaunches the IDE on the same context: no remount, no stop and no daemon
+// start. The state records the plugin identity the iteration ran with.
+#[tokio::test]
+async fn a_change_of_the_context_plugins_alone_relaunches_the_ide() {
+    let (fixture, prep, mut state) = iteration_fixture("it-12p").await;
+    fixture.daemon.script().ide_running = true;
+    state.last_plugins_digest = "plugins-before".to_owned();
+    state.write(&fixture.settings, &fixture.worker).unwrap();
+    let recorded = Recorded::start(&fixture.host.reporter);
+    let attempt = run_warm_iteration(&fixture, false).await;
+    report_of(&attempt);
+    assert_eq!(attempt.ide_action, IdeAction::Relaunch);
+    assert!(attempt.timing.contains("  ide relaunch  "), "{:?}", attempt.timing);
+    assert!(!fixture.daemon.saw_request("POST /ide/stop"));
+    assert!(!fixture.daemon.saw_request("POST /mount/quiesce"));
+    assert!(
+        fixture.channel().calls_containing("vm-guest-agent start").is_empty(),
+        "a relaunch for the plugins keeps the daemon"
+    );
+    let decisions: Vec<serde_json::Value> = recorded.data_of(Kind::Decision);
+    assert!(
+        decisions.contains(&json!({"subject": "ide", "action": "relaunch", "reason": "the bridge plugin changed"})),
+        "{decisions:?}"
+    );
+    assert!(!decisions.iter().any(|decision| decision["subject"] == "shares"), "{decisions:?}");
+    let written = HostState::read(&fixture.settings, &fixture.worker).expect("the state is kept");
+    assert_eq!(written.last_plugins_digest, prep.plugins_digest);
 }
 
 // `--fresh-ide` stops a running IDE and reports the relaunch.

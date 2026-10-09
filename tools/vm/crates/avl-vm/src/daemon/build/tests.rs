@@ -183,6 +183,44 @@ async fn a_changed_ide_project_archive_changes_only_the_mount_digest() {
     assert_ne!(before.mount_digest, after.mount_digest);
 }
 
+// The context plugin files travel by the push: a changed file moves only the plugin identity, so it refreshes no share
+// and keeps the product, the runtime and the launch.
+#[tokio::test]
+async fn a_changed_context_plugin_file_changes_only_the_plugins_digest() {
+    let fixture = Fixture::new().await;
+    let before = fixture.prepared().await;
+    assert_eq!(before.plugin_files.len(), 1);
+    assert_eq!(before.plugin_files[0].destination, "bridge/lib/bridge.jar");
+    let plugin = runtime::runfiles_root(&fixture.bazel.descriptor_path).join("_main/plugins/bridge/lib/bridge.jar");
+    fs::write(&plugin, "another bridge").unwrap();
+    let after = fixture.prepared().await;
+    assert_ne!(before.plugins_digest, after.plugins_digest);
+    assert_ne!(before.plugin_files[0].host.sha256, after.plugin_files[0].host.sha256);
+    assert_eq!(before.product_digest, after.product_digest);
+    assert_eq!(before.mount_digest, after.mount_digest);
+    assert_eq!(before.runtime_digest, after.runtime_digest);
+    assert_eq!(before.launch_digest, after.launch_digest);
+}
+
+// The plugin identity reads the destination too: the same bytes at another place are another plugin directory.
+#[test]
+fn the_plugins_digest_reads_the_destination_and_the_content() {
+    let file = |destination: &str, sha256: &str| PluginFile {
+        destination: destination.to_owned(),
+        host: PathDigest::new("/host/x.jar", sha256),
+    };
+    let base = plugins_digest(&[file("bridge/lib/x.jar", "a")]);
+    assert_ne!(base, plugins_digest(&[file("bridge/lib/y.jar", "a")]));
+    assert_ne!(base, plugins_digest(&[file("bridge/lib/x.jar", "b")]));
+    assert_eq!(
+        base,
+        plugins_digest(&[PluginFile {
+            destination: "bridge/lib/x.jar".to_owned(),
+            host: PathDigest::new("/another/host/path.jar", "a"),
+        }])
+    );
+}
+
 // The daemon port is inside `@controller-boot`: changing it must restart the daemon, because the running one keeps
 // listening where it was told to.
 #[tokio::test]

@@ -327,6 +327,12 @@ The rest of the scenario matrix is in
   [@test] ../crates/avl-report/src/digest/tests.rs
   [@test] ../crates/avl-vm/src/daemon/build/tests.rs
 
+- The runtime descriptor names each file of a context plugin with its place below the plugin directory of the IDE
+  context. A place that leaves that directory, or that two files claim, is refused. The files have an identity of
+  their own, apart from the product and the mount identities. A changed file changes only that identity.
+  [@test] ../crates/avl-wire/src/runtime/tests.rs
+  [@test] ../crates/avl-vm/src/daemon/build/tests.rs
+
 - VM preparation installs and probes no agent CLI. An existing image can keep an unused installation.
   [@test] ../crates/avl-vm/src/lane/env/tests.rs
   [@test] ../crates/avl-guest/src/image/provision/tests.rs
@@ -794,6 +800,13 @@ The daemon's half and the IDE's half of supervision are in
 - A run on a healthy daemon that holds no running lane IDE launches the IDE again. A lease release causes this
   state. The decision and the timing line say `relaunch`.
   [@test] ../crates/avl-vm/src/daemon/iterate/tests.rs
+
+- The push offers the context plugin files with the test jars, and uploads only the files that the guest does not
+  hold. When only the context plugins changed, the run relaunches the IDE and refreshes no share. The decision and
+  the timing line say `relaunch`, and the reason is `the bridge plugin changed`. A daemon record without a plugin
+  identity decides nothing on it.
+  [@test] ../crates/avl-vm/src/daemon/iterate/tests.rs
+  [@test] ../crates/avl-vm/src/daemon/run/tests.rs
 
 - Every other daemon start stops every lane IDE of the worker. A restart that remounts a VirtioFS share also stops
   them, because each IDE runs from the share.

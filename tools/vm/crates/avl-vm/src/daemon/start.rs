@@ -500,6 +500,7 @@ impl Host {
             launch_digest: prep.launch_digest.clone(),
             last_product_digest: prep.product_digest.clone(),
             last_mount_digest: prep.mount_digest.clone(),
+            last_plugins_digest: prep.plugins_digest.clone(),
         };
         // From here a failed poll leaves a record, so `daemon log` reads the boot, and `daemon stop` and the next
         // start retire it.

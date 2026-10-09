@@ -246,6 +246,7 @@ impl FakeDaemon {
             launch_digest: launch_digest.to_owned(),
             last_product_digest: String::new(),
             last_mount_digest: String::new(),
+            last_plugins_digest: String::new(),
         }
     }
 
@@ -474,7 +475,7 @@ pub(crate) fn failing_run(iteration_id: &str) -> (Vec<String>, String) {
 // --- the runtime-descriptor fixture ------------------------------------------------------------------------------
 
 /// The runfiles every fixture descriptor declares, with their contents.
-pub(crate) const FIXTURE_RUNFILES: [(&str, &str); 10] = [
+pub(crate) const FIXTURE_RUNFILES: [(&str, &str); 11] = [
     ("_main/hot/a.jar", "hot-a"),
     ("_main/stable/one.jar", "stable-one"),
     ("_main/stable/two.jar", "stable-two"),
@@ -485,6 +486,7 @@ pub(crate) const FIXTURE_RUNFILES: [(&str, &str); 10] = [
     ("_main/jbr/manifest.json", "jbr-manifest"),
     ("_main/ide/ide.jvm-flags.txt", "-ea\n"),
     ("_main/ide/project.zip", "ide-project"),
+    ("_main/plugins/bridge/lib/bridge.jar", "bridge-plugin"),
 ];
 
 /// The fixture's runtime descriptor, built for an arm64 Linux guest.
@@ -524,6 +526,7 @@ pub(crate) fn fixture_descriptor_for(jbr_platform: &str) -> Value {
         },
         "ide": {
             "flagsFile": file("_main/ide/ide.jvm-flags.txt"),
+            "plugins": [{"destination": "bridge/lib/bridge.jar", "file": file("_main/plugins/bridge/lib/bridge.jar")}],
             "projectArchive": file("_main/ide/project.zip"),
             "projectRoot": "Project",
         },
@@ -1009,6 +1012,7 @@ impl DaemonFixture {
         state.runtime_digest = prep.runtime_digest.clone();
         state.last_product_digest = prep.product_digest.clone();
         state.last_mount_digest = prep.mount_digest.clone();
+        state.last_plugins_digest = prep.plugins_digest.clone();
         state.write(&self.settings, &self.worker).expect("the daemon state is written");
         state
     }
