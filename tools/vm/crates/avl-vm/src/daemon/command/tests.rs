@@ -664,6 +664,7 @@ async fn command_run_refuses_stdin_misuse_before_any_work() {
 #[tokio::test]
 async fn command_run_reports_a_passed_iteration() {
     let (fixture, receipt) = run_outcome_fixture(passing_run_lines("it-20"), PASSING_XML).await;
+    fixture.daemon.script().ide_running = true;
     let (result, verdict) = run_for_verdict(&fixture, &["--lane", "ui"], Some(&receipt)).await;
     let outcome = result.unwrap();
     // The verdict is the answer every human form renders, so the outcome carries no text of its own.

@@ -720,6 +720,10 @@ The daemon's half and the IDE's half of supervision are in
   [@test] ../crates/avl-vm/src/daemon/iterate/tests.rs
   [@test] ../crates/avl-guest/src/ide/gc/tests.rs
 
+- A run on a healthy daemon that holds no running lane IDE launches the IDE again. A lease release causes this
+  state. The decision and the timing line say `relaunch`.
+  [@test] ../crates/avl-vm/src/daemon/iterate/tests.rs
+
 - Every other daemon start stops every lane IDE of the worker. A restart that remounts a VirtioFS share also stops
   them, because each IDE runs from the share.
   [@test] ../crates/avl-vm/src/daemon/start/tests.rs

@@ -452,7 +452,9 @@ host's probe at the next suite boundary and relaunched on its context, so the la
 A restart for a change of the stable tier keeps each live IDE whose launch record names the product of the build,
 and the timing line reports `ide keep`. The new daemon adopts that IDE on its first attach. Every other daemon
 start, `daemon stop`, a lease release and a pool recycle stop every lane IDE of the worker through the agent's
-`ide-gc`. A start that remounts a VirtioFS share also stops every IDE, because each IDE runs from the share.
+`ide-gc`. The next run on a healthy daemon that holds no running IDE launches the IDE again, and the timing line
+reports `ide relaunch`. A start that remounts a VirtioFS share also stops every IDE, because each IDE runs from the
+share.
 
 ### Two traps of a manual `daemon start`
 

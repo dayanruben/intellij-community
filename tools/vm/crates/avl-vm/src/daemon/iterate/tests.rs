@@ -55,6 +55,11 @@ fn the_daemon_decision_names_the_axis_that_moved() {
     for (seen, fresh_ide, expected) in [
         (None, false, start("start", "no healthy daemon")),
         (Some(healthy("launch-1", "mount-1", "runtime-1", true)), false, DaemonAction::Reuse),
+        (
+            Some(healthy("launch-1", "mount-1", "runtime-1", false)),
+            false,
+            DaemonAction::Relaunch { stop_ide: false },
+        ),
         (Some(healthy("launch-1", "mount-0", "runtime-1", true)), true, DaemonAction::Remount),
         (
             Some(healthy("launch-1", "mount-1", "runtime-1", true)),
@@ -185,6 +190,7 @@ fn error_of(attempt: &RunAttempt) -> &Refusal {
 #[tokio::test]
 async fn a_warm_iteration_reuses_the_daemon() {
     let (fixture, prep, _) = iteration_fixture("it-10").await;
+    fixture.daemon.script().ide_running = true;
     let attempt = run_warm_iteration(&fixture, false).await;
     let report = report_of(&attempt);
     assert_eq!(attempt.ide_action, IdeAction::Reuse);
@@ -318,6 +324,7 @@ async fn a_warm_iteration_on_docker_recreates_a_container_of_another_declaration
 #[tokio::test]
 async fn a_warm_iteration_on_docker_keeps_a_current_container() {
     let (fixture, _prep, _state) = iteration_fixture_over(Fixture::docker().await, "it-13d").await;
+    fixture.daemon.script().ide_running = true;
     let before = fixture.tart.calls().len();
     let attempt = run_warm_iteration(&fixture, false).await;
     report_of(&attempt);
@@ -334,6 +341,29 @@ async fn a_warm_iteration_on_docker_keeps_a_current_container() {
         fixture.channel().calls_containing("vm-guest-agent start").is_empty(),
         "a current container keeps its warm daemon"
     );
+}
+
+// A healthy daemon that holds no running IDE, as after a lease release, launches the IDE again: the timing line says
+// `relaunch`, the decision names the reason, and no stop is sent.
+#[tokio::test]
+async fn a_daemon_without_a_running_ide_relaunches_it() {
+    let (fixture, _, _) = iteration_fixture("it-12r").await;
+    let recorded = Recorded::start(&fixture.host.reporter);
+    let attempt = run_warm_iteration(&fixture, false).await;
+    report_of(&attempt);
+    assert_eq!(attempt.ide_action, IdeAction::Relaunch);
+    assert!(attempt.timing.contains("  ide relaunch  "), "{:?}", attempt.timing);
+    assert!(!fixture.daemon.saw_request("POST /ide/stop"));
+    assert!(
+        fixture.channel().calls_containing("vm-guest-agent start").is_empty(),
+        "a relaunch keeps the daemon"
+    );
+    let decisions: Vec<serde_json::Value> = recorded.data_of(Kind::Decision);
+    assert!(
+        decisions.contains(&json!({"subject": "ide", "action": "relaunch", "reason": "the daemon holds no running IDE"})),
+        "{decisions:?}"
+    );
+    assert!(!decisions.iter().any(|decision| decision["action"] == "reuse"), "{decisions:?}");
 }
 
 // `--fresh-ide` stops a running IDE and reports the relaunch.

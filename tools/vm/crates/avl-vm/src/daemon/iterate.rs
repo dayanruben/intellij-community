@@ -95,7 +95,8 @@ pub(crate) enum DaemonAction {
     Reuse,
     /// The healthy daemon serves it after a refresh of the shares.
     Remount,
-    /// `--fresh-ide`: the run launches the IDE again, after a stop of the running one when there is one.
+    /// `--fresh-ide`, or a healthy daemon whose IDE is not running: the run launches the IDE again, after a stop of the
+    /// running one when there is one.
     Relaunch { stop_ide: bool },
     /// A daemon is started: `verb` is `restart` or `start`, and `reason` names the axis that moved. `keep_ide` is true
     /// for a restart: the healthy daemon had an IDE that the new one can attach to.
@@ -109,10 +110,10 @@ pub(crate) enum DaemonAction {
 /// The daemon decision of one iteration: values in, a decision out, no I/O.
 ///
 /// A healthy daemon of this launch serves the iteration: after a refresh of the shares when the mount digest moved,
-/// after an IDE stop for `--fresh-ide`, or as it is. Any other daemon is started, and the decision names which axis
-/// moved, because "restart the daemon" alone cannot say whether the next start will restage gigabytes or only
-/// re-exec a JVM. A restart keeps the IDE of the build's product. A start without a healthy daemon keeps no IDE,
-/// because no daemon can show that the IDE still answers.
+/// after an IDE stop for `--fresh-ide`, after a launch of the IDE when the daemon holds none, or as it is. Any other
+/// daemon is started, and the decision names which axis moved, because "restart the daemon" alone cannot say whether
+/// the next start will restage gigabytes or only re-exec a JVM. A restart keeps the IDE of the build's product. A start
+/// without a healthy daemon keeps no IDE, because no daemon can show that the IDE still answers.
 pub(crate) fn decide_daemon_action(healthy: Option<HealthyDaemon<'_>>, build: DaemonDigests<'_>, fresh_ide: bool) -> DaemonAction {
     let Some(HealthyDaemon { recorded, ide_running }) = healthy else {
         return DaemonAction::Start {
@@ -126,6 +127,8 @@ pub(crate) fn decide_daemon_action(healthy: Option<HealthyDaemon<'_>>, build: Da
             DaemonAction::Remount
         } else if fresh_ide {
             DaemonAction::Relaunch { stop_ide: ide_running }
+        } else if !ide_running {
+            DaemonAction::Relaunch { stop_ide: false }
         } else {
             DaemonAction::Reuse
         };
@@ -580,6 +583,8 @@ impl Host {
                             format!("/ide/stop returned {}", stopped.as_u16()),
                         ));
                     }
+                } else {
+                    self.decide(Subject::Ide, "relaunch", "the daemon holds no running IDE", scope);
                 }
                 IdeAction::Relaunch
             }
