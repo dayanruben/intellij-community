@@ -292,6 +292,12 @@ jvm_library(
         "//plugins/yaml/syntax:syntax_test_lib",
         "//platform/syntax/syntax-psi:psi",
         "//platform/syntax/syntax-psi:psi_test_lib",
+        "//platform/testFramework/junit5",
+        "//platform/testFramework/junit5:junit5_test_lib",
+        "//platform/testFramework/junit5/codeInsight",
+        "//platform/testFramework/junit5/codeInsight:codeInsight_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
     ],
 )
 ### auto-generated section `build intellij.yaml.backend.tests` end
