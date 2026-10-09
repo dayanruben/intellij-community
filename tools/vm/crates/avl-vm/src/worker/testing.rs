@@ -270,6 +270,7 @@ impl FixtureBuilder {
     }
 
     /// Loads the settings on the macOS release `macos`; see [`HostPoolBuilder::on_macos`].
+    #[cfg(unix)]
     pub(crate) fn on_macos(mut self, macos: MacosHost) -> Self {
         self.pool = self.pool.on_macos(macos);
         self
