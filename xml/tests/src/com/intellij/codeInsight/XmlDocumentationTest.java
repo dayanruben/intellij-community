@@ -7,6 +7,7 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.polySymbols.testFramework.PolySymbolsTestUtil;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
+import com.intellij.psi.xml.XmlFile;
 import com.intellij.testFramework.PlatformTestUtil;
 import com.intellij.testFramework.fixtures.BasePlatformTestCase;
 import org.jetbrains.annotations.NotNull;
@@ -30,6 +31,14 @@ public class XmlDocumentationTest extends BasePlatformTestCase {
     doOneTest("7.xml", "bbb");
     doOneTest("8.xml", "bbb");
     doOneTest("9.xml", "laquo");
+  }
+
+  public void testSchemaDependenciesAfterIncludedSchemaIsAdded() {
+    XmlFile webApp = (XmlFile)getPsiManager().findFile(myFixture.copyFileToProject("web-app_2_4.xsd"));
+    assertNotNull(webApp);
+    webApp.getDocument().getMetaData();
+    PsiFile j2ee = getPsiManager().findFile(myFixture.copyFileToProject("j2ee_1_4.xsd"));
+    assertTrue(Arrays.asList(webApp.getDocument().getMetaData().getDependencies()).contains(j2ee));
   }
 
   public void testXmlDocWithCData() {
