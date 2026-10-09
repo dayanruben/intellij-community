@@ -46,30 +46,35 @@ so one line is a whole run. Without `--lane`, it runs one iteration for each lan
 keeps one worker across several iterations, which is the warm inner loop. An interrupt of a self-leased run keeps the lease, because
 the iteration can still run on the guest, and the refusal names the receipt that frees it.
 
-## The three guests
+## The four guests
 
-All three run tests the same way. The guest executes Bazel outputs built on the host, against a warm
+All four run tests the same way. The guest executes Bazel outputs built on the host, against a warm
 IDE that a guest daemon holds open. They differ in what kind of machine they are, and in what guest
 runs in it.
 
-| | Docker (default) | Tart macOS | Parallels |
-| --- | --- | --- | --- |
-| machine | a container on Apple `container` or on the controller's Lima VM, or on the engine that `DOCKER_BIN` or `DOCKER_HOST` names | a Tart VM | one Parallels VM |
-| image | a Dockerfile from a digest-pinned `ubuntu:26.04`, pulled from the JetBrains registry by its content tag, built when the pull fails | a sealed Packer golden | one pre-existing VM |
-| session | `Xvfb :88` and fluxbox, from the image's entrypoint | Aqua | Aqua |
-| root disk and memory | on Apple `container` a VM of its own, 8 GiB; on Lima the engine VM's, shared by every container | 120 GB, 32 GiB | the VM's own |
-| `pool stop` | stops the container, and on Lima then the VM when nothing is leased, keeps nothing warm | `tart suspend`, keeps the daemon and the IDE | suspends |
-| Robot screenshot | a real frame | black, see ADR 0113 | a real frame |
-| Peekaboo | no | no | yes |
-| provenance | the base digest and the image tag | a seal receipt per worker | none |
-| concurrent lanes | one per container | one per worker | one, sequential |
+| | Docker (default) | Tart macOS | Parallels | container-linux |
+| --- | --- | --- | --- | --- |
+| machine | a container on Apple `container` or on the controller's Lima VM, or on the engine that `DOCKER_BIN` or `DOCKER_HOST` names | a Tart VM | one Parallels VM | the container of the `testing-ui` skill, on Apple `container`, rootless Podman or `wslc` |
+| image | a Dockerfile from a digest-pinned `ubuntu:26.04`, pulled from the JetBrains registry by its content tag, built when the pull fails | a sealed Packer golden | one pre-existing VM | the skill's image, which its `start` builds |
+| session | `Xvfb :88` and fluxbox, from the image's entrypoint | Aqua | Aqua | the skill's `Xvnc :1`, with noVNC |
+| root disk and memory | on Apple `container` a VM of its own, 8 GiB; on Lima the engine VM's, shared by every container | 120 GB, 32 GiB | the VM's own | the container's disk, 6 GiB |
+| `pool stop` | stops the container, and on Lima then the VM when nothing is leased, keeps nothing warm | `tart suspend`, keeps the daemon and the IDE | suspends | removes the container and the staged runtime with it, keeps nothing warm |
+| Robot screenshot | a real frame | black, see ADR 0113 | a real frame | a real frame |
+| Peekaboo | no | no | yes | no |
+| provenance | the base digest and the image tag | a seal receipt per worker | none | none |
+| concurrent lanes | one per container | one per worker | one, sequential | one per checkout |
 
 Docker is the default on every host
 ([ADR 0190](decisions/0190-the-docker-engine-is-the-default-worker.md)), and it is the one Linux worker
 ([ADR 0210](decisions/0210-the-docker-image-carries-node-and-the-tart-linux-worker-is-retired.md)). A red run
 there is a verdict. `java.awt.Robot` captures a real frame there, so a failure arrives with a picture. It needs
-no installation, and one engine holds two lanes. A macOS guest preserves JCEF, Terminal, native-menu,
-WindowServer and Aqua behaviour, and that is where coverage about those things belongs. Select one with
+no installation, and one engine holds two lanes. `--backend container-linux` runs the same Linux guest profile
+in the container of the `testing-ui` skill, on every host of the skill. The skill's noVNC is the live view
+([ADR 0225](decisions/0225-the-lane-runs-in-the-testing-ui-container.md)), and
+[ADR 0226](decisions/0226-the-container-linux-backend-becomes-the-default-worker.md) decides that it becomes the
+default worker with a later switch commit; until then Docker is the default. A macOS guest preserves JCEF,
+Terminal, native-menu, WindowServer and Aqua behaviour, and that is where coverage about those things belongs.
+Select one with
 `--backend tart` or `--backend parallels`. A lease receipt records the selection, so a receipt-bearing command
 infers it and rejects a conflict.
 
@@ -138,8 +143,9 @@ The hypervisor and the guest OS are separate axes. The one Linux guest is the Do
 section below describes its container layer. The Tart Linux worker was retired on 2026-10-08
 ([ADR 0210](decisions/0210-the-docker-image-carries-node-and-the-tart-linux-worker-is-retired.md)).
 Everything above still applies: two read-only shares, the parity layout, the exec channel and a daemon with a
-warm IDE. Four macOS obligations have no counterpart here, so the controller does not put them to a Linux
-guest. They are TCC admission, the console-login wait, the APFS storage initializer and sealed-golden
+warm IDE. On the `container-linux` backend the two shares are read-only mounts at their host paths, so the
+guest has no parity layout, and IDE Starter keeps its output tree on the container disk. Four macOS
+obligations have no counterpart here, so the controller does not put them to a Linux guest. They are TCC admission, the console-login wait, the APFS storage initializer and sealed-golden
 provenance. A Docker row of `status` has no field for any of them.
 
 A Linux guest has no seat until something starts an X server. The entrypoint of the image starts
@@ -326,7 +332,8 @@ Linux-guest builds then fetch the archives too. The skill's live-lane reference 
 ## Windows
 
 A Windows PC runs the controller natively, on x86_64 and on arm64
-([ADR 0186](decisions/0186-a-windows-host-runs-the-controller-natively.md)). It drives the Docker backend only.
+([ADR 0186](decisions/0186-a-windows-host-runs-the-controller-natively.md)). It drives the Docker and the
+container-linux backends.
 The CMD halves of `vm.cmd` and `trace.cmd` build and run the binaries, as `bt.cmd` does.
 
 1. Install a Docker engine that the `docker` CLI reaches. That is Docker Desktop, or another engine. The controller
@@ -356,12 +363,19 @@ The host paths are Windows paths, and the guest is Linux, so two steps differ fr
   tree and the newest other one. A root other than the predicted one is `guest_runfiles_mismatch`, and a bad reply
   is `guest_runfiles_protocol`.
 
-No `vm.cmd run` has passed on a Windows PC with a Docker engine yet. So `--mount source=C:\…` on Docker Desktop, the
-MANIFEST name that the daemon descriptor gets, and the MANIFEST branch through a real daemon start are not
-confirmed, and the cost table below has no Windows row. The 2 s share settle of ADR 0183 is a VirtioFS measurement
-on OrbStack, and a Windows engine needs its own. A bind mount of a Windows path crosses from Windows into the
-engine's Linux VM, and the guest reads the IDE distribution and every test jar through it. That cost is not
-measured yet either.
+5. `community\tools\vm.cmd --backend container-linux run <suite>` runs the lane in the testing-ui container through
+   `wslc`, the skill's Windows runtime. The controller runs the batch half of `container.cmd`, and the checkout and
+   the Bazel root are mounted read-only at their drive-form paths. The batch half prints the checkout in its `list`
+   line as the shell spelled it, so the controller matches that line without case.
+
+The `container-linux` backend has passed the `ui` lane of `flow-new-session` on a Windows 10 PC with WSL 2.9.13:
+9 tests, cold in 283 s with a daemon start of 84 s, warm in 134 s
+([ADR 0225](decisions/0225-the-lane-runs-in-the-testing-ui-container.md)). That run took the MANIFEST branch through
+a real daemon start. No `vm.cmd run` has passed on a Windows PC with a Docker engine yet, so `--mount source=C:\…`
+on Docker Desktop and the MANIFEST name that the daemon descriptor gets there are not confirmed, and the cost table
+below has no Docker row for Windows. The 2 s share settle of ADR 0183 is a VirtioFS measurement on OrbStack, and a
+Windows engine needs its own. A bind mount of a Windows path crosses from Windows into the engine's Linux VM, and
+the guest reads the IDE distribution and every test jar through it. That cost is not measured yet either.
 
 On a PC with WSL2, the controller can also run in a WSL2 Ubuntu distribution, as a Linux host. Clone the repository
 inside the distribution's own filesystem, not under `/mnt/c`, and run
@@ -396,7 +410,10 @@ Both shares arrive on Apple's one VirtioFS automount device, and the controller 
 itself: at `/mnt/AirVmShares` on a Linux guest and `/Volumes/AirVmShares` on a macOS one
 (`GuestOsProfile` in `crates/avl-base/src/config.rs`). Every `ls` and `pull` argument hangs off
 that mount point, so read a path off the guest rather than assume it. A space-free mount point
-keeps every guest path one shell word. The backends differ only in how a share is declared. Tart
+keeps every guest path one shell word. The `container-linux` backend has no automount device: its shares
+are the skill's read-only mounts at the paths they have on the host. Its `$AIR_VM_DATA` is on the
+container's disk. A pull reads a guest file with the agent's `read-file` through `container.cmd exec`, as
+on Docker. The backends differ only in how a share is declared. Tart
 declares each share as `--dir=<share-name>:<host-path>:ro`, and both halves are load-bearing. The `<share-name>:` prefix
 names the share's directory under the mount point. Passing no `tag=` option keeps the share on the
 single `com.apple.virtio-fs.automount` device, which is the only one the guest-side remount mounts. A
@@ -573,6 +590,13 @@ spawns `prlctl exec <worker> "'<agent>' 'relay' '<port>'"`. The `relay` verb of 
 stdin and stdout to `127.0.0.1:<port>` inside the guest. The daemon binds only that loopback address.
 So the host needs no route to the guest and no permission for one. Each relay spawn costs about 0.65 s.
 [ADR 0182](decisions/0182-the-daemon-is-reached-through-the-exec-channel.md) records the decision.
+On the `container-linux` backend the controller spawns no relay. `start --publish` maps the daemon's guest port to a
+host loopback port derived from the checkout (`AIR_VM_DAEMON_HOST_PORT`), and the controller connects to it with
+plain TCP. The daemon binds the container's interfaces for that, because a published port forwards to the
+container's address, not to its loopback; its token guards it. Each one-shot guest command runs through
+`POST /v1/execute` on the skill's control port, with the Bearer the skill writes to
+`out/testing-ui/container.ctl_bearer`, and a pull runs through `container.cmd exec`
+([ADR 0225](decisions/0225-the-lane-runs-in-the-testing-ui-container.md)).
 
 A start whose daemon never answers `/status` within `AIR_VM_DAEMON_HEALTH_TIMEOUT` (180 s) cancels the
 run it launched and keeps its record, so `daemon log` still reads it. The refusal names what the last
@@ -669,6 +693,9 @@ day. `air-linux-1` was a Tart Linux worker, which
 | a warm stop, then a warm start, of the Lima engine | 11.1 s, then 19.8 s |
 | the first start of the Lima engine on Ubuntu 26.04, with the image download from the mirror | 197 s, of which the download and its conversion are 137 s |
 | in the Lima log, a warm start of the engine inside `pool start` or `run`, on Ubuntu 26.04, then on 24.04 | 7 s, then 15 s |
+| the `ui` lane of `flow-new-session`, 9 tests in 4 classes, on `container-linux-1` on a Mac with Apple `container`: cold daemon, then warm daemon | 152 s, then 84 s; 65 s of tests each |
+| the same lane on an Ubuntu 26.04 host with 8 cores and rootless Podman 5.7: cold daemon after a cold Bazel build, then warm daemon | 760 s, of which the Bazel build is 497 s and the tests 200 s; then 223 s, of which the tests are 143 s |
+| the same lane on a Windows 10 PC with WSL 2.9.13 and `wslc`: a fresh container with a cold daemon, then warm daemon | 283 s, of which the daemon start is 84 s and the tests 159 s; then 134 s, of which the tests are 102 s |
 | a warm `pool stop`, then `pool start`, on Ubuntu 26.04 | 20.3 s, then 39.5 s |
 | `shard --shards 2` of the `ui` lane on two containers of one engine | 429 s makespan, 770 s serial |
 

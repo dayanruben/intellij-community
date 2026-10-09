@@ -942,3 +942,24 @@ async fn the_parity_probe_asks_for_the_label_derived_descriptor() {
     let probes = fixture.channel().calls_containing(&format!("/bin/test -f {expected}"));
     assert_eq!(probes.len(), 1, "{:?}", fixture.channel().calls_containing("/bin/test -f"));
 }
+
+/// On container-linux the daemon binds every interface of the container, because the published port forwards to
+/// the container's address and not to its loopback. The launch prefix says so, and the other backends keep the
+/// loopback default.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_container_linux_launch_binds_every_interface_of_the_container() {
+    let (fixture, prep) = ready(Fixture::over_container_linux().await).await;
+    start(&fixture, &prep).await.unwrap();
+    let prefix = launch_prep_request(&fixture).arg_file.prefix.join("\n");
+    assert!(prefix.contains("-Dair.ui.daemon.bind=0.0.0.0"), "{prefix}");
+    assert!(
+        prefix.contains(&format!("-Dide.starter.out.dir={}", fixture.settings.vm_out)),
+        "{prefix}"
+    );
+
+    let (tart, prep) = start_ready().await;
+    start(&tart, &prep).await.unwrap();
+    let prefix = launch_prep_request(&tart).arg_file.prefix.join("\n");
+    assert!(!prefix.contains("air.ui.daemon.bind"), "{prefix}");
+}

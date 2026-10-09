@@ -26,6 +26,7 @@ use serde::Serialize;
 #[cfg(unix)]
 use super::split_lines;
 
+mod container_linux;
 #[cfg(unix)]
 mod parallels;
 #[cfg(unix)]
@@ -109,6 +110,7 @@ pub(crate) async fn command_status(ctx: &Ctx, manager: &Manager) -> Result<Outco
         #[cfg(unix)]
         Machine::Parallels(parallels) => parallels::status(ctx, manager, parallels).await,
         Machine::Docker(docker) => docker_status(ctx, manager, docker).await,
+        Machine::ContainerLinux(container_linux) => container_linux::status(ctx, manager, container_linux).await,
     }
 }
 
@@ -139,8 +141,8 @@ impl Verdict {
     }
 }
 
-/// The two layout questions the Tart and the Docker rows ask of a running guest. The Parallels row asks parity
-/// behind two gates of its own and has no storage fact.
+/// The two layout questions the Tart, the Docker and the container-linux rows ask of a running guest. The Parallels row
+/// asks parity behind two gates of its own and has no storage fact.
 #[derive(Debug, Default)]
 struct Layout {
     worker_storage_ready: bool,
@@ -233,7 +235,6 @@ fn host_paths_fragment(refusal: Option<&str>) -> String {
 ///
 /// Above the workers, and only when there is one: it is what left every `parity=n/a` below it unasked. A row of its
 /// own because the fact is the pool's, and `pool` is not a worker name this controller accepts.
-#[cfg(unix)]
 fn pool_report(host_paths_error: Option<&str>, lines: impl Iterator<Item = String>) -> String {
     host_paths_error
         .map(|error| format!("pool:{}", host_paths_fragment(Some(error))))

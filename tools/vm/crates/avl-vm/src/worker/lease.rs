@@ -433,8 +433,8 @@ async fn release_one_lease(ctx: &Ctx, manager: &Manager, lease: &Lease, probe: &
     // A stopped Tart worker is released without touching the guest. Release exists to prove no run is still active,
     // and a worker with no run process cannot be running one; the guest holds no checkout, and its writable state is
     // meant to survive for the next lease. Requiring a start here is how a lease outlived its holder on a worker
-    // that had crashed, leaving a slot that could be neither used nor freed. A stopped Docker container is the same
-    // case: nothing runs in a container that does not run.
+    // that had crashed, leaving a slot that could be neither used nor freed. A stopped Docker or testing-ui container
+    // is the same case: nothing runs in a container that does not run.
     if manager.stopped_for_release(ctx, worker).await? {
         manager.reporter().note(
             format!("{worker} is not running; releasing its lease without starting it"),

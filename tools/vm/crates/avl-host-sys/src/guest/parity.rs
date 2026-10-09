@@ -12,7 +12,7 @@ use avl_wire::supervisor::SCHEMA_VERSION;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
-use super::{GUEST_COMMAND_TIMEOUT, Guest, guest_join, path_text};
+use super::{GUEST_COMMAND_TIMEOUT, Guest, chown_argv, guest_join, path_text};
 use crate::paths::GuestPaths;
 use crate::proc::SpawnOptions;
 use crate::share;
@@ -133,15 +133,15 @@ pub fn parity_script(settings: &Config, worker: &str, repo_mount: &str, bazel_mo
     // `ln -sfh` on a BSD guest, `-sfn` on a GNU one: both replace the link rather than following it into the
     // directory it points at, and getting that wrong creates the new link *inside* the old target.
     let link = format!("/bin/ln {}", settings.guest.link_flags);
-    let owned = [
+    let owned_directories = [
         &settings.vm_data,
         &settings.vm_runs_root,
         &settings.vm_out,
         &settings.vm_tmp,
         &settings.vm_download_cache,
     ]
-    .map(|directory| posix_shell_quote(directory))
-    .join(" ");
+    .map(String::as_str);
+    let owned = owned_directories.map(posix_shell_quote).join(" ");
 
     let mut lines = vec![
         "#!/bin/sh".to_owned(),
@@ -156,14 +156,19 @@ pub fn parity_script(settings: &Config, worker: &str, repo_mount: &str, bazel_mo
         "  exit 65".to_owned(),
         "fi".to_owned(),
         format!(r#"/bin/mkdir -p "$PARITY" {owned}"#),
-        format!("{} {} {owned}", settings.guest.chown, posix_shell_quote(&settings.vm_user)),
+    ];
+    if let Some(chown) = chown_argv(settings, &[], &owned_directories) {
+        let quoted: Vec<String> = chown[1..].iter().map(|word| posix_shell_quote(word)).collect();
+        lines.push(format!("{} {}", chown[0], quoted.join(" ")));
+    }
+    lines.extend([
         // Every symlink in the parity directory is controller-managed, so the set is rebuilt from scratch: an entry
         // removed from the repository root must not linger as a link to nothing.
         r#"for existing in "$PARITY"/* "$PARITY"/.[!.]* "$PARITY"/..?*; do"#.to_owned(),
         r#"  [ -L "$existing" ] || continue"#.to_owned(),
         r#"  /bin/rm -f "$existing""#.to_owned(),
         "done".to_owned(),
-    ];
+    ]);
     for entry in entries {
         lines.push(format!(
             r#"{link} {} "$PARITY"/{}"#,
@@ -258,8 +263,22 @@ impl Guest<'_> {
     /// owns. Parallels reconciles its own shared-folder configuration first, and calls this once it has. Docker calls
     /// it over the bind mounts that `docker create` declared.
     pub async fn provision_worker(&self, mount: ShareMount) -> Result<(), Refusal> {
-        self.provision_parity(mount).await?;
+        if self.settings.guest.shares_at_host_paths {
+            self.make_writable_roots().await?;
+        } else {
+            self.provision_parity(mount).await?;
+        }
         write_init_receipt(self.settings, self.worker())
+    }
+
+    /// The directories a run writes into, for a guest whose shares sit at their host paths and so has no parity
+    /// script to make them: the output tree, the temp directory and the download cache, made by the account that uses
+    /// them. The receipt still records the roots the guest was provisioned for.
+    async fn make_writable_roots(&self) -> Result<(), Refusal> {
+        let settings = self.settings;
+        let mut mkdir = words(["/bin/mkdir", "-p"]);
+        mkdir.extend([settings.vm_out.clone(), settings.vm_tmp.clone(), settings.vm_download_cache.clone()]);
+        self.as_root(&mkdir, &SpawnOptions::within(GUEST_COMMAND_TIMEOUT)).await.map(drop)
     }
 
     /// Remounts a VirtioFS device, then rebuilds the parity layout over the shares.
@@ -305,11 +324,9 @@ impl Guest<'_> {
             .await?;
         // Root makes the directories and the worker user writes into them. Without the chown the very next step - a
         // `tee` running as that user - fails on a root-owned directory.
-        self.as_root(
-            &words([settings.guest.chown, &settings.vm_user, &settings.vm_data, &state]),
-            &SpawnOptions::within(GUEST_COMMAND_TIMEOUT),
-        )
-        .await?;
+        if let Some(chown) = chown_argv(settings, &[], &[&settings.vm_data, &state]) {
+            self.as_root(&chown, &SpawnOptions::within(GUEST_COMMAND_TIMEOUT)).await?;
+        }
         self.write_file(&script_path, script.as_bytes(), "700").await?;
         self.as_root(&words(["/bin/sh", &script_path]), &SpawnOptions::within(PARITY_SCRIPT_TIMEOUT))
             .await
@@ -350,14 +367,17 @@ impl Guest<'_> {
         }
         // One `/bin/test` per probe. A guest exec carries one shell string, and nesting a quoted compound command
         // inside that string is exactly where the quoting breaks.
-        let probes = [
-            ("-f", guest_join(paths.repo(), PARITY_MARKER)),
+        let mut probes = vec![
             ("-r", guest_join(paths.repo(), ".git")),
             ("-w", settings.vm_out.clone()),
             ("-w", settings.vm_tmp.clone()),
             ("-w", settings.vm_download_cache.clone()),
             ("-d", paths.bazel_user_root().to_owned()),
         ];
+        // The marker is the layout's own bookkeeping; shares at their host paths have no layout to mark.
+        if !settings.guest.shares_at_host_paths {
+            probes.insert(0, ("-f", guest_join(paths.repo(), PARITY_MARKER)));
+        }
         for (flag, path) in probes {
             // As the worker user, not as root: root can write anywhere, so a root probe would pass on exactly the
             // directory the run cannot write to.

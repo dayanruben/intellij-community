@@ -63,7 +63,7 @@ impl PinnedTool {
                 }
             }
             Backend::Docker if settings.docker.is_none() => tools.extend([Self::DockerCli, Self::DockerBuildx]),
-            Backend::Tart | Backend::Docker | Backend::Parallels => {}
+            Backend::Tart | Backend::Docker | Backend::Parallels | Backend::ContainerLinux => {}
         }
         if settings.runs_lima_engine() {
             tools.push(Self::Limactl);

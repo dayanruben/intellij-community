@@ -563,7 +563,7 @@ The daemon's half and the IDE's half of supervision are in
   that arrived are not the bytes that the agent named, the controller refuses the pull with
   `pull_digest_mismatch` and publishes nothing. On a Parallels worker, the guest sends the file in base64.
   [@test] ../crates/avl-vm/src/lane/observe/pull/tests.rs (`pull_refuses_bytes_the_receipt_does_not_name`)
-  [@test] ../crates/avl-vm/src/lane/observe/pull/tests.rs (`a_pull_moves_raw_bytes_on_tart_and_docker_and_base64_on_parallels`)
+  [@test] ../crates/avl-vm/src/lane/observe/pull/tests.rs (`a_pull_moves_raw_bytes_on_tart_docker_and_container_linux_and_base64_on_parallels`)
   [@test] ../crates/avl-guest/src/read_file/tests.rs
 
 - The record of an installed guest agent names the checkout which installed it. A controller of a different

@@ -17,7 +17,7 @@ use std::fmt::Debug;
 use std::path::Path;
 use std::sync::Arc;
 
-use avl_base::config::{HostOs, MacosHost};
+use avl_base::config::{HostOs, MacosHost, WORKSPACE_DIR};
 use avl_base::report::{Buffer, Mode, Terminal};
 use avl_base::{Backend, Config, Environment, GuestOs, Outcome, Refusal, Reporter, Selection};
 use avl_host_sys::{Interrupts, Runner};
@@ -27,6 +27,8 @@ pub mod answer;
 #[cfg(unix)]
 pub mod bazel;
 pub mod channel;
+#[cfg(unix)]
+pub mod control_port;
 pub mod git;
 pub mod pool;
 pub mod probe;
@@ -36,6 +38,8 @@ pub use answer::{Answer, Verbs, answer_exit, answer_guest, answer_text, failed, 
 #[cfg(unix)]
 pub use bazel::PinnedBazel;
 pub use channel::{Call, ChannelFactory, ConnectHandler, FakeChannel, FakeGuests, serve_on_connect};
+#[cfg(unix)]
+pub use control_port::FakeControlPort;
 pub use git::FakeGit;
 pub use pool::{HostPool, HostPoolBuilder};
 pub use probe::FakeProbe;
@@ -103,7 +107,7 @@ pub fn load_config_on_release(
         Some(macos),
         Selection { backend, guest_os },
         &environment,
-        &root.join("scripts"),
+        &root.join(WORKSPACE_DIR),
     )
     .unwrap_or_else(|refusal| panic!("the environment was refused on {host}: {refusal:?}"))
 }

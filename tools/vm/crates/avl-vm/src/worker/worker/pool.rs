@@ -4,6 +4,7 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
+use std::path::PathBuf;
 use std::str::FromStr;
 
 use avl_base::{Exit, Outcome, Refusal};
@@ -152,6 +153,19 @@ impl Manager {
     /// rule: a `flock` binds to the inode, so unlinking the file this operation holds lets a contender lock a fresh
     /// one at the same path, and both would believe they hold the worker.
     pub(super) fn clear_worker_state(&self, worker: &str) -> Result<(), Refusal> {
+        self.remove_worker_state_except(worker, &[])
+    }
+
+    /// Forgets what the host recorded about a guest that is gone, for a worker that stays: a container-linux
+    /// container the script made again has a fresh disk, so the agent, the stage and the daemon records of the
+    /// previous one describe nothing. The lease is the caller's, and `reports` holds what earlier runs pulled out.
+    pub(super) fn forget_guest(&self, worker: &str) -> Result<(), Refusal> {
+        let settings = &self.settings;
+        self.remove_worker_state_except(worker, &[settings.lease_path(worker), settings.worker_dir(worker).join("reports")])
+    }
+
+    /// Removes a worker's host state but the lifecycle lock file and `kept`.
+    fn remove_worker_state_except(&self, worker: &str, kept: &[PathBuf]) -> Result<(), Refusal> {
         let directory = self.settings.worker_dir(worker);
         let entries = match std::fs::read_dir(&directory) {
             Ok(entries) => entries,
@@ -164,7 +178,7 @@ impl Manager {
         for entry in entries {
             let entry = entry.map_err(|error| state_write_failed(format!("cannot read {}: {error}", directory.display())))?;
             let path = entry.path();
-            if path == lock {
+            if path == lock || kept.contains(&path) {
                 continue;
             }
             let removed = match entry.file_type() {

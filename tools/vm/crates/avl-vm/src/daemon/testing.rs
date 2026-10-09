@@ -141,6 +141,15 @@ impl Drop for FakeDaemon {
 impl FakeDaemon {
     /// Starts the double of one worker's daemon on an ephemeral loopback port. Needs a tokio runtime.
     pub(crate) async fn start(worker: &str) -> Arc<Self> {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("the loopback accepts a listener");
+        Self::start_on(worker, listener)
+    }
+
+    /// The double on a listener the suite bound itself: the container-linux fixture names its port in the settings
+    /// before the double exists.
+    pub(crate) fn start_on(worker: &str, listener: tokio::net::TcpListener) -> Arc<Self> {
         let token = "fixture-token".to_owned();
         let script = Arc::new(Mutex::new(DaemonScript {
             requests: Vec::new(),
@@ -170,9 +179,6 @@ impl FakeDaemon {
             results_xml: Vec::new(),
             results_queue: VecDeque::new(),
         }));
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("the loopback accepts a listener");
         let address = listener.local_addr().expect("a bound listener has an address");
         let app = axum::Router::new().fallback(serve).with_state(Served {
             token: token.clone(),
@@ -721,6 +727,16 @@ impl DaemonFixture {
         Self::build(Backend::Tart, GuestOs::Macos, extra, true).await
     }
 
+    /// The fixture over the testing-ui container: the fake `container.cmd` answers the backend, and every guest
+    /// command goes through the production control-port channel to the pool's fake control port, which answers from
+    /// the scripted guest. The container is started, so the port and the bearer are there, and the daemon double
+    /// listens at the host port `start` publishes, which the production channel dials. The fake `container.cmd` is
+    /// a POSIX shell script, so the fixture is Unix only.
+    #[cfg(unix)]
+    pub(crate) async fn over_container_linux(extra: &[(&str, &str)]) -> Self {
+        Self::build(Backend::ContainerLinux, GuestOs::Linux, extra, false).await
+    }
+
     async fn build(backend: Backend, guest_os: GuestOs, extra: &[(&str, &str)], over_hypervisor: bool) -> Self {
         avl_affected::bridge::install_fixture();
         let mut builder = HostPool::builder(backend, guest_os, MINIMUM_VERSION).with_git();
@@ -740,15 +756,35 @@ impl DaemonFixture {
         {
             builder = builder.env(name, value);
         }
+        let container_linux = backend == Backend::ContainerLinux;
+        // The daemon double listens at the host port `start` publishes, and the fixture names the same number as the
+        // guest port, so the channel's one mapping holds with no relay in between.
+        let published = if container_linux {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+                .await
+                .expect("the loopback accepts a listener");
+            let port = listener.local_addr().expect("a bound listener has an address").port().to_string();
+            builder = builder.env("AIR_VM_DAEMON_HOST_PORT", &port).env("AIR_VM_DAEMON_PORT", &port);
+            Some(listener)
+        } else {
+            None
+        };
         let pool = builder.build();
         if over_hypervisor {
             pool.fake.exec_once();
+        }
+        if container_linux {
+            pool.start_container_linux_container();
         }
         let settings = Arc::clone(&pool.settings);
         let verbs = Verbs::new(&settings.vm_agent);
         let ports = GuestPorts::default();
         let guests = (!over_hypervisor).then(|| {
-            let guests = FakeGuests::new();
+            let guests = if container_linux {
+                Arc::clone(pool.control_port().guests())
+            } else {
+                FakeGuests::new()
+            };
             let verbs = Arc::clone(&verbs);
             guests.answer(move |argv, options| verbs.route(argv, options));
             guests.on_connect(ports.handler());
@@ -766,7 +802,12 @@ impl DaemonFixture {
                 locks: Arc::new(LockManager::new(runner.clone())),
                 runner: runner.clone(),
                 reporter,
-                channel: guests.as_ref().map(FakeGuests::factory),
+                // A container-linux pool is reached through the production channel, which the manager builds itself.
+                channel: if container_linux {
+                    None
+                } else {
+                    guests.as_ref().map(FakeGuests::factory)
+                },
                 bazel: over_hypervisor
                     .then(|| Arc::new(PinnedBazel::tart(pool.fake.executable())) as Arc<dyn avl_host_sys::guest::BazelHost>),
                 build_guest_boot: builds_nothing(),
@@ -793,7 +834,10 @@ impl DaemonFixture {
             .with_stdin(Arc::clone(&stdin) as Arc<dyn crate::lane::secrets::SecretStdin>),
         );
         let worker = settings.workers[0].clone();
-        let daemon = FakeDaemon::start(&worker).await;
+        let daemon = match published {
+            Some(listener) => FakeDaemon::start_on(&worker, listener),
+            None => FakeDaemon::start(&worker).await,
+        };
         ports.listen(daemon.port(), daemon.server_side());
         let fixture = Self {
             pool,

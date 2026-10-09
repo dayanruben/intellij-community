@@ -5,6 +5,8 @@
 //! directory. A Tart test and a Parallels test therefore seed the same answer names, and both read one call log.
 //!
 //! The runner probes [`FakeProcesses`] and not the host. So a ready worker reads as running on a loaded host too.
+//! A container-linux pool keeps the production channel: the manager builds the control-port channel itself, and the
+//! pool's fake control port answers from the guests of this fixture.
 
 use std::ops::Deref;
 use std::path::PathBuf;
@@ -81,6 +83,12 @@ impl Fixture {
         Self::new(Backend::Docker, GuestOs::Linux)
     }
 
+    /// The one-worker container-linux pool over the fake `container.cmd`, whose container is stopped until
+    /// [`HostPool::start_container_linux_container`] runs.
+    pub(crate) fn container_linux() -> Self {
+        Self::new(Backend::ContainerLinux, GuestOs::Linux)
+    }
+
     /// The pool the macOS-only half of `status` applies to: TCC admission, the Aqua session, and the SSH host key
     /// two clones of one sealed image start life sharing.
     pub(crate) fn tart_macos() -> Self {
@@ -116,7 +124,12 @@ impl Fixture {
         if host_git == Some(false) {
             pool.git().outside_work_tree();
         }
-        let guests = FakeGuests::of(&pool.settings.workers);
+        let container_linux = backend == Backend::ContainerLinux;
+        let guests = if container_linux {
+            Arc::clone(pool.control_port().guests())
+        } else {
+            FakeGuests::of(&pool.settings.workers)
+        };
         let processes = Arc::new(FakeProcesses::default());
         let runner = pool.runner().with_process_table(Arc::clone(&processes) as Arc<dyn ProcessTable>);
         #[cfg(unix)]
@@ -128,7 +141,7 @@ impl Fixture {
             locks: Arc::new(LockManager::new(runner.clone())),
             runner,
             reporter: quiet(),
-            channel: Some(guests.factory()),
+            channel: (!container_linux).then(|| guests.factory()),
             bazel,
             build_guest_boot: builds_nothing(),
         });

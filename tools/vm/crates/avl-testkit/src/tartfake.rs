@@ -127,6 +127,22 @@
 //!   [`MIRROR_HEADER`], and the permission column of `ls -ln` of the header file to [`MIRROR_HEADER_MODE`]. It exits
 //!   from [`Answer::PushExit`].
 //!
+//! The `container.cmd` verbs, which only the fake script of the `testing-ui` skill answers. One fake holds one
+//! container, as the skill's script does. The state file is [`Answer::ContainerLinuxState`], `running` or `exited`:
+//!
+//! - `start` writes `running`, records its environment in [`CONTAINER_LINUX_START_ENVIRONMENT`], and writes under
+//!   `<checkout>/out/testing-ui`, four levels above its own directory as for the real script, the three files the
+//!   real script and its guest write: `container.ctl_port` with the
+//!   port of [`Answer::ContainerLinuxPort`], `container.ctl_bearer` with [`CONTAINER_LINUX_BEARER`], and `container.json` with
+//!   [`CONTAINER_LINUX_NOVNC_URL`] and [`CONTAINER_LINUX_VNC_PASSWORD`]. A start without a seeded port exits 2.
+//! - `stop` writes `exited` and removes the three files.
+//! - `list` prints the container line `<name>  running  <checkout root>` with [`Answer::ContainerLinuxRoot`] as the root,
+//!   then the indented detail lines, while the state is `running`; else the one line the real script prints for
+//!   no container.
+//! - `exec` is the `tart` exec arms, as on `docker`: the per-verb answers and the shared exec answer.
+//! - [`Answer::ContainerLinuxFailedVerb`] names the one verb that exits 1 with a line on stderr, for a runtime that
+//!   does not answer or an image build that failed.
+//!
 //! The shared verbs, which both answer:
 //!
 //! - `--version` and `list` exit 0 unless a suite seeds the code. Both backends' gates check what a hypervisor too
@@ -177,6 +193,10 @@ pub enum Binary {
     Container,
     /// The fake host `curl`, which `AIR_VM_HOST_CURL` points at.
     Curl,
+    /// The fake `container.cmd` of the `testing-ui` skill, installed where the checkout's would be. Unix only: a
+    /// POSIX shell script. A Unix host runs the `.sh` beside the configured `.cmd`, so the fake is installed under
+    /// both names.
+    ContainerLinux,
 }
 
 impl Binary {
@@ -189,9 +209,26 @@ impl Binary {
             Self::Limactl => "limactl",
             Self::Container => "container",
             Self::Curl => "curl",
+            Self::ContainerLinux => "container.cmd",
         }
     }
 }
+
+/// The bearer of the control port that the fake `container.cmd` writes, which a fake control port checks.
+pub const CONTAINER_LINUX_BEARER: &str = "0123456789abcdef0123456789abcdef";
+
+/// The noVNC page the fake `container.cmd` writes into `container.json`.
+pub const CONTAINER_LINUX_NOVNC_URL: &str = "http://127.0.0.1:1/vnc.html";
+
+/// The VNC password the fake `container.cmd` writes into `container.json`.
+pub const CONTAINER_LINUX_VNC_PASSWORD: &str = "pw";
+
+/// The name of the one container of the fake `container.cmd`, the first field of its `list` line.
+pub const CONTAINER_LINUX_CONTAINER: &str = "ui-fake";
+
+/// The environment the last `container.cmd start` ran with, beside the executable: one `NAME=value` line per
+/// variable the real script reads.
+pub const CONTAINER_LINUX_START_ENVIRONMENT: &str = "container-linux-start-env.txt";
 
 /// One answer file beside the executable. An exit-code file holds a decimal code; a flag file only has to exist.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -283,6 +320,15 @@ pub enum Answer {
     /// The image archive that the file mirror holds, which a download of the fake `curl` copies: one image reference
     /// per line, which `container image load` adds. Absent is an archive the mirror does not hold.
     MirrorArchive,
+    /// The state of the one container of the fake `container.cmd`, `running` or `exited`. Absent is no container.
+    /// `start` and `stop` write it.
+    ContainerLinuxState,
+    /// The TCP port that `container.cmd start` writes into `container.ctl_port`: the fake control port of the suite.
+    ContainerLinuxPort,
+    /// The checkout root that `container.cmd list` names in its container line.
+    ContainerLinuxRoot,
+    /// The first argument of the calls of the fake `container.cmd` that exit 1 with a line on stderr.
+    ContainerLinuxFailedVerb,
     /// The first argument of the calls of any fake of this directory that exit 0 and print nothing, such as
     /// `inspect` or `--version`: a probe that gave no answer.
     SilentVerb,
@@ -336,6 +382,10 @@ impl Answer {
             Self::ContainerLog => "container-log.txt",
             Self::ContainerBootLog => "container-boot-log.txt",
             Self::MirrorArchive => "mirror-archive.txt",
+            Self::ContainerLinuxState => "container-linux-state.txt",
+            Self::ContainerLinuxPort => "container-linux-port.txt",
+            Self::ContainerLinuxRoot => "container-linux-root.txt",
+            Self::ContainerLinuxFailedVerb => "container-linux-failed-verb.txt",
             Self::SilentVerb => "silent-verb.txt",
             Self::KilledVerb => "killed-verb.txt",
         }
@@ -439,6 +489,40 @@ if [ "$self" = limactl ]; then
     delete) rm -rf "${LIMA_HOME:?}/$name"; rm -f "$lstate"; exit 0 ;;
   esac
   exit 0
+fi
+if [ "$self" = container.cmd ] || [ "$self" = container.sh ]; then
+  [ -f "$dir/container-linux-failed-verb.txt" ] && [ "$1" = "$(cat "$dir/container-linux-failed-verb.txt")" ] && {
+    echo "fake container.cmd: $1 failed" >&2; exit 1; }
+  ustate="$dir/container-linux-state.txt"
+  # The real script writes under <checkout>/out/testing-ui, four levels above its own directory.
+  root="$(cd "$dir/../../../.." && pwd)/out/testing-ui"
+  case "$1" in
+    start)
+      [ -f "$dir/container-linux-port.txt" ] || { echo "fake container.cmd: no control port is seeded in container-linux-port.txt" >&2; exit 2; }
+      mkdir -p "$root"
+      printf 'APP_EXEC=%s\n' "${APP_EXEC-}" \
+        > "$dir/container-linux-start-env.txt"
+      printf '%s' "$(cat "$dir/container-linux-port.txt")" > "$root/container.ctl_port"
+      echo 0123456789abcdef0123456789abcdef > "$root/container.ctl_bearer"
+      printf '{"novnc":"http://127.0.0.1:1/vnc.html","vncPassword":"pw"}\n' > "$root/container.json"
+      echo running > "$ustate"
+      echo "container 'ui-fake' started"
+      exit 0 ;;
+    stop)
+      echo exited > "$ustate"
+      rm -f "$root/container.ctl_port" "$root/container.ctl_bearer" \
+        "$root/container.json"
+      exit 0 ;;
+    list)
+      if [ "$(cat "$ustate" 2>/dev/null)" = running ]; then
+        echo "ui-fake  running  $(cat "$dir/container-linux-root.txt" 2>/dev/null)"
+        echo "  run none"
+        echo "  noVNC http://127.0.0.1:1/vnc.html  password pw"
+      else
+        echo "no containers of this tool are running"
+      fi
+      exit 0 ;;
+  esac
 fi
 if [ "$self" = prlctl ]; then
   case "$1" in
@@ -712,6 +796,15 @@ impl Fake {
         fake
     }
 
+    /// A fake `tart` in `directory`, which this fake creates and owns. A container-linux fixture passes the `scripts`
+    /// directory of a testing-ui skill under its checkout, because the fake `container.cmd` beside it finds the
+    /// checkout four levels up, as the real script does.
+    pub fn install_in(directory: PathBuf, version: &str) -> Self {
+        let fake = Self::in_directory(Arc::new(OwnedDir::at(directory)), Binary::Tart);
+        fake.answer(Answer::Version, version);
+        fake
+    }
+
     /// Writes a second backend's fake into this fake's directory, and answers the fake for it.
     ///
     /// One directory, so the two share every answer file and one call log. That is what a suite which drives both
@@ -725,9 +818,15 @@ impl Fake {
         #[cfg(unix)]
         let executable = {
             let executable = directory.path.join(binary.file_name());
-            let placed = crate::shared::script(SCRIPT).and_then(|script| crate::shared::place(&script, &executable));
-            if let Err(error) = placed {
-                panic!("install the fake {}: {error}", executable.display());
+            let mut names = vec![executable.clone()];
+            if binary == Binary::ContainerLinux {
+                names.push(executable.with_extension("sh"));
+            }
+            for name in &names {
+                let placed = crate::shared::script(SCRIPT).and_then(|script| crate::shared::place(&script, name));
+                if let Err(error) = placed {
+                    panic!("install the fake {}: {error}", name.display());
+                }
             }
             executable
         };
@@ -796,6 +895,21 @@ impl Fake {
             .collect()
     }
 
+    /// The environment the last `container.cmd start` ran with, as `NAME=value` pairs in the order the real script
+    /// reads them. Empty before the first start.
+    pub fn container_linux_start_environment(&self) -> Vec<(String, String)> {
+        let path = self.directory().join(CONTAINER_LINUX_START_ENVIRONMENT);
+        let text = match fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Vec::new(),
+            Err(error) => panic!("read {}: {error}", path.display()),
+        };
+        text.lines()
+            .filter_map(|line| line.split_once('='))
+            .map(|(name, value)| (name.to_owned(), value.to_owned()))
+            .collect()
+    }
+
     /// Every argv the fakes were spawned with, in order, each joined by spaces.
     pub fn calls(&self) -> Vec<String> {
         self.argvs().into_iter().map(|argv| argv.join(" ")).collect()
@@ -852,6 +966,11 @@ impl OwnedDir {
         Self {
             path: crate::shared::new_directory(),
         }
+    }
+
+    fn at(path: PathBuf) -> Self {
+        fs::create_dir_all(&path).unwrap_or_else(|error| panic!("create {}: {error}", path.display()));
+        Self { path }
     }
 }
 

@@ -11,6 +11,12 @@
 //! `container` engine, with the fake `container` of the same directory named by `CONTAINER_BIN`, and the fake `curl`
 //! of the same directory named by `AIR_VM_HOST_CURL`, which stands in for the file mirror.
 //!
+//! A container-linux pool lays the fakes out as a checkout holds the testing-ui skill, `.agents/skills/testing-ui/scripts`
+//! under the temporary root, with `out/testing-ui` beside it: the backend and the fake script derive both from the checkout. The pool
+//! also gets a [`FakeControlPort`], which the fake script's `start` names in `container.ctl_port`. The guests behind
+//! that port are [`HostPool::control_port`]'s, so a suite over the production channel seeds the same guest answers as
+//! one over a scripted channel.
+//!
 //! A Windows host has no fake `tart` and the Docker backend only. There the directory holds the fake `docker` alone,
 //! and `TART_BIN` is not set.
 
@@ -25,17 +31,25 @@ use tempfile::TempDir;
 
 #[cfg(unix)]
 use crate::bazel::PinnedBazel;
+#[cfg(unix)]
+use crate::channel::FakeGuests;
+#[cfg(unix)]
+use crate::control_port::FakeControlPort;
 use crate::git::FakeGit;
 
 /// Settings over a fake hypervisor and a temporary root, and the environment they were loaded from.
 pub struct HostPool {
     pub settings: Arc<Config>,
     /// The fake `tart`, and `prlctl` beside it when the pool was built [`HostPoolBuilder::with_parallels`], and
-    /// `docker` beside it in a Docker pool: one directory, so they share every answer and one call log.
+    /// `docker` beside it in a Docker pool, and `container.cmd` beside it in a container-linux pool: one directory, so
+    /// they share every answer and one call log.
     pub fake: Fake,
     /// Every variable the settings were loaded from, for a runner or a second load.
     pub environment: Vec<(String, String)>,
     git: Option<FakeGit>,
+    /// The control port of a container-linux pool, and the guests behind it.
+    #[cfg(unix)]
+    control_port: Option<FakeControlPort>,
     root: TempDir,
     /// The short directory that holds the Lima home of a pool built [`HostPoolBuilder::with_lima_engine`]. Held only
     /// so it lives as long as the pool.
@@ -115,6 +129,31 @@ impl HostPool {
     /// The fake host `git` of a pool built [`HostPoolBuilder::with_git`].
     pub const fn git(&self) -> &FakeGit {
         self.git.as_ref().expect("the pool was built without a fake git")
+    }
+
+    /// The fake control port of a pool built for [`Backend::ContainerLinux`], and the guests behind it.
+    #[cfg(unix)]
+    pub const fn control_port(&self) -> &FakeControlPort {
+        self.control_port
+            .as_ref()
+            .expect("the pool was built for another backend than container-linux")
+    }
+
+    /// Runs the fake `container.cmd start` of a container-linux pool, so the container reads as running and the files of
+    /// its control port are there, without a boot. The call is forgotten with every earlier call, so a suite that
+    /// seeds a running container first reads only its own calls.
+    #[cfg(unix)]
+    pub fn start_container_linux_container(&self) {
+        let script = self.fake.directory().join(Binary::ContainerLinux.file_name());
+        let worker = &self.settings.workers[0];
+        let status = std::process::Command::new(&script)
+            .arg("start")
+            .arg(self.settings.worker_dir(worker))
+            .envs(self.environment.iter().map(|(name, value)| (name, value)))
+            .status()
+            .unwrap_or_else(|error| panic!("spawn {}: {error}", script.display()));
+        assert!(status.success(), "the fake container.cmd start exited with {status}");
+        self.fake.forget_calls();
     }
 }
 
@@ -207,7 +246,11 @@ impl HostPoolBuilder {
     }
 
     pub fn build(self) -> HostPool {
-        let fake = if cfg!(unix) {
+        let root = tempfile::tempdir().expect("a temporary root");
+        let fake = if self.backend == Backend::ContainerLinux {
+            // The checkout layout, because the backend and the fake script both derive their paths from it.
+            Fake::install_in(root.path().join(".agents/skills/testing-ui/scripts"), &self.tart_version)
+        } else if cfg!(unix) {
             Fake::install(&self.tart_version)
         } else {
             Fake::install_binary(Binary::Docker, &self.tart_version)
@@ -215,7 +258,6 @@ impl HostPoolBuilder {
         // An empty JSON listing rather than no output: Tart knowing no VMs is `[]`, and no output is a protocol
         // failure. The quiet listing stays unseeded, so a slot does not exist and is cloned before it is run.
         fake.answer(Answer::ListJson, "[]");
-        let root = tempfile::tempdir().expect("a temporary root");
         let path = |relative: &str| root.path().join(relative).to_string_lossy().into_owned();
         let agent = stand_in_agent(root.path());
         let mut environment: Vec<(String, String)> = vec![
@@ -265,6 +307,13 @@ impl HostPoolBuilder {
             // The engine runs the pinned architecture natively, so the gate passes unless a suite reseeds it.
             fake.answer(Answer::DockerVersion, format!("linux/{}\n", self.guest_arch.oci_arch()));
         }
+        #[cfg(unix)]
+        if self.backend == Backend::ContainerLinux {
+            drop(fake.install_beside(Binary::ContainerLinux));
+            std::fs::create_dir_all(root.path().join("out").join("testing-ui")).expect("the testing-ui root is created");
+            // The one slot the skill's script runs; the settings refuse another count.
+            environment.push(("AIR_VM_MAX_WORKERS".to_owned(), "1".to_owned()));
+        }
         if self.parallels {
             let parallels = fake.install_beside(Binary::Parallels);
             environment.push((
@@ -301,11 +350,22 @@ impl HostPoolBuilder {
                 .set_host_paths(root.path(), root.path())
                 .expect("the host paths are declared");
         }
+        // After the settings, which name the one worker the exec route answers for. The `list` line of the fake
+        // names the root as the checkout, which is the testing-ui root without its `out/testing-ui` tail.
+        #[cfg(unix)]
+        let control_port = (self.backend == Backend::ContainerLinux).then(|| {
+            let control_port = FakeControlPort::start(&settings.workers[0], FakeGuests::of(&settings.workers));
+            fake.answer(Answer::ContainerLinuxPort, control_port.port().to_string());
+            fake.answer(Answer::ContainerLinuxRoot, root.path().to_string_lossy().into_owned());
+            control_port
+        });
         HostPool {
             settings,
             fake,
             environment,
             git,
+            #[cfg(unix)]
+            control_port,
             root,
             _lima_root: lima_root,
         }

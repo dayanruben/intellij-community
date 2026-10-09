@@ -263,7 +263,7 @@ async fn a_parse_failure_is_still_reported_in_the_format_the_caller_asked_for() 
     let prose = hermetic.invoke(&["--backend", "bogus", "--text", "status"]).await;
     assert_eq!(prose.exit, Exit::USAGE);
     assert_eq!(prose.stdout, "");
-    assert_eq!(prose.stderr, "vm: --backend must be tart, parallels or docker\n");
+    assert_eq!(prose.stderr, "vm: --backend must be tart, parallels, docker or container-linux\n");
 
     // The same invocation without `--text` is the JSON control: the difference between the two is the form, not the
     // refusal.
@@ -490,7 +490,7 @@ async fn a_parse_failure_after_the_command_is_reported_in_the_requested_format()
     let hermetic = Hermetic::new();
     let prose = hermetic.invoke(&["status", "--backend", "bogus", "--text"]).await;
     assert_eq!(prose.stdout, "");
-    assert_eq!(prose.stderr, "vm: --backend must be tart, parallels or docker\n");
+    assert_eq!(prose.stderr, "vm: --backend must be tart, parallels, docker or container-linux\n");
     let structured = refusal(
         &hermetic
             .invoke(&["lease", "acquire", "--holder", "--text", "--backend", "bogus"])

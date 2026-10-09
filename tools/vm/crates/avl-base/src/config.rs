@@ -7,9 +7,9 @@
 //! # What is a profile and what is a branch
 //!
 //! [`GuestOsProfile`] holds the guest-side differences that are only spelling - where the share is mounted, how
-//! `ln` spells "do not follow an existing link". Anything with behavioural weight is a branch on
-//! [`Config::guest_os`] instead: a login session to wait for, TCC, an APFS container to grow, a sealed golden to
-//! clone.
+//! `ln` spells "do not follow an existing link", and whether a `sudo` and a `chown` are part of a step at all
+//! ([`GuestOsProfile::privileged`]). Anything with behavioural weight is a branch on [`Config::guest_os`] instead: a
+//! login session to wait for, TCC, an APFS container to grow, a sealed golden to clone.
 //!
 //! # Empty means unset
 //!
@@ -252,6 +252,8 @@ pub enum Backend {
     Tart,
     Parallels,
     Docker,
+    #[serde(rename = "container-linux")]
+    ContainerLinux,
 }
 
 impl Backend {
@@ -260,6 +262,7 @@ impl Backend {
             Self::Tart => "tart",
             Self::Parallels => "parallels",
             Self::Docker => "docker",
+            Self::ContainerLinux => "container-linux",
         }
     }
 }
@@ -287,7 +290,9 @@ impl GuestOs {
         }
     }
 
-    /// The guest's spellings. Infallible: the set of guests is closed, so a guest with no profile cannot exist.
+    /// The guest's spellings on a backend whose guest the controller administers as root. Infallible: the set of
+    /// guests is closed, so a guest with no profile cannot exist. [`Selection::profile`] picks the profile of a
+    /// selection, which is another one for the testing-ui container.
     pub fn profile(self) -> &'static GuestOsProfile {
         match self {
             Self::Macos => &MACOS_PROFILE,
@@ -306,9 +311,10 @@ impl fmt::Display for GuestOs {
 ///
 /// Tart and Parallels run Apple-silicon guests. A Docker worker shares the kernel of the engine's Linux VM, so it
 /// runs the host's own architecture natively: x86_64 on any x86_64 host (a Windows x64 PC, a Linux CI agent, an
-/// Intel Mac), and arm64 on any arm64 host (an Apple-silicon Mac, a Windows arm64 PC). The Docker backend's engine
-/// gate checks that the engine runs this architecture, so a mismatch (an amd64 engine on an Apple-silicon Mac, a
-/// remote `DOCKER_HOST` of another architecture) is a named refusal and never a lane built for the wrong guest. The
+/// Intel Mac), and arm64 on any arm64 host (an Apple-silicon Mac, a Windows arm64 PC). The testing-ui container
+/// runs the host's architecture for the same reason. The Docker backend's engine gate checks that the engine runs
+/// this architecture, so a mismatch (an amd64 engine on an Apple-silicon Mac, a remote `DOCKER_HOST` of another
+/// architecture) is a named refusal and never a lane built for the wrong guest. The
 /// Starlark side of the same rule is two keys: `//build:air_lane_guest_linux_on_host_linux_x64` for a Linux x86_64
 /// host, whose own build is the guest's, and `//build:air_lane_guest_linux_x64_cross` for another x86_64 host.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -321,8 +327,8 @@ impl GuestArch {
     /// The architecture of the guests `backend` runs on this host.
     pub const fn of(backend: Backend) -> Self {
         match backend {
-            Backend::Docker if cfg!(target_arch = "x86_64") => Self::X86_64,
-            Backend::Docker | Backend::Tart | Backend::Parallels => Self::Arm64,
+            Backend::Docker | Backend::ContainerLinux if cfg!(target_arch = "x86_64") => Self::X86_64,
+            Backend::Docker | Backend::ContainerLinux | Backend::Tart | Backend::Parallels => Self::Arm64,
         }
     }
 
@@ -379,9 +385,9 @@ impl HostOs {
     }
 
     /// Whether the controller drives `backend` from this host. Tart and Parallels need a macOS or a Linux host. A
-    /// Windows host reaches only Docker, through `docker.exe`.
+    /// Windows host reaches Docker through `docker.exe`, and the testing-ui container through the skill's `wslc`.
     pub const fn drives(self, backend: Backend) -> bool {
-        matches!(backend, Backend::Docker) || !matches!(self, Self::Windows)
+        matches!(backend, Backend::Docker | Backend::ContainerLinux) || !matches!(self, Self::Windows)
     }
 
     /// Orders two environment variable names as this host compares them. Windows compares the names without case,
@@ -565,6 +571,10 @@ impl FromStr for GuestOs {
 #[serde(rename_all = "camelCase")]
 pub struct GuestOsProfile {
     pub os: GuestOs,
+    /// Whether the controller administers the guest as root: it then prefixes a guest command with `sudo` and
+    /// hands a directory that root made to the worker account with `chown`. An unprivileged guest runs every
+    /// command as the one account it has, which owns what it writes, so both steps are left out.
+    pub privileged: bool,
     /// Where the controller mounts the shared-folder device. Space-free, so a guest path is one shell word.
     pub share_mount: &'static str,
     pub chown: &'static str,
@@ -573,6 +583,9 @@ pub struct GuestOsProfile {
     /// The VirtioFS device and its remount sweep, or `None` for a guest whose shares are bind mounts. Only a macOS
     /// guest has one: Tart and Parallels run a macOS guest, and a Docker worker's shares are bind mounts.
     pub virtiofs: Option<&'static VirtiofsMount>,
+    /// Whether the shares are mounted at their host paths, so a host path is a guest path with no parity layout
+    /// between them: the testing-ui container's are.
+    pub shares_at_host_paths: bool,
 }
 
 /// How a guest's remount sweep reads and mounts the shared-folder device of Tart and Parallels.
@@ -599,20 +612,32 @@ static MACOS_VIRTIOFS: VirtiofsMount = VirtiofsMount {
 
 static MACOS_PROFILE: GuestOsProfile = GuestOsProfile {
     os: GuestOs::Macos,
+    privileged: true,
     share_mount: "/Volumes/AirVmShares",
     chown: "/usr/sbin/chown",
     link_flags: "-sfh",
     virtiofs: Some(&MACOS_VIRTIOFS),
+    shares_at_host_paths: false,
 };
 
 static LINUX_PROFILE: GuestOsProfile = GuestOsProfile {
     os: GuestOs::Linux,
+    privileged: true,
     // Not /Volumes: that is a macOS convention, and /mnt is where a Linux guest expects an operator mount.
     share_mount: "/mnt/AirVmShares",
     chown: "/bin/chown",
     link_flags: "-sfn",
     // A Docker worker's shares are bind mounts, with no device to sweep.
     virtiofs: None,
+    shares_at_host_paths: false,
+};
+
+/// The Linux guest of the testing-ui container. The skill's script mounts the two shares read-only at their host
+/// paths, and the container runs as its `ubuntu` account with no `sudo`.
+static CONTAINER_LINUX_PROFILE: GuestOsProfile = GuestOsProfile {
+    privileged: false,
+    shares_at_host_paths: true,
+    ..LINUX_PROFILE
 };
 
 /// Which pool a message is about, in the spelling `--backend` accepts.
@@ -650,9 +675,18 @@ impl Selection {
     };
 
     /// The spelling `--backend` accepts for this selection. A Linux guest in a container is `docker`, the default
-    /// pool ([`Selection::DEFAULT`]).
+    /// pool ([`Selection::DEFAULT`]), or `container-linux` in the skill's container.
     pub const fn label(self) -> &'static str {
         self.backend.as_str()
+    }
+
+    /// The guest's spellings for this selection: the profile of its guest OS ([`GuestOs::profile`]), or the
+    /// profile of the testing-ui container, whose shares sit at their host paths and whose account has no root.
+    pub fn profile(self) -> &'static GuestOsProfile {
+        match self.backend {
+            Backend::ContainerLinux => &CONTAINER_LINUX_PROFILE,
+            Backend::Tart | Backend::Parallels | Backend::Docker => self.guest_os.profile(),
+        }
     }
 }
 
@@ -668,8 +702,9 @@ impl fmt::Display for Selection {
     }
 }
 
-/// The `--backend` flag: one flag, two axes. `tart` and `parallels` are a macOS guest, and `docker` is a Linux
-/// guest in a container. A wider flag names pairs that no worker serves.
+/// The `--backend` flag: one flag, two axes. `tart` and `parallels` are a macOS guest, `docker` is a Linux guest in
+/// a container, and `container-linux` is the Linux guest of the `testing-ui` skill's container. A wider flag names
+/// pairs that no worker serves.
 impl FromStr for Selection {
     type Err = Refusal;
 
@@ -678,8 +713,9 @@ impl FromStr for Selection {
             "tart" => (Backend::Tart, GuestOs::Macos),
             "parallels" => (Backend::Parallels, GuestOs::Macos),
             "docker" => (Backend::Docker, GuestOs::Linux),
+            "container-linux" => (Backend::ContainerLinux, GuestOs::Linux),
             _ => {
-                return Err(Refusal::usage("--backend must be tart, parallels or docker"));
+                return Err(Refusal::usage("--backend must be tart, parallels, docker or container-linux"));
             }
         };
         Ok(Self { backend, guest_os })
@@ -883,6 +919,9 @@ fn worker_root_disk_gb(reader: &mut Reader<'_>, guest_os: GuestOs) -> u32 {
 /// container on 2026-09-29, the user's choice while nothing sized the engine. Since the Docker pool is the default
 /// (ADR 0190) it has two, so a `shard` and a second session each find a worker, and the Lima engine is sized for two
 /// lanes ([`LIMA_ENGINE_MEMORY_MIB`]).
+///
+/// A container-linux pool has one slot, `container-linux-1`: the skill's script runs one container, so an
+/// `AIR_VM_MAX_WORKERS` other than 1 is refused there.
 fn worker_slots(reader: &mut Reader<'_>, backend: Backend) -> Vec<String> {
     if let Some(explicit) = reader.set("AIR_VM_WORKERS") {
         let workers: Vec<String> = explicit
@@ -910,16 +949,25 @@ fn worker_slots(reader: &mut Reader<'_>, backend: Backend) -> Vec<String> {
         }
         return workers;
     }
-    let default_prefix = match backend {
-        Backend::Docker => "air-docker",
-        Backend::Tart | Backend::Parallels => "air-macos",
+    let (default_prefix, default_count) = match backend {
+        Backend::Docker => ("air-docker", 2),
+        Backend::ContainerLinux => ("container-linux", 1),
+        Backend::Tart | Backend::Parallels => ("air-macos", 2),
     };
     let prefix = reader.string("AIR_VM_WORKER_PREFIX", default_prefix);
     if let Err(refusal) = validate_name(&prefix, "worker name prefix") {
         reader.refuse(refusal);
         return Vec::new();
     }
-    let max_workers = reader.bounded_positive_int("AIR_VM_MAX_WORKERS", 2, 16);
+    let max_workers = reader.bounded_positive_int("AIR_VM_MAX_WORKERS", default_count, 16);
+    if backend == Backend::ContainerLinux && max_workers != 1 {
+        reader.refuse(Refusal::new(
+            "invalid_worker_pool",
+            Exit::USAGE,
+            format!("AIR_VM_MAX_WORKERS must be 1 for the {backend} backend, whose skill runs one container"),
+        ));
+        return Vec::new();
+    }
     (1..=max_workers).map(|index| format!("{prefix}-{index}")).collect()
 }
 
@@ -1062,7 +1110,8 @@ pub struct Config {
     pub boot_timeout_seconds: u32,
     pub golden_vm: String,
     /// The X display a Linux worker's IDE opens on, so a display the guest already runs is picked up instead of
-    /// a fresh headless one per IDE.
+    /// a fresh headless one per IDE: `:88` on a Tart or a Docker worker, and `:1`, the Xvnc of the testing-ui
+    /// container.
     pub guest_display: String,
 
     pub tart_home: PathBuf,
@@ -1080,6 +1129,17 @@ pub struct Config {
     pub runtime_root: PathBuf,
     pub workers: Vec<String>,
     pub image_root: PathBuf,
+
+    /// The `container.cmd` of the `testing-ui` skill, which starts and drives the testing-ui container: the script of
+    /// the checkout that holds the workspace.
+    pub container_linux_script: PathBuf,
+    /// The output root of the `testing-ui` skill, where the controller reads the control port, its bearer and the
+    /// display description: `out/testing-ui` of the checkout that holds the workspace.
+    pub container_linux_root: PathBuf,
+    /// The host loopback port at which the container-linux `start` publishes the daemon's guest port
+    /// (`AIR_VM_DAEMON_HOST_PORT`). The default derives from the checkout path, so two checkouts never share it and it
+    /// stays the same across restarts.
+    pub daemon_host_port: u16,
 
     /// The guest daemon's port and the budgets of its boot, health poll and watchdog (`AIR_VM_DAEMON_*`).
     pub daemon: DaemonBudgets,
@@ -1189,8 +1249,8 @@ impl Config {
                 "unsupported_host_backend",
                 Exit::USAGE,
                 format!(
-                    "a {host} host drives only the Docker backend, and --backend {selection} needs a macOS or a Linux \
-                     host; pass --backend docker"
+                    "a {host} host drives the Docker and the container-linux backends, and --backend {selection} needs \
+                     a macOS or a Linux host; pass --backend docker or container-linux"
                 ),
             ));
         }
@@ -1205,11 +1265,18 @@ impl Config {
             ));
         }
         // A limit of the engine: a container shares the kernel of the engine's Linux VM, so it cannot be macOS.
-        if backend == Backend::Docker && guest_os != GuestOs::Linux {
+        let container = match backend {
+            Backend::Docker => Some("Docker"),
+            Backend::ContainerLinux => Some("container-linux"),
+            Backend::Tart | Backend::Parallels => None,
+        };
+        if let Some(container) = container
+            && guest_os != GuestOs::Linux
+        {
             return Err(Refusal::new(
                 "unsupported_backend_operation",
                 Exit::USAGE,
-                "a Docker worker is a Linux container; a macOS guest needs a VM, which --backend tart gives",
+                format!("a {container} worker is a Linux container; a macOS guest needs a VM, which --backend tart gives"),
             ));
         }
         // The Tart backend runs the sealed macOS golden only. The Linux guest is a Docker worker.
@@ -1223,6 +1290,8 @@ impl Config {
         let mut reader = Reader::new(environment);
         let linux = guest_os == GuestOs::Linux;
         let tart = backend == Backend::Tart;
+        let container_linux = backend == Backend::ContainerLinux;
+        let checkout = checkout_root(workspace_dir);
 
         // The home comes from the environment handed in, never from the process's own, so a caller's environment
         // is the whole input. Without one the runtime root, the Tart home and the Bazel user root would be relative
@@ -1270,20 +1339,24 @@ impl Config {
         let lima_home = reader.path("AIR_VM_LIMA_HOME", || home.join(".local/state/JetBrains/air-vm-ui-tests/lima"));
 
         let workers = match backend {
-            Backend::Tart | Backend::Docker => worker_slots(&mut reader, backend),
+            Backend::Tart | Backend::Docker | Backend::ContainerLinux => worker_slots(&mut reader, backend),
             Backend::Parallels => vec![reader.string("AIR_VM_PARALLELS_VM", "macOS")],
         };
         for worker in &workers {
             reader.name(worker, "worker name");
         }
 
-        // Only the default differs per backend: the Parallels VM was set up with another account. The Docker image
-        // makes the account `admin`, which the macOS golden has too, so the guest scripts see one layout.
-        let default_user = if backend == Backend::Parallels { "test" } else { "admin" };
+        // Only the default differs per backend: the Parallels VM was set up with another account, and the testing-ui
+        // container runs as the `ubuntu` account of the skill's image. The Docker image makes the account `admin`,
+        // which the macOS golden has too, so the guest scripts see one layout.
+        let default_user = match backend {
+            Backend::Parallels => "test",
+            Backend::ContainerLinux => "ubuntu",
+            Backend::Tart | Backend::Docker => "admin",
+        };
         let vm_user = reader.string("AIR_VM_USER", default_user);
         let home_root = if linux { "/home" } else { "/Users" };
         let vm_home = reader.string("AIR_VM_HOME", format!("{home_root}/{vm_user}"));
-        // Both backends keep their writable state on the guest's own boot volume, at the same path.
         let vm_data = reader.string("AIR_VM_DATA", format!("{vm_home}/WorkerData"));
 
         let network = reader.string("AIR_VM_NETWORK", "nat");
@@ -1411,7 +1484,7 @@ impl Config {
             backend,
             guest_os,
             guest_arch: GuestArch::of(backend),
-            guest: guest_os.profile(),
+            guest: selection.profile(),
             // `TART_BIN` and `TART_HOME` keep the Tart ecosystem's names: `TART_HOME` is Tart's own variable, which
             // the tart binary and the image scripts read too, and ADR 0158 records `TART_BIN` as its override.
             tart: reader.optional("TART_BIN").map(PathBuf::from),
@@ -1461,7 +1534,7 @@ impl Config {
             vm_screen,
             boot_timeout_seconds: reader.positive_int("AIR_VM_BOOT_TIMEOUT", 180),
             golden_vm: reader.string("AIR_VM_GOLDEN_VM", pins::tart_golden_vm()),
-            guest_display: reader.string("AIR_VM_DISPLAY", ":88"),
+            guest_display: reader.string("AIR_VM_DISPLAY", if container_linux { ":1" } else { ":88" }),
             tart_home: reader.path("TART_HOME", || home.join(".tart")),
             tart_version_override: reader.boolean(TART_VERSION_OVERRIDE_VARIABLE, false),
             vm_root_disk_opts: root_disk_opts,
@@ -1471,6 +1544,13 @@ impl Config {
             runtime_root,
             workers,
             image_root: reader.path("AIR_VM_IMAGE_ROOT", || workspace_dir.join("provision")),
+            container_linux_script: checkout.join(".agents/skills/testing-ui/scripts/container.cmd"),
+            container_linux_root: checkout.join("out/testing-ui"),
+            daemon_host_port: {
+                let fallback = derived_host_port(&checkout);
+                let port = reader.bounded_positive_int("AIR_VM_DAEMON_HOST_PORT", u32::from(fallback), u32::from(u16::MAX));
+                u16::try_from(port).unwrap_or(fallback)
+            },
             daemon,
         };
         reader.finish(config)
@@ -1579,11 +1659,12 @@ impl Config {
     /// The directory key one worker gets under the runtime root, for its state and its artifacts alike. A
     /// Parallels worker is `parallels-<name>`, because its name comes from the user's own VM and could collide
     /// with a Tart slot. A Docker worker is `docker-<name>` for the same reason: `AIR_VM_WORKER_PREFIX` can give a
-    /// container the name of a Tart slot.
+    /// container the name of a Tart slot. A container-linux worker is `container-linux-<name>`, for the same reason again.
     pub fn worker_key(&self, worker: &str) -> String {
         match self.backend {
             Backend::Parallels => format!("parallels-{worker}"),
             Backend::Docker => format!("docker-{worker}"),
+            Backend::ContainerLinux => format!("container-linux-{worker}"),
             Backend::Tart => worker.to_owned(),
         }
     }
@@ -1829,4 +1910,19 @@ fn is_screen_geometry(value: &str) -> bool {
 /// which Lima spells `{{.Dir}}/sock/docker.sock`.
 fn lima_socket_path(lima_home: &Path) -> PathBuf {
     lima_home.join(LIMA_ENGINE_INSTANCE).join("sock").join("docker.sock")
+}
+
+/// The checkout that holds the controller workspace `community/tools/vm`: its third ancestor. A shallower directory,
+/// which only a test fixture passes, is its own checkout.
+fn checkout_root(workspace_dir: &Path) -> PathBuf {
+    workspace_dir.ancestors().nth(3).unwrap_or(workspace_dir).to_path_buf()
+}
+
+/// A loopback port in 12000..20000 from the checkout path, FNV-1a over its bytes: stable across restarts, different
+/// between checkouts, and clear of the skill's own derived ports and of the ephemeral range.
+fn derived_host_port(checkout: &Path) -> u16 {
+    let hash = checkout.to_string_lossy().bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+    });
+    12_000 + u16::try_from(hash % 8_000).unwrap_or_default()
 }

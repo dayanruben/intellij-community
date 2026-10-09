@@ -182,8 +182,9 @@ pub(crate) struct Global {
     /// Adds NDJSON progress on stderr.
     #[arg(long, global = true)]
     pub stream: bool,
-    /// The pool: tart, parallels or docker. docker is the Ubuntu guest in a container.
-    #[arg(long, global = true, value_name = "tart|parallels|docker")]
+    /// The pool: tart, parallels, docker or container-linux. docker is the Ubuntu guest in a container, and
+    /// container-linux is the container of the testing-ui skill.
+    #[arg(long, global = true, value_name = "tart|parallels|docker|container-linux")]
     pub backend: Option<String>,
     /// The mode-0600 lease receipt.
     #[arg(long = "lease-file", global = true, value_name = "FILE")]
@@ -261,7 +262,7 @@ pub(crate) enum Cmd {
         #[arg(value_name = "RELATIVE_ARTIFACT_PATH")]
         destination: String,
     },
-    /// Where the worker's VNC endpoint is; needs --lease-file.
+    /// Where the worker's VNC endpoint is; needs --lease-file, except on container-linux, whose pool has one worker.
     Vnc,
     /// Measures the start-up of the IDE on this host, from a staged copy of its dev distribution.
     #[command(long_about = crate::bench::LONG_ABOUT, after_help = crate::bench::EXIT_CODES)]

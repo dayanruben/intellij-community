@@ -174,6 +174,41 @@ fn the_parity_script_refuses_a_foreign_tree_and_builds_its_own() {
     assert!(run().status.success());
 }
 
+// The testing-ui container's account owns the layout it builds, so the script hands nothing over, and provisioning
+// sends no chown and no sudo. The shares are probed where the skill mounts them, under `/mnt`.
+// A Windows host does not drive the testing-ui container.
+#[cfg(unix)]
+#[tokio::test]
+async fn an_unprivileged_guest_owns_its_layout_without_a_chown() {
+    let host = Host::container_linux();
+    let settings = &host.settings;
+    let script = parity_script(settings, "air-linux-1", "/mnt/repo", "/mnt/bazel", &words(["community"])).unwrap();
+    assert!(!script.contains(settings.guest.chown), "{script}");
+    assert!(
+        script.contains(&format!(r#"/bin/mkdir -p "$PARITY" '{}'"#, settings.vm_data)),
+        "{script}"
+    );
+    let channel = FakeChannel::new("air-linux-1");
+    host.guest(&channel).provision_parity(ShareMount::Bind).await.unwrap();
+    let lines = channel.lines();
+    assert!(channel.saw(settings.guest.chown).is_none(), "{lines:?}");
+    assert!(!lines.iter().any(|line| line.contains("sudo")), "{lines:?}");
+    let [repo_share, _] = share::shares(settings).unwrap();
+    let probe = format!("/bin/test -e {}/.git", share_mount_path(settings, &repo_share.name));
+    assert!(lines.contains(&probe), "missing {probe:?} in {lines:?}");
+    // The privileged Linux guest keeps its chown line, after the `mkdir` and before the links are rebuilt.
+    let privileged = Host::new(GuestOs::Linux);
+    let settings = &privileged.settings;
+    let script = parity_script(settings, "air-linux-1", "/mnt/repo", "/mnt/bazel", &words(["community"])).unwrap();
+    let lines: Vec<&str> = script.lines().collect();
+    let chown = lines
+        .iter()
+        .position(|line| line.starts_with(settings.guest.chown))
+        .unwrap_or_else(|| panic!("no chown in {script}"));
+    assert!(lines[chown - 1].starts_with(r#"/bin/mkdir -p "$PARITY""#), "{script}");
+    assert!(lines[chown + 1].starts_with("for existing in"), "{script}");
+}
+
 #[test]
 fn parity_script_refuses_an_unsafe_entry_name() {
     let host = Host::new(GuestOs::Linux);
@@ -300,6 +335,38 @@ async fn ensure_parity_ready_probes_as_the_worker_user() {
             format!("{as_user} -w {}", settings.vm_tmp),
             format!("{as_user} -w {}", settings.vm_download_cache),
             format!("{as_user} -d {}", paths.bazel_user_root()),
+        ]
+    );
+}
+
+/// A guest whose shares sit at their host paths gets no layout: provisioning makes the writable roots and writes the
+/// receipt, and the readiness probes skip the marker. A Windows host does not drive the testing-ui container.
+#[cfg(unix)]
+#[tokio::test]
+async fn shares_at_their_host_paths_need_no_layout_and_no_marker() {
+    let host = Host::container_linux();
+    let settings = &host.settings;
+    let channel = FakeChannel::new("container-linux-1");
+    host.guest(&channel).provision_worker(ShareMount::Bind).await.unwrap();
+    assert_eq!(
+        channel.lines(),
+        [format!(
+            "/bin/mkdir -p {} {} {}",
+            settings.vm_out, settings.vm_tmp, settings.vm_download_cache
+        )]
+    );
+    assert!(init_receipt_path(settings, "container-linux-1").exists());
+    let probes = FakeChannel::new("container-linux-1");
+    host.guest(&probes).ensure_parity_ready().await.unwrap();
+    let paths = guest_paths(&host);
+    assert_eq!(
+        probes.lines(),
+        [
+            format!("/bin/test -r {}/.git", paths.repo()),
+            format!("/bin/test -w {}", settings.vm_out),
+            format!("/bin/test -w {}", settings.vm_tmp),
+            format!("/bin/test -w {}", settings.vm_download_cache),
+            format!("/bin/test -d {}", paths.bazel_user_root()),
         ]
     );
 }

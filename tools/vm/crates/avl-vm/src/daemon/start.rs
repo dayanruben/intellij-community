@@ -5,7 +5,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use avl_base::format::{clip, words};
-use avl_base::{Exit, OrRefuse, Refusal, Scope};
+use avl_base::{Backend, Exit, OrRefuse, Refusal, Scope};
 use avl_host_sys::guest::{AgentAccount, GUEST_COMMAND_TIMEOUT, Guest, ShareMount, SupervisorOptions, guest_join, user_argv};
 use avl_host_sys::paths::GuestPaths;
 use avl_host_sys::{Backoff, Channel, Ctx, Poll, SpawnOptions};
@@ -576,20 +576,29 @@ impl Host {
     fn launch_request(&self, prep: &PreparedBuild, staged: &GuestRuntime, state_dir: &str, run_tmp: &str) -> Result<LaunchPrep, Refusal> {
         let settings = &self.settings;
         let guest_repo = GuestPaths::of(settings)?.repo().to_owned();
+        let mut extra_flags = vec![
+            format!("-Didea.home.path={guest_repo}"),
+            format!("-Dintellij.build.download.cache.dir={}", settings.vm_download_cache),
+            format!("-Dair.ui.daemon.state.dir={state_dir}"),
+            format!("-Dair.ui.daemon.port={}", self.settings.daemon.port),
+            format!("-Dair.ui.daemon.controller.launch.digest={}", prep.launch_digest),
+            format!("-Dair.ui.daemon.expected.classpath.file={}", staged.classpath_file),
+            format!("-Dair.ui.daemon.runtime.root={}", staged.root),
+            format!("-Dair.lane.agent={}", settings.vm_agent),
+            format!("-Dair.lane.ide.root={}", guest_ide_root(settings)),
+            format!("-Dair.lane.java.home={}", java_home_of(&staged.java_binary)?),
+        ];
+        if settings.backend == Backend::ContainerLinux {
+            // A published port forwards to the container's address, not to its loopback, so the daemon binds every
+            // interface of the container. Its network is its own, and the token guards each request.
+            extra_flags.push("-Dair.ui.daemon.bind=0.0.0.0".to_owned());
+            // The checkout is a read-only mount at its host path, so IDE Starter keeps its output tree on the
+            // container disk instead of under <checkout>/out.
+            extra_flags.push(format!("-Dide.starter.out.dir={}", settings.vm_out));
+        }
         let options = LaunchOptions {
             test_tmp_dir: run_tmp.to_owned(),
-            extra_flags: vec![
-                format!("-Didea.home.path={guest_repo}"),
-                format!("-Dintellij.build.download.cache.dir={}", settings.vm_download_cache),
-                format!("-Dair.ui.daemon.state.dir={state_dir}"),
-                format!("-Dair.ui.daemon.port={}", self.settings.daemon.port),
-                format!("-Dair.ui.daemon.controller.launch.digest={}", prep.launch_digest),
-                format!("-Dair.ui.daemon.expected.classpath.file={}", staged.classpath_file),
-                format!("-Dair.ui.daemon.runtime.root={}", staged.root),
-                format!("-Dair.lane.agent={}", settings.vm_agent),
-                format!("-Dair.lane.ide.root={}", guest_ide_root(settings)),
-                format!("-Dair.lane.java.home={}", java_home_of(&staged.java_binary)?),
-            ],
+            extra_flags,
         };
         // `${RUNFILES_ROOT}` names the tree the guest JVM opens, so it is the guest root.
         let runfiles_root = Path::new(&prep.guest_runfiles_root);

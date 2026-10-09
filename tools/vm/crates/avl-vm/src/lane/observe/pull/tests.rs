@@ -60,12 +60,13 @@ async fn pull_from(fixture: &Fixture, worker: &str, source: &str, destination: &
     pull_guest_file(&Ctx::background(), &fixture.manager, worker, source, destination).await
 }
 
-// The channels that ADR 0182 and 0183 measured byte-clean move the bytes as they are; Parallels keeps base64.
+// The channels that ADR 0182 and 0183 measured byte-clean move the bytes as they are, and so does the container-linux
+// exec; Parallels keeps base64.
 #[test]
-fn a_pull_moves_raw_bytes_on_tart_and_docker_and_base64_on_parallels() {
+fn a_pull_moves_raw_bytes_on_tart_docker_and_container_linux_and_base64_on_parallels() {
     assert_eq!(
-        [Backend::Tart, Backend::Docker, Backend::Parallels].map(Transfer::of),
-        [Transfer::Raw, Transfer::Raw, Transfer::Base64]
+        [Backend::Tart, Backend::Docker, Backend::ContainerLinux, Backend::Parallels].map(Transfer::of),
+        [Transfer::Raw, Transfer::Raw, Transfer::Raw, Transfer::Base64]
     );
 }
 

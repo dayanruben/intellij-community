@@ -4,7 +4,10 @@
 //! [`HostPool`], and the guest is [`FakeGuests`]: every worker's channel answers one pool-wide answer and records
 //! into one log. What is left here is what only this crate can build: a [`Manager`] with the suite's poll bounds.
 //!
-//! A Windows host has the Docker pool only, so the Tart fixtures and the run-process helpers are Unix only.
+//! A container-linux pool keeps the production channel: the manager builds the control-port channel itself, and the
+//! pool's fake control port answers from the same [`FakeGuests`], so a suite seeds and reads them as on Docker.
+//!
+//! The fakes are shell scripts, so the Tart and container-linux fixtures and the run-process helpers are Unix only.
 //!
 //! On Unix the runner asks [`FakeProcesses`] about each pid of the fake table, and the host about every other pid. A
 //! stand-in run process is a process of the fake table, so a worker reads as running on a loaded host too. A `tart
@@ -104,6 +107,22 @@ impl Fixture {
     #[cfg(unix)]
     pub(crate) fn docker_container() -> Self {
         Self::docker_builder().container_engine().build()
+    }
+
+    /// The container-linux pool of one slot over the fake `container.cmd`, laid out as the fixture checkout's skill. Needs
+    /// a tokio runtime, because the pool's fake control port is a tokio server.
+    #[cfg(unix)]
+    pub(crate) fn container_linux() -> Self {
+        Self::container_linux_builder().build()
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn container_linux_builder() -> FixtureBuilder {
+        FixtureBuilder {
+            pool: HostPool::builder(Backend::ContainerLinux, GuestOs::Linux, TART_VERSION),
+            build_boot: builds_nothing(),
+            pinned_bazel: false,
+        }
     }
 
     pub(crate) fn worker(&self, index: usize) -> &str {
@@ -329,7 +348,16 @@ impl FixtureBuilder {
 
     pub(crate) fn build(self) -> Fixture {
         let pool = self.pool.build();
-        let guest = FakeGuests::new();
+        // A container-linux pool is reached through the production channel, which the manager builds when it is given
+        // none; the fake control port of the pool answers from the pool's guests.
+        #[cfg(unix)]
+        let (guest, channel) = if pool.settings.backend == Backend::ContainerLinux {
+            (Arc::clone(pool.control_port().guests()), None)
+        } else {
+            scripted_guests()
+        };
+        #[cfg(windows)]
+        let (guest, channel) = scripted_guests();
         #[cfg(unix)]
         let bazel = self.pinned_bazel.then(|| Arc::new(pool.pinned_bazel()));
         #[cfg(unix)]
@@ -342,7 +370,7 @@ impl FixtureBuilder {
         let runner = pool.runner().with_process_table(Arc::clone(&processes) as Arc<dyn ProcessTable>);
         #[cfg(windows)]
         let runner = pool.runner();
-        let manager = manager_with_bazel(&pool.settings, runner, Some(guest.factory()), self.build_boot, host);
+        let manager = manager_with_bazel(&pool.settings, runner, channel, self.build_boot, host);
         manager.prepare_runtime_dirs().expect("the runtime directories are created");
         Fixture {
             pool,
@@ -354,6 +382,13 @@ impl FixtureBuilder {
             bazel,
         }
     }
+}
+
+/// Fresh scripted guests, and the channel dependency that hands them to a manager.
+fn scripted_guests() -> (Arc<FakeGuests>, Option<ChannelFactory>) {
+    let guests = FakeGuests::new();
+    let factory = guests.factory();
+    (guests, Some(factory))
 }
 
 /// A manager over settings with the suite's poll bounds, reaching the guest through `channel` when one is given.

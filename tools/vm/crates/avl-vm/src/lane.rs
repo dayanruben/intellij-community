@@ -21,8 +21,8 @@ mod runtime;
 pub(crate) mod secrets;
 
 // The shared settings are Tart settings, and the observation fixture is a Tart and Parallels pool over the fake
-// `tart` and `prlctl`. A Windows host has the Docker backend only, so the suites that use them are Unix only, and each
-// of their `tests` modules says so.
+// `tart` and `prlctl`, shell scripts, so the suites that use them are Unix only, and each of their `tests` modules
+// says so.
 #[cfg(test)]
 #[cfg(unix)]
 mod testing;

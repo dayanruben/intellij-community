@@ -55,6 +55,12 @@ const MACOS_26: MacosHost = MacosHost {
     major: 26,
     apple_silicon: true,
 };
+fn container_linux() -> Selection {
+    Selection {
+        backend: Backend::ContainerLinux,
+        guest_os: GuestOs::Linux,
+    }
+}
 
 fn load(selection: Selection, environment: &Environment) -> Config {
     load_on(POOL_HOST, selection, environment)
@@ -200,10 +206,10 @@ fn a_windows_host_reads_its_own_home_and_application_data() {
     }
 }
 
-// Docker is the one backend a Windows host drives. Every other selection is refused by name before a setting is
-// read, and a macOS or a Linux host drives them all.
+// A Windows host drives the two Linux containers, Docker and container-linux. The two macOS VM backends are refused
+// by name before a setting is read, and a macOS or a Linux host drives them all.
 #[test]
-fn a_windows_host_drives_only_docker() {
+fn a_windows_host_drives_the_two_container_backends() {
     for selection in [tart_macos(), parallels()] {
         let refusal = refuse_on(HostOs::Windows, selection, &env(&[]));
         assert_eq!(
@@ -214,8 +220,8 @@ fn a_windows_host_drives_only_docker() {
         assert_eq!(
             refusal.message,
             format!(
-                "a windows host drives only the Docker backend, and --backend {selection} needs a macOS or a \
-                 Linux host; pass --backend docker"
+                "a windows host drives the Docker and the container-linux backends, and --backend {selection} needs a \
+                 macOS or a Linux host; pass --backend docker or container-linux"
             )
         );
         for host in [HostOs::Macos, HostOs::Linux] {
@@ -223,6 +229,10 @@ fn a_windows_host_drives_only_docker() {
         }
     }
     assert_eq!(load_on(HostOs::Windows, docker(), &env(&[])).backend, Backend::Docker);
+    assert_eq!(
+        load_on(HostOs::Windows, container_linux(), &env(&[])).backend,
+        Backend::ContainerLinux
+    );
 }
 
 // Every host that is given no backend runs the Docker pool and loads its settings: a Mac of macOS 15 on the Lima engine,
@@ -291,6 +301,7 @@ fn the_guest_architecture_follows_the_backend_and_the_host() {
     assert_eq!(docker, GuestArch::of(Backend::Docker));
     let x86_64_host = cfg!(target_arch = "x86_64");
     assert_eq!(docker == GuestArch::X86_64, x86_64_host);
+    assert_eq!(load(container_linux(), &env(&[])).guest_arch, docker);
     assert_eq!((GuestArch::Arm64.as_str(), GuestArch::Arm64.oci_arch()), ("aarch64", "arm64"));
     assert_eq!((GuestArch::X86_64.as_str(), GuestArch::X86_64.oci_arch()), ("x86_64", "amd64"));
 }
@@ -732,6 +743,7 @@ fn backend_parsing_is_one_flag_over_two_axes() {
         ("tart", Backend::Tart, GuestOs::Macos),
         ("parallels", Backend::Parallels, GuestOs::Macos),
         ("docker", Backend::Docker, GuestOs::Linux),
+        ("container-linux", Backend::ContainerLinux, GuestOs::Linux),
     ] {
         let selection: Selection = value.parse().expect("a known backend");
         assert_eq!(selection, Selection { backend, guest_os });
@@ -743,12 +755,30 @@ fn backend_parsing_is_one_flag_over_two_axes() {
         let refusal = retired.parse::<Selection>().expect_err("an unknown backend");
         assert_eq!(refusal.code, "usage");
         // The refusal lists every spelling, so an operator who typed a wrong one reads the right one.
-        assert!(refusal.message.contains("tart, parallels or docker"), "{}", refusal.message);
+        assert_eq!(refusal.message, "--backend must be tart, parallels, docker or container-linux");
     }
     // One value rather than two defaults: falling back to the axes separately can compose a rejected pair.
     assert_eq!(Selection::DEFAULT, docker());
     assert_eq!(Selection::DEFAULT.label(), "docker");
     assert_eq!(Selection::default(), Selection::DEFAULT);
+}
+
+// A backend is written into a lease and a worker state file with the spelling `--backend` accepts, and reads back.
+#[test]
+fn a_backend_serializes_as_its_flag_spelling() {
+    for (backend, spelling) in [
+        (Backend::Tart, "tart"),
+        (Backend::Parallels, "parallels"),
+        (Backend::Docker, "docker"),
+        (Backend::ContainerLinux, "container-linux"),
+    ] {
+        assert_eq!(backend.as_str(), spelling);
+        assert_eq!(backend.to_string(), spelling);
+        let json = serde_json::to_string(&backend).expect("a backend serializes");
+        assert_eq!(json, format!("\"{spelling}\""));
+        assert_eq!(serde_json::from_str::<Backend>(&json).expect("a backend reads back"), backend);
+    }
+    serde_json::from_str::<Backend>("\"testingui\"").expect_err("the lowercase spelling is not a backend");
 }
 
 #[test]
@@ -1107,21 +1137,142 @@ fn the_image_mirror_is_a_url_or_off() {
 }
 
 /// A container shares the kernel of the engine's Linux VM, so there is no macOS guest to put in it. Refused here,
-/// once, like the Parallels Linux pairing.
+/// once, like the Parallels Linux pairing, for the Docker container and for the testing-ui container alike.
 #[test]
 fn a_docker_backend_with_a_macos_guest_is_refused() {
-    let refusal = refuse(
-        Selection {
-            backend: Backend::Docker,
-            guest_os: GuestOs::Macos,
-        },
-        &env(&[]),
+    for backend in [Backend::Docker, Backend::ContainerLinux] {
+        let refusal = refuse(
+            Selection {
+                backend,
+                guest_os: GuestOs::Macos,
+            },
+            &env(&[]),
+        );
+        assert_eq!(
+            (refusal.code.as_ref(), refusal.exit),
+            ("unsupported_backend_operation", Exit::USAGE),
+            "{backend}"
+        );
+        assert!(refusal.message.contains("--backend tart"), "{backend}: {}", refusal.message);
+    }
+    assert!(
+        refuse(
+            Selection {
+                backend: Backend::ContainerLinux,
+                guest_os: GuestOs::Macos,
+            },
+            &env(&[]),
+        )
+        .message
+        .starts_with("a container-linux worker is a Linux container;")
+    );
+}
+
+// --- the testing-ui container ----------------------------------------------------------------------------------
+
+/// The testing-ui container is the skill's: its `ubuntu` account, its Xvnc on `:1`, and one slot. The writable state
+/// lives on the container disk under the account's home, as on every other backend. The two settings that name the
+/// skill's script and its output root default under the checkout that holds the skill directory, and every default
+/// yields to its variable.
+#[test]
+fn the_container_linux_defaults_are_the_skills_container() {
+    let config = load(container_linux(), &env(&[]));
+    assert_eq!((config.backend, config.guest_os), (Backend::ContainerLinux, GuestOs::Linux));
+    assert_eq!(config.workers, ["container-linux-1"]);
+    assert_eq!(
+        (
+            config.vm_user.as_str(),
+            config.vm_uid.as_str(),
+            config.vm_home.as_str(),
+            config.vm_data.as_str(),
+        ),
+        ("ubuntu", "1000", "/home/ubuntu", "/home/ubuntu/WorkerData")
+    );
+    assert_eq!(config.vm_out, "/home/ubuntu/WorkerData/out");
+    assert_eq!(config.vm_runs_root, "/home/ubuntu/WorkerData/state/ui-runs");
+    assert_eq!(config.vm_agent, "/home/ubuntu/WorkerData/state/vm-guest-agent");
+    assert_eq!(config.guest_display, ":1");
+    // A container has no disk of its own to grow, and the slot has a directory of its own under the runtime root.
+    assert_eq!(config.vm_root_disk_gb, 0);
+    assert_eq!(config.worker_key("container-linux-1"), "container-linux-container-linux-1");
+    let checkout = Path::new("/repo");
+    assert_eq!(
+        config.container_linux_script,
+        checkout.join(".agents/skills/testing-ui/scripts/container.cmd")
+    );
+    assert_eq!(config.container_linux_root, checkout.join("out/testing-ui"));
+    // The published host port of the daemon derives from the checkout: off the skill's own ranges, and stable.
+    assert!((12_000..20_000).contains(&config.daemon_host_port), "{}", config.daemon_host_port);
+    assert_eq!(config.daemon_host_port, load(container_linux(), &env(&[])).daemon_host_port);
+    // The Docker pool keeps its own defaults.
+    let docker = load(docker(), &env(&[]));
+    assert_eq!((docker.vm_user.as_str(), docker.guest_display.as_str()), ("admin", ":88"));
+
+    let moved = load(
+        container_linux(),
+        &env(&[
+            ("AIR_VM_USER", "tester"),
+            ("AIR_VM_DATA", "/work/elsewhere"),
+            ("AIR_VM_DISPLAY", ":2"),
+            ("AIR_VM_DAEMON_HOST_PORT", "15555"),
+        ]),
     );
     assert_eq!(
-        (refusal.code.as_ref(), refusal.exit),
-        ("unsupported_backend_operation", Exit::USAGE)
+        (moved.vm_user.as_str(), moved.vm_home.as_str(), moved.vm_data.as_str()),
+        ("tester", "/home/tester", "/work/elsewhere")
     );
-    assert!(refusal.message.contains("--backend tart"), "{}", refusal.message);
+    assert_eq!(moved.guest_display, ":2");
+    assert_eq!(moved.daemon_host_port, 15_555);
+}
+
+/// The profile follows the selection: a Docker guest gets the profile of its OS, and the testing-ui container gets
+/// the Linux spellings, its shares at their host paths, and no root.
+#[test]
+fn the_profile_follows_the_selection() {
+    assert_eq!(docker().profile(), GuestOs::Linux.profile());
+    assert!(docker().profile().privileged);
+    for selection in [tart_macos(), parallels()] {
+        assert_eq!(selection.profile(), GuestOs::Macos.profile(), "{selection}");
+        assert!(selection.profile().privileged, "{selection}");
+    }
+    let profile = container_linux().profile();
+    let linux = GuestOs::Linux.profile();
+    assert_eq!(
+        (profile.os, profile.privileged, profile.shares_at_host_paths),
+        (GuestOs::Linux, false, true)
+    );
+    assert_eq!(
+        (
+            profile.share_mount,
+            profile.chown,
+            profile.link_flags,
+            profile.virtiofs,
+            linux.shares_at_host_paths
+        ),
+        (linux.share_mount, linux.chown, linux.link_flags, linux.virtiofs, false)
+    );
+    // The loaded settings carry the selection's profile, not the OS one.
+    assert_eq!(load(container_linux(), &env(&[])).guest, profile);
+    assert_eq!(load(docker(), &env(&[])).guest, linux);
+}
+
+/// The skill's script runs one container, so the pool has one slot, and a request for more is refused by the name
+/// of the variable and of the backend. A Docker pool still scales.
+#[test]
+fn a_container_linux_pool_has_one_slot() {
+    assert_eq!(load(container_linux(), &env(&[])).workers, ["container-linux-1"]);
+    assert_eq!(
+        load(container_linux(), &env(&[("AIR_VM_MAX_WORKERS", "1")])).workers,
+        ["container-linux-1"]
+    );
+    let refusal = refuse(container_linux(), &env(&[("AIR_VM_MAX_WORKERS", "2")]));
+    assert_eq!((refusal.code.as_ref(), refusal.exit), ("invalid_worker_pool", Exit::USAGE));
+    assert!(
+        refusal.message.contains("AIR_VM_MAX_WORKERS") && refusal.message.contains("container-linux"),
+        "{}",
+        refusal.message
+    );
+    assert_eq!(load(docker(), &env(&[("AIR_VM_MAX_WORKERS", "2")])).workers.len(), 2);
 }
 
 // --- the Docker engine -----------------------------------------------------------------------------------------

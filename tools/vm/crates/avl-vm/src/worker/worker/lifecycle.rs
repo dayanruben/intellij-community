@@ -3,7 +3,7 @@
 //! - [`Timings`], the bounds of the poll loops;
 //! - [`StartState`] and [`StopState`], what a start or a stop found;
 //! - the lifecycle operations of [`Manager`]. Each is one `match` on the [`Machine`], and each arm calls the body in
-//!   the file of its backend: `worker/tart.rs`, `worker/parallels.rs` and `worker/docker.rs`;
+//!   the file of its backend: `worker/tart.rs`, `worker/parallels.rs`, `worker/docker.rs` and `worker/container_linux.rs`;
 //! - [`Manager::require_unleased`], the lease guard of a lifecycle operation.
 //!
 //! A backend that cannot do an operation answers [`unsupported`], which keeps the refusal code a caller branches on.
@@ -221,6 +221,7 @@ impl Manager {
             #[cfg(unix)]
             Machine::Parallels(parallels) => self.require_parallels_ready(ctx, parallels, &lease.worker).await,
             Machine::Docker(docker) => self.require_docker_ready(ctx, docker, lease).await,
+            Machine::ContainerLinux(container_linux) => self.require_container_linux_ready(ctx, container_linux, lease).await,
         }
     }
 
@@ -242,6 +243,7 @@ impl Manager {
             #[cfg(unix)]
             Machine::Parallels(parallels) => self.require_parallels_release_ready(ctx, parallels, worker).await,
             Machine::Docker(docker) => self.require_docker_release_ready(ctx, docker, worker).await,
+            Machine::ContainerLinux(container_linux) => self.require_container_linux_release_ready(ctx, container_linux, worker).await,
         }
     }
 
@@ -260,6 +262,7 @@ impl Manager {
             #[cfg(unix)]
             Machine::Parallels(_) => Ok(false),
             Machine::Docker(docker) => docker.stopped(ctx, worker).await,
+            Machine::ContainerLinux(backend) => Ok(!backend.running(ctx, worker).await?),
         }
     }
 
@@ -271,13 +274,15 @@ impl Manager {
     /// daemon would go on serving the lanes from the container of the previous declaration. The container is current
     /// when its create record declares the argv a create would use now, and the engine gives the name the recorded id
     /// ([`crate::worker::docker::Docker::container_is_current`]). The caller passed the engine gate just before, so the
-    /// CLI is resolved. A Tart or a Parallels worker declares its shares at its start, and the readiness gate checks
-    /// them, so it answers true.
+    /// CLI is resolved. A container-linux worker is current when its start record names the argv a start would use
+    /// now. A Tart or a Parallels worker declares its shares at its start, and the readiness gate checks them, so it
+    /// answers true.
     pub(crate) async fn guest_declaration_current(&self, ctx: &Ctx, lease: &Lease) -> Result<bool, Refusal> {
         match self.machine.as_ref() {
             Machine::Docker(docker) => docker.container_is_current(ctx, &lease.worker).await,
             #[cfg(unix)]
             Machine::Tart(_) | Machine::Parallels(_) => Ok(true),
+            Machine::ContainerLinux(container_linux) => container_linux.start_record_is_current(&lease.worker),
         }
     }
 
@@ -303,6 +308,7 @@ impl Manager {
             #[cfg(unix)]
             Machine::Parallels(parallels) => self.start_parallels(ctx, parallels, worker).await,
             Machine::Docker(docker) => self.start_docker(ctx, docker, worker, None).await,
+            Machine::ContainerLinux(container_linux) => self.start_container_linux(ctx, container_linux, worker).await,
         }
     }
 
@@ -357,6 +363,7 @@ impl Manager {
             #[cfg(unix)]
             Machine::Parallels(parallels) => self.stop_parallels(ctx, parallels, worker).await,
             Machine::Docker(docker) => self.stop_docker(ctx, docker, worker).await,
+            Machine::ContainerLinux(container_linux) => self.stop_container_linux(ctx, container_linux, worker).await,
         }
     }
 
@@ -372,6 +379,7 @@ impl Manager {
             },
             #[cfg(unix)]
             Machine::Tart(_) | Machine::Parallels(_) => Ok(None),
+            Machine::ContainerLinux(_) => Ok(None),
         }
     }
 
@@ -391,6 +399,7 @@ impl Manager {
             #[cfg(unix)]
             Machine::Parallels(parallels) => self.pool_init_parallels(ctx, parallels, golden).await,
             Machine::Docker(docker) => self.pool_init_docker(ctx, docker, golden).await,
+            Machine::ContainerLinux(container_linux) => self.pool_init_container_linux(ctx, container_linux, golden).await,
         }
     }
 
@@ -403,6 +412,7 @@ impl Manager {
             #[cfg(unix)]
             Machine::Parallels(_) => Err(unsupported(NO_GC)),
             Machine::Docker(docker) => self.pool_gc_docker(ctx, docker).await,
+            Machine::ContainerLinux(container_linux) => self.pool_gc_container_linux(ctx, container_linux).await,
         }
     }
 
@@ -420,7 +430,7 @@ impl Manager {
             Machine::Parallels(_) => Err(unsupported(NO_RECYCLE)),
             #[cfg(unix)]
             Machine::Tart(_) => Ok(()),
-            Machine::Docker(_) => Ok(()),
+            Machine::Docker(_) | Machine::ContainerLinux(_) => Ok(()),
         }
     }
 
@@ -436,6 +446,7 @@ impl Manager {
             },
             #[cfg(unix)]
             Machine::Tart(_) | Machine::Parallels(_) => Ok(()),
+            Machine::ContainerLinux(_) => Ok(()),
         }
     }
 
@@ -448,6 +459,7 @@ impl Manager {
             #[cfg(unix)]
             Machine::Parallels(_) => Err(unsupported(NO_RECYCLE)),
             Machine::Docker(docker) => self.unmake_docker_worker(ctx, docker, worker).await,
+            Machine::ContainerLinux(container_linux) => self.unmake_container_linux_worker(ctx, container_linux, worker).await,
         }
     }
 }

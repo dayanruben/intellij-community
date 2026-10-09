@@ -2,9 +2,9 @@
 //!
 //! # A match per question
 //!
-//! [`Machine`] is the configured backend, exactly one of [`Tart`], [`Parallels`] and [`Docker`]. It answers the
-//! questions a caller asks without caring which backend it has, and each answer is a `match` delegating to the
-//! backend's own method of the same name:
+//! [`Machine`] is the configured backend, exactly one of [`Tart`], [`Parallels`], [`Docker`] and [`ContainerLinux`]. It
+//! answers the questions a caller asks without caring which backend it has, and each answer is a `match` delegating
+//! to the backend's own method of the same name:
 //!
 //! - **the version gate** - [`Machine::require_available`]: a floor with an escape hatch on Tart, a registered
 //!   Apple-Virtualization VM on Parallels;
@@ -14,8 +14,9 @@
 //! - **liveness** - [`Machine::running`]: Tart's worker is a host process the controller owns, identified by a pid
 //!   plus its `ps` start time and command; Parallels' worker is a VM it does not own, and the only honest question
 //!   is `prlctl status`. Docker's worker is a container the controller owns by name, so liveness is `docker
-//!   inspect`;
-//! - **the share mount** - [`Machine::share_mount`]: VirtioFS on Tart and Parallels, bind mounts on Docker.
+//!   inspect`; the container-linux worker is the container the skill's script lists for this checkout;
+//! - **the share mount** - [`Machine::share_mount`]: VirtioFS on Tart and Parallels, bind mounts on Docker and
+//!   container-linux.
 //!
 //! The lifecycle of a worker needs the manager's host state, locks and guest channel, so its operations are methods
 //! of the worker manager, in the lifecycle module of the worker module. Each is one `match` on the machine too, and
@@ -50,6 +51,7 @@ use avl_base::{Exit, Refusal};
 use avl_host_sys::Ctx;
 use avl_host_sys::guest::ShareMount;
 
+use crate::worker::container_linux::ContainerLinux;
 use crate::worker::docker::Docker;
 #[cfg(unix)]
 use crate::worker::parallels::Parallels;
@@ -84,13 +86,10 @@ pub(crate) fn is_unsupported(refusal: &Refusal) -> bool {
 /// The configured backend's concrete implementation. Exactly one, so a branch cannot reach for the wrong one.
 ///
 /// Every question takes a worker name rather than the value holding one, because a backend instance serves the
-/// whole pool: `pool gc` walks every slot. On Windows the Docker backend is the only one.
-#[cfg_attr(
-    unix,
-    expect(
-        clippy::large_enum_variant,
-        reason = "a manager holds one machine for its whole life, so a box would save no memory"
-    )
+/// whole pool: `pool gc` walks every slot. On Windows the Docker and the container-linux backends are the only ones.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "a manager holds one machine for its whole life, so a box would save no memory"
 )]
 pub(crate) enum Machine {
     #[cfg(unix)]
@@ -98,23 +97,18 @@ pub(crate) enum Machine {
     #[cfg(unix)]
     Parallels(Parallels),
     Docker(Docker),
+    ContainerLinux(ContainerLinux),
 }
 
 impl Machine {
     /// The Docker backend, when this pool is a Docker one.
     #[cfg(test)]
-    #[cfg_attr(
-        windows,
-        expect(
-            clippy::unnecessary_wraps,
-            reason = "a Windows host has the Docker backend only, so every pool there is a Docker one"
-        )
-    )]
     pub(crate) const fn docker(&self) -> Option<&Docker> {
         match self {
             Self::Docker(docker) => Some(docker),
             #[cfg(unix)]
             Self::Tart(_) | Self::Parallels(_) => None,
+            Self::ContainerLinux(_) => None,
         }
     }
 
@@ -131,6 +125,7 @@ impl Machine {
             #[cfg(unix)]
             Self::Parallels(parallels) => parallels.require_available(ctx, worker).await,
             Self::Docker(docker) => docker.require_available(ctx, worker).await,
+            Self::ContainerLinux(container_linux) => container_linux.require_available(ctx, worker).await,
         }
     }
 
@@ -141,6 +136,7 @@ impl Machine {
             Self::Docker(docker) => docker.require_available_for(ctx, Some(lease)).await,
             #[cfg(unix)]
             Self::Tart(_) | Self::Parallels(_) => self.require_available(ctx, &lease.worker).await,
+            Self::ContainerLinux(_) => self.require_available(ctx, &lease.worker).await,
         }
     }
 
@@ -160,6 +156,7 @@ impl Machine {
             #[cfg(unix)]
             Self::Parallels(parallels) => Ok(parallels.guest_argv(ctx, worker, argv)),
             Self::Docker(docker) => docker.guest_argv(ctx, worker, argv, interactive).await,
+            Self::ContainerLinux(container_linux) => Ok(container_linux.guest_argv(ctx, worker, argv, interactive)),
         }
     }
 
@@ -169,7 +166,7 @@ impl Machine {
         match self {
             #[cfg(unix)]
             Self::Tart(_) | Self::Parallels(_) => ShareMount::VirtioFs,
-            Self::Docker(_) => ShareMount::Bind,
+            Self::Docker(_) | Self::ContainerLinux(_) => ShareMount::Bind,
         }
     }
 
@@ -182,6 +179,7 @@ impl Machine {
             #[cfg(unix)]
             Self::Parallels(parallels) => parallels.running(ctx, worker).await,
             Self::Docker(docker) => docker.running(ctx, worker).await,
+            Self::ContainerLinux(container_linux) => container_linux.running(ctx, worker).await,
         }
     }
 }

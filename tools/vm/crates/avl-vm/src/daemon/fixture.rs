@@ -51,6 +51,11 @@ impl Fixture {
         Self::of(DaemonFixture::tart_macos(&[]).await)
     }
 
+    /// The fixture over a container-linux pool: see [`DaemonFixture::over_container_linux`].
+    pub(crate) async fn over_container_linux() -> Self {
+        Self::of(DaemonFixture::over_container_linux(&[]).await)
+    }
+
     /// The fixture over a Docker pool: see [`DaemonFixture::docker`]. The fake `docker`'s calls are in `tart`'s
     /// call log, because the two fakes share one.
     pub(crate) async fn docker() -> Self {
