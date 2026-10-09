@@ -1,26 +1,31 @@
-//! The wire of the lane IDE: the launch document that `ide-prepare` reads, its answer, the launch record that it
-//! writes into the context, and the answer of `ide-gc`.
+//! The wire of the lane IDE: the context document that `ide-prepare` reads, the launch document that `ide-launch`
+//! reads, their answers, the launch record that `ide-launch` writes into the context, and the answer of `ide-gc`.
 //!
 //! The caller is the stable tier of the UI daemon (`AirLaneIde`), and in a standalone lane run the same class on the
-//! host. One context is `<ideRoot>/<launchKey>`. It holds the data directories of the IDE, the project, the argument
-//! file, the launch record, and the run slot of the run supervisor. One IDE run is the supervisor run
-//! [`ide_run_id`] of one launch name, so a relaunch on the same context is a new run in the same slot.
+//! host. One context is `<ideRoot>/<launchKey>`. It holds the data directories of the IDE, the project, the home and
+//! the `bin` directory of the IDE environment, the argument file, the launch record, and the run slot of the run
+//! supervisor. One IDE run is the supervisor run [`ide_run_id`] of one launch name, so a relaunch on the same context
+//! is a new run in the same slot.
 //!
-//! The launch document carries the bridge token as a property. So the agent reads it on standard input, writes it
-//! only into the argument file (mode 0600), and never puts a property value into a refusal. [`decode_ide_prepare`]
-//! keeps that rule for the decode errors too: it names the JSON path, and never the value.
+//! No document here holds a secret. The bridge token is a file that the caller writes into the config directory, and
+//! the IDE environment is the layout of the context, not data. So the documents derive their `Debug` form. A decode
+//! error names the JSON path and not the value, because `serde_path_to_error` gives that at no cost.
 
 use std::collections::BTreeMap;
 use std::fmt;
 
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::error::Category;
+
+use crate::supervisor::RunState;
 
 #[cfg(test)]
 mod tests;
 
-/// The version of the launch document, of its answer and of the launch record. Bump it with the Kotlin client.
-pub const SCHEMA_VERSION: u32 = 1;
+/// The version of the context and launch documents, of their answers and of the launch record. Bump it with the Kotlin
+/// client.
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// The prefix of the supervisor run id of an IDE launch.
 pub const IDE_RUN_PREFIX: &str = "run-ide-";
@@ -33,6 +38,10 @@ pub const PLUGINS_DIR: &str = "plugins";
 pub const LOG_DIR: &str = "log";
 /// The default unpack root of the project archive.
 pub const PROJECT_DIR: &str = "project";
+/// The `HOME` of the IDE process. The caller seeds it between `ide-prepare` and `ide-launch`.
+pub const HOME_DIR: &str = "home";
+/// The first directory of the `PATH` of the IDE process. The caller puts its launchers into it.
+pub const BIN_DIR: &str = "bin";
 
 /// The argument file of the IDE, a child of the context directory. The IDE starts as `java @<this file>`.
 pub const ARG_FILE: &str = "ide-jvm.args";
@@ -86,72 +95,28 @@ pub fn context_dir(ide_root: &str, launch_key: &str) -> String {
     format!("{}/{launch_key}", ide_root.trim_end_matches('/'))
 }
 
-// --- the launch document -----------------------------------------------------------------------------------
+// --- the context document ----------------------------------------------------------------------------------
 
-/// What `ide-prepare` reads on standard input.
+/// What `ide-prepare` reads on standard input: the layout of one context.
 ///
-/// The caller sends it twice for a new context. The first call has no properties and gives the paths, which the
-/// caller needs to compute the properties. The second call has the full properties and writes the argument file. A
-/// relaunch on the same context sends it once, with `fresh` false and a new launch name.
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// The caller sends it once per context, before it seeds the home, the `bin` directory and the config files. A
+/// relaunch on the same context sends it with `fresh` false.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct IdePrepare {
+pub struct IdeContext {
     pub schema_version: u32,
     /// The parent of every context, an absolute guest path.
     pub ide_root: String,
     /// The context under `ide_root`. See [`is_launch_key`].
     pub launch_key: String,
-    /// Deletes what a preparation writes before it prepares again: the data directories, the project, the argument file
-    /// and the launch record. The log directories and the run directories of earlier launches stay, and `ide-gc` trims
-    /// them. The caller sets it on the first call for a new context only.
+    /// Deletes what a preparation and a launch write before it prepares again: the data directories, the project, the
+    /// home, the `bin` directory, the argument file and the launch record. The log directories and the run
+    /// directories of earlier launches stay, and `ide-gc` trims them. The caller sets it on the first call for a new
+    /// context only.
     pub fresh: bool,
-    /// The home of the dev distribution, an absolute guest path.
-    pub dist_home: String,
-    /// The `DevIdeConfig` file of the distribution, which states the main class. An absolute guest path.
-    pub ide_config: String,
-    /// The JVM that the IDE runs on, an absolute guest path. The launch record keeps it, so a later kill finds
-    /// `<javaHome>/bin/jcmd`.
-    pub java_home: String,
-    /// The JVM flags that Bazel writes, one per line. An absolute guest path.
-    pub flags_file: String,
-    /// The `-D` properties of the launch. Sorted by key on the wire, so the argument file is the same for the same
-    /// document.
-    #[serde(default)]
-    pub properties: BTreeMap<String, String>,
-    /// The environment of the IDE process. The caller passes it to `start`. The agent reads only `DISPLAY` from it.
-    #[serde(default)]
-    pub environment: BTreeMap<String, String>,
+    pub project: ProjectSource,
     #[serde(default)]
     pub disabled_plugin_ids: Vec<String>,
-    pub project: ProjectSource,
-    /// The name of this launch. See [`is_launch_name`].
-    pub launch_name: String,
-    /// The identity of the product that the IDE runs. `ide-gc --keep-product` keeps a live IDE only when its launch
-    /// record names the same digest. Empty means no identity, which no `--keep-product` matches.
-    #[serde(default)]
-    pub product_digest: String,
-}
-
-/// Writes the property and environment keys, and never their values: a value can be the bridge token.
-impl fmt::Debug for IdePrepare {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("IdePrepare")
-            .field("schema_version", &self.schema_version)
-            .field("ide_root", &self.ide_root)
-            .field("launch_key", &self.launch_key)
-            .field("fresh", &self.fresh)
-            .field("dist_home", &self.dist_home)
-            .field("ide_config", &self.ide_config)
-            .field("java_home", &self.java_home)
-            .field("flags_file", &self.flags_file)
-            .field("properties", &self.properties.keys().collect::<Vec<_>>())
-            .field("environment", &self.environment.keys().collect::<Vec<_>>())
-            .field("disabled_plugin_ids", &self.disabled_plugin_ids)
-            .field("project", &self.project)
-            .field("launch_name", &self.launch_name)
-            .field("product_digest", &self.product_digest)
-            .finish()
-    }
 }
 
 /// The project that the IDE opens: a zip archive, and the directory inside it that is the project.
@@ -168,8 +133,7 @@ pub struct ProjectSource {
     pub relocate_to: Option<String>,
 }
 
-/// What `ide-prepare` answers: the paths of the context, the argument file and its digest, and the pids of the JCEF
-/// helpers that it killed.
+/// What `ide-prepare` answers: the paths of the context.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IdePrepared {
@@ -177,19 +141,60 @@ pub struct IdePrepared {
     pub config_dir: String,
     pub system_dir: String,
     pub plugins_dir: String,
-    /// `log/<launchName>` of the context.
-    pub log_dir: String,
     /// The directory that the IDE opens: the unpack root joined with `archiveRoot`.
     pub project_dir: String,
+    /// [`HOME_DIR`] of the context.
+    pub home_dir: String,
+    /// [`BIN_DIR`] of the context.
+    pub bin_dir: String,
+}
+
+// --- the launch document -----------------------------------------------------------------------------------
+
+/// What `ide-launch` reads on standard input: one launch of the IDE on a prepared context.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IdeLaunch {
+    pub schema_version: u32,
+    /// The parent of every context, an absolute guest path.
+    pub ide_root: String,
+    /// The context under `ide_root`. See [`is_launch_key`].
+    pub launch_key: String,
+    /// The home of the dev distribution, an absolute guest path. The IDE runs in it.
+    pub dist_home: String,
+    /// The `DevIdeConfig` file of the distribution, which states the main class. An absolute guest path.
+    pub ide_config: String,
+    /// The JVM that the IDE runs on, an absolute guest path. The launch record keeps it, so a later kill finds
+    /// `<javaHome>/bin/jcmd`.
+    pub java_home: String,
+    /// The JVM flags that Bazel writes, one per line. An absolute guest path.
+    pub flags_file: String,
+    /// The `-D` properties of the launch. Sorted by key on the wire, so the argument file is the same for the same
+    /// document.
+    #[serde(default)]
+    pub properties: BTreeMap<String, String>,
+    /// The directory that the IDE opens, as [`IdePrepared`] answered it. An absolute guest path.
+    pub project_dir: String,
+    /// The name of this launch. See [`is_launch_name`].
+    pub launch_name: String,
+    /// The identity of the product that the IDE runs. `ide-gc --keep-product` keeps a live IDE only when its launch
+    /// record names the same digest. Empty means no identity, which no `--keep-product` matches.
+    #[serde(default)]
+    pub product_digest: String,
+}
+
+/// What `ide-launch` answers: the log directory and the argument file of the launch, and the state of its run.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IdeLaunched {
+    /// `log/<launchName>` of the context.
+    pub log_dir: String,
     pub arg_file: String,
-    /// The sha256 of the argument file bytes, as lowercase hex.
-    pub arg_file_sha256: String,
-    pub reaped: Vec<i32>,
+    /// The run `run-ide-<launchName>`, as `status` answers it.
+    pub run: RunState,
 }
 
 /// The file `launch.json` of a context: which launch the argument file is for.
-///
-/// It holds no property and no environment value, because a value can be the bridge token.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LaunchRecord {
@@ -199,7 +204,6 @@ pub struct LaunchRecord {
     pub product_digest: String,
     pub java_home: String,
     pub arg_file: String,
-    pub arg_file_sha256: String,
     pub prepared_at: String,
 }
 
@@ -227,7 +231,7 @@ pub struct IdeGcResult {
 
 // --- decoding -----------------------------------------------------------------------------------------------
 
-/// Why a launch document is refused. The message names a field or a key, and never a value.
+/// Why a context or launch document is refused. The message names a field or a key, and never a value.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IdeDocumentError {
     pub message: String,
@@ -245,48 +249,33 @@ fn refuse(message: impl Into<String>) -> IdeDocumentError {
     IdeDocumentError { message: message.into() }
 }
 
-/// Reads a launch document and refuses one that the agent cannot act on.
-///
-/// A serde message can quote the refused value, so a data error names only its JSON path, and a syntax error only
-/// its line and column.
-pub fn decode_ide_prepare(raw: &[u8]) -> Result<IdePrepare, IdeDocumentError> {
-    let mut deserializer = serde_json::Deserializer::from_slice(raw);
-    let document: IdePrepare = serde_path_to_error::deserialize(&mut deserializer).map_err(|error| {
-        let path = error.path().to_string();
-        let inner = error.into_inner();
-        match inner.classify() {
-            Category::Data => refuse(format!("the IDE launch document has no valid value at `{path}`")),
-            Category::Io | Category::Syntax | Category::Eof => refuse(format!(
-                "the IDE launch document is not JSON (line {}, column {})",
-                inner.line(),
-                inner.column()
-            )),
+/// Reads a context document and refuses one that the agent cannot act on.
+pub fn decode_ide_context(raw: &[u8]) -> Result<IdeContext, IdeDocumentError> {
+    let document: IdeContext = decode(raw, "the IDE context document")?;
+    validate_slot(
+        "the IDE context document",
+        document.schema_version,
+        &document.ide_root,
+        &document.launch_key,
+    )?;
+    validate_project(&document.project)?;
+    for id in &document.disabled_plugin_ids {
+        if id.trim().is_empty() || id.contains(['\n', '\r']) {
+            return Err(refuse(format!("{id:?} is not a plugin id")));
         }
-    })?;
-    deserializer.end().map_err(|error| {
-        refuse(format!(
-            "the IDE launch document has trailing data (line {}, column {})",
-            error.line(),
-            error.column()
-        ))
-    })?;
-    validate(&document)?;
+    }
     Ok(document)
 }
 
-fn validate(document: &IdePrepare) -> Result<(), IdeDocumentError> {
-    if document.schema_version != SCHEMA_VERSION {
-        return Err(refuse(format!(
-            "the IDE launch document has schema version {}, and this agent reads {SCHEMA_VERSION}",
-            document.schema_version
-        )));
-    }
-    if !is_deletable_root(&document.ide_root) {
-        return Err(refuse("ideRoot must be an absolute guest path below the root, without `.` or `..`"));
-    }
-    if !is_launch_key(&document.launch_key) {
-        return Err(refuse(format!("launchKey {:?} is not a launch key", document.launch_key)));
-    }
+/// Reads a launch document and refuses one that the agent cannot act on.
+pub fn decode_ide_launch(raw: &[u8]) -> Result<IdeLaunch, IdeDocumentError> {
+    let document: IdeLaunch = decode(raw, "the IDE launch document")?;
+    validate_slot(
+        "the IDE launch document",
+        document.schema_version,
+        &document.ide_root,
+        &document.launch_key,
+    )?;
     if !is_launch_name(&document.launch_name) {
         return Err(refuse(format!("launchName {:?} is not a launch name", document.launch_name)));
     }
@@ -295,21 +284,11 @@ fn validate(document: &IdePrepare) -> Result<(), IdeDocumentError> {
         ("ideConfig", &document.ide_config),
         ("javaHome", &document.java_home),
         ("flagsFile", &document.flags_file),
-        ("project.archive", &document.project.archive),
+        ("projectDir", &document.project_dir),
     ] {
         if !is_absolute_guest_path(value) {
             return Err(refuse(format!("{field} must be an absolute guest path")));
         }
-    }
-    if !is_relative_slash_path(&document.project.archive_root) {
-        return Err(refuse("project.archiveRoot must be a relative slash path without `.` or `..`"));
-    }
-    if let Some(relocate_to) = &document.project.relocate_to
-        && !is_deletable_root(relocate_to)
-    {
-        return Err(refuse(
-            "project.relocateTo must be an absolute guest path below the root, without `.` or `..`",
-        ));
     }
     for (key, value) in &document.properties {
         if key.is_empty() || key.contains(['=', '\n', '\r']) {
@@ -324,13 +303,64 @@ fn validate(document: &IdePrepare) -> Result<(), IdeDocumentError> {
             return Err(refuse(format!("the property {key} names a data directory, which the agent owns")));
         }
     }
-    for id in &document.disabled_plugin_ids {
-        if id.trim().is_empty() || id.contains(['\n', '\r']) {
-            return Err(refuse(format!("{id:?} is not a plugin id")));
-        }
-    }
     if document.product_digest.contains(['\n', '\r']) {
         return Err(refuse("productDigest holds a line break"));
+    }
+    Ok(document)
+}
+
+/// Reads one JSON document `what`. A data error names only its JSON path, and a syntax error only its line and column.
+fn decode<T: DeserializeOwned>(raw: &[u8], what: &str) -> Result<T, IdeDocumentError> {
+    let mut deserializer = serde_json::Deserializer::from_slice(raw);
+    let document: T = serde_path_to_error::deserialize(&mut deserializer).map_err(|error| {
+        let path = error.path().to_string();
+        let inner = error.into_inner();
+        match inner.classify() {
+            Category::Data => refuse(format!("{what} has no valid value at `{path}`")),
+            Category::Io | Category::Syntax | Category::Eof => {
+                refuse(format!("{what} is not JSON (line {}, column {})", inner.line(), inner.column()))
+            }
+        }
+    })?;
+    deserializer.end().map_err(|error| {
+        refuse(format!(
+            "{what} has trailing data (line {}, column {})",
+            error.line(),
+            error.column()
+        ))
+    })?;
+    Ok(document)
+}
+
+/// Refuses another schema version, an IDE root that the agent cannot delete below, and a launch key that is not one.
+fn validate_slot(what: &str, schema_version: u32, ide_root: &str, launch_key: &str) -> Result<(), IdeDocumentError> {
+    if schema_version != SCHEMA_VERSION {
+        return Err(refuse(format!(
+            "{what} has schema version {schema_version}, and this agent reads {SCHEMA_VERSION}"
+        )));
+    }
+    if !is_deletable_root(ide_root) {
+        return Err(refuse("ideRoot must be an absolute guest path below the root, without `.` or `..`"));
+    }
+    if !is_launch_key(launch_key) {
+        return Err(refuse(format!("launchKey {launch_key:?} is not a launch key")));
+    }
+    Ok(())
+}
+
+fn validate_project(project: &ProjectSource) -> Result<(), IdeDocumentError> {
+    if !is_absolute_guest_path(&project.archive) {
+        return Err(refuse("project.archive must be an absolute guest path"));
+    }
+    if !is_relative_slash_path(&project.archive_root) {
+        return Err(refuse("project.archiveRoot must be a relative slash path without `.` or `..`"));
+    }
+    if let Some(relocate_to) = &project.relocate_to
+        && !is_deletable_root(relocate_to)
+    {
+        return Err(refuse(
+            "project.relocateTo must be an absolute guest path below the root, without `.` or `..`",
+        ));
     }
     Ok(())
 }

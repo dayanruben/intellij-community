@@ -13,7 +13,7 @@
 //! which is how the controller reaches the UI daemon. `read-file` copies one file to its standard output unchanged,
 //! which is how the controller pulls a file. `runfiles-tree` builds the runfiles tree of a host MANIFEST, for a
 //! Windows host that writes no tree.
-//! `ide-prepare` and `ide-gc` own the contexts of the lane IDE, whose process is a supervisor run.
+//! `ide-prepare`, `ide-launch` and `ide-gc` own the contexts of the lane IDE, whose process is a supervisor run.
 //!
 //! The image pair takes three named flags (`--macos-version --node-major --junie-version`), because the Packer
 //! template `air-macos.pkr.hcl` passes them by name. `validate-guest` takes a positional argv: a `:88` and an

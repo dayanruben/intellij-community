@@ -52,9 +52,13 @@ size and the SHA-256 of what it wrote.
 runfiles-tree reads a JSON request on standard input: a MANIFEST path, the host-to-guest path table and a \
 destination directory. It builds one link per MANIFEST line under DESTINATION/DIGEST and answers that root.
 
-ide-prepare reads the IDE launch document on standard input and prepares the context IDE_ROOT/LAUNCH_KEY: the data \
-directories, the project, and the argument file of the IDE. The caller then starts the IDE with start --root on the \
-context and the run run-ide-LAUNCH_NAME.
+ide-prepare reads the IDE context document on standard input and lays out the context IDE_ROOT/LAUNCH_KEY: the data \
+directories, the project, the home and the bin directory of the IDE. The caller then seeds the home, the bin directory \
+and the config files.
+
+ide-launch reads the IDE launch document on standard input. It composes the argument file of the IDE and starts the \
+run run-ide-LAUNCH_NAME on the context. The IDE gets HOME and PATH from the context and a fixed list of variables from \
+the agent, and nothing else.
 
 ide-gc cancels every live IDE under ROOT with --stop-all, or every one whose launch record names another product with \
 --keep-product. It keeps the newest --keep-logs log directories of each context.
@@ -103,8 +107,10 @@ pub(crate) enum Verb {
     RunfilesTree,
     /// Copy one file to standard output unchanged, and name it on standard error.
     ReadFile(ReadFileArgs),
-    /// Prepare one context of the lane IDE; the launch document is read from standard input.
+    /// Lay out one context of the lane IDE; the context document is read from standard input.
     IdePrepare,
+    /// Start the lane IDE on a prepared context; the launch document is read from standard input.
+    IdeLaunch,
     /// Cancel or keep the live IDEs under an IDE root, and remove their old log directories.
     IdeGc(IdeGcArgs),
 }
@@ -132,6 +138,7 @@ impl Verb {
             Self::RunfilesTree => AgentVerb::RunfilesTree,
             Self::ReadFile(_) => AgentVerb::ReadFile,
             Self::IdePrepare => AgentVerb::IdePrepare,
+            Self::IdeLaunch => AgentVerb::IdeLaunch,
             Self::IdeGc(_) => AgentVerb::IdeGc,
         }
     }
@@ -422,8 +429,14 @@ pub(crate) fn dispatch(verb: Verb, streams: &mut Streams<'_>) -> u8 {
         }
         Verb::ReadFile(args) => read_file::read_file(&args.path, streams),
         Verb::IdePrepare => {
-            let result = ide::prepare::read_document(streams.stdin)
-                .and_then(|document| ide::prepare::prepare(&system, &ide::prepare::Guest::current(), &document));
+            let result = ide::prepare::read_document(streams.stdin).and_then(|document| ide::prepare::prepare(&system, &document));
+            answer_bare(streams, name, result)
+        }
+        Verb::IdeLaunch => {
+            let launcher = supervisor::Launcher::current();
+            let guest = ide::launch::Guest::current();
+            let result =
+                ide::launch::read_document(streams.stdin).and_then(|document| ide::launch::launch(&system, &launcher, &guest, &document));
             answer_bare(streams, name, result)
         }
         Verb::IdeGc(args) => answer_bare(streams, name, ide::gc::collect(&system, &args)),

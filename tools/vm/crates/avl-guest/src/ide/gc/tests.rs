@@ -25,7 +25,6 @@ fn write_record(context: &Path, product_digest: &str) {
         product_digest: product_digest.to_owned(),
         java_home: "/jbr".to_owned(),
         arg_file: "/a".to_owned(),
-        arg_file_sha256: "00".repeat(32),
         prepared_at: "2026-10-08T10:00:00.000Z".to_owned(),
     };
     fs::write(context.join(LAUNCH_RECORD_FILE), serde_json::to_vec(&record).unwrap()).unwrap();

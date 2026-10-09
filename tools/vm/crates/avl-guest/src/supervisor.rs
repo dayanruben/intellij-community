@@ -28,7 +28,8 @@ use std::thread;
 use std::time::Duration;
 
 use avl_wire::supervisor::{
-    ActiveReply, CancellationRecord, CancellationRequest, Contract, LogReply, Outcome, Phase, RunState, SCHEMA_VERSION, Spec,
+    ActiveReply, CancellationRecord, CancellationRequest, Contract, EnvironmentPolicy, LogReply, Outcome, Phase, RunState, SCHEMA_VERSION,
+    Spec,
 };
 use avl_wire::verb::AgentVerb;
 use jiff::Timestamp;
@@ -41,6 +42,8 @@ use crate::reply::{self, AgentRefusal, Streams};
 
 pub(crate) use launch::LaunchHost;
 pub(crate) use supervise::supervise;
+#[cfg(test)]
+pub(crate) use supervise::{ENVIRONMENT_ALLOWLIST, child_path};
 
 use crate::reply::AgentRefusalExt;
 use identity::{ProcessIdentity, child_is_alive, identity_matches, supervisor_is_alive};
@@ -127,10 +130,33 @@ impl Launcher {
     }
 }
 
-/// Creates the run, launches its detached supervisor, and waits until the child is running (or already done).
+/// The `start` verb: [`launch_run`] with the [`EnvironmentPolicy::Inherit`] policy.
 pub(crate) fn start(system: &dyn System, launcher: &Launcher, args: &StartArgs) -> Result<RunState, AgentRefusal> {
-    let root = prepare_root(&args.run.root.root)?;
-    let run_id = args.run.run_id.as_str();
+    launch_run(
+        system,
+        launcher,
+        &args.run.root.root,
+        &args.run.run_id,
+        &args.cwd,
+        args.argv.clone(),
+        args.snapshot_id.clone(),
+        EnvironmentPolicy::Inherit,
+    )
+}
+
+/// Creates the run `run_id` under `root`, launches its detached supervisor, and waits until the child is running (or
+/// already done). The child runs `argv` in `cwd`, with the environment of `environment`.
+pub(crate) fn launch_run(
+    system: &dyn System,
+    launcher: &Launcher,
+    root: &Path,
+    run_id: &str,
+    cwd: &Path,
+    argv: Vec<String>,
+    snapshot_id: Option<String>,
+    environment: EnvironmentPolicy,
+) -> Result<RunState, AgentRefusal> {
+    let root = prepare_root(root)?;
     let paths = RunPaths::new(&root, run_id);
     match fs::DirBuilder::new().mode(0o700).create(&paths.directory) {
         Ok(()) => {}
@@ -143,21 +169,22 @@ pub(crate) fn start(system: &dyn System, launcher: &Launcher, args: &StartArgs) 
         }
         Err(error) => return Err(AgentRefusal::internal(error)),
     }
-    let cwd = std::path::absolute(&args.cwd).map_err(AgentRefusal::internal)?;
+    let cwd = std::path::absolute(cwd).map_err(AgentRefusal::internal)?;
     let cwd = cwd.to_string_lossy().into_owned();
     let created_at = stamp(system.now());
     let spec = Spec {
         schema_version: SCHEMA_VERSION,
         run_id: run_id.to_owned(),
-        snapshot_id: args.snapshot_id.clone(),
+        snapshot_id: snapshot_id.clone(),
         cwd: cwd.clone(),
-        argv: args.argv.clone(),
+        argv: argv.clone(),
+        environment,
         created_at: created_at.clone(),
     };
     state::write_json_exclusive(&paths.spec, &spec).map_err(AgentRefusal::internal)?;
     let mut starting = RunState::new(run_id, Phase::Starting);
-    starting.snapshot_id = args.snapshot_id.clone();
-    starting.argv = args.argv.clone();
+    starting.snapshot_id = snapshot_id;
+    starting.argv = argv;
     starting.cwd = Some(cwd);
     starting.created_at = Some(created_at);
     state::write_json_atomic(&paths.state, &starting).map_err(AgentRefusal::internal)?;

@@ -2,35 +2,52 @@ use pretty_assertions::assert_eq;
 use serde_json::{Value, json};
 
 use super::*;
-use crate::supervisor::is_run_id;
+use crate::supervisor::{Phase, is_run_id};
 
-const TOKEN: &str = "s3cr3t-bridge-token";
-
-fn document() -> Value {
+fn context_document() -> Value {
     json!({
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "ideRoot": "/data/ide",
         "launchKey": "a1b2c3",
         "fresh": true,
+        "project": {"archive": "/runfiles/deps/simpleJavaProject.zip", "archiveRoot": "BookmarksTestProject"},
+        "disabledPluginIds": ["com.intellij.copyright"]
+    })
+}
+
+fn launch_document() -> Value {
+    json!({
+        "schemaVersion": 2,
+        "ideRoot": "/data/ide",
+        "launchKey": "a1b2c3",
         "distHome": "/runfiles/_main/dist",
         "ideConfig": "/runfiles/_main/dist.config",
         "javaHome": "/data/runtime/jbr",
         "flagsFile": "/runfiles/_main/ide.flags",
-        "properties": {"air.ui.test.http.token": TOKEN, "user.home": "/data/ide/a1b2c3/user-home"},
-        "environment": {"DISPLAY": ":88"},
-        "disabledPluginIds": ["com.intellij.copyright"],
-        "project": {"archive": "/runfiles/deps/simpleJavaProject.zip", "archiveRoot": "BookmarksTestProject"},
+        "properties": {"air.ui.test.http.port": "17000", "user.home": "/data/ide/a1b2c3/home"},
+        "projectDir": "/data/ide/a1b2c3/project/BookmarksTestProject",
         "launchName": "launch-1",
         "productDigest": "0123"
     })
 }
 
-fn decoded(value: &Value) -> Result<IdePrepare, IdeDocumentError> {
-    decode_ide_prepare(value.to_string().as_bytes())
+fn context(value: &Value) -> Result<IdeContext, IdeDocumentError> {
+    decode_ide_context(value.to_string().as_bytes())
 }
 
-fn refusal(value: &Value) -> String {
-    match decoded(value) {
+fn launch(value: &Value) -> Result<IdeLaunch, IdeDocumentError> {
+    decode_ide_launch(value.to_string().as_bytes())
+}
+
+fn context_refusal(value: &Value) -> String {
+    match context(value) {
+        Ok(document) => panic!("the document was accepted: {document:?}"),
+        Err(error) => error.message,
+    }
+}
+
+fn launch_refusal(value: &Value) -> String {
+    match launch(value) {
         Ok(document) => panic!("the document was accepted: {document:?}"),
         Err(error) => error.message,
     }
@@ -61,73 +78,73 @@ fn a_launch_key_is_one_plain_path_component() {
 }
 
 #[test]
-fn a_full_document_round_trips() {
-    let read = decoded(&document()).unwrap();
-    assert_eq!(read.properties["air.ui.test.http.token"], TOKEN);
+fn both_documents_round_trip_at_version_2() {
+    assert_eq!(SCHEMA_VERSION, 2);
+    let read = context(&context_document()).unwrap();
     assert_eq!(read.project.archive_root, "BookmarksTestProject");
     assert_eq!(read.project.relocate_to, None);
-    assert_eq!(serde_json::to_value(&read).unwrap(), document());
+    assert_eq!(serde_json::to_value(&read).unwrap(), context_document());
+
+    let read = launch(&launch_document()).unwrap();
+    assert_eq!(read.properties["air.ui.test.http.port"], "17000");
+    assert_eq!(serde_json::to_value(&read).unwrap(), launch_document());
 }
 
-// The first call of a new context sends no properties; the fields with a default may be absent.
+// The fields with a default may be absent.
 #[test]
 fn the_defaulted_fields_may_be_absent() {
-    let mut value = document();
+    let mut value = context_document();
+    value.as_object_mut().unwrap().remove("disabledPluginIds");
+    assert_eq!(context(&value).unwrap().disabled_plugin_ids, Vec::<String>::new());
+
+    let mut value = launch_document();
     let object = value.as_object_mut().unwrap();
-    for field in ["properties", "environment", "disabledPluginIds", "productDigest"] {
+    for field in ["properties", "productDigest"] {
         object.remove(field);
     }
-    let document = decoded(&value).unwrap();
-    assert!(document.properties.is_empty() && document.environment.is_empty());
+    let document = launch(&value).unwrap();
+    assert_eq!(document.properties, BTreeMap::new());
     assert_eq!(document.product_digest, "");
 }
 
-// A refusal names the path of the bad field, never its value: the value can be the bridge token.
+// A decode error names the JSON path of the bad field, and a syntax error names the line and the column.
 #[test]
-fn a_refusal_never_quotes_a_value() {
-    let mut wrong_kind = document();
-    wrong_kind["properties"]["air.ui.test.http.token"] = json!(7);
-    let mut wrong_root = document();
-    wrong_root["ideRoot"] = json!(TOKEN);
-    let mut line_break = document();
-    line_break["properties"]["air.ui.test.http.token"] = json!(format!("{TOKEN}\n"));
-    for value in [wrong_kind, wrong_root, line_break] {
-        let message = refusal(&value);
-        assert!(!message.contains(TOKEN), "{message}");
-    }
-    let mut wrong_kind = document();
-    wrong_kind["properties"]["air.ui.test.http.token"] = json!(7);
+fn a_decode_error_names_the_path() {
+    let mut wrong_kind = launch_document();
+    wrong_kind["properties"]["user.home"] = json!(7);
     assert_eq!(
-        refusal(&wrong_kind),
-        "the IDE launch document has no valid value at `properties.air.ui.test.http.token`"
+        launch_refusal(&wrong_kind),
+        "the IDE launch document has no valid value at `properties.user.home`"
     );
-    let not_json = decode_ide_prepare(format!("{{\"properties\":{{\"t\":\"{TOKEN}\"").as_bytes()).unwrap_err();
-    assert!(!not_json.message.contains(TOKEN), "{}", not_json.message);
+    let mut wrong_kind = context_document();
+    wrong_kind["fresh"] = json!("yes");
+    assert_eq!(
+        context_refusal(&wrong_kind),
+        "the IDE context document has no valid value at `fresh`"
+    );
+    let not_json = decode_ide_launch(b"{\"properties\":{").unwrap_err();
     assert!(
         not_json.message.starts_with("the IDE launch document is not JSON"),
         "{}",
         not_json.message
     );
+    let trailing = decode_ide_context(format!("{} {{}}", context_document()).as_bytes()).unwrap_err();
+    assert!(trailing.message.contains("trailing data"), "{}", trailing.message);
 }
 
 #[test]
-fn a_document_the_agent_cannot_act_on_is_refused() {
-    let cases: [(&str, Value, &str); 10] = [
-        ("schemaVersion", json!(2), "schema version 2"),
+fn a_context_document_the_agent_cannot_act_on_is_refused() {
+    let cases: [(&str, Value, &str); 5] = [
+        ("schemaVersion", json!(1), "schema version 1"),
         ("ideRoot", json!("/ide"), "ideRoot"),
         ("ideRoot", json!("/data/../ide"), "ideRoot"),
         ("launchKey", json!(".."), "launchKey"),
-        ("launchName", json!("a.b"), "launchName"),
-        ("distHome", json!("dist"), "distHome"),
-        ("flagsFile", json!("ide.flags"), "flagsFile"),
         ("disabledPluginIds", json!([" "]), "plugin id"),
-        ("properties", json!({"idea.config.path": "/elsewhere"}), "idea.config.path"),
-        ("properties", json!({"": "x"}), "property key"),
     ];
     for (field, value, expected) in cases {
-        let mut document = document();
+        let mut document = context_document();
         document[field] = value;
-        let message = refusal(&document);
+        let message = context_refusal(&document);
         assert!(message.contains(expected), "{field}: {message}");
     }
     for (field, value) in [
@@ -137,24 +154,54 @@ fn a_document_the_agent_cannot_act_on_is_refused() {
         ("relocateTo", json!(null)),
         ("archive", json!("project.zip")),
     ] {
-        let mut document = document();
+        let mut document = context_document();
         document["project"][field] = value;
-        decoded(&document).unwrap_err();
+        context(&document).unwrap_err();
     }
-    let mut document = document();
+    let mut document = context_document();
     document["project"]["relocateTo"] = json!("/tmp/air-live/project");
     assert_eq!(
-        decoded(&document).unwrap().project.relocate_to.as_deref(),
+        context(&document).unwrap().project.relocate_to.as_deref(),
         Some("/tmp/air-live/project")
     );
 }
 
-// The debug form names the keys only, so a test failure or a log line never prints the token.
 #[test]
-fn the_debug_form_holds_no_property_value() {
-    let shown = format!("{:?}", decoded(&document()).unwrap());
-    assert!(!shown.contains(TOKEN), "{shown}");
-    assert!(shown.contains("air.ui.test.http.token"), "{shown}");
+fn a_launch_document_the_agent_cannot_act_on_is_refused() {
+    let cases: [(&str, Value, &str); 10] = [
+        ("schemaVersion", json!(1), "schema version 1"),
+        ("ideRoot", json!("/ide"), "ideRoot"),
+        ("launchKey", json!(".."), "launchKey"),
+        ("launchName", json!("a.b"), "launchName"),
+        ("distHome", json!("dist"), "distHome"),
+        ("flagsFile", json!("ide.flags"), "flagsFile"),
+        ("projectDir", json!("project"), "projectDir"),
+        ("properties", json!({"idea.config.path": "/elsewhere"}), "idea.config.path"),
+        ("properties", json!({"": "x"}), "property key"),
+        ("properties", json!({"k": "a\nb"}), "line break"),
+    ];
+    for (field, value, expected) in cases {
+        let mut document = launch_document();
+        document[field] = value;
+        let message = launch_refusal(&document);
+        assert!(message.contains(expected), "{field}: {message}");
+    }
+}
+
+#[test]
+fn the_launch_answer_holds_the_run_as_status_answers_it() {
+    let launched = IdeLaunched {
+        log_dir: "/data/ide/k/log/launch-1".to_owned(),
+        arg_file: "/data/ide/k/ide-jvm.args".to_owned(),
+        run: RunState::new("run-ide-launch-1", Phase::Running),
+    };
+    let written = serde_json::to_value(&launched).unwrap();
+    assert_eq!(written["run"], serde_json::to_value(&launched.run).unwrap());
+    assert_eq!(
+        (written["logDir"].as_str(), written["arg_file"].as_str()),
+        (Some("/data/ide/k/log/launch-1"), None)
+    );
+    assert_eq!(serde_json::from_value::<IdeLaunched>(written).unwrap(), launched);
 }
 
 #[test]
@@ -166,14 +213,13 @@ fn a_launch_record_round_trips_and_checks_its_version() {
         product_digest: "0123".to_owned(),
         java_home: "/jbr".to_owned(),
         arg_file: "/data/ide/k/ide-jvm.args".to_owned(),
-        arg_file_sha256: "ab".repeat(32),
         prepared_at: "2026-10-08T10:00:00Z".to_owned(),
     };
     let raw = serde_json::to_vec(&record).unwrap();
     assert_eq!(decode_launch_record(&raw).unwrap(), record);
     let text = String::from_utf8(raw).unwrap();
-    assert!(text.contains(r#""argFileSha256""#) && text.contains(r#""productDigest""#), "{text}");
-    let older = text.replace(r#""schemaVersion":1"#, r#""schemaVersion":0"#);
+    assert!(text.contains(r#""argFile""#) && text.contains(r#""productDigest""#), "{text}");
+    let older = text.replace(r#""schemaVersion":2"#, r#""schemaVersion":1"#);
     decode_launch_record(older.as_bytes()).unwrap_err();
 }
 

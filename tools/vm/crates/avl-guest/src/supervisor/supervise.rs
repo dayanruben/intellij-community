@@ -11,7 +11,8 @@ use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
-use avl_wire::supervisor::{CancellationRecord, Outcome, Phase, RunState, SCHEMA_VERSION, Spec};
+use avl_wire::ide::{BIN_DIR, HOME_DIR};
+use avl_wire::supervisor::{CancellationRecord, EnvironmentPolicy, Outcome, Phase, RunState, SCHEMA_VERSION, Spec};
 use nix::sys::signal::Signal;
 
 use super::identity::{ExitOutcome, ProcessIdentity, classify_exit, identity_matches};
@@ -32,9 +33,10 @@ const REJECTED_EXIT: i32 = 75;
 
 /// The PATH a supervised child starts with: the system directories of the guest OS, and Homebrew's only on macOS.
 ///
-/// It names no Node. The controller resolves the pinned Node of this guest and puts its directory first in the
-/// PATH that the start argv sets through `/usr/bin/env`, so a Node directory here would be a second answer.
-const fn child_path(host: LaunchHost) -> &'static str {
+/// It names no Node. For the UI daemon the controller resolves the pinned Node of this guest and puts its directory
+/// first in the PATH that the start argv sets through `/usr/bin/env`. For the lane IDE the caller puts its launchers into
+/// the `bin` directory of the context. So a Node directory here would be a second answer.
+pub(crate) const fn child_path(host: LaunchHost) -> &'static str {
     match host {
         LaunchHost::Macos => "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
         LaunchHost::Linux => "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
@@ -49,14 +51,47 @@ const fn home_parent(host: LaunchHost) -> &'static str {
     }
 }
 
-/// The environment a supervised child is launched with, out of the supervisor's own on the guest `host`.
+/// The variables that a child of the [`EnvironmentPolicy::Context`] policy copies from the environment of the
+/// supervisor, when the supervisor has them.
+///
+/// The list is closed: a variable that is not here does not reach the IDE or its children, so a credential in the
+/// environment of the guest account stays out of them. A name joins the list only when a child of the IDE needs it
+/// and no file of the context can carry it. Add it here and to the test of the context policy.
+pub(crate) const ENVIRONMENT_ALLOWLIST: [&str; 10] = [
+    "DISPLAY",
+    "XAUTHORITY",
+    "LANG",
+    "LC_ALL",
+    "TMPDIR",
+    "TZ",
+    "USER",
+    "LOGNAME",
+    "XDG_RUNTIME_DIR",
+    "DBUS_SESSION_BUS_ADDRESS",
+];
+
+/// The environment a supervised child is launched with, out of the supervisor's own on the guest `host`, by `policy`.
 ///
 /// No agent-CLI guesses here: the controller resolves them in this guest and passes the answer with the child's
-/// environment, so a second candidate table would be a second answer.
+/// argv, so a second candidate table would be a second answer. The variables of the exec channel never pass.
 pub(crate) fn child_environment(
     host: LaunchHost,
     inherited: impl IntoIterator<Item = (OsString, OsString)>,
+    policy: &EnvironmentPolicy,
 ) -> BTreeMap<OsString, OsString> {
+    let mut environment = match policy {
+        EnvironmentPolicy::Inherit => inherited_environment(host, inherited),
+        EnvironmentPolicy::Context { context_dir } => context_environment(host, inherited, Path::new(context_dir)),
+    };
+    environment.insert("IJ_PRIVATE_PACKAGES_AUTHORIZER_SKIP".into(), "true".into());
+    for name in CHANNEL_VARIABLES {
+        environment.remove(&OsString::from(name));
+    }
+    environment
+}
+
+/// The environment of the supervisor, with the PATH of the guest OS and a `HOME` when it has none.
+fn inherited_environment(host: LaunchHost, inherited: impl IntoIterator<Item = (OsString, OsString)>) -> BTreeMap<OsString, OsString> {
     let mut environment: BTreeMap<OsString, OsString> = inherited.into_iter().collect();
     if environment.get(&OsString::from("HOME")).is_none_or(|home| home.is_empty()) {
         let user = environment
@@ -69,10 +104,25 @@ pub(crate) fn child_environment(
         environment.insert("HOME".into(), home);
     }
     environment.insert("PATH".into(), child_path(host).into());
-    environment.insert("IJ_PRIVATE_PACKAGES_AUTHORIZER_SKIP".into(), "true".into());
-    for name in CHANNEL_VARIABLES {
-        environment.remove(&OsString::from(name));
-    }
+    environment
+}
+
+/// The closed environment of the IDE of `context`: the [`ENVIRONMENT_ALLOWLIST`] subset of the supervisor's own,
+/// `HOME` on the home of the context, and the `bin` directory of the context first in the PATH of the guest OS.
+fn context_environment(
+    host: LaunchHost,
+    inherited: impl IntoIterator<Item = (OsString, OsString)>,
+    context: &Path,
+) -> BTreeMap<OsString, OsString> {
+    let mut environment: BTreeMap<OsString, OsString> = inherited
+        .into_iter()
+        .filter(|(name, _)| name.to_str().is_some_and(|name| ENVIRONMENT_ALLOWLIST.contains(&name)))
+        .collect();
+    environment.insert("HOME".into(), context.join(HOME_DIR).into_os_string());
+    let mut path = context.join(BIN_DIR).into_os_string();
+    path.push(":");
+    path.push(child_path(host));
+    environment.insert("PATH".into(), path);
     environment
 }
 
@@ -280,7 +330,7 @@ fn spawn_child(spec: &Spec, log: File) -> std::io::Result<Child> {
         .args(&argv[1..])
         .current_dir(&spec.cwd)
         .env_clear()
-        .envs(child_environment(LaunchHost::current(), std::env::vars_os()))
+        .envs(child_environment(LaunchHost::current(), std::env::vars_os(), &spec.environment))
         .stdin(Stdio::null());
     let stdout = log.try_clone()?;
     command.stdout(stdout).stderr(log);

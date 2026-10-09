@@ -1,18 +1,18 @@
 use std::cell::{Cell, RefCell};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use avl_wire::supervisor::{AgentExit, CancellationRequest};
+use avl_wire::supervisor::{AgentExit, CancellationRequest, EnvironmentPolicy};
 use pretty_assertions::assert_eq;
 
 use super::identity::{classify_exit, normalized_exit_code};
-use super::launch::{LaunchHost, SuperviseLaunch, supervise_launch_for};
+use super::launch::{CHANNEL_VARIABLES, LaunchHost, SuperviseLaunch, supervise_launch_for};
 use super::log::{last_complete_lines, read_log_suffix};
 use super::state::{ActivePointer, claim_active, read_active, write_json_atomic};
-use super::supervise::{child_environment, child_spawn_argv};
+use super::supervise::{ENVIRONMENT_ALLOWLIST, child_environment, child_spawn_argv};
 
 // --- the decisions of a supervised run --------------------------------------------------------------------------
 
@@ -540,7 +540,7 @@ fn the_child_environment_drops_the_channel_and_fixes_the_path() {
         ("USER", "worker"),
     ]
     .map(|(name, value)| (OsString::from(name), OsString::from(value)));
-    let environment = child_environment(LaunchHost::Macos, inherited);
+    let environment = child_environment(LaunchHost::Macos, inherited, &EnvironmentPolicy::Inherit);
     let get = |name: &str| {
         environment
             .get(&OsString::from(name))
@@ -567,7 +567,11 @@ fn the_child_path_and_home_follow_the_guest_os() {
         (LaunchHost::Linux, "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", "/home/"),
     ];
     for (host, path, home_parent) in cases {
-        let environment = child_environment(host, [(OsString::from("USER"), OsString::from("worker"))]);
+        let environment = child_environment(
+            host,
+            [(OsString::from("USER"), OsString::from("worker"))],
+            &EnvironmentPolicy::Inherit,
+        );
         assert_eq!(environment[&OsString::from("PATH")], OsString::from(path), "{host:?}");
         assert_eq!(
             environment[&OsString::from("HOME")],
@@ -575,14 +579,60 @@ fn the_child_path_and_home_follow_the_guest_os() {
             "{host:?}"
         );
 
-        let without_user = child_environment(host, [(OsString::from("HOME"), OsString::new())]);
+        let without_user = child_environment(host, [(OsString::from("HOME"), OsString::new())], &EnvironmentPolicy::Inherit);
         assert_eq!(
             without_user[&OsString::from("HOME")],
             OsString::from(format!("{home_parent}admin")),
             "{host:?}"
         );
-        let with_home = child_environment(host, [(OsString::from("HOME"), OsString::from("/srv/worker"))]);
+        let with_home = child_environment(
+            host,
+            [(OsString::from("HOME"), OsString::from("/srv/worker"))],
+            &EnvironmentPolicy::Inherit,
+        );
         assert_eq!(with_home[&OsString::from("HOME")], OsString::from("/srv/worker"), "{host:?}");
+    }
+}
+
+/// The context policy copies only the allowlist, and `HOME` and `PATH` come from the layout of the context. A
+/// credential of the supervisor's environment and the variables of the exec channel never reach the IDE.
+#[test]
+fn the_context_environment_is_the_layout_and_the_allowlist() {
+    let inherited = [
+        ("TART_VM_TOKEN", "secret"),
+        ("PARALLELS_VM_TOKEN", "secret"),
+        ("ANTHROPIC_API_KEY", "secret"),
+        ("CODEX_HOME", "/Users/worker/.codex"),
+        ("HOME", "/Users/worker"),
+        ("PATH", "/somewhere"),
+        ("DISPLAY", ":88"),
+        ("XAUTHORITY", "/tmp/xauth"),
+        ("LANG", "en_US.UTF-8"),
+        ("TMPDIR", "/var/folders/x/T/"),
+        ("USER", "worker"),
+        ("LOGNAME", "worker"),
+    ]
+    .map(|(name, value)| (OsString::from(name), OsString::from(value)));
+    let policy = EnvironmentPolicy::Context {
+        context_dir: "/data/ide/key-1".to_owned(),
+    };
+    let expected: BTreeMap<OsString, OsString> = [
+        ("DISPLAY", ":88"),
+        ("XAUTHORITY", "/tmp/xauth"),
+        ("LANG", "en_US.UTF-8"),
+        ("TMPDIR", "/var/folders/x/T/"),
+        ("USER", "worker"),
+        ("LOGNAME", "worker"),
+        ("HOME", "/data/ide/key-1/home"),
+        ("PATH", "/data/ide/key-1/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"),
+        ("IJ_PRIVATE_PACKAGES_AUTHORIZER_SKIP", "true"),
+    ]
+    .into_iter()
+    .map(|(name, value)| (OsString::from(name), OsString::from(value)))
+    .collect();
+    assert_eq!(child_environment(LaunchHost::Linux, inherited, &policy), expected);
+    for name in CHANNEL_VARIABLES {
+        assert!(!ENVIRONMENT_ALLOWLIST.contains(&name), "{name}");
     }
 }
 
