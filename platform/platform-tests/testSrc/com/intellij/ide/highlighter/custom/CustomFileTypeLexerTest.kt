@@ -6,14 +6,18 @@ import com.intellij.lexer.Lexer
 import com.intellij.openapi.fileTypes.PlainTextSyntaxHighlighterFactory
 import com.intellij.openapi.util.IntRef
 import com.intellij.openapi.util.text.StringUtil
+import com.intellij.platform.testFramework.junit5.codeInsight.fixture.LexerTestFixture
 import com.intellij.psi.impl.cache.impl.id.IdTableBuilding
-import com.intellij.testFramework.LexerTestCase
 import com.intellij.testFramework.PerformanceUnitTest
 import com.intellij.tools.ide.metrics.benchmark.Benchmark
-import junit.framework.TestCase
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.TestInfo
 import org.jetbrains.annotations.NonNls
 
-class CustomFileTypeLexerTest : TestCase() {
+class CustomFileTypeLexerTest {
 
   private fun doTest(table: SyntaxTable, @NonNls text: String, expected: String?) {
     val lexer = CustomFileTypeLexer(table)
@@ -21,7 +25,7 @@ class CustomFileTypeLexerTest : TestCase() {
   }
 
   private fun doTest(lexer: Lexer, text: String, expected: String?) {
-    assertEquals(expected?.trimStart(), LexerTestCase.printTokens(text, 0, lexer))
+    assertEquals(expected?.trimStart(), LexerTestFixture.printTokens(text, 0, lexer))
   }
 
   private fun createGenericTable(): SyntaxTable {
@@ -38,6 +42,7 @@ class CustomFileTypeLexerTest : TestCase() {
     return table
   }
 
+  @Test
   fun testSpacesInsideKeywords() {
     val table = createGenericTable()
     table.addKeyword1("sysvar ")
@@ -61,6 +66,7 @@ WHITESPACE (' ')
     )
   }
 
+  @Test
   fun testFortranComments() {
     doTest(createGenericTable(), """
 foo;noncomment
@@ -80,6 +86,7 @@ WHITESPACE ('\n')
 """)
   }
 
+  @Test
   fun `test punctuation keywords`() {
     val table = createGenericTable()
     table.addKeyword4("+")
@@ -197,6 +204,7 @@ PUNCTUATION (';')
     return table
   }
 
+  @Test
   fun testParseSampleCode() {
     doTest(createJavaSyntaxTable(),
            "private some text f b g\n\n\n//   1\n  public static void main(String[] args) {\n}\n-10 - 10\n\"dsfdfdf\"\n/* a\n *bc */", """
@@ -246,14 +254,17 @@ MULTI_LINE_COMMENT ('/* a\n *bc */')
 """)
   }
 
+  @Test
   fun testBlockCommentStart() {
     doTest(createJavaSyntaxTable(), "/*", "MULTI_LINE_COMMENT ('/*')\n")
   }
 
+  @Test
   fun testLineCommentStart() {
     doTest(createJavaSyntaxTable(), "//", "LINE_COMMENT ('//')\n")
   }
 
+  @Test
   fun `test block comment start overrides line comment start`() {
     val table = SyntaxTable()
     table.lineComment = "#"
@@ -268,6 +279,7 @@ IDENTIFIER ('id')
 """)
   }
 
+  @Test
   fun `test line comment start overrides block comment start`() {
     val table = SyntaxTable()
     table.lineComment = "##"
@@ -282,14 +294,17 @@ IDENTIFIER ('id')
 """)
   }
 
+  @Test
   fun testEmpty() {
     doTest(createJavaSyntaxTable(), "", "")
   }
 
+  @Test
   fun testSpace() {
     doTest(createJavaSyntaxTable(), " ", "WHITESPACE (' ')\n")
   }
 
+  @Test
   fun testParseSampleCodeFromTo() {
     val sampleCode = "  int n=123;\n  float z=1;"
     val lexer = CustomFileTypeLexer(createJavaSyntaxTable())
@@ -314,6 +329,7 @@ IDENTIFIER ('id')
     return table
   }
 
+  @Test
   fun testSimple() {
     doTest(
       createPropTable(), """
@@ -359,6 +375,7 @@ IDENTIFIER ('k')
 """)
   }
 
+  @Test
   fun testCpp() {
     val table = SyntaxTable()
     table.addKeyword1("->")
@@ -369,6 +386,7 @@ IDENTIFIER ('bar')
 """)
   }
 
+  @Test
   fun testNumber() {
     doTest(createPropTable(), "1.23=1.24", """
 NUMBER ('1.23')
@@ -377,6 +395,7 @@ NUMBER ('1.24')
 """)
   }
 
+  @Test
   fun testPostfix() {
     doTest(createPropTable(), "abc 1.2ltext", """
 IDENTIFIER ('abc')
@@ -386,6 +405,7 @@ IDENTIFIER ('text')
 """)
   }
 
+  @Test
   fun testWeird() {
     doTest(createPropTable(), "test.1.", """
 IDENTIFIER ('test')
@@ -394,6 +414,7 @@ NUMBER ('1.')
 """)
   }
 
+  @Test
   fun testParenths() {
     doTest(createPropTable(), "value(255)", """
 KEYWORD_1 ('value')
@@ -403,6 +424,7 @@ CHARACTER (')')
 """)
   }
 
+  @Test
   fun testSpecialCharactersInKeywords() {
     val table = SyntaxTable()
     table.addKeyword1("a*")
@@ -438,6 +460,7 @@ IDENTIFIER ('foo')
     doTest(CustomFileHighlighter(table).highlightingLexer, text, expected)
   }
 
+  @Test
   fun testWordsScanner() {
     val table = SyntaxTable()
     table.addKeyword1("a*")
@@ -456,6 +479,7 @@ IDENTIFIER ('foo')
     assertEquals(expectedWords, StringUtil.getWordsIn(text))
   }
 
+  @Test
   fun `test quote block comment`() {
     val table = SyntaxTable()
     table.startComment = "\""
@@ -466,6 +490,7 @@ IDENTIFIER ('a')
 """)
   }
 
+  @Test
   fun testPlainText() {
     doTest(
       PlainTextSyntaxHighlighterFactory.createPlainTextLexer(), "ab.@c  (<def>)", """
@@ -479,6 +504,7 @@ R_PARENTH (')')
 """)
   }
 
+  @Test
   fun `test hex literals`() {
     val table = SyntaxTable()
     table.hexPrefix = "0y"
@@ -490,7 +516,8 @@ NUMBER ('0yabc0')
   }
 
   @PerformanceUnitTest
-  fun testKeywordLexerPerformance() {
+  @Test
+  fun testKeywordLexerPerformance(testInfo: TestInfo) {
     val count = 3000
     val keywords = mutableListOf<String>()
     for (i in 0 until count) {
@@ -510,9 +537,9 @@ NUMBER ('0yabc0')
       }
     }
 
-    Benchmark.newBenchmark(name) {
+    Benchmark.newBenchmark(testInfo.testMethod.get().name) {
       val charAts = IntRef()
-      LexerTestCase.printTokens(countingCharSequence(text, charAts), 0, CustomFileTypeLexer(table))
+      LexerTestFixture.printTokens(countingCharSequence(text, charAts), 0, CustomFileTypeLexer(table))
       assertTrue(charAts.get() < text.length * 4)
     }.start()
   }
