@@ -292,8 +292,8 @@ impl Server {
 // --- the site build ------------------------------------------------------------------------------------------
 
 /// The Bazel labels of the node and the pnpm the site is built with; `//:MODULE.bazel` pins their versions.
-pub(crate) const SITE_NODE_LABEL: &str = "//build:air_docs_node";
-pub(crate) const SITE_PNPM_LABEL: &str = "//build:air_docs_pnpm";
+pub(crate) const SITE_NODE_LABEL: &str = "//plugins/air/docs/toolchain:air_docs_node";
+pub(crate) const SITE_PNPM_LABEL: &str = "//plugins/air/docs/toolchain:air_docs_pnpm";
 /// Name the site's node and pnpm directly, together. For a server started outside a checkout, and for a test.
 pub(crate) const SITE_NODE_VARIABLE: &str = "AIR_TRACE_NODE";
 pub(crate) const SITE_PNPM_VARIABLE: &str = "AIR_TRACE_PNPM";

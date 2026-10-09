@@ -516,7 +516,8 @@ fn the_build_summary_is_read_from_the_end_of_the_log() {
     fs::write(
         &log,
         [
-            "[7,684 / 7,686] Composing dev distribution @@//build:idea_air_lane_dist_linux; 2s disk-cache, darwin-sandbox",
+            "[7,684 / 7,686] Composing dev distribution @@//plugins/air/tests/integration/ide:idea_air_lane_dist_linux; \
+             2s disk-cache, darwin-sandbox",
             "INFO: Found 3 targets...",
             "INFO: Elapsed time: 240.675s, Critical Path: 187.67s",
             "INFO: 1025 processes: 6651 action cache hit, 1 disk cache hit, 32 remote cache hit, 22 internal, \
