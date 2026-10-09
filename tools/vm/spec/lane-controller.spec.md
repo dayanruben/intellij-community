@@ -7,6 +7,7 @@ targets:
   - ../crates/avl-guest/src/supervisor/launch.rs
   - ../crates/avl-guest/src/supervisor/state.rs
   - ../crates/avl-guest/src/supervisor/identity.rs
+  - ../crates/avl-guest/src/supervisor/supervise.rs
   - ../crates/avl-guest/src/stage.rs
   - ../crates/avl-guest/src/image.rs
   - ../crates/avl-guest/src/image/provision.rs
@@ -17,6 +18,7 @@ targets:
   - ../crates/avl-guest/src/read_file.rs
   - ../crates/avl-guest/src/ide.rs
   - ../crates/avl-guest/src/ide/prepare.rs
+  - ../crates/avl-guest/src/ide/launch.rs
   - ../crates/avl-guest/src/ide/gc.rs
   - ../crates/avl-guest/src/ide/reap.rs
   - ../crates/avl-guest/src/supervisor/thread_dump.rs
@@ -644,25 +646,43 @@ The daemon's half and the IDE's half of supervision are in
   name against the spelling the installed agents already send.
   [@test] ../crates/avl-wire/src/verb/tests.rs
 
-- The guest agent reads the launch document of the lane IDE on standard input. A refusal names a field or a key,
-  and never a value. A property value can be the bridge token.
+- The guest agent reads the two documents of the lane IDE on standard input. `ide-prepare` reads the context
+  document, and `ide-launch` reads the launch document. Neither document holds a secret.
   [@test] ../crates/avl-wire/src/ide/tests.rs
+
+- A preparation lays out the context: the data directories, the project, the disabled plugins, and the `home` and
+  `bin` directories. Each directory has mode 0700.
   [@test] ../crates/avl-guest/src/ide/prepare/tests.rs
 
-- The agent writes the bridge token only into the argument file of the IDE, which has mode 0600. The launch record
-  of the context holds no property value.
-  [@test] ../crates/avl-guest/src/ide/prepare/tests.rs
+- The lane IDE runs in a closed environment from its context. `HOME` is the `home` directory of the context, and
+  `PATH` starts with its `bin` directory.
+  [@test] ../crates/avl-guest/src/ide/launch/tests.rs
+  [@test] ../crates/avl-guest/src/supervisor/tests.rs
+
+- Beside those two, the environment of the lane IDE holds the fixed constants of the supervisor and an allowlist
+  of the agent's own environment. No other variable of the agent reaches the IDE.
+  [@test] ../crates/avl-guest/src/supervisor/tests.rs
+
+- The run spec of the IDE records the environment policy and its context directory. It holds no variable value.
+  A run spec without a policy inherits the environment of the agent, as the daemon run does.
+  [@test] ../crates/avl-wire/src/supervisor/tests.rs
+  [@test] ../crates/avl-guest/src/ide/launch/tests.rs
+
+- The IDE argv is the JVM, the argument file of the context, and the project directory. The launch record of the
+  context holds no property value.
+  [@test] ../crates/avl-guest/src/ide/launch/tests.rs
 
 - The agent owns the data directories of the IDE. A launch document or a flags file that sets one of their paths
   is refused.
   [@test] ../crates/avl-wire/src/ide/tests.rs
-  [@test] ../crates/avl-guest/src/ide/prepare/tests.rs
+  [@test] ../crates/avl-guest/src/ide/launch/tests.rs
 
-- A preparation on a Linux guest without `DISPLAY` refuses `ide_display_missing`. A preparation for a context
-  whose IDE runs refuses `ide_running`.
+- A launch on a Linux guest refuses `ide_display_missing` when the agent's own environment has no `DISPLAY`. A
+  preparation or a launch for a context whose IDE runs refuses `ide_running`.
   [@test] ../crates/avl-guest/src/ide/prepare/tests.rs
+  [@test] ../crates/avl-guest/src/ide/launch/tests.rs
 
-- A preparation kills the JCEF helpers that name its context, and no other process.
+- A launch kills the JCEF helpers that name its context, and no other process.
   [@test] ../crates/avl-guest/src/ide/reap/tests.rs
 
 - `cancel --thread-dump` writes a thread dump of the process before the signal. The dump of an IDE run goes into
@@ -672,9 +692,11 @@ The daemon's half and the IDE's half of supervision are in
 - `ide-gc` keeps the newest log directories of each context. It always keeps the log directory of a live IDE.
   [@test] ../crates/avl-guest/src/ide/gc/tests.rs
 
-- A fresh preparation deletes the data directories, the project, the argument file and the launch record. It keeps
-  the log directories and the run directories of earlier launches, and `ide-gc` trims them.
+- A fresh preparation deletes the data directories, the project, the `home` and `bin` directories, the argument
+  file and the launch record. It keeps the log directories and the run directories of earlier launches, and
+  `ide-gc` trims them.
   [@test] ../crates/avl-guest/src/ide/prepare/tests.rs
+  [@test] ../crates/avl-guest/src/ide/launch/tests.rs
 
 - The supervisor gives the schema version in each reply. The controller refuses a reply that has a version
   it does not know.
@@ -731,7 +753,7 @@ The daemon's half and the IDE's half of supervision are in
   [@test] ../crates/avl-vm/src/worker/worker/tests.rs
 
 - A lane IDE is a supervisor run in the slot of its own context. A cancel of the daemon run does not stop it.
-  [@test] ../crates/avl-guest/src/ide/prepare/tests.rs
+  [@test] ../crates/avl-guest/src/ide/launch/tests.rs
 
 - A daemon restart for a change of the stable tier keeps each live lane IDE of the same product. The decision and
   the timing line say `keep`.

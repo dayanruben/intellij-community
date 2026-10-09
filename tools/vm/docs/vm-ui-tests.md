@@ -143,9 +143,9 @@ guest. They are TCC admission, the console-login wait, the APFS storage initiali
 provenance. A Docker row of `status` has no field for any of them.
 
 A Linux guest has no seat until something starts an X server. The entrypoint of the image starts
-`Xvfb :88` and `fluxbox`, and it waits for the display to answer. The IDE gets `DISPLAY=:88` through the
-environment of the daemon, and the guest agent's `ide-prepare` refuses `ide_display_missing` on a Linux guest
-without `DISPLAY`. So every IDE of a lane reuses one display. A server image also carries none of the shared
+`Xvfb :88` and `fluxbox`, and it waits for the display to answer. The IDE gets `DISPLAY=:88` from the
+environment of the guest agent. The agent's `ide-launch` refuses `ide_display_missing` on a Linux guest when that
+environment has no `DISPLAY`. So every IDE of a lane reuses one display. A server image also carries none of the shared
 libraries the IDE's own native code links against. `GUEST_PACKAGES` names them, and their absence is quiet.
 
 So each boot ends with the guest proving itself. `validate-guest` refuses the boot unless four things
@@ -162,7 +162,7 @@ A boot installs no agent CLI. Pi and Codex both come from declared Bazel runtime
 `plugins/air/tests/tools`. A runtime holds the pinned version and its locked npm dependencies. It also
 holds Node when the CLI is a Node program.
 The daemon receives these inputs through its runfiles. The IDE receives one launcher directory before
-other PATH entries.
+other PATH entries: the `bin` directory of its context.
 Missing inputs or a different version fail before the IDE starts. Host overrides cannot replace a
 runtime. VM preparation installs and probes no agent CLI, and existing images need no rebuild.
 [ADR 0137](../../../../plugins/air/docs/decisions/0137-agent-clis-are-declared-bazel-test-runtimes.md) is why.
@@ -426,7 +426,7 @@ Everything a worker writes lives under `$AIR_VM_DATA`, in seven directories and 
 | directory | holds |
 | --- | --- |
 | `out` | what a test JVM writes under `<checkout>/out`, through the parity layout's one writable redirect |
-| `ide` | one context for each launch key of the lane IDE: its `config`, `system`, `plugins`, `log` and `project` directories, its argument file `ide-jvm.args`, its launch record `launch.json`, and the run directories of its supervisor slot |
+| `ide` | one context for each launch key of the lane IDE: its `config`, `system`, `plugins`, `log`, `project`, `home` and `bin` directories, its argument file `ide-jvm.args`, its launch record `launch.json`, and the run directories of its supervisor slot |
 | `tmp` | temporary files |
 | `build-download` | the persistent build-dependency cache |
 | `daemon` | the daemon's own state and each iteration's results |
@@ -469,10 +469,20 @@ carries the warm IDE across whole controller iterations
 
 The guest agent launches the IDE and owns its process
 ([ADR 0220](../../../../plugins/air/docs/decisions/0220-the-guest-agent-launches-the-lane-ide.md)). The daemon
-decides what to launch and when. The agent's `ide-prepare` writes the context `$AIR_VM_DATA/ide/<launchKey>` and
-the argument file of the IDE. The IDE is then the supervisor run `run-ide-<launchName>` in that context, so the
-context is also its run slot. The IDE argv is `java @<context>/ide-jvm.args <project>`. The bridge token is
-only in that file, which is private, and never in the process table.
+decides what to launch and when. The agent's `ide-prepare` lays out the context `$AIR_VM_DATA/ide/<launchKey>`:
+the data directories, the project, the disabled plugins, and the `home` and `bin` directories. The daemon then
+writes the option files, the bridge token, the seeds of the home and the launchers into the context. The agent's
+`ide-launch` composes the argument file of the IDE and starts the supervisor run `run-ide-<launchName>` in that
+context, in one call. So the context is also the run slot of the IDE. The IDE argv is
+`java @<context>/ide-jvm.args <project>`.
+
+The environment of the IDE is closed, and the layout of its context sets it. `HOME` is the `home` directory of the
+context, and `PATH` starts with its `bin` directory. The agent copies a short allowlist from its own environment,
+for example `DISPLAY`, `LANG` and `TMPDIR`. No other variable reaches the IDE, and the run spec records this
+policy and no value
+([ADR 0221](../../../../plugins/air/docs/decisions/0221-the-lane-ide-runs-in-a-closed-environment-and-no-secret-crosses-the-agent.md)).
+The bridge token is a private file of the config directory, `config/air-ui-test/token`, which the daemon
+writes. No launch document, argument file or argv holds it.
 
 The IDE has no run budget. It ends only when something stops it: `--fresh-ide`, a quiesce, the watchdog, the
 controller, or its own crash. An IDE that ended on its own, or whose bridge stopped answering, is found by the
@@ -857,7 +867,7 @@ names the agent, the verb and the worker, and a structured failure envelope beco
 code and message. Exit 64 earns one appended sentence, which names `EX_USAGE` and an agent older
 than this controller.
 
-**Guest stdout and stderr stay withheld from every refusal**, because a guest argv can carry the
+**Guest stdout and stderr stay withheld from every refusal**, because a guest command can print the
 lane's UI-test bridge token. The contract is stated in `crates/avl-vm/src/lane/observe.rs`. It has two narrow
 exceptions, and both go through one helper, so neither can widen alone. The first is the agent's own
 usage line, which its argument parsing prints before any guest work ran. The second is a first
@@ -880,7 +890,7 @@ every guest-side verb:
 | verbs | concern |
 | --- | --- |
 | `start`, `status`, `active`, `log`, `cancel` | the run supervisor, for the daemon and for each lane IDE. `cancel --thread-dump <jcmd>` writes a thread dump of the process before the signal |
-| `ide-prepare`, `ide-gc` | the lane IDE: the preparation of one context and its argument file, and the stop of the IDE runs that a worker must not keep, with the removal of old log directories |
+| `ide-prepare`, `ide-launch`, `ide-gc` | the lane IDE: the layout of one context, the launch of one IDE run with its argument file, and the stop of the IDE runs that a worker must not keep, with the removal of old log directories |
 | `stage`, `stage-check`, `launch-prep`, `gc` | the runtime stager, the probe that answers whether a generation is already staged, and one daemon launch's preparation |
 | `contract` | what the agent declares about itself, its own digest included. An install that would push a binary the guest already has is skipped |
 | `validate-guest` | the Linux boot |

@@ -432,7 +432,7 @@ being fetched over the guest's NAT.
 
 **Codex is a declared Bazel test runtime now.** The runtime lives under `tests/tools/codex`. It pins the
 version, it carries the locked npm dependencies, and it selects the native package of the machine that
-executes the tests. The IDE reaches it through one launcher directory the launch prepends to PATH. Pi has
+executes the tests. The IDE reaches it through the `bin` directory of its context, which is first on the PATH of the IDE. Pi has
 the same shape, under `tests/tools/pi`.
 [ADR 0137](../../../../plugins/air/docs/decisions/0137-agent-clis-are-declared-bazel-test-runtimes.md) states the decision, and
 [ADR 0047](decisions/0047-agent-clis-are-provisioned-per-boot.md) holds the per-boot install it replaced.
