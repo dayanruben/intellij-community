@@ -3,6 +3,7 @@ package org.jetbrains.kotlin.idea.suggestions
 
 import com.google.gson.JsonParser
 import com.intellij.ide.IdeBundle
+import com.intellij.ide.plugins.InstalledPluginsState
 import com.intellij.ide.plugins.PluginManager
 import com.intellij.ide.plugins.PluginManagerConfigurable
 import com.intellij.ide.plugins.PluginManagerCore
@@ -97,6 +98,7 @@ private class JupyterPluginSuggestion(
     private val checker: PluginEnablementChecker,
 ): PluginSuggestion {
     override val pluginIds: List<String> = checker.pluginIds
+    private var pluginChangesHandled = false
 
     override fun apply(fileEditor: FileEditor): EditorNotificationPanel {
         val status = EditorNotificationPanel.Status.Info
@@ -115,13 +117,28 @@ private class JupyterPluginSuggestion(
     private fun setupPluginSuggestion(panel: EditorNotificationPanel) {
         panel.text = checker.suggestionText
         panel.createActionLabel(checker.suggestionActionText) {
-            FUSEventSource.EDITOR.logInstallPlugins(pluginIds, project)
-            installAndEnable(project, pluginIds.map(PluginId::getId).toSet(), true) {
+            val pluginIdsToInstallOrEnable = checker.pluginIdsToInstallOrEnable()
+            if (pluginIdsToInstallOrEnable.isEmpty()) {
                 EditorNotifications.getInstance(project).updateAllNotifications()
+                return@createActionLabel
             }
-            if (checker.requiresIdeRestart) {
-                PluginManagerConfigurable.shutdownOrRestartApp()
+            FUSEventSource.EDITOR.logInstallPlugins(pluginIdsToInstallOrEnable, project)
+            val pluginIdsToInstall = checker.pluginIdsToInstall(pluginIdsToInstallOrEnable)
+            installAndEnable(project, pluginIdsToInstallOrEnable.map(PluginId::getId).toSet(), true) {
+                handlePluginChanges()
             }
+            if (pluginIdsToInstall.isEmpty() && pluginIdsToInstallOrEnable.all(checker::isPluginInstalledAndEnabled)) {
+                handlePluginChanges()
+            }
+        }
+    }
+
+    private fun handlePluginChanges() {
+        if (pluginChangesHandled) return
+        pluginChangesHandled = true
+        EditorNotifications.getInstance(project).updateAllNotifications()
+        if (checker.requiresIdeRestart) {
+            PluginManagerConfigurable.shutdownOrRestartApp()
         }
     }
 }
@@ -141,10 +158,17 @@ private class PluginEnablementChecker(
     }
     fun isSuggestionDismissed(): Boolean = PropertiesComponent.getInstance().isTrueValue(dismissedKey)
     fun dismissSuggestion(): Unit = PropertiesComponent.getInstance().setValue(dismissedKey, true)
-    fun pluginsInstalledAndEnabled(): Boolean {
-        return pluginIds.all { pluginIdStr ->
-            val pluginId = PluginId.getId(pluginIdStr)
-            PluginManager.isPluginInstalled(pluginId) && !PluginManagerCore.isDisabled(pluginId)
-        }
+    fun pluginIdsToInstallOrEnable(): List<String> = pluginIds.filterNot(::isPluginInstalledAndEnabled)
+    fun pluginIdsToInstall(pluginIds: List<String>): List<String> = pluginIds.filter { pluginIdStr ->
+        !isPluginInstalled(PluginId.getId(pluginIdStr))
+    }
+    fun isPluginInstalledAndEnabled(pluginIdStr: String): Boolean {
+        val pluginId = PluginId.getId(pluginIdStr)
+        return isPluginInstalled(pluginId) && !PluginManagerCore.isDisabled(pluginId)
+    }
+    fun pluginsInstalledAndEnabled(): Boolean = pluginIds.all(::isPluginInstalledAndEnabled)
+
+    private fun isPluginInstalled(pluginId: PluginId): Boolean {
+        return !InstalledPluginsState.getInstance().wasUninstalledWithoutRestart(pluginId) && PluginManager.isPluginInstalled(pluginId)
     }
 }
