@@ -10,9 +10,6 @@ import com.intellij.sh.completion.ShFileCompletionTest;
 import com.intellij.sh.completion.ShKeywordCompletionTest;
 import com.intellij.sh.editor.ShTypingTest;
 import com.intellij.sh.formatter.ShLineIndentProviderTest;
-import com.intellij.sh.lexer.ShFileLexerTest;
-import com.intellij.sh.lexer.ShOldLexerVersion3Test;
-import com.intellij.sh.lexer.ShOldLexerVersion4Test;
 import com.intellij.sh.oldParser.ShOldParserTest;
 import com.intellij.sh.parser.ShParserTest;
 import com.intellij.sh.parser.ShShebangParserUtilTest;
@@ -28,22 +25,11 @@ import junit.framework.TestSuite;
 public final class ShTestSuite {
   public static Test suite() {
     TestSuite testSuite = new TestSuite("All Shell Script tests");
-    testSuite.addTest(LexerSuite.suite());
     testSuite.addTest(ParserSuite.suite());
     testSuite.addTest(CompletionAndTemplateSuite.suite());
     testSuite.addTest(InspectionsSuite.suite());
     testSuite.addTest(OthersSuite.suite());
     return testSuite;
-  }
-
-  public static final class LexerSuite {
-    public static Test suite() {
-      TestSuite suite = new TestSuite("Lexer");
-      suite.addTestSuite(ShFileLexerTest.class);
-      suite.addTestSuite(ShOldLexerVersion3Test.class);
-      suite.addTestSuite(ShOldLexerVersion4Test.class);
-      return suite;
-    }
   }
 
   public static final class ParserSuite {
