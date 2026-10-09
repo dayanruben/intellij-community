@@ -101,7 +101,9 @@ pub struct IdePrepare {
     pub ide_root: String,
     /// The context under `ide_root`. See [`is_launch_key`].
     pub launch_key: String,
-    /// Deletes the context before the preparation. The caller sets it on the first call for a new context only.
+    /// Deletes what a preparation writes before it prepares again: the data directories, the project, the argument file
+    /// and the launch record. The log directories and the run directories of earlier launches stay, and `ide-gc` trims
+    /// them. The caller sets it on the first call for a new context only.
     pub fresh: bool,
     /// The home of the dev distribution, an absolute guest path.
     pub dist_home: String,

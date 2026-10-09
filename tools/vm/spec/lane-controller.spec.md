@@ -658,6 +658,10 @@ The daemon's half and the IDE's half of supervision are in
 - `ide-gc` keeps the newest log directories of each context. It always keeps the log directory of a live IDE.
   [@test] ../crates/avl-guest/src/ide/gc/tests.rs
 
+- A fresh preparation deletes the data directories, the project, the argument file and the launch record. It keeps
+  the log directories and the run directories of earlier launches, and `ide-gc` trims them.
+  [@test] ../crates/avl-guest/src/ide/prepare/tests.rs
+
 - The supervisor gives the schema version in each reply. The controller refuses a reply that has a version
   it does not know.
   [@test] ../crates/avl-host-sys/src/guest/supervisor/tests.rs

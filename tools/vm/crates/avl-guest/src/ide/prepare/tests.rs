@@ -5,8 +5,8 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use avl_wire::ide::{self, IdePrepare, IdePrepared, ProjectSource};
-use avl_wire::supervisor::{AgentExit, Outcome, Phase};
+use avl_wire::ide::{self, IdeGcResult, IdePrepare, IdePrepared, ProjectSource};
+use avl_wire::supervisor::{AgentExit, Outcome, Phase, RunState};
 use pretty_assertions::assert_eq;
 use sha2::{Digest, Sha256};
 use zip::write::SimpleFileOptions;
@@ -214,7 +214,8 @@ fn a_fresh_preparation_lays_out_the_context_and_composes_the_argument_file() {
 }
 
 // The first call of a new context sends no properties; the second sends them all. A relaunch keeps the project,
-// as an IDE restart keeps it, and a fresh preparation unpacks it again.
+// as an IDE restart keeps it. A fresh preparation deletes the data directories and unpacks the project again, and it
+// keeps the log of an earlier launch.
 #[test]
 fn a_relaunch_keeps_the_project_and_a_fresh_preparation_unpacks_it_again() {
     let fixture = Fixture::new();
@@ -239,10 +240,22 @@ fn a_relaunch_keeps_the_project_and_a_fresh_preparation_unpacks_it_again() {
         "the log of the earlier launch is the collector's"
     );
     assert!(!Path::new(&format!("{}/disabled_plugins.txt", relaunched.config_dir)).exists());
+    let config_marker = format!("{}/options/other.xml", relaunched.config_dir);
+    let system_marker = format!("{}/caches/marker", relaunched.system_dir);
+    for marker in [&config_marker, &system_marker] {
+        fs::create_dir_all(Path::new(marker).parent().unwrap()).unwrap();
+        fs::write(marker, "earlier").unwrap();
+    }
 
     prepared(&fixture.document("launch-3", true));
     assert!(!Path::new(&edit).exists(), "a fresh preparation kept an edit of the project");
-    assert!(!Path::new(&paths.log_dir).exists(), "a fresh preparation kept an earlier log");
+    assert!(!Path::new(&config_marker).exists(), "a fresh preparation kept the config directory");
+    assert!(!Path::new(&system_marker).exists(), "a fresh preparation kept the system directory");
+    assert!(Path::new(&paths.log_dir).is_dir(), "a fresh preparation deleted an earlier log");
+    assert!(
+        Path::new(&relaunched.log_dir).is_dir(),
+        "a fresh preparation deleted an earlier log"
+    );
 }
 
 // A relocated project unpacks into its own root, and a fresh preparation replaces that root.
@@ -349,63 +362,94 @@ fn wait_for_file(path: &Path) -> String {
     panic!("{} was not written", path.display());
 }
 
-/// The launch the caller makes after a preparation: `start` on the context with `java @<argument file>`. A fake
-/// `java` records its argv and stays; the context then refuses a preparation, `ide-gc` keeps the IDE of the same
-/// product and stops it otherwise, and `cancel --thread-dump` takes the dump with a fake `jcmd` before the TERM.
-#[test]
-fn the_prepared_context_runs_the_ide_as_a_supervisor_run() {
-    if !Path::new("/bin/ps").is_file() || !Path::new("/bin/sleep").is_file() {
-        eprintln!("skipped: /bin/ps or /bin/sleep is not on this host");
-        return;
+/// A context whose IDE is a fake `java` that records its argv and stays, started as the caller starts it: `start` on
+/// the context with `java @<argument file>`.
+struct FakeIde {
+    fixture: Fixture,
+    tools: PathBuf,
+    java: PathBuf,
+    launcher: Launcher,
+}
+
+impl FakeIde {
+    /// The fake IDE, or `None` when the host has no `/bin/ps` or `/bin/sleep`.
+    fn new() -> Option<Self> {
+        if !Path::new("/bin/ps").is_file() || !Path::new("/bin/sleep").is_file() {
+            eprintln!("skipped: /bin/ps or /bin/sleep is not on this host");
+            return None;
+        }
+        let fixture = Fixture::new();
+        let tools = fixture.path("tools");
+        fs::create_dir_all(&tools).unwrap();
+        let java = avl_testkit::fake_executable(
+            &tools,
+            "java",
+            "printf '%s\\n' \"$@\" > \"$(dirname \"$0\")/argv.tmp\"\nmv \"$(dirname \"$0\")/argv.tmp\" \"$(dirname \"$0\")/argv.txt\"\nexec /bin/sleep 60\n",
+        )
+        .unwrap();
+        let launcher = Launcher {
+            self_exe: agent_launcher(&tools),
+            host: LaunchHost::Macos,
+        };
+        Some(Self {
+            fixture,
+            tools,
+            java,
+            launcher,
+        })
     }
-    let fixture = Fixture::new();
-    let tools = fixture.path("tools");
-    fs::create_dir_all(&tools).unwrap();
-    let java = avl_testkit::fake_executable(
-        &tools,
-        "java",
-        "printf '%s\\n' \"$@\" > \"$(dirname \"$0\")/argv.tmp\"\nmv \"$(dirname \"$0\")/argv.tmp\" \"$(dirname \"$0\")/argv.txt\"\nexec /bin/sleep 60\n",
-    )
-    .unwrap();
-    let jcmd = avl_testkit::fake_executable(&tools, "jcmd", "echo \"jcmd $*\"\n").unwrap();
-    let launcher = Launcher {
-        self_exe: agent_launcher(&tools),
-        host: LaunchHost::Macos,
-    };
-    let context = fixture.context();
-    let launch = |launch_name: &str, fresh: bool| {
-        let answer = prepared(&fixture.document(launch_name, fresh));
+
+    /// Prepares the launch `launch_name` and starts its IDE run.
+    fn launch(&self, launch_name: &str, fresh: bool) -> (IdePrepared, RunArgs, RunState) {
+        let answer = prepared(&self.fixture.document(launch_name, fresh));
         let run = RunArgs {
-            root: RootArgs { root: context.clone() },
+            root: RootArgs {
+                root: self.fixture.context(),
+            },
             run_id: ide::ide_run_id(launch_name).unwrap(),
         };
         let started = supervisor::start(
             &LiveSystem,
-            &launcher,
+            &self.launcher,
             &StartArgs {
                 run: run.clone(),
-                cwd: fixture.path("dist"),
+                cwd: self.fixture.path("dist"),
                 snapshot_id: None,
-                argv: vec![java.to_string_lossy().into_owned(), format!("@{}", answer.arg_file)],
+                argv: vec![self.java.to_string_lossy().into_owned(), format!("@{}", answer.arg_file)],
             },
         )
         .unwrap_or_else(|refusal| panic!("start was refused: {refusal}"));
         assert_eq!(started.phase, Phase::Running, "{started:?}");
         (answer, run, started)
-    };
-    let gc = |stop_all: bool, keep_product: Option<&str>| {
+    }
+
+    fn gc(&self, stop_all: bool, keep_product: Option<&str>, keep_logs: u32) -> IdeGcResult {
         super::super::gc::collect(
             &LiveSystem,
             &IdeGcArgs {
-                root: fixture.path("ide"),
+                root: self.fixture.path("ide"),
                 stop_all,
                 keep_product: keep_product.map(str::to_owned),
-                keep_logs: 5,
+                keep_logs,
                 grace_ms: 5_000,
             },
         )
         .unwrap()
+    }
+}
+
+/// The context then refuses a preparation, `ide-gc` keeps the IDE of the same product and stops it otherwise, and
+/// `cancel --thread-dump` takes the dump with a fake `jcmd` before the TERM.
+#[test]
+fn the_prepared_context_runs_the_ide_as_a_supervisor_run() {
+    let Some(ide) = FakeIde::new() else {
+        return;
     };
+    let (fixture, tools) = (&ide.fixture, &ide.tools);
+    let jcmd = avl_testkit::fake_executable(tools, "jcmd", "echo \"jcmd $*\"\n").unwrap();
+    let context = fixture.context();
+    let launch = |launch_name: &str, fresh: bool| ide.launch(launch_name, fresh);
+    let gc = |stop_all: bool, keep_product: Option<&str>| ide.gc(stop_all, keep_product, 5);
 
     let (answer, run, started) = launch("launch-1", true);
     assert_eq!(wait_for_file(&tools.join("argv.txt")), format!("@{}\n", answer.arg_file));
@@ -448,4 +492,38 @@ fn the_prepared_context_runs_the_ide_as_a_supervisor_run() {
     assert_eq!((stopped.kept.len(), stopped.stopped.len()), (0, 1), "{stopped:?}");
     assert_eq!(stopped.stopped[0].run_id, "run-ide-launch-2");
     assert_eq!(live_run(&LiveSystem, &context).unwrap(), None);
+}
+
+// The caller stops an orphan IDE and prepares the context again with `fresh`. The new launch gets new data
+// directories, and the log and the run record of the stopped IDE stay until `ide-gc` trims them.
+#[test]
+fn a_fresh_preparation_keeps_the_evidence_of_a_stopped_ide() {
+    let Some(ide) = FakeIde::new() else {
+        return;
+    };
+    let context = ide.fixture.context();
+    let (first, _, _) = ide.launch("launch-1", true);
+    wait_for_file(&ide.tools.join("argv.txt"));
+    let marker = format!("{}/options/other.xml", first.config_dir);
+    fs::create_dir_all(Path::new(&marker).parent().unwrap()).unwrap();
+    fs::write(&marker, "earlier").unwrap();
+    let stopped = ide.gc(true, None, 5);
+    assert_eq!((stopped.kept.len(), stopped.stopped.len()), (0, 1), "{stopped:?}");
+
+    let second = prepared(&ide.fixture.document("launch-2", true));
+    assert_eq!(second.config_dir, first.config_dir);
+    assert!(Path::new(&second.config_dir).is_dir());
+    assert!(!Path::new(&marker).exists(), "a fresh preparation kept the config directory");
+    assert!(
+        Path::new(&first.log_dir).is_dir(),
+        "a fresh preparation deleted the log of the stopped IDE"
+    );
+    assert!(context.join("run-ide-launch-1/state.json").is_file());
+
+    let trimmed = ide.gc(false, None, 1);
+    assert_eq!(
+        trimmed.removed,
+        vec![first.log_dir, context.join("run-ide-launch-1").to_string_lossy().into_owned()]
+    );
+    assert!(Path::new(&second.log_dir).is_dir());
 }

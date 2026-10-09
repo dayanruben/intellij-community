@@ -684,7 +684,9 @@ Three properties of those paths are worth stating. Each IDE launch writes its ow
 iterations never overwrite each other, and `TEST_UNDECLARED_OUTPUTS_DIR` stays empty for that reason.
 The first launch of a context is `start-<stamp>`, and a relaunch is `recycle-N`, so list the `log`
 directory rather than assuming the path. The guest agent keeps the newest five log directories of each
-context, and always the one of a live IDE. An iteration id includes the daemon boot identity, and each
+context, and always the one of a live IDE. A fresh preparation deletes the data directories, the project, the
+argument file and the launch record. It keeps the log directories and the run directories of earlier launches, and
+`ide-gc` trims them. An iteration id includes the daemon boot identity, and each
 result directory is reserved with an atomic create. So a restarted daemon cannot make stale XML
 authoritative.
 

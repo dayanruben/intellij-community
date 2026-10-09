@@ -1,9 +1,11 @@
 //! `ide-prepare`: one context of the lane IDE, from the launch document on standard input to the published argument
 //! file.
 //!
-//! The steps, in order: with `fresh`, delete the context. Create `config`, `system`, `plugins`, `log/<launchName>` and
-//! `project`, each private. Kill the JCEF helpers that name the context. Write `config/disabled_plugins.txt`. Unpack
-//! the project archive when the project is not there yet. Compose the argument file through `dev-launch`, with the
+//! The steps, in order: with `fresh`, delete what a preparation writes: `config`, `system`, `plugins`, the project, the
+//! argument file and the launch record. The log directories, the run directories and `active.json` of earlier runs
+//! stay. Create `config`, `system`, `plugins`, `log/<launchName>` and `project`, each private. Kill the JCEF helpers
+//! that name the context. Write `config/disabled_plugins.txt`. Unpack the project archive when the project is not
+//! there yet. Compose the argument file through `dev-launch`, with the
 //! data paths of the context last. Publish the argument file and the launch record privately, and answer the paths
 //! and the sha256 of the argument file.
 //!
@@ -111,10 +113,7 @@ pub(crate) fn prepare(system: &dyn System, guest: &Guest, document: &IdePrepare)
         ));
     }
     if document.fresh {
-        remove_existing_tree(context)?;
-        if let Some(relocate_to) = &document.project.relocate_to {
-            remove_existing_tree(Path::new(relocate_to))?;
-        }
+        remove_prepared(&paths, &document.project)?;
     }
     for directory in [&paths.config, &paths.system, &paths.plugins, &paths.log, &paths.project] {
         create_private_dirs(Path::new(directory))?;
@@ -173,8 +172,32 @@ fn require_display(guest: &Guest, environment: &BTreeMap<String, String>) -> Res
     Ok(())
 }
 
+/// Deletes what a preparation writes: the data directories, the project with its relocated unpack root, the argument
+/// file and the launch record.
+fn remove_prepared(paths: &ContextPaths, project: &ProjectSource) -> Result<(), AgentRefusal> {
+    let relocated = project.relocate_to.iter();
+    for directory in [&paths.config, &paths.system, &paths.plugins, &paths.project]
+        .into_iter()
+        .chain(relocated)
+    {
+        remove_existing_tree(Path::new(directory))?;
+    }
+    for file in [&paths.arg_file, &paths.launch_record] {
+        remove_existing_file(Path::new(file))?;
+    }
+    Ok(())
+}
+
 fn remove_existing_tree(path: &Path) -> Result<(), AgentRefusal> {
     match fs::remove_dir_all(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => refuse!(VERB, "cannot delete {}: {error}", path.display()),
+    }
+}
+
+fn remove_existing_file(path: &Path) -> Result<(), AgentRefusal> {
+    match fs::remove_file(path) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
         Err(error) => refuse!(VERB, "cannot delete {}: {error}", path.display()),
@@ -195,11 +218,7 @@ fn create_private_dirs(path: &Path) -> Result<(), AgentRefusal> {
 fn write_disabled_plugins(config: &str, ids: &[String]) -> Result<(), AgentRefusal> {
     let path = Path::new(config).join(DISABLED_PLUGINS_FILE);
     if ids.is_empty() {
-        return match fs::remove_file(&path) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-            Err(error) => refuse!(VERB, "cannot remove {}: {error}", path.display()),
-        };
+        return remove_existing_file(&path);
     }
     let mut text = ids.join("\n");
     text.push('\n');
@@ -209,7 +228,7 @@ fn write_disabled_plugins(config: &str, ids: &[String]) -> Result<(), AgentRefus
 /// Unpacks the project archive when the project is not there yet, and answers the project directory.
 ///
 /// The project stays across a relaunch on the same context, as it stays across an IDE restart: a scenario that
-/// restarts the IDE reads what the earlier IDE wrote. A fresh preparation deleted the unpack root before, so it
+/// restarts the IDE reads what the earlier IDE wrote. A fresh preparation deletes the unpack root first, so it
 /// unpacks again. The archive goes into a staging tree that is renamed onto the unpack root, so a killed unpack
 /// leaves no half project that a later call takes for a whole one.
 fn unpack_project(project: &ProjectSource, default_root: &str) -> Result<String, AgentRefusal> {
