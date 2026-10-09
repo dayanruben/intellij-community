@@ -149,7 +149,7 @@ fn the_run_environment_names_the_runfiles_tree_and_the_runs_own_scratch() {
     assert_eq!(environment["TEST_WORKSPACE"], "_main");
     assert_eq!(environment["USER"], settings.vm_user);
     assert_eq!(environment["LOGNAME"], settings.vm_user);
-    assert_eq!(environment["LANG"], "en_US.UTF-8");
+    assert_eq!(environment["LANG"], "C.UTF-8");
     // In name order, because nothing downstream reads position and a reproducible rendering is a chosen one.
     let mut sorted = pairs.clone();
     sorted.sort();

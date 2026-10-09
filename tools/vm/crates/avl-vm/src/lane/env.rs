@@ -116,7 +116,9 @@ pub(crate) fn guest_run_environment(
         ("HOME", settings.vm_home.clone()),
         ("USER", settings.vm_user.clone()),
         ("LOGNAME", settings.vm_user.clone()),
-        ("LANG", "en_US.UTF-8".to_owned()),
+        // The Linux worker image ships only the C locales. A locale that is not installed falls back to POSIX, and a
+        // JVM in it cannot name a file with a character outside ASCII. `C.UTF-8` is in every glibc since 2.35.
+        ("LANG", "C.UTF-8".to_owned()),
         ("PATH", path_entries.join(":")),
     ]
     .into_iter()
