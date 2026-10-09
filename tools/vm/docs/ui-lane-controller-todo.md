@@ -66,6 +66,21 @@ Every item below was found by running something, and says so. Where a measuremen
   Status (2026-09-27): the IJAI-2001 change removed `flow-manage-launch-preset`. At HEAD the module holds
   303 tracked Kotlin files, 164 of them under `src`, and only 7 carry a flow tag.
 
+- **A lane IDE that survives its cancel blocks the release, the stop and the recycle of its worker.**
+
+  Measured on 2026-10-10 on `air-docker-2`, after `vm.cmd run --lane ui-perf`. The XXL scenario of
+  `AirLongSessionPerformanceUiTest` left the IDE `run-ide-recycle-7-mv23xgvl` in a state where the supervisor's cancel
+  sent its signal and the process did not end. From then on every door was shut: `lease release` refused with
+  `cancel_timeout` from `ide-gc`, `daemon stop` refused with the same, `exec` refused with `run_active`, and
+  `pool stop air-docker-2 --lease-file <receipt>` refused with `worker_leased`, so no command of the controller
+  could end the process or give the worker back. The way out was the container engine itself, outside the
+  controller.
+
+  What is open is the escalation: a cancel whose child does not end within its timeout sends `KILL` to the process
+  group, and `ide-gc --stop-all` does the same, so a release never depends on a JVM that answers a `TERM`. The
+  `cancel --thread-dump` path keeps its dump before the kill. The second half is `pool stop`, which should honour
+  the receipt it is given instead of reading its own lease as another holder's.
+
 ## Not ours
 
 - **Why the exec agent's vsock context cancels under load is inside Cirrus's `tart-guest-agent`.** It exits
