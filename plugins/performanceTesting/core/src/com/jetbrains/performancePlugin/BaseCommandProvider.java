@@ -82,7 +82,6 @@ import com.jetbrains.performancePlugin.commands.ReplaceTextCommand;
 import com.jetbrains.performancePlugin.commands.RetypeFileCommand;
 import com.jetbrains.performancePlugin.commands.RunClassInPlugin;
 import com.jetbrains.performancePlugin.commands.RunClassInPluginModule;
-import com.jetbrains.performancePlugin.commands.RunConfigurationCommand;
 import com.jetbrains.performancePlugin.commands.RunServiceInPlugin;
 import com.jetbrains.performancePlugin.commands.SaveDocumentsAndSettingsCommand;
 import com.jetbrains.performancePlugin.commands.ScrollEditorCommand;
@@ -124,7 +123,6 @@ public final class BaseCommandProvider implements CommandProvider {
   @Override
   public @NotNull Map<String, CreateCommand> getCommands() {
     return Map.<String, CreateCommand>ofEntries(
-      Map.entry(RunConfigurationCommand.PREFIX, RunConfigurationCommand::new),
       Map.entry(TakeScreenshotCommand.PREFIX, TakeScreenshotCommand::new),
       Map.entry(OpenFileCommand.PREFIX, OpenFileCommand::new),
       Map.entry(StartProfileCommand.PREFIX, StartProfileCommand::new),

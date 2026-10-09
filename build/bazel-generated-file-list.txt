@@ -1740,6 +1740,7 @@ plugins/performanceTesting/commands-model
 plugins/performanceTesting/core
 plugins/performanceTesting/debugger
 plugins/performanceTesting/event-bus
+plugins/performanceTesting/execution
 plugins/performanceTesting/freezes
 plugins/performanceTesting/frontend
 plugins/performanceTesting/frontend-baseline

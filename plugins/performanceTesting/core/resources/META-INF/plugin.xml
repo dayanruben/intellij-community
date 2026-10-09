@@ -45,8 +45,6 @@
     <module name="intellij.platform.editor.ui"/>
     <module name="intellij.platform.eel.impl"/>
     <module name="intellij.platform.eel.provider"/>
-    <module name="intellij.platform.execution"/>
-    <module name="intellij.platform.execution.impl"/>
     <module name="intellij.platform.ide.codeinsight.inline"/>
     <module name="intellij.platform.ide.concurrency"/>
     <module name="intellij.platform.ide.core"/>
@@ -80,6 +78,7 @@
     <module name="intellij.performanceTesting.remoteDriver.compose"/>
     <module name="intellij.performanceTesting.vcs"/>
     <module name="intellij.performanceTesting.debugger"/>
+    <module name="intellij.performanceTesting.execution"/>
     <module name="intellij.performanceTesting.frontend"/>
     <module name="intellij.performanceTesting.frontend.baseline"/>
     <module name="intellij.performanceTesting.problemsView"/>
