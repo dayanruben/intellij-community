@@ -830,7 +830,8 @@ The daemon's half and the IDE's half of supervision are in
 
 - The push offers the context plugin files with the test jars, and uploads only the files that the guest does not
   hold. When only the context plugins changed, the run relaunches the IDE and refreshes no share. The decision and
-  the timing line say `relaunch`, and the reason is `the bridge plugin changed`. A daemon record without a plugin
+  the timing line say `relaunch`, and the reason is `the bridge plugin changed`. No lane distribution carries the
+  bridge plugin, so a bridge edit moves no product digest and needs no remount. A daemon record without a plugin
   identity decides nothing on it.
   [@test] ../crates/avl-vm/src/daemon/iterate/tests.rs
   [@test] ../crates/avl-vm/src/daemon/run/tests.rs

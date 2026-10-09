@@ -561,6 +561,7 @@ iteration's timing line reports the one it took.
 | --- | --- | --- |
 | test code, meaning the Air test-only modules | hot-jar digest diff | a push plus a fresh classloader. The IDE is reused, and there is **no remount** |
 | product inputs, meaning anything inside the prepared distribution | product stamp diff | quiesce, remount, resume, then launch the IDE again. The daemon JVM survives, and nothing is assembled |
+| the context plugins, meaning the in-IDE test bridge, which no lane distribution carries | plugins digest diff | a push of the changed plugin files and an IDE relaunch on the same context. The timing line reports `ide relaunch`, and there is **no remount** and no distribution compose |
 | the daemon's parent tier, meaning platform and framework jars | stable digest diff | an automatic daemon restart. The IDE of the same product survives it, and the timing line reports `ide keep` |
 | the container's declaration, meaning the image tag, the shares or the display | create-record diff | a recreate plus a cold daemon start; Docker only |
 
