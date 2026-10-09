@@ -14,6 +14,8 @@
     <orderEntry type="module" module-name="intellij.platform.testFramework.junit5" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.testFramework.junit5.codeInsight" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.util" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.syntax" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.syntax.util" scope="TEST" />
   </component>
   <component name="TestModuleProperties" production-module="intellij.platform.testFramework.junit5.codeInsight" />
 </module>

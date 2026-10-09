@@ -15,6 +15,7 @@ import com.intellij.testFramework.junit5.fixture.TestFixture
 import com.intellij.testFramework.junit5.fixture.testFixture
 import org.jetbrains.annotations.TestOnly
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.extension.ExtensionContext
 import org.junit.jupiter.api.fail
 import java.io.IOException
 import java.util.function.Supplier
@@ -23,6 +24,7 @@ import kotlin.io.path.readText
 
 /**
  * Lexer test helpers for a JUnit 5 test. Create the fixture with [lexerFixture].
+ * For a lexer of the syntax library, use [syntaxLexerFixture].
  *
  * The fixture needs no test application.
  */
@@ -61,7 +63,7 @@ class LexerTestFixture internal constructor(
   fun doTest(text: String, expected: String?, lexer: Lexer) {
     val result = printTokens(text, 0, lexer)
     if (expected != null) {
-      assertEquals(StringUtil.convertLineSeparators(expected.trim { it <= ' ' }), StringUtil.convertLineSeparators(result.trim { it <= ' ' }))
+      assertSameLexerTokens(expected, result)
     }
     else {
       PlatformTestUtil.assertSameLinesWithFile(getPathToTestDataFile(expectedFileExtension), result)
@@ -81,25 +83,13 @@ class LexerTestFixture internal constructor(
   /**
    * Returns the path of the test data file for the current test. [extension] starts with a dot.
    */
-  fun getPathToTestDataFile(extension: String): String {
-    val dir = if (Path(dirPath).isAbsolute) dirPath else IdeaTestExecutionPolicy.getHomePathWithPolicy() + "/" + dirPath
-    return "$dir/$testName$extension"
-  }
+  fun getPathToTestDataFile(extension: String): String = lexerTestDataPath(dirPath, testName, extension)
 
   /**
    * Returns the text of the file of [getPathToTestDataFile] for [fileExt], with normalized line separators.
    * [fileExt] starts with a dot.
    */
-  fun loadTestDataFile(fileExt: String): String {
-    val fileName = getPathToTestDataFile(fileExt)
-    val fileText = try {
-      Path(fileName).readText()
-    }
-    catch (e: IOException) {
-      fail("can't load file $fileName: ${e.message}")
-    }
-    return StringUtil.convertLineSeparators(if (trimTestData) fileText.trim { it <= ' ' } else fileText)
-  }
+  fun loadTestDataFile(fileExt: String): String = loadLexerTestData(getPathToTestDataFile(fileExt), trimTestData)
 
   /**
    * Checks that the lexer state is zero on each token of [tokenTypes] in [text].
@@ -281,16 +271,44 @@ fun lexerFixture(
   checkRestart: Boolean = true,
   lexerFactory: Supplier<out Lexer>,
 ): TestFixture<LexerTestFixture> = testFixture("lexerFixture") { context ->
-  val testMethod = context.extensionContext.testMethod.orElseThrow {
-    IllegalStateException("lexerFixture needs a test method. Declare it as an instance property.")
-  }
   val fixture = LexerTestFixture(
     lexerFactory = lexerFactory,
     dirPath = dirPath,
-    testName = PlatformTestUtil.getTestName(testMethod.name, true).trim().replace(' ', '_'),
+    testName = lexerTestName("lexerFixture", context.extensionContext),
     expectedFileExtension = expectedFileExtension,
     trimTestData = trimTestData,
     checkRestart = checkRestart,
   )
   initialized(fixture) {}
+}
+
+
+@TestOnly
+internal fun lexerTestName(fixtureName: String, extensionContext: ExtensionContext): String {
+  val testMethod = extensionContext.testMethod.orElseThrow {
+    IllegalStateException("$fixtureName needs a test method. Declare it as an instance property.")
+  }
+  return PlatformTestUtil.getTestName(testMethod.name, true).trim().replace(' ', '_')
+}
+
+@TestOnly
+internal fun lexerTestDataPath(dirPath: String, testName: String, extension: String): String {
+  val dir = if (Path(dirPath).isAbsolute) dirPath else IdeaTestExecutionPolicy.getHomePathWithPolicy() + "/" + dirPath
+  return "$dir/$testName$extension"
+}
+
+@TestOnly
+internal fun loadLexerTestData(fileName: String, trim: Boolean): String {
+  val fileText = try {
+    Path(fileName).readText()
+  }
+  catch (e: IOException) {
+    fail("can't load file $fileName: ${e.message}")
+  }
+  return StringUtil.convertLineSeparators(if (trim) fileText.trim { it <= ' ' } else fileText)
+}
+
+@TestOnly
+internal fun assertSameLexerTokens(expected: String, actual: String) {
+  assertEquals(StringUtil.convertLineSeparators(expected.trim { it <= ' ' }), StringUtil.convertLineSeparators(actual.trim { it <= ' ' }))
 }
