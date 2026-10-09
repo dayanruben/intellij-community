@@ -86,18 +86,53 @@ fn one_runfile_resolves_by_its_whole_path() {
     assert_eq!(manifest.resolve("_main/a/"), None);
 }
 
+// A symlink runfile's target is the link's text, relative to its own directory. The lookup follows it to the runfile
+// it names, through a chain, and stops at an absolute host target. A chain that leaves the root or loops is no runfile.
+#[test]
+fn a_symlink_runfile_is_followed_through_the_manifest_to_its_host_target() {
+    let manifest = RunfilesManifest::parse(
+        "_main/pkg/node_modules/esbuild ../../store/esbuild/node_modules/esbuild\n\
+         _main/store/esbuild/node_modules/esbuild ../real/esbuild\n\
+         _main/store/esbuild/real/esbuild C:/out/bin/esbuild\n\
+         _main/pkg/empty \n\
+         _main/pkg/escape ../../../outside\n\
+         _main/pkg/loop ./loop\n",
+    )
+    .unwrap();
+    assert_eq!(manifest.host_target("_main/pkg/node_modules/esbuild"), Some("C:/out/bin/esbuild"));
+    assert_eq!(
+        manifest.host_target("_main/store/esbuild/node_modules/esbuild"),
+        Some("C:/out/bin/esbuild")
+    );
+    assert_eq!(manifest.host_target("_main/store/esbuild/real/esbuild"), Some("C:/out/bin/esbuild"));
+    assert_eq!(manifest.host_target("_main/pkg/empty"), Some(""));
+    assert_eq!(manifest.host_target("_main/pkg/escape"), None);
+    assert_eq!(manifest.host_target("_main/pkg/loop"), None);
+    assert_eq!(manifest.host_target("_main/pkg/absent"), None);
+}
+
+// `render` is the inverse of `parse`, escaped lines included, so a MANIFEST the host rewrote reads back as the same
+// entries on the guest.
+#[test]
+fn render_is_the_inverse_of_parse() {
+    let text = "_main/a C:/a\n _main/b\\sc C:/with space/b\n _main/n\\nl C:/x\\by\n_main/empty \n";
+    let manifest = RunfilesManifest::parse(text).unwrap();
+    assert_eq!(manifest.render(), text);
+    assert_eq!(RunfilesManifest::parse(&manifest.render()).unwrap(), manifest);
+}
+
 #[test]
 fn the_request_and_the_result_travel_as_camel_case_json() {
     let request = RunfilesTreeRequest {
         schema_version: SCHEMA_VERSION,
-        manifest: "/mnt/AirVmShares/bazel/x.runfiles_manifest".to_owned(),
+        manifest_text: "_main/a C:/a\n".to_owned(),
         path_map: PathMap::new(vec![PathPrefix::new("C:/b", "/mnt/b")]),
         destination: "/home/admin/WorkerData/runfiles".to_owned(),
     };
     let text = serde_json::to_string(&request).unwrap();
     assert_eq!(
         text,
-        r#"{"schemaVersion":1,"manifest":"/mnt/AirVmShares/bazel/x.runfiles_manifest","pathMap":{"prefixes":[{"host":"C:/b","guest":"/mnt/b"}]},"destination":"/home/admin/WorkerData/runfiles"}"#
+        r#"{"schemaVersion":3,"manifestText":"_main/a C:/a\n","pathMap":{"prefixes":[{"host":"C:/b","guest":"/mnt/b"}]},"destination":"/home/admin/WorkerData/runfiles"}"#
     );
     assert_eq!(serde_json::from_str::<RunfilesTreeRequest>(&text).unwrap(), request);
     let result = RunfilesTreeResult {

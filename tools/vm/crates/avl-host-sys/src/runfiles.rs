@@ -15,7 +15,9 @@
 
 use std::path::{Path, PathBuf};
 
+use avl_base::config::HostOs;
 use avl_base::{Config, Exit, Refusal};
+use avl_wire::path_map::is_absolute_host_path;
 use avl_wire::runfiles::{RunfilesManifest, tree_digest};
 use avl_wire::runtime::runfiles_root;
 
@@ -43,6 +45,13 @@ impl HostRunfiles {
     ///
     /// With neither, the answer is the tree, so the stamp refuses the first input it cannot find by name.
     pub fn of(descriptor: &Path) -> Result<Self, Refusal> {
+        Self::of_on(descriptor, HostOs::CURRENT)
+    }
+
+    /// [`HostRunfiles::of`] as a controller on `host` reads it. On Windows every absolute target is resolved through
+    /// its junctions, because Bazel's external repositories there are junctions into the repository cache, which the
+    /// guest's mount cannot read; the file under the cache is one it can.
+    pub fn of_on(descriptor: &Path, host: HostOs) -> Result<Self, Refusal> {
         let root = runfiles_root(descriptor);
         if holds_a_tree(&root) {
             return Ok(Self::Tree(root));
@@ -59,7 +68,12 @@ impl HostRunfiles {
         };
         let bytes = std::fs::read(&path).map_err(|error| unreadable(error.to_string()))?;
         let text = std::str::from_utf8(&bytes).map_err(|error| unreadable(error.to_string()))?;
-        let manifest = RunfilesManifest::parse(text).map_err(|error| unreadable(error.to_string()))?;
+        let mut manifest = RunfilesManifest::parse(text).map_err(|error| unreadable(error.to_string()))?;
+        if host == HostOs::Windows {
+            resolve_junctions(&mut manifest);
+        }
+        // The bytes the guest gets and both sides hash: the rendered entries, so a resolved target is in them.
+        let bytes = manifest.render().into_bytes();
         Ok(Self::Manifest { path, bytes, manifest })
     }
 
@@ -68,13 +82,14 @@ impl HostRunfiles {
         holds_a_tree(&runfiles_root(descriptor)) || manifest_paths(descriptor).iter().any(|path| path.is_file())
     }
 
-    /// The host file of the runfile at `logical_path`, or `None` when the MANIFEST has no line for it or names an
-    /// empty file. A path under a tree is answered whether or not a file is there; the caller checks the file.
+    /// The host file of the runfile at `logical_path`, or `None` when the MANIFEST has no line for it, names an empty
+    /// file, or follows a symlink runfile out of the MANIFEST. A path under a tree is answered whether or not a file
+    /// is there; the caller checks the file.
     pub fn host_path(&self, logical_path: &str) -> Option<PathBuf> {
         match self {
             Self::Tree(root) => Some(root.join(logical_path)),
             Self::Manifest { manifest, .. } => manifest
-                .resolve(logical_path)
+                .host_target(logical_path)
                 .filter(|target| !target.is_empty())
                 .map(PathBuf::from),
         }
@@ -108,13 +123,31 @@ pub fn manifest_paths(descriptor: &Path) -> [PathBuf; 2] {
     [PathBuf::from(beside), runfiles_root(descriptor).join("MANIFEST")]
 }
 
+/// Replaces each absolute target with the path its junctions and links lead to, as [`fscopy::resolve_links`] reports
+/// it, with forward slashes. A target that cannot be resolved stays, so the stamp names it.
+fn resolve_junctions(manifest: &mut RunfilesManifest) {
+    for entry in &mut manifest.entries {
+        if !is_absolute_host_path(&entry.target) {
+            continue;
+        }
+        if let Ok(resolved) = fscopy::resolve_links(Path::new(&entry.target)) {
+            entry.target = resolved.to_string_lossy().replace('\\', "/");
+        }
+    }
+}
+
 /// Whether `root` holds a runfiles tree: an entry other than the two files Bazel writes even where it builds no
-/// tree, `MANIFEST` and `_repo_mapping`.
+/// tree, `MANIFEST` and `_repo_mapping`, with something in it. A Windows host gets an empty `_main` directory
+/// beside the MANIFEST, and an empty directory is no tree.
 fn holds_a_tree(root: &Path) -> bool {
     std::fs::read_dir(root).is_ok_and(|entries| {
         entries.filter_map(Result::ok).any(|entry| {
             let name = entry.file_name();
-            name != "MANIFEST" && name != "_repo_mapping"
+            if name == "MANIFEST" || name == "_repo_mapping" {
+                return false;
+            }
+            let path = entry.path();
+            !path.is_dir() || std::fs::read_dir(&path).is_ok_and(|mut inner| inner.next().is_some())
         })
     })
 }

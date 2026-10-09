@@ -64,8 +64,9 @@ impl FakeBazelCmd {
         // and both it and its runfiles tree have to exist or the resolution refuses.
         fs::create_dir_all(fake.descriptor.parent().unwrap()).unwrap();
         fs::write(&fake.descriptor, "{}\n").unwrap();
-        // A tree holds more than a MANIFEST.
+        // A tree holds a runfile: Windows Bazel leaves an empty `_main` beside a MANIFEST, and that is no tree.
         fs::create_dir_all(runfiles_root(&fake.descriptor).join("_main")).unwrap();
+        fs::write(runfiles_root(&fake.descriptor).join("_main/daemon.jar"), b"jar").unwrap();
         fs::create_dir_all(&fake.repo).unwrap();
         let wanted = format!("--config=air-lane-{}", guest_os.as_str());
         let script = format!(

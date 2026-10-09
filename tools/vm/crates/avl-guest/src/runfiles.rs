@@ -58,7 +58,6 @@ pub(crate) fn build(request: &RunfilesTreeRequest) -> Result<RunfilesTreeResult,
             ),
         ));
     }
-    let manifest_path = absolute(&request.manifest, "MANIFEST")?;
     let destination = absolute(&request.destination, "destination")?;
     if destination == Path::new("/") {
         return Err(AgentRefusal::for_verb(
@@ -76,19 +75,8 @@ pub(crate) fn build(request: &RunfilesTreeRequest) -> Result<RunfilesTreeResult,
             ),
         ));
     }
-    let bytes = fs::read(&manifest_path).map_err(|error| {
-        AgentRefusal::for_verb(
-            AgentVerb::RunfilesTree,
-            format!("cannot read the MANIFEST {}: {error}", manifest_path.display()),
-        )
-    })?;
-    let text = String::from_utf8(bytes).map_err(|error| {
-        AgentRefusal::for_verb(
-            AgentVerb::RunfilesTree,
-            format!("the MANIFEST {} is not UTF-8: {}", manifest_path.display(), error.utf8_error()),
-        )
-    })?;
-    let manifest = RunfilesManifest::parse(&text).map_err(|error| AgentRefusal::for_verb(AgentVerb::RunfilesTree, error.to_string()))?;
+    let text = &request.manifest_text;
+    let manifest = RunfilesManifest::parse(text).map_err(|error| AgentRefusal::for_verb(AgentVerb::RunfilesTree, error.to_string()))?;
     let digest = tree_digest(text.as_bytes(), &request.path_map);
     let entries = u32::try_from(manifest.entries.len())
         .map_err(|error| AgentRefusal::for_verb(AgentVerb::RunfilesTree, format!("the MANIFEST holds too many runfiles: {error}")))?;
@@ -216,7 +204,11 @@ fn populate(staging: &Path, manifest: &RunfilesManifest, request: &RunfilesTreeR
                     ),
                 ));
             };
-            std::os::unix::fs::symlink(guest, &entry_path)
+            if is_package_store_directory(&entry.path, Path::new(&guest)) {
+                copy_tree(Path::new(&guest), &entry_path)
+            } else {
+                std::os::unix::fs::symlink(guest, &entry_path)
+            }
         } else {
             std::os::unix::fs::symlink(&entry.target, &entry_path)
         };
@@ -232,6 +224,34 @@ fn populate(staging: &Path, manifest: &RunfilesManifest, request: &RunfilesTreeR
 
 /// Where the runfile at `logical` goes under `root`. A path that is absolute, or that holds an empty, `.` or `..`
 /// component, would land outside the tree or on another entry, so it is refused.
+/// Whether a directory runfile is a package of a `node_modules` store, which is copied into the tree rather than
+/// linked. Node resolves an import from the real path of the importing file, and in the pnpm layout of rules_js the
+/// dependency links beside a package are junctions on a Windows host, which the guest's mount cannot read. A copy
+/// puts the real path inside the tree, where those links are the tree's own.
+fn is_package_store_directory(logical: &str, guest: &Path) -> bool {
+    logical.split('/').any(|component| component == "node_modules") && guest.is_dir()
+}
+
+/// Copies the directory `source` to `destination`: a file by its content, a directory by recursion, and a symbolic
+/// link as the link it is.
+fn copy_tree(source: &Path, destination: &Path) -> std::io::Result<()> {
+    fs::create_dir(destination)?;
+    for entry in fs::read_dir(source)? {
+        let entry = entry?;
+        let from = entry.path();
+        let to = destination.join(entry.file_name());
+        let metadata = fs::symlink_metadata(&from)?;
+        if metadata.is_dir() {
+            copy_tree(&from, &to)?;
+        } else if metadata.is_symlink() {
+            std::os::unix::fs::symlink(fs::read_link(&from)?, &to)?;
+        } else {
+            fs::copy(&from, &to)?;
+        }
+    }
+    Ok(())
+}
+
 fn runfile_path(root: &Path, logical: &str) -> Result<PathBuf, AgentRefusal> {
     let components: Vec<&str> = logical.split('/').collect();
     if components.iter().any(|component| matches!(*component, "" | "." | "..")) {

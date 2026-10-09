@@ -22,9 +22,11 @@ fn windows_settings(root: &Path) -> Config {
     settings
 }
 
-/// A MANIFEST in the form Bazel writes on Windows: forward slashes and a lower-case output root.
+/// A MANIFEST in the form Bazel writes on Windows: forward slashes and a lower-case output root, and a symlink
+/// runfile whose target is the link's text.
 const WINDOWS_MANIFEST: &str = "_main/.agents/versions.env C:/dev/iw/.agents/versions.env\n\
                                 _main/lib/a.jar C:/programdata/_bazel/kxsaieyx/execroot/_main/bazel-out/bin/a.jar\n\
+                                _main/pkg/node_modules/a ../../lib/a.jar\n\
                                 _main/empty.txt \n";
 
 /// A descriptor whose only runfiles are a MANIFEST beside it, as on a Windows host.
@@ -60,6 +62,11 @@ fn a_host_with_only_a_manifest_reads_each_runfile_at_its_target() {
         runfiles.host_path("_main/lib/a.jar"),
         Some(PathBuf::from("C:/programdata/_bazel/kxsaieyx/execroot/_main/bazel-out/bin/a.jar"))
     );
+    // A symlink runfile is read at the file its chain ends at.
+    assert_eq!(
+        runfiles.host_path("_main/pkg/node_modules/a"),
+        Some(PathBuf::from("C:/programdata/_bazel/kxsaieyx/execroot/_main/bazel-out/bin/a.jar"))
+    );
     // An empty target is an empty file, which no declared input is, and a path with no line is not a runfile.
     assert_eq!(runfiles.host_path("_main/empty.txt"), None);
     assert_eq!(runfiles.host_path("_main/absent.jar"), None);
@@ -78,6 +85,58 @@ fn a_runfiles_directory_with_only_a_manifest_is_no_tree() {
     let runfiles = HostRunfiles::of(&descriptor).unwrap();
     assert_eq!(runfiles.location(), root.join("MANIFEST"));
     assert!(matches!(runfiles, HostRunfiles::Manifest { .. }));
+}
+
+/// Windows Bazel writes `MANIFEST` and an empty `_main` directory into the runfiles directory. The empty directory is
+/// no tree, so the MANIFEST is read and the runfile is found at its target.
+#[test]
+fn a_windows_runfiles_directory_with_an_empty_main_is_read_through_its_manifest() {
+    let directory = tempfile::tempdir().unwrap();
+    let descriptor = directory.path().join("ui_daemon.runtime.json");
+    let root = runfiles_root(&descriptor);
+    std::fs::create_dir_all(root.join("_main")).unwrap();
+    std::fs::write(root.join("MANIFEST"), WINDOWS_MANIFEST).unwrap();
+    assert!(HostRunfiles::present(&descriptor));
+    let runfiles = HostRunfiles::of(&descriptor).unwrap();
+    assert_eq!(runfiles.location(), root.join("MANIFEST"));
+    assert_eq!(
+        runfiles.host_path("_main/lib/a.jar"),
+        Some(PathBuf::from("C:/programdata/_bazel/kxsaieyx/execroot/_main/bazel-out/bin/a.jar"))
+    );
+}
+
+/// On a Windows host a target is resolved through its junctions before the guest sees it, because the guest's mount
+/// cannot read a junction. A symbolic link stands in for the junction here, and the rendered bytes carry the result.
+#[cfg(unix)]
+#[test]
+fn a_windows_host_resolves_each_target_through_its_links_before_the_guest_sees_it() {
+    let directory = tempfile::tempdir().unwrap();
+    let real = directory.path().join("cache/contents/kotlin-stdlib.jar");
+    std::fs::create_dir_all(real.parent().unwrap()).unwrap();
+    std::fs::write(&real, b"jar").unwrap();
+    let external = directory.path().join("external");
+    std::os::unix::fs::symlink(directory.path().join("cache/contents"), &external).unwrap();
+    let descriptor = directory.path().join("ui_daemon.runtime.json");
+    let linked = external.join("kotlin-stdlib.jar");
+    std::fs::write(
+        &manifest_paths(&descriptor)[0],
+        format!("_main/lib/kotlin-stdlib.jar {}\n", linked.display()),
+    )
+    .unwrap();
+    let resolved = fscopy::resolve_links(&real).unwrap().to_string_lossy().into_owned();
+
+    let runfiles = HostRunfiles::of_on(&descriptor, HostOs::Windows).unwrap();
+    assert_eq!(runfiles.host_path("_main/lib/kotlin-stdlib.jar"), Some(PathBuf::from(&resolved)));
+    let HostRunfiles::Manifest { bytes, .. } = &runfiles else {
+        panic!("a MANIFEST");
+    };
+    assert_eq!(
+        String::from_utf8(bytes.clone()).unwrap(),
+        format!("_main/lib/kotlin-stdlib.jar {resolved}\n")
+    );
+    // A Unix host keeps the target as written.
+    let kept = HostRunfiles::of_on(&descriptor, HostOs::Linux).unwrap();
+    assert_eq!(kept.host_path("_main/lib/kotlin-stdlib.jar"), Some(linked));
 }
 
 /// With neither a tree nor a MANIFEST the answer is the tree, which is not present, so the build refuses by name.

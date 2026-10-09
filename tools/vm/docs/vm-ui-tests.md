@@ -358,7 +358,13 @@ The host paths are Windows paths, and the guest is Linux, so two steps differ fr
   `guestBazelUserRoot`), so a worker that a Unix controller provisioned provisions again once.
 - **The runfiles.** Windows Bazel writes the runfiles MANIFEST of a test and no runfiles tree. `HostRunfiles`
   decides from the disk: a `<descriptor>.runfiles` tree is used as it is, and otherwise the controller reads
-  `<descriptor>.runfiles_manifest`, then `<descriptor>.runfiles/MANIFEST`. In the `parity-probe` phase, the guest
+  `<descriptor>.runfiles_manifest`, then `<descriptor>.runfiles/MANIFEST`. A symlink runfile's line holds the link's
+  own text, relative to its directory; the host follows it through the MANIFEST to the file, and the guest links it
+  as it is. On a Windows host every absolute target is resolved through its junctions before the guest sees it,
+  because Bazel's external repositories there are junctions into the repository cache, which the guest's mount
+  cannot read; the MANIFEST travels to the guest as text. A package directory of a `node_modules` store is copied
+  into the tree rather than linked, because Node resolves an import from the real path of the importing file, and
+  the dependency links beside a package are junctions on the mount. In the `parity-probe` phase, the guest
   verb `runfiles-tree` builds the tree at `<vmData>/runfiles/<digest>`, the root the host predicted. It keeps that
   tree and the newest other one. A root other than the predicted one is `guest_runfiles_mismatch`, and a bad reply
   is `guest_runfiles_protocol`.

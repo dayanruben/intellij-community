@@ -49,8 +49,9 @@ stage reads its manifest on standard input, or from the file MANIFEST names. It 
 read-file copies PATH to standard output unchanged. Then it writes its envelope on standard error, which names the \
 size and the SHA-256 of what it wrote.
 
-runfiles-tree reads a JSON request on standard input: a MANIFEST path, the host-to-guest path table and a \
-destination directory. It builds one link per MANIFEST line under DESTINATION/DIGEST and answers that root.
+runfiles-tree reads a JSON request on standard input: the MANIFEST text, the host-to-guest path table and a \
+destination directory. It builds one link per MANIFEST line under DESTINATION/DIGEST, copies a package directory of a \
+node_modules store, and answers that root.
 
 ide-prepare reads the IDE context document on standard input and lays out the context IDE_ROOT/LAUNCH_KEY: the data \
 directories, the project, the home and the bin directory of the IDE. The caller then seeds the home, the bin directory \

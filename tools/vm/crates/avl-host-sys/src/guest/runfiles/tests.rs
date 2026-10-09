@@ -33,8 +33,7 @@ fn reply(root: &str, reused: bool) -> String {
     .to_string()
 }
 
-/// The verb gets the MANIFEST by its guest path, the table of the shares, and the destination, on its stdin, as the
-/// worker user.
+/// The verb gets the MANIFEST text, the table of the shares, and the destination, on its stdin, as the worker user.
 #[tokio::test]
 async fn a_manifest_is_sent_to_the_verb_and_its_root_is_checked() {
     let (host, runfiles) = manifest_host();
@@ -51,13 +50,14 @@ async fn a_manifest_is_sent_to_the_verb_and_its_root_is_checked() {
     );
     let request: RunfilesTreeRequest = serde_json::from_slice(calls[0].options.stdin.as_deref().unwrap()).unwrap();
     let paths = GuestPaths::of(settings).unwrap();
+    let HostRunfiles::Manifest { bytes, .. } = &runfiles else {
+        panic!("a MANIFEST");
+    };
     assert_eq!(
         request,
         RunfilesTreeRequest {
             schema_version: SCHEMA_VERSION,
-            manifest: paths
-                .to_guest(&manifest_paths(&host.repo.join("ui_daemon.runtime.json"))[0])
-                .unwrap(),
+            manifest_text: String::from_utf8(bytes.clone()).unwrap(),
             path_map: paths.map().clone(),
             destination: guest_runfiles_destination(settings),
         }

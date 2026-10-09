@@ -2,12 +2,16 @@
 //!
 //! On Windows, Bazel writes the MANIFEST of a test but no runfiles tree. A Linux guest reads the runfiles through the
 //! shares, so there the guest builds the tree itself: one symbolic link per MANIFEST line, to the guest path of its
-//! host target ([`crate::path_map::PathMap`]).
+//! host target ([`crate::path_map::PathMap`]), and a copy for a package directory of a `node_modules` store, so
+//! Node's real-path resolution stays inside the tree. The host sends the MANIFEST as text, with every target
+//! resolved through its junctions: on Windows, Bazel's external repositories are junctions into the repository
+//! cache, and the guest's mount cannot read a junction.
 //!
 //! # The MANIFEST format
 //!
-//! One line per runfile: the logical path, one space, and the target, an absolute host path. An empty target is an
-//! empty file. A line that starts with a space is escaped, because its path or its target holds a space, a newline or
+//! One line per runfile: the logical path, one space, and the target: an absolute host path, or the link's own text
+//! for a symlink runfile, relative to the directory of its runfile. An empty target is an empty file. A line that
+//! starts with a space is escaped, because its path or its target holds a space, a newline or
 //! a backslash. In the logical path of such a line `\s` is a space, `\n` a newline and `\b` a backslash. In its
 //! target `\n` is a newline and `\b` a backslash, and a space stays as it is. The runfiles libraries of Bazel read
 //! the same format.
@@ -17,7 +21,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
-use crate::path_map::PathMap;
+use crate::path_map::{PathMap, is_absolute_host_path};
 
 #[cfg(test)]
 mod tests;
@@ -27,7 +31,7 @@ mod tests;
 pub struct ManifestEntry {
     /// The path under the runfiles root, e.g. `_main/pkg/data.txt`.
     pub path: String,
-    /// The host file the runfile is, or an empty text for an empty file.
+    /// The host file the runfile is, the link text of a symlink runfile, or an empty text for an empty file.
     pub target: String,
 }
 
@@ -92,6 +96,63 @@ impl RunfilesManifest {
             .find(|entry| entry.path == path)
             .map(|entry| entry.target.as_str())
     }
+
+    /// The host target of the runfile at `path`, through the symlink runfiles on the way. A target that is not an
+    /// absolute host path is the text of a symlink, relative to the directory of its runfile, and the runfile it
+    /// names has the next line. `None` when no line names the runfile, when a chain leaves the runfiles root, or
+    /// when it is longer than [`SYMLINK_CHAIN_LIMIT`]. An empty target is an empty file.
+    pub fn host_target(&self, path: &str) -> Option<&str> {
+        let mut path = path.to_owned();
+        for _ in 0..SYMLINK_CHAIN_LIMIT {
+            let target = self.resolve(&path)?;
+            if target.is_empty() || is_absolute_host_path(target) {
+                return Some(target);
+            }
+            path = join_logical(&path, target)?;
+        }
+        None
+    }
+
+    /// The MANIFEST text of these entries, in the format [`RunfilesManifest::parse`] reads: a line whose path or
+    /// target holds a space, a newline or a backslash is escaped.
+    pub fn render(&self) -> String {
+        let mut text = String::new();
+        for entry in &self.entries {
+            let escaped = [&entry.path, &entry.target].iter().any(|half| half.contains([' ', '\n', '\\']));
+            if escaped {
+                text.push(' ');
+                text.push_str(&escape(&entry.path, true));
+                text.push(' ');
+                text.push_str(&escape(&entry.target, false));
+            } else {
+                text.push_str(&entry.path);
+                text.push(' ');
+                text.push_str(&entry.target);
+            }
+            text.push('\n');
+        }
+        text
+    }
+}
+
+/// How many symlink runfiles one lookup follows: the limit Linux puts on a chain of symbolic links.
+const SYMLINK_CHAIN_LIMIT: usize = 40;
+
+/// The runfile that the symlink runfile at `path` names with the relative `target`: the target applied to the
+/// directory of `path`, or `None` when it climbs above the runfiles root.
+fn join_logical(path: &str, target: &str) -> Option<String> {
+    let mut components: Vec<&str> = path.split('/').collect();
+    components.pop();
+    for component in target.split('/') {
+        match component {
+            "" | "." => {}
+            ".." => {
+                components.pop()?;
+            }
+            name => components.push(name),
+        }
+    }
+    Some(components.join("/"))
 }
 
 /// Decodes one escaped half of a line in one pass, so `\bs` is a backslash and an `s`. A path knows `\s`, and a
@@ -114,18 +175,34 @@ fn unescape(text: &str, path: bool) -> Option<String> {
     Some(decoded)
 }
 
+/// Encodes one half of an escaped line: a newline is `\n`, a backslash `\b`, and in a path a space is `\s`.
+fn escape(text: &str, path: bool) -> String {
+    let mut encoded = String::with_capacity(text.len());
+    for character in text.chars() {
+        match character {
+            ' ' if path => encoded.push_str("\\s"),
+            '\n' => encoded.push_str("\\n"),
+            '\\' => encoded.push_str("\\b"),
+            other => encoded.push(other),
+        }
+    }
+    encoded
+}
+
 // --- the guest verb ------------------------------------------------------------------------------------------
 
-/// The version of [`RunfilesTreeRequest`] and of the tree it builds.
-pub const SCHEMA_VERSION: u32 = 1;
+/// The version of [`RunfilesTreeRequest`] and of the tree it builds. It is part of the tree's digest, and the guest
+/// reuses a tree by its digest, so a change in how the tree is built is a new version, or the guest keeps the tree
+/// the old builder made.
+pub const SCHEMA_VERSION: u32 = 3;
 
 /// What `runfiles-tree` reads on stdin.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RunfilesTreeRequest {
     pub schema_version: u32,
-    /// The MANIFEST, as a guest path: the host's file seen through a share.
-    pub manifest: String,
+    /// The MANIFEST text, as the host read and resolved it.
+    pub manifest_text: String,
     /// Turns each absolute host target into its guest path.
     pub path_map: PathMap,
     /// An absolute guest directory under the worker data directory. The tree is `<destination>/<digest>`.

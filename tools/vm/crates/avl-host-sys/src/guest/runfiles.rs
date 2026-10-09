@@ -28,14 +28,14 @@ impl Guest<'_> {
     /// which builds the tree or reuses the tree of the same digest. The verb keeps that tree and the one used before
     /// it, and removes every other entry of the destination.
     pub async fn ensure_runfiles_tree(&self, runfiles: &HostRunfiles, expected_root: &str) -> Result<(), Refusal> {
-        let HostRunfiles::Manifest { path, .. } = runfiles else {
+        let HostRunfiles::Manifest { bytes, .. } = runfiles else {
             return Ok(());
         };
         let settings = self.settings;
         let paths = GuestPaths::of(settings)?;
         let request = RunfilesTreeRequest {
             schema_version: SCHEMA_VERSION,
-            manifest: paths.to_guest(path)?,
+            manifest_text: String::from_utf8_lossy(bytes).into_owned(),
             path_map: paths.map().clone(),
             destination: guest_runfiles_destination(settings),
         };

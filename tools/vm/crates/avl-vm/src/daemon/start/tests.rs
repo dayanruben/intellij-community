@@ -913,12 +913,12 @@ async fn a_host_without_a_tree_has_the_guest_build_it_before_the_probe() {
     assert!(built < at(" stage "));
     let request: avl_wire::runfiles::RunfilesTreeRequest = serde_json::from_slice(calls[built].options.stdin.as_deref().unwrap()).unwrap();
     let paths = GuestPaths::of(&fixture.settings).unwrap();
-    assert_eq!(
-        request.manifest,
-        paths
-            .to_guest(&avl_host_sys::runfiles::manifest_paths(&fixture.bazel.descriptor_path)[0])
-            .unwrap()
-    );
+    let avl_host_sys::runfiles::HostRunfiles::Manifest { bytes, .. } =
+        avl_host_sys::runfiles::HostRunfiles::of(&fixture.bazel.descriptor_path).unwrap()
+    else {
+        panic!("a MANIFEST");
+    };
+    assert_eq!(request.manifest_text, String::from_utf8(bytes).unwrap());
     assert_eq!(request.path_map, *paths.map());
     // What the guest runs from is the built tree.
     assert!(

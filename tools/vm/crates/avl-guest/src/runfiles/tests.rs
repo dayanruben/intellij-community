@@ -28,10 +28,10 @@ fn table(shares: &Path) -> PathMap {
     ])
 }
 
-fn request(manifest: &Path, shares: &Path, destination: &Path) -> Value {
+fn request(manifest: &str, shares: &Path, destination: &Path) -> Value {
     json!({
-        "schemaVersion": 1,
-        "manifest": manifest,
+        "schemaVersion": 3,
+        "manifestText": manifest,
         "pathMap": table(shares),
         "destination": destination,
     })
@@ -45,9 +45,7 @@ fn run(request: &Value) -> crate::testing::Answered {
 fn every_line_becomes_its_runfile_under_the_digest_and_a_second_build_reuses_it() {
     let directory = tempfile::tempdir().unwrap();
     let (shares, destination) = (directory.path().join("shares"), directory.path().join("runfiles"));
-    let manifest = directory.path().join("MANIFEST");
-    fs::write(&manifest, MANIFEST).unwrap();
-    let request = request(&manifest, &shares, &destination);
+    let request = request(MANIFEST, &shares, &destination);
 
     let answered = run(&request);
     assert_eq!(answered.exit, 0, "{}", answered.stderr);
@@ -82,15 +80,44 @@ fn every_line_becomes_its_runfile_under_the_digest_and_a_second_build_reuses_it(
     assert_eq!(again["data"]["root"], data["root"]);
 }
 
+/// A package directory of a `node_modules` store is copied into the tree, and the dependency link beside it stays a
+/// link of the tree, so Node's real-path resolution from the copy finds the tree's links.
+#[test]
+fn a_node_modules_package_directory_is_copied_into_the_tree() {
+    let directory = tempfile::tempdir().unwrap();
+    let (shares, destination) = (directory.path().join("shares"), directory.path().join("runfiles"));
+    let store = shares.join("bazel/execroot/_main/bazel-out/bin/pkg/node_modules/.aspect_rules_js/x@1/node_modules/x");
+    fs::create_dir_all(store.join("dist")).unwrap();
+    fs::write(store.join("dist/index.js"), "export default 1;\n").unwrap();
+    std::os::unix::fs::symlink("dist/index.js", store.join("main.js")).unwrap();
+    let text = concat!(
+        "_main/pkg/node_modules/.aspect_rules_js/x@1/node_modules/x ",
+        "C:/Users/air/_bazel/execroot/_main/bazel-out/bin/pkg/node_modules/.aspect_rules_js/x@1/node_modules/x\n",
+        "_main/pkg/node_modules/.aspect_rules_js/x@1/node_modules/y ../../y@1/node_modules/y\n",
+        "_main/pkg/data.txt C:/Users/air/repo/pkg/data.txt\n",
+    );
+    let document = run(&request(text, &shares, &destination)).document();
+    assert_eq!(document["ok"], true, "{document}");
+    let root = Path::new(document["data"]["root"].as_str().unwrap()).to_path_buf();
+    let copied = root.join("_main/pkg/node_modules/.aspect_rules_js/x@1/node_modules/x");
+    assert!(fs::symlink_metadata(&copied).unwrap().is_dir());
+    assert_eq!(fs::read_to_string(copied.join("dist/index.js")).unwrap(), "export default 1;\n");
+    assert_eq!(fs::read_link(copied.join("main.js")).unwrap(), Path::new("dist/index.js"));
+    assert_eq!(
+        fs::read_link(root.join("_main/pkg/node_modules/.aspect_rules_js/x@1/node_modules/y")).unwrap(),
+        Path::new("../../y@1/node_modules/y")
+    );
+    // A file outside a store is still a link.
+    assert!(fs::symlink_metadata(root.join("_main/pkg/data.txt")).unwrap().is_symlink());
+}
+
 /// Another table links to other targets, so it is another digest and another tree.
 #[test]
 fn another_path_table_is_another_tree() {
     let directory = tempfile::tempdir().unwrap();
-    let manifest = directory.path().join("MANIFEST");
-    fs::write(&manifest, MANIFEST).unwrap();
     let destination = directory.path().join("runfiles");
-    let first = run(&request(&manifest, &directory.path().join("a"), &destination)).document();
-    let second = run(&request(&manifest, &directory.path().join("b"), &destination)).document();
+    let first = run(&request(MANIFEST, &directory.path().join("a"), &destination)).document();
+    let second = run(&request(MANIFEST, &directory.path().join("b"), &destination)).document();
     assert_ne!(first["data"]["digest"], second["data"]["digest"]);
     assert_eq!(second["data"]["reused"], false);
 }
@@ -100,10 +127,12 @@ fn another_path_table_is_another_tree() {
 #[test]
 fn a_target_outside_the_table_is_refused_by_name() {
     let directory = tempfile::tempdir().unwrap();
-    let manifest = directory.path().join("MANIFEST");
-    fs::write(&manifest, "_main/a C:/Users/air/repo/a\n_main/b D:/elsewhere/b\n").unwrap();
     let destination = directory.path().join("runfiles");
-    let answered = run(&request(&manifest, &directory.path().join("shares"), &destination));
+    let answered = run(&request(
+        "_main/a C:/Users/air/repo/a\n_main/b D:/elsewhere/b\n",
+        &directory.path().join("shares"),
+        &destination,
+    ));
     assert_eq!(answered.exit, 70, "{}", answered.stderr);
     assert_eq!(answered.code(), UNMAPPED_TARGET_CODE);
     let message = answered.failure()["error"]["message"].as_str().unwrap().to_owned();
@@ -116,7 +145,6 @@ fn a_request_or_a_manifest_the_verb_cannot_act_on_is_the_verbs_refusal() {
     let directory = tempfile::tempdir().unwrap();
     let shares = directory.path().join("shares");
     let destination = directory.path().join("runfiles");
-    let manifest = directory.path().join("MANIFEST");
     let refused = |request: &Value| {
         let answered = run(request);
         assert_eq!(answered.exit, 70, "{request}: {}", answered.stderr);
@@ -128,24 +156,19 @@ fn a_request_or_a_manifest_the_verb_cannot_act_on_is_the_verbs_refusal() {
         "/abs C:/Users/air/repo/a\n",
         " _main/a\\x C:/f\n",
     ] {
-        fs::write(&manifest, text).unwrap();
         assert_eq!(
-            refused(&request(&manifest, &shares, &destination)),
+            refused(&request(text, &shares, &destination)),
             "guest_runfiles_tree_failed",
             "{text:?}"
         );
     }
-    let missing = request(&directory.path().join("absent"), &shares, &destination);
-    assert_eq!(refused(&missing), "guest_runfiles_tree_failed");
-
-    fs::write(&manifest, MANIFEST).unwrap();
-    let mut wrong = request(&manifest, &shares, &destination);
-    wrong["schemaVersion"] = json!(2);
+    let mut wrong = request(MANIFEST, &shares, &destination);
+    wrong["schemaVersion"] = json!(4);
     assert_eq!(refused(&wrong), "guest_runfiles_tree_failed");
-    let mut relative = request(&manifest, &shares, &destination);
+    let mut relative = request(MANIFEST, &shares, &destination);
     relative["destination"] = json!("runfiles");
     assert_eq!(refused(&relative), "guest_runfiles_tree_failed");
-    let mut bad_table = request(&manifest, &shares, &destination);
+    let mut bad_table = request(MANIFEST, &shares, &destination);
     bad_table["pathMap"] = json!({"prefixes": [{"host": "C:/a", "guest": "mnt/a"}]});
     assert_eq!(refused(&bad_table), "guest_runfiles_tree_failed");
 
@@ -161,10 +184,8 @@ fn a_request_or_a_manifest_the_verb_cannot_act_on_is_the_verbs_refusal() {
 fn a_build_keeps_its_tree_and_the_newest_other_one() {
     let directory = tempfile::tempdir().unwrap();
     let (shares, destination) = (directory.path().join("shares"), directory.path().join("runfiles"));
-    let manifest = directory.path().join("MANIFEST");
     let build = |text: &str| {
-        fs::write(&manifest, text).unwrap();
-        let document = run(&request(&manifest, &shares, &destination)).document();
+        let document = run(&request(text, &shares, &destination)).document();
         assert_eq!(document["ok"], true, "{document}");
         document["data"].clone()
     };
