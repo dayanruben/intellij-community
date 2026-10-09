@@ -204,7 +204,8 @@ impl Manager {
         // channel's `docker exec` and every layer that spawns through this runner reach the same engine with the same
         // CLI.
         let docker_host = settings.runs_lima_engine().then(|| crate::worker::lima::docker_host(&settings));
-        let docker_config = (settings.backend == Backend::Docker && settings.docker.is_none())
+        // The Apple `container` engine runs no Docker CLI, so it gets neither.
+        let docker_config = (settings.backend == Backend::Docker && settings.docker.is_none() && !settings.runs_container_engine())
             .then(|| settings.docker_config_dir().to_string_lossy().into_owned());
         let overrides: Vec<(&str, &str)> = [
             docker_host.as_deref().map(|value| ("DOCKER_HOST", value)),

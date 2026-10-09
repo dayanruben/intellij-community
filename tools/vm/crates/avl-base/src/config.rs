@@ -74,6 +74,20 @@ pub fn docker_buildx_label(arch: GuestArch) -> String {
     format!("@community//tools/vm:air_docker_buildx_darwin_{}", darwin_arch(arch))
 }
 
+/// The pinned Apple `container` CLI, declared in `container.MODULE.bazel` of this workspace. Apple builds it for
+/// Apple silicon only, so there is one label. The Docker backend asks Bazel for it when it runs on the Apple
+/// `container` engine ([`DockerEngine::AppleContainer`]), unless `CONTAINER_BIN` names another executable.
+pub const CONTAINER_LABEL: &str = "@community//tools/vm:air_container_darwin_arm64";
+
+/// Chooses the engine of the Docker backend on a macOS host: `lima`, the default, or `container`. The variable is
+/// read only when neither `DOCKER_BIN` nor `DOCKER_HOST` names an engine. ADR 0222 records the transition.
+pub const DOCKER_ENGINE_VARIABLE: &str = "AIR_VM_DOCKER_ENGINE";
+
+/// The default memory of one worker on the Apple `container` engine, in MiB. Each container is a VM of its own, and
+/// the live lane's container peaked at 6.3 GiB on 2026-10-04 (ADR 0200). A running VM returns no memory to the host
+/// until it stops, so the limit is the price of a running worker.
+pub const CONTAINER_WORKER_MEMORY_MIB: u32 = 8_192;
+
 /// The target name of a label: what follows the last `:`. A pin label names an alias, and the alias has the name of
 /// the repository that it forwards to.
 pub fn label_target(label: &str) -> &str {
@@ -428,35 +442,44 @@ impl HostOs {
     }
 }
 
-/// The engine the containers of a Docker pool run on. Nothing selects it: it follows the environment and the host.
+/// The engine the containers of a Docker pool run on. It follows the environment and the host.
 ///
 /// When the environment names an engine, through `DOCKER_BIN` or `DOCKER_HOST`, the backend runs that CLI against
 /// that engine. When it names none, a macOS host runs the pinned CLI against a Lima VM the controller owns, so a Mac
-/// needs no Docker installation. A Linux or a Windows host keeps the engine it has, because Lima needs QEMU on Linux
-/// and WSL2 on Windows, and both are installations too.
+/// needs no Docker installation. [`DOCKER_ENGINE_VARIABLE`] set to `container` chooses the Apple `container` engine
+/// there instead. A Linux or a Windows host keeps the engine it has, because Lima needs QEMU on Linux and WSL2 on
+/// Windows, and both are installations too.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum DockerEngine {
     /// The engine of the host environment: `DOCKER_HOST`, or the default context of the CLI.
     External,
     /// The Lima VM [`LIMA_ENGINE_INSTANCE`] under [`Config::lima_home`].
     Lima,
+    /// Apple `container`: one VM per container, driven through its own CLI, the pin at [`CONTAINER_LABEL`] or
+    /// `CONTAINER_BIN`. The server is the one of the login session, on the default data root of the tool.
+    AppleContainer,
 }
 
 impl DockerEngine {
-    /// The engine rule, as a pure function of the host and of the two variables that name an engine.
-    pub const fn decide(host: HostOs, docker_bin_set: bool, docker_host_set: bool) -> Self {
+    /// The engine rule, as a pure function of the host, of the two variables that name an engine, and of the choice
+    /// of [`DOCKER_ENGINE_VARIABLE`].
+    pub const fn decide(host: HostOs, docker_bin_set: bool, docker_host_set: bool, apple_container_chosen: bool) -> Self {
         if docker_bin_set || docker_host_set || !matches!(host, HostOs::Macos) {
             Self::External
+        } else if apple_container_chosen {
+            Self::AppleContainer
         } else {
             Self::Lima
         }
     }
 
-    /// The word `status` prints: `host` for the engine of the host environment, `lima` for the controller's VM.
+    /// The word `status` prints: `host` for the engine of the host environment, `lima` for the controller's VM,
+    /// `container` for Apple `container`.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::External => "host",
             Self::Lima => "lima",
+            Self::AppleContainer => "container",
         }
     }
 }
@@ -882,6 +905,12 @@ pub struct Config {
     pub docker_host: Option<String>,
     /// The engine the containers of a Docker pool run on ([`DockerEngine::decide`]); a test fixture may pin it.
     pub docker_engine: DockerEngine,
+    /// The Apple `container` executable `CONTAINER_BIN` names, or `None` for the pinned CLI at [`CONTAINER_LABEL`].
+    /// Only the Apple `container` engine reads it.
+    pub container: Option<PathBuf>,
+    /// The nameserver of a build and of a container on the Apple `container` engine (`AIR_VM_DNS`), or `None` for the
+    /// default the engine derives from the host. The engine's own DNS proxy does not answer on every host.
+    pub vm_dns: Option<String>,
     /// The home directory of the user, from `HOME`, or from `USERPROFILE` on Windows. The Lima engine mounts it
     /// read-only, so the repository and the Bazel output user root must be under it.
     pub home: PathBuf,
@@ -950,7 +979,8 @@ pub struct Config {
     /// The memory of a worker VM in MiB (`AIR_VM_MEMORY_MB`): 32768 for a macOS guest.
     ///
     /// On the Lima engine it is the memory of the engine VM, which every container of the Docker pool shares, and the
-    /// default is [`LIMA_ENGINE_MEMORY_MIB`]. A container on an external engine has no cap of its own, so nothing
+    /// default is [`LIMA_ENGINE_MEMORY_MIB`]. On the Apple `container` engine it is the memory of one worker, and the
+    /// default is [`CONTAINER_WORKER_MEMORY_MIB`]. A container on an external engine has no cap of its own, so nothing
     /// reads the value there.
     pub vm_memory_mib: u32,
     /// The macOS guest's screen, `tart set --display` (`AIR_VM_RESOLUTION`). Not the Linux X display, which is
@@ -1142,7 +1172,26 @@ impl Config {
         // The engine rule reads the two variables as they are set, before a default fills `docker`.
         let docker_bin = reader.optional("DOCKER_BIN").map(PathBuf::from);
         let docker_host = reader.optional("DOCKER_HOST");
-        let docker_engine = DockerEngine::decide(host, docker_bin.is_some(), docker_host.is_some());
+        let engine_choice = reader.string(DOCKER_ENGINE_VARIABLE, "lima");
+        let apple_container_chosen = match engine_choice.as_str() {
+            "lima" => false,
+            "container" => true,
+            other => {
+                reader.refuse(Refusal::invalid_environment(format!(
+                    r#"{DOCKER_ENGINE_VARIABLE} must be "lima" or "container", not {other:?}"#
+                )));
+                false
+            }
+        };
+        let docker_engine = DockerEngine::decide(host, docker_bin.is_some(), docker_host.is_some(), apple_container_chosen);
+        let vm_dns = reader.optional("AIR_VM_DNS");
+        if let Some(dns) = vm_dns.as_deref()
+            && dns.parse::<std::net::IpAddr>().is_err()
+        {
+            reader.refuse(Refusal::invalid_environment(format!(
+                "AIR_VM_DNS must be one IPv4 or IPv6 address of a nameserver, not {dns:?}"
+            )));
+        }
         let docker = docker_bin.or_else(|| (host != HostOs::Macos).then(|| PathBuf::from("docker")));
         let lima_home = reader.path("AIR_VM_LIMA_HOME", || home.join(".local/state/JetBrains/air-vm-ui-tests/lima"));
 
@@ -1193,11 +1242,12 @@ impl Config {
         reader.name(&bazel_share_name, "Bazel share name");
 
         // The daemon JVM sets no `-Xmx`, so its default maximum heap follows the cap. The Lima engine is one VM that
-        // the two containers of a Docker pool share, so it gets 16 GiB; see [`Config::vm_memory_mib`].
-        let vm_memory_fallback = if backend == Backend::Docker && docker_engine == DockerEngine::Lima {
-            LIMA_ENGINE_MEMORY_MIB
-        } else {
-            32_768
+        // the two containers of a Docker pool share, so it gets 16 GiB. An Apple `container` worker is a VM of its
+        // own; see [`Config::vm_memory_mib`].
+        let vm_memory_fallback = match (backend, docker_engine) {
+            (Backend::Docker, DockerEngine::Lima) => LIMA_ENGINE_MEMORY_MIB,
+            (Backend::Docker, DockerEngine::AppleContainer) => CONTAINER_WORKER_MEMORY_MIB,
+            _ => 32_768,
         };
 
         let vm_node_fallback = if linux {
@@ -1279,6 +1329,8 @@ impl Config {
             docker,
             docker_host,
             docker_engine,
+            container: reader.optional("CONTAINER_BIN").map(PathBuf::from),
+            vm_dns,
             home: home.clone(),
             lima_home,
             docker_image,
@@ -1507,6 +1559,16 @@ impl Config {
     /// Whether this pool is a Docker pool on the controller's Lima engine.
     pub fn runs_lima_engine(&self) -> bool {
         self.backend == Backend::Docker && self.docker_engine == DockerEngine::Lima
+    }
+
+    /// Whether this pool is a Docker pool on the Apple `container` engine.
+    pub fn runs_container_engine(&self) -> bool {
+        self.backend == Backend::Docker && self.docker_engine == DockerEngine::AppleContainer
+    }
+
+    /// Where `container system start` writes its log.
+    pub fn container_system_log_path(&self) -> PathBuf {
+        self.runtime_root.join("container-system.log")
     }
 
     /// The host end of the Docker socket that the Lima engine forwards. `DOCKER_HOST` is `unix://` and this path.

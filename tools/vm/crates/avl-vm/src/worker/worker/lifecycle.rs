@@ -424,13 +424,14 @@ impl Manager {
         }
     }
 
-    /// What `pool recycle all` does for the whole pool before it unmakes the slots. Only the Docker backend on its
-    /// Lima engine does something: it deletes the engine, so the recycle makes the whole pool again, the engine VM
-    /// included.
+    /// What `pool recycle all` does for the whole pool before it unmakes the slots. Only the Docker backend does
+    /// something. On its Lima engine it deletes the engine, so the recycle makes the whole pool again, the engine VM
+    /// included. On the Apple `container` engine it deletes the builder VM.
     pub(super) async fn delete_pool_engine(&self, ctx: &Ctx) -> Result<(), Refusal> {
         match self.machine.as_ref() {
             Machine::Docker(docker) => match docker.engine() {
                 Some(engine) => self.delete_docker_engine(ctx, engine).await,
+                None if docker.apple().is_some() => self.delete_docker_builder(ctx, docker).await,
                 None => Ok(()),
             },
             #[cfg(unix)]

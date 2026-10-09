@@ -264,6 +264,36 @@ DOCKER_CONFIG="<runtime root>/docker-config" docker login <registry>
 
 A Linux or a Windows host keeps the engine it has, because Lima needs QEMU on Linux and WSL2 on Windows.
 
+A Mac on Apple silicon can run the workers on Apple `container` instead of Lima, with
+`AIR_VM_DOCKER_ENGINE=container` and neither `DOCKER_BIN` nor `DOCKER_HOST` set
+([ADR 0222](decisions/0222-apple-container-is-a-second-engine-of-the-docker-backend.md)). Lima stays the default.
+Each container is a VM of its own. The controller runs the Apple CLI that Bazel pins in
+`community/tools/vm/container.MODULE.bazel`, or the one that `CONTAINER_BIN` names. It runs no Docker CLI and no buildx.
+
+```bash
+env -u DOCKER_HOST AIR_VM_DOCKER_ENGINE=container ./community/tools/vm.cmd run AgentSessionToolWindowComposerUiTest
+```
+
+- **One server per login session.** The controller uses the server that runs, on the default data root of the tool.
+  It never stops the server, because a `system stop` stops every container of the session, also the containers of
+  the `testing-ui` skill. A server that is down, after a reboot, is started under the image lock. The first start
+  downloads the kernel, about 700 MB, and its log is `<runtime root>/container-system.log`.
+- **A foreign server.** A server of another install with another major version is refused
+  `container_engine_foreign`. A server of another install with the same major version is used, with a note.
+- **The nameserver.** The DNS proxy of the engine does not answer on every host. So each build and each container
+  gets `--dns`: `AIR_VM_DNS`, else the first nameserver of the host outside the loopback, else `1.1.1.1`. A guest
+  that needs a name that only a VPN resolver knows needs `AIR_VM_DNS`.
+- **The sizes.** `AIR_VM_MEMORY_MB` is the memory of one worker, 8192 MiB by default, and `AIR_VM_CPU` its CPUs. A
+  running worker returns no memory to the host until it stops. Each build gives the builder the CPUs of a worker and
+  4 GiB.
+- **The pool commands.** `pool stop` stops the containers only. `pool recycle all` deletes the builder too. `status`
+  prints `engine=container` and whether the server runs, and it never starts the server.
+- **A boot that fails.** The engine keeps no exit code. A container that stops while it starts is refused
+  `container_exited`, with its log and its boot log, which holds the code.
+
+A shell that exports `DOCKER_HOST`, for example for OrbStack, keeps the external engine. Unset it for the run, as the
+example does.
+
 The live lane `ui-live` runs on the Docker guest too, but only when a caller names it, because each of its scenarios
 spends a billed turn ([ADR 0200](../../../../plugins/air/docs/decisions/0200-the-live-lane-also-runs-in-a-linux-guest-with-a-per-run-central-login.md)).
 Its lane table entry has no catalog lane, so no flow, suite or `--changed` reaches it, and `shard` and `flake` refuse it

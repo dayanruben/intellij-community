@@ -97,6 +97,13 @@ impl Fixture {
         Self::docker_builder().lima_engine().build()
     }
 
+    /// A Docker pool of one slot on the Apple `container` engine, over the fake `container`. The engine is pinned in
+    /// the settings, so the fixture runs on every Unix host.
+    #[cfg(unix)]
+    pub(crate) fn docker_container() -> Self {
+        Self::docker_builder().container_engine().build()
+    }
+
     pub(crate) fn worker(&self, index: usize) -> &str {
         &self.settings.workers[index]
     }
@@ -269,6 +276,13 @@ impl FixtureBuilder {
     #[cfg(unix)]
     pub(crate) fn build_boot(mut self, build: GuestBootBuilder) -> Self {
         self.build_boot = build;
+        self
+    }
+
+    /// Runs the Docker pool on the Apple `container` engine, over the fake `container` that `CONTAINER_BIN` names.
+    #[cfg(unix)]
+    pub(crate) fn container_engine(mut self) -> Self {
+        self.pool = self.pool.with_container_engine();
         self
     }
 

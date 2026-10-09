@@ -23,6 +23,20 @@ fn a_pool_runs_from_its_pins_only_what_no_variable_names() {
         PinnedTool::of_pool(&lima.settings),
         [PinnedTool::DockerCli, PinnedTool::DockerBuildx, PinnedTool::Limactl]
     );
+    // The Apple container engine runs no Docker CLI, and `CONTAINER_BIN` names the fake, so nothing is pinned.
+    let container = HostPool::builder(Backend::Docker, GuestOs::Linux, MINIMUM_VERSION)
+        .with_container_engine()
+        .build();
+    assert_eq!(PinnedTool::of_pool(&container.settings), []);
+    let pinned = HostPool::builder(Backend::Docker, GuestOs::Linux, MINIMUM_VERSION)
+        .with_container_engine()
+        .env("CONTAINER_BIN", "")
+        .build();
+    assert_eq!(PinnedTool::of_pool(&pinned.settings), [PinnedTool::Container]);
+    assert_eq!(
+        PinnedTool::Container.label(&pinned.settings),
+        "@community//tools/vm:air_container_darwin_arm64"
+    );
 }
 
 // The first request resolves every pinned tool of the pool with one `cquery` and one `info`, in any order of the

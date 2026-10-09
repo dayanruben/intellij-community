@@ -96,6 +96,27 @@
 //!   forwarded socket `$LIMA_HOME/<name>/sock/docker.sock` as a plain file.
 //! - `stop` writes `Stopped` and removes the socket. `delete` removes the state and `$LIMA_HOME/<name>`.
 //!
+//! The `container` verbs, which only the fake Apple `container` answers. It holds one container in the state file of
+//! the fake `docker`, [`Answer::ContainerState`], and prints it as the Apple CLI does:
+//!
+//! - `system status --format json` prints [`Answer::ContainerSystem`]. No such file is a server that is down: it
+//!   prints `{"status":"unregistered"}` and exits 1. `system start` exits from [`Answer::ContainerStartExit`], and a
+//!   start that succeeds copies [`Answer::ContainerSystemStarted`] over the status, or writes a running server of
+//!   version 1.5.0 whose install root is the parent of the fake's directory, the grandparent of the executable.
+//!   `system stop` exits 3: the controller must never stop the server of the login session.
+//! - `inspect <name>` prints `[{"configuration":{"id":…},"id":…,"status":{"state":…}}]`: `running` for `running/*`,
+//!   `stopped` for `created/*` and `exited/*`, and the word itself for any other state. No state file is
+//!   `container not found`, exit 1.
+//! - `create`, `start`, `stop` and `delete` are the state machine of the fake `docker`. `create` prints the name and
+//!   writes it over [`Answer::ContainerId`], because the Apple id is the name. `delete` without `-f` or `--force`
+//!   exits 1 for a running container.
+//! - `build … -t <ref> …`, `image pull <ref>` (from [`Answer::PullExit`]) and `image tag <src> <ref>` add `<ref>` to
+//!   the images, and `image delete <ref>` removes it. `image inspect <ref>` exits as the `docker` one and prints a
+//!   JSON array whose variant labels hold [`Answer::ImageRevision`]. `image push` exits from [`Answer::PushExit`].
+//! - `volume inspect` says `volume not found`, exit 1. `logs` prints [`Answer::ContainerLog`], and `logs --boot`
+//!   prints [`Answer::ContainerBootLog`]. `builder`, `volume delete` and anything else exit from [`Answer::Exit`].
+//! - The `exec` arms are the `tart` ones.
+//!
 //! The shared verbs, which both answer:
 //!
 //! - `--version` and `list` exit 0 unless a suite seeds the code. Both backends' gates check what a hypervisor too
@@ -142,6 +163,8 @@ pub enum Binary {
     Docker,
     /// The fake `limactl`, which a suite's Bazel resolves as the pinned one.
     Limactl,
+    /// The fake Apple `container`, which `CONTAINER_BIN` points at.
+    Container,
 }
 
 impl Binary {
@@ -152,6 +175,7 @@ impl Binary {
             Self::Parallels => "prlctl",
             Self::Docker => "docker",
             Self::Limactl => "limactl",
+            Self::Container => "container",
         }
     }
 }
@@ -233,6 +257,16 @@ pub enum Answer {
     LimaState,
     /// Exit code of `limactl start`, default 0. A nonzero exit starts nothing.
     LimaStartExit,
+    /// What `container system status --format json` prints. Absent is a server that is down.
+    ContainerSystem,
+    /// What `container system start` copies over [`Answer::ContainerSystem`] when seeded.
+    ContainerSystemStarted,
+    /// Exit code of `container system start`, default 0. A nonzero exit starts nothing.
+    ContainerStartExit,
+    /// What `container logs` prints.
+    ContainerLog,
+    /// What `container logs --boot` prints.
+    ContainerBootLog,
     /// The first argument of the calls of any fake of this directory that exit 0 and print nothing, such as
     /// `inspect` or `--version`: a probe that gave no answer.
     SilentVerb,
@@ -280,6 +314,11 @@ impl Answer {
             Self::ImageRevision => "image-revision.txt",
             Self::LimaState => "lima-state.txt",
             Self::LimaStartExit => "lima-start-exit.txt",
+            Self::ContainerSystem => "container-system.json",
+            Self::ContainerSystemStarted => "container-system-started.json",
+            Self::ContainerStartExit => "container-start-exit.txt",
+            Self::ContainerLog => "container-log.txt",
+            Self::ContainerBootLog => "container-boot-log.txt",
             Self::SilentVerb => "silent-verb.txt",
             Self::KilledVerb => "killed-verb.txt",
         }
@@ -379,6 +418,103 @@ if [ "$self" = prlctl ]; then
       esac ;;
   esac
 else
+  if [ "$self" = container ]; then
+    code=$(cat "$dir/exit.txt" 2>/dev/null || echo 0)
+    state="$dir/container-state.txt"
+    sys="$dir/container-system.json"
+    for ref in "$@"; do :; done
+    case "$1" in
+      system)
+        case "$2" in
+          status)
+            if [ -f "$sys" ]; then cat "$sys"; exit 0; fi
+            echo '{"status":"unregistered"}'
+            exit 1 ;;
+          start)
+            scode=$(cat "$dir/container-start-exit.txt" 2>/dev/null || echo 0)
+            echo "fake container: starting the server"
+            [ "$scode" = 0 ] || { echo "fake container: the start failed" >&2; exit "$scode"; }
+            if [ -f "$dir/container-system-started.json" ]; then
+              cp "$dir/container-system-started.json" "$sys"
+            else
+              printf '{"status":"running","paths":{"appRoot":"/fake/app-root/","installRoot":"%s/"},"client":{"version":"1.5.0"},"server":{"version":"1.5.0"},"host":{"architecture":"arm64"}}\n' "${dir%/*}" > "$sys"
+            fi
+            exit 0 ;;
+          stop) echo "fake container: the controller never stops the server" >&2; exit 3 ;;
+        esac
+        exit "$code" ;;
+      inspect)
+        [ -f "$state" ] || { echo "Error: container not found: $2" >&2; exit 1; }
+        id=$(cat "$dir/container-id.txt" 2>/dev/null)
+        current=$(cat "$state")
+        case "$current" in running/*) word=running ;; created/*|exited/*) word=stopped ;; *) word=${current%%/*} ;; esac
+        printf '[{"configuration":{"id":"%s"},"id":"%s","status":{"state":"%s"}}]\n' "$id" "$id" "$word"
+        exit 0 ;;
+      create)
+        name=; prev=
+        for word in "$@"; do [ "$prev" = --name ] && name=$word; prev=$word; done
+        if [ "$code" = 0 ]; then
+          echo "$name" > "$dir/container-id.txt"
+          echo created/0 > "$state"
+          echo "$name"
+        fi
+        exit "$code" ;;
+      start)
+        if [ "$code" = 0 ]; then
+          if [ -f "$dir/started-state.txt" ]; then cp "$dir/started-state.txt" "$state"; else echo running/0 > "$state"; fi
+          echo "$2"
+        fi
+        exit "$code" ;;
+      stop) [ "$code" = 0 ] && [ -f "$state" ] && echo exited/0 > "$state"; exit "$code" ;;
+      delete)
+        case "$2" in
+          -f|--force) ;;
+          *) if [ -f "$state" ]; then
+               case "$(cat "$state")" in
+                 running/*) echo "Error: container $2 is running and can not be deleted" >&2; exit 1 ;;
+               esac
+             fi ;;
+        esac
+        [ "$code" = 0 ] && rm -f "$state" "$dir/container-id.txt"
+        exit "$code" ;;
+      build)
+        tagged=; prev=
+        for word in "$@"; do [ "$prev" = -t ] && tagged=$word; prev=$word; done
+        [ "$code" = 0 ] && printf '%s\n' "$tagged" >> "$dir/images.txt"
+        exit "$code" ;;
+      image)
+        case "$2" in
+          inspect)
+            if [ -f "$dir/image-present.txt" ]; then :
+            elif [ -f "$dir/images.txt" ] && awk -v r="$ref" '$0 == r { found = 1 } END { exit !found }' "$dir/images.txt"; then :
+            else echo "Error: image not found: $ref" >&2; exit 1; fi
+            revision=$(cat "$dir/image-revision.txt" 2>/dev/null)
+            printf '[{"variants":[{"config":{"config":{"Labels":{"org.opencontainers.image.revision":"%s"}}}}]}]\n' "$revision"
+            exit 0 ;;
+          pull)
+            pcode=$(cat "$dir/pull-exit.txt" 2>/dev/null || echo 1)
+            [ "$pcode" = 0 ] && printf '%s\n' "$3" >> "$dir/images.txt"
+            exit "$pcode" ;;
+          tag) [ "$code" = 0 ] && printf '%s\n' "$4" >> "$dir/images.txt"; exit "$code" ;;
+          delete)
+            if [ "$code" = 0 ] && [ -f "$dir/images.txt" ]; then
+              awk -v r="$ref" '$0 != r' "$dir/images.txt" > "$dir/images.txt.new" && mv "$dir/images.txt.new" "$dir/images.txt"
+            fi
+            exit "$code" ;;
+          push) exit "$(cat "$dir/push-exit.txt" 2>/dev/null || echo 0)" ;;
+        esac
+        exit "$code" ;;
+      volume)
+        [ "$2" = inspect ] && { echo "Error: volume not found: $3" >&2; exit 1; }
+        exit "$code" ;;
+      logs)
+        case " $* " in
+          *" --boot "*) cat "$dir/container-boot-log.txt" 2>/dev/null ;;
+          *) cat "$dir/container-log.txt" 2>/dev/null ;;
+        esac
+        exit 0 ;;
+    esac
+  fi
   if [ "$self" = docker ]; then
     code=$(cat "$dir/exit.txt" 2>/dev/null || echo 0)
     state="$dir/container-state.txt"

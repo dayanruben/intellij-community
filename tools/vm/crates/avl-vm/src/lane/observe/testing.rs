@@ -33,6 +33,21 @@ pub(crate) struct Fixture {
     processes: Arc<FakeProcesses>,
 }
 
+/// The engine of a Docker fixture: the one the pool's environment gives, the Lima engine, or Apple `container`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(
+    windows,
+    expect(
+        dead_code,
+        reason = "the Lima and the Apple container fixtures run shell fakes, so they are Unix only"
+    )
+)]
+enum Engine {
+    Default,
+    Lima,
+    AppleContainer,
+}
+
 impl Deref for Fixture {
     type Target = HostPool;
 
@@ -46,13 +61,19 @@ impl Fixture {
     /// and the state all but three of these tests want. Declared rather than resolved: resolving runs a real
     /// `git rev-parse`, which a hermetic suite must not.
     pub(crate) fn new(backend: Backend, guest_os: GuestOs) -> Self {
-        Self::build(backend, guest_os, None, false)
+        Self::build(backend, guest_os, None, Engine::Default)
     }
 
     /// A Docker pool on the Lima engine, whose Bazel resolves the pinned `limactl` to the fake.
     #[cfg(unix)]
     pub(crate) fn docker_lima() -> Self {
-        Self::build(Backend::Docker, GuestOs::Linux, None, true)
+        Self::build(Backend::Docker, GuestOs::Linux, None, Engine::Lima)
+    }
+
+    /// A Docker pool on the Apple `container` engine, over the fake `container` that `CONTAINER_BIN` names.
+    #[cfg(unix)]
+    pub(crate) fn docker_container() -> Self {
+        Self::build(Backend::Docker, GuestOs::Linux, None, Engine::AppleContainer)
     }
 
     /// The Linux pool: one Docker slot over the fake `docker`, on an external engine.
@@ -70,10 +91,11 @@ impl Fixture {
     /// the configured checkout a working tree. The pool sets `AIR_VM_HOST_REPO`, so resolution takes the override
     /// path and asks only `--is-inside-work-tree`.
     pub(crate) fn before_host_paths(backend: Backend, guest_os: GuestOs, inside_work_tree: bool) -> Self {
-        Self::build(backend, guest_os, Some(inside_work_tree), false)
+        Self::build(backend, guest_os, Some(inside_work_tree), Engine::Default)
     }
 
-    fn build(backend: Backend, guest_os: GuestOs, host_git: Option<bool>, lima: bool) -> Self {
+    fn build(backend: Backend, guest_os: GuestOs, host_git: Option<bool>, engine: Engine) -> Self {
+        let lima = engine == Engine::Lima;
         // Both binaries, because a `status` over a Parallels pool reaches `prlctl` while every other test here
         // reaches `tart`, and the two names are what keep the two `exec` grammars apart.
         let mut builder = HostPool::builder(backend, guest_os, MINIMUM_VERSION).with_parallels();
@@ -82,6 +104,9 @@ impl Fixture {
         }
         if lima {
             builder = builder.with_lima_engine();
+        }
+        if engine == Engine::AppleContainer {
+            builder = builder.with_container_engine();
         }
         if backend == Backend::Tart {
             // The production names of the Tart pool, whose guest is macOS.

@@ -7,7 +7,8 @@
 //! `AIR_VM_GUEST_AGENT_SOURCE`, so nothing asks Bazel where a binary is: a named source is answered by a stat.
 //!
 //! A Docker pool can also leave `DOCKER_BIN` unset and run on the Lima engine: then [`HostPool::pinned_bazel`]
-//! resolves the pinned Docker CLI and the pinned `limactl` to the fakes of the same directory.
+//! resolves the pinned Docker CLI and the pinned `limactl` to the fakes of the same directory. Or it runs on the Apple
+//! `container` engine, with the fake `container` of the same directory named by `CONTAINER_BIN`.
 //!
 //! A Windows host has no fake `tart` and the Docker backend only. There the directory holds the fake `docker` alone,
 //! and `TART_BIN` is not set.
@@ -56,6 +57,7 @@ pub struct HostPoolBuilder {
     tart_bin: bool,
     docker_bin: bool,
     lima_engine: bool,
+    container_engine: bool,
     host_paths: bool,
     overrides: Vec<(String, String)>,
 }
@@ -73,6 +75,7 @@ impl HostPool {
             tart_bin: true,
             docker_bin: true,
             lima_engine: false,
+            container_engine: false,
             host_paths: true,
             overrides: Vec::new(),
         }
@@ -164,6 +167,17 @@ impl HostPoolBuilder {
         self
     }
 
+    /// Runs the Docker pool on the Apple `container` engine, whatever the host is: the settings load as a macOS host
+    /// loads them, with `AIR_VM_DOCKER_ENGINE=container` and neither `DOCKER_BIN` nor `DOCKER_HOST`, so the real engine
+    /// rule chooses the engine. `CONTAINER_BIN` names the fake `container` beside the fake `docker`, and `AIR_VM_DNS`
+    /// names a nameserver, so no suite reads the resolver of its host.
+    #[must_use]
+    pub const fn with_container_engine(mut self) -> Self {
+        self.container_engine = true;
+        self.docker_bin = false;
+        self
+    }
+
     /// Leaves the host paths unresolved, for the gates that must resolve them themselves. Declared ones are what
     /// every command that resolves them first leaves behind, and resolving would run a real `git rev-parse`.
     #[must_use]
@@ -212,7 +226,7 @@ impl HostPoolBuilder {
             };
             if self.docker_bin {
                 environment.push(("DOCKER_BIN".to_owned(), docker.executable().to_string_lossy().into_owned()));
-            } else if !self.lima_engine {
+            } else if !self.lima_engine && !self.container_engine {
                 // The pinned CLI against an engine the environment names, so a macOS host does not choose the Lima
                 // engine. The fake `docker` reads no variable.
                 environment.push(("DOCKER_HOST".to_owned(), "unix:///nonexistent/docker.sock".to_owned()));
@@ -220,6 +234,14 @@ impl HostPoolBuilder {
             if self.lima_engine {
                 // The directory holds it; `pinned_bazel` finds it there.
                 drop(fake.install_beside(Binary::Limactl));
+            }
+            if self.container_engine {
+                let container = fake.install_beside(Binary::Container);
+                environment.extend([
+                    ("AIR_VM_DOCKER_ENGINE".to_owned(), "container".to_owned()),
+                    ("CONTAINER_BIN".to_owned(), container.executable().to_string_lossy().into_owned()),
+                    ("AIR_VM_DNS".to_owned(), "192.0.2.53".to_owned()),
+                ]);
             }
             // One slot, because the fake `docker` holds one container. The production pool has two; a suite that
             // needs more slots names them with `AIR_VM_MAX_WORKERS`.

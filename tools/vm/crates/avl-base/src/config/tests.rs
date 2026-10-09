@@ -1144,6 +1144,84 @@ fn the_lima_engine_paths_are_short_and_pool_wide() {
     assert_eq!(moved.lima_socket_path(), Path::new("/tmp/lima/air-docker-engine/sock/docker.sock"));
 }
 
+/// `AIR_VM_DOCKER_ENGINE=container` chooses Apple `container` on a macOS host that names no engine. A variable that
+/// names an engine still wins, and a Linux or a Windows host keeps the engine it has.
+#[test]
+fn the_container_choice_applies_only_to_a_mac_that_names_no_engine() {
+    let chosen = [("AIR_VM_DOCKER_ENGINE", "container")];
+    let config = load_on(HostOs::Macos, docker(), &env(&chosen));
+    assert_eq!(config.docker_engine, DockerEngine::AppleContainer);
+    assert_eq!(config.docker_engine.as_str(), "container");
+    assert!(config.runs_container_engine() && !config.runs_lima_engine());
+    assert_eq!(config.container, None);
+    for (host, pairs) in [
+        (
+            HostOs::Macos,
+            &[("AIR_VM_DOCKER_ENGINE", "container"), ("DOCKER_BIN", "/opt/orbstack/bin/docker")][..],
+        ),
+        (
+            HostOs::Macos,
+            &[
+                ("AIR_VM_DOCKER_ENGINE", "container"),
+                ("DOCKER_HOST", "unix:///var/run/docker.sock"),
+            ][..],
+        ),
+        (HostOs::Linux, &chosen[..]),
+        (HostOs::Windows, &chosen[..]),
+    ] {
+        assert_eq!(
+            load_on(host, docker(), &env(pairs)).docker_engine,
+            DockerEngine::External,
+            "{host} {pairs:?}"
+        );
+    }
+    assert_eq!(
+        load_on(HostOs::Macos, docker(), &env(&[("AIR_VM_DOCKER_ENGINE", "lima")])).docker_engine,
+        DockerEngine::Lima
+    );
+    let refusal = refuse_on(HostOs::Macos, docker(), &env(&[("AIR_VM_DOCKER_ENGINE", "orbstack")]));
+    assert_eq!(refusal.code, "invalid_environment");
+    assert!(refusal.message.contains(r#""lima" or "container""#), "{}", refusal.message);
+    // The engine is a fact of the Docker backend only.
+    assert!(!load_on(HostOs::Macos, tart_macos(), &env(&chosen)).runs_container_engine());
+}
+
+/// On the Apple `container` engine the memory is per worker, the CPUs are those of a Linux worker, no disk is sized,
+/// and `CONTAINER_BIN` and `AIR_VM_DNS` are read.
+#[test]
+fn a_container_worker_has_its_own_memory_and_takes_a_nameserver() {
+    let config = load_on(HostOs::Macos, docker(), &env(&[("AIR_VM_DOCKER_ENGINE", "container")]));
+    assert_eq!(
+        (config.vm_cpu, config.vm_memory_mib, config.vm_root_disk_gb),
+        (8, CONTAINER_WORKER_MEMORY_MIB, 0)
+    );
+    assert_eq!(CONTAINER_WORKER_MEMORY_MIB, 8_192);
+    assert_eq!(config.vm_dns, None);
+    assert_eq!(config.container_system_log_path(), config.runtime_root.join("container-system.log"));
+    let named = load_on(
+        HostOs::Macos,
+        docker(),
+        &env(&[
+            ("AIR_VM_DOCKER_ENGINE", "container"),
+            ("CONTAINER_BIN", "/usr/local/bin/container"),
+            ("AIR_VM_DNS", "10.0.0.53"),
+            ("AIR_VM_MEMORY_MB", "6144"),
+        ]),
+    );
+    assert_eq!(named.container.as_deref(), Some(Path::new("/usr/local/bin/container")));
+    assert_eq!(named.vm_dns.as_deref(), Some("10.0.0.53"));
+    assert_eq!(named.vm_memory_mib, 6_144);
+    let refusal = refuse_on(
+        HostOs::Macos,
+        docker(),
+        &env(&[("AIR_VM_DOCKER_ENGINE", "container"), ("AIR_VM_DNS", "dns.example")]),
+    );
+    assert_eq!(refusal.code, "invalid_environment");
+    assert!(refusal.message.contains("AIR_VM_DNS"), "{}", refusal.message);
+    assert_eq!(CONTAINER_LABEL, "@community//tools/vm:air_container_darwin_arm64");
+    assert_eq!(label_target(CONTAINER_LABEL), "air_container_darwin_arm64");
+}
+
 /// A Unix socket path must stay under 104 bytes. The suffix under the Lima home is 35 bytes, so a home of 68 bytes
 /// is the longest one accepted. The engine start asks the check, and the load accepts a long home: a command that
 /// never starts the engine, such as `status` or `suites`, must not be refused over the socket.

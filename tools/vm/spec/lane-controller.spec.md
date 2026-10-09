@@ -51,6 +51,7 @@ targets:
   - ../crates/avl-host-sys/src/share.rs
   - ../crates/avl-vm/src/worker/tart.rs
   - ../crates/avl-vm/src/worker/docker.rs
+  - ../crates/avl-vm/src/worker/container.rs
   - ../crates/avl-testkit/src/tartfake.rs
   - ../crates/avl-vm/src/worker/parallels.rs
   - ../crates/avl-affected/src/affected.rs
@@ -302,6 +303,19 @@ The rest of the scenario matrix is in
 - A Docker worker runs the architecture of its host. The controller refuses an engine of another architecture.
   [@test] ../crates/avl-vm/src/worker/docker/tests.rs
   [@test] ../crates/avl-base/src/config/tests.rs
+
+- On a macOS host, `AIR_VM_DOCKER_ENGINE=container` runs the Docker workers on Apple `container`. A host that
+  names an engine in `DOCKER_BIN` or `DOCKER_HOST` keeps that engine. The Lima engine is the default.
+  [@test] ../crates/avl-base/src/config/tests.rs (`the_container_choice_applies_only_to_a_mac_that_names_no_engine`)
+
+- On Apple `container`, the controller uses the server of the login session and never stops it. It starts a server
+  that is down. It refuses a server of another install with another major version.
+  [@test] ../crates/avl-vm/src/worker/container/tests.rs
+
+- On Apple `container`, each build and each container gets a nameserver, and each container gets the memory and the
+  CPUs of one worker. A container that stops while it starts is refused with its log and its boot log.
+  [@test] ../crates/avl-vm/src/worker/container/tests.rs (`a_start_speaks_the_apple_dialect`)
+  [@test] ../crates/avl-vm/src/worker/container/tests.rs (`a_container_that_stops_while_starting_quotes_both_logs`)
 
 - The daemon accepts declared directories as data inputs. A changed file, path, permission, or link changes their identity.
   [@test] ../crates/avl-report/src/digest/tests.rs

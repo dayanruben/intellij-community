@@ -259,8 +259,9 @@ const fn leased_word(lease: Option<&LeaseSummary>) -> &'static str {
 struct DockerWorkerStatus {
     worker: String,
     exists: bool,
-    /// The engine's word: `absent`, `created`, `running`, `exited`, or another word kept as the engine said it.
-    /// `unknown` when the Lima engine does not run, because `status` never starts it.
+    /// The engine's word: `absent`, `created`, `running`, `exited`, `stopped` (Apple `container`), or another word kept
+    /// as the engine said it. `unknown` when the Lima engine or the Apple server does not run, because `status` never
+    /// starts it.
     state: String,
     /// The exit code of the entrypoint on an exited container, and null in every other state.
     exit_code: Option<i32>,
@@ -287,10 +288,12 @@ struct DockerWorkerStatus {
 #[serde(rename_all = "camelCase")]
 struct DockerStatusData {
     backend: Backend,
-    /// `lima` for the controller's Lima VM, `host` for the engine of the host environment.
+    /// `lima` for the controller's Lima VM, `container` for Apple `container`, `host` for the engine of the host
+    /// environment.
     engine: &'static str,
-    /// Lima's word for its VM (`Absent`, `Stopped`, `Running`, or another word kept as Lima said it). Null for the
-    /// engine of the host environment, which this controller does not own.
+    /// Lima's word for its VM (`Absent`, `Stopped`, `Running`, or another word kept as Lima said it), or the word of
+    /// the Apple `container` server (`running` or `stopped`). Null for the engine of the host environment, which this
+    /// controller does not own.
     engine_status: Option<String>,
     workers: Vec<DockerWorkerStatus>,
     host_repo: String,
@@ -339,9 +342,16 @@ struct DockerImage {
 /// that does not run is reported with its word, and no `docker` command asks it, so every row says `unknown`. The
 /// gate of a running Lima engine is not run, because it would make an engine of another template again. The pinned
 /// CLI is resolved, and the engine answers the questions below.
+///
+/// Read-only toward the Apple `container` server too: `system status` only. A server that is down is reported
+/// `stopped` and is not started.
 async fn docker_status(ctx: &Ctx, manager: &Manager, docker: &Docker) -> Result<Outcome, Refusal> {
     let settings = manager.settings();
     let (engine_status, reachable) = match docker.engine() {
+        None if docker.apple().is_some() => {
+            let running = docker.reach_engine(ctx).await?;
+            (Some(if running { "running" } else { "stopped" }.to_owned()), running)
+        }
         None => {
             docker.require_available(ctx, "").await?;
             (None, true)

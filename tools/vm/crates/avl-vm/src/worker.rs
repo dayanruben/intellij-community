@@ -17,6 +17,7 @@
 //! both drive a macOS tool. A Windows host has the Docker backend only, so there [`tart`] and [`parallels`] do not
 //! exist, and `Config::load` refuses the other backends before a manager is built.
 
+pub(crate) mod container;
 pub(crate) mod docker;
 pub(crate) mod hypervisor;
 pub(crate) mod lease;

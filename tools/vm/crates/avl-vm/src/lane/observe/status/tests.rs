@@ -562,7 +562,9 @@ async fn a_leased_worker_is_reported_without_its_holder() {
 // --- the docker row --------------------------------------------------------------------------------------------
 
 /// The verbs that change a container, a volume or an image. `status` is a report, so the fake must record none.
-const DOCKER_MUTATING_VERBS: [&str; 9] = ["create", "start", "stop", "rm", "build", "volume", "pull", "push", "tag"];
+const DOCKER_MUTATING_VERBS: [&str; 11] = [
+    "create", "start", "stop", "rm", "delete", "build", "builder", "volume", "pull", "push", "tag",
+];
 
 /// Every argv the fake engine received, checked against [`DOCKER_MUTATING_VERBS`] by its verb.
 fn assert_docker_status_wrote_nothing(fixture: &Fixture) {
@@ -868,6 +870,46 @@ async fn a_docker_status_states_a_host_path_refusal_once() {
         "pool: engine=host host_paths=not-ready(host_repo_required)\n\
          air-docker-1: running lease=free image=missing declaration=n/a parity=n/a"
     );
+    assert_docker_status_wrote_nothing(&fixture);
+}
+
+// --- the Apple container engine -------------------------------------------------------------------------------
+
+/// A server that is down is `stopped`, and `status` does not start it: every row is `unknown`.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_docker_status_on_a_stopped_container_server_starts_nothing() {
+    let fixture = Fixture::docker_container();
+    let outcome = status(&fixture).await;
+    assert_eq!(
+        (&outcome.data["engine"], &outcome.data["engineStatus"]),
+        (&json!("container"), &json!("stopped"))
+    );
+    assert_eq!(docker_row(&outcome)["state"], json!("unknown"));
+    assert!(
+        outcome.text.starts_with("pool: engine=container engine_status=stopped\n"),
+        "{}",
+        outcome.text
+    );
+    let calls = fixture.fake.calls();
+    assert!(!calls.iter().any(|call| call.starts_with("system start")), "{calls:#?}");
+    assert_docker_status_wrote_nothing(&fixture);
+}
+
+/// A server that runs is `running`, and the rows ask it in the Apple dialect.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_docker_status_on_a_running_container_server_asks_it() {
+    let fixture = Fixture::docker_container();
+    fixture
+        .fake
+        .answer(Answer::ContainerSystem, r#"{"status":"running","paths":{"installRoot":"/x/"}}"#);
+    let outcome = status(&fixture).await;
+    assert_eq!(outcome.data["engineStatus"], json!("running"));
+    assert_eq!(docker_row(&outcome)["state"], json!("absent"));
+    let calls = fixture.fake.calls();
+    assert!(calls.iter().any(|call| call.starts_with("inspect ")), "{calls:#?}");
+    assert!(!calls.iter().any(|call| call.starts_with("system start")), "{calls:#?}");
     assert_docker_status_wrote_nothing(&fixture);
 }
 

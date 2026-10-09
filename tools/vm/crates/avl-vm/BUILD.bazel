@@ -11,6 +11,7 @@ avl_crate(
     ],
     portable = True,
     test_data = [
+        "//tools/vm:container.MODULE.bazel",
         "//tools/vm:docker.MODULE.bazel",
         "//tools/vm:lima.MODULE.bazel",
         "//tools/vm:provision/versions.env",
