@@ -14,6 +14,7 @@
 use std::ops::Deref;
 use std::sync::Arc;
 
+#[cfg(unix)]
 use avl_base::config::MacosHost;
 use avl_base::{Backend, Config, GuestArch, GuestOs, SCHEMA_VERSION};
 use avl_host_sys::Runner;
