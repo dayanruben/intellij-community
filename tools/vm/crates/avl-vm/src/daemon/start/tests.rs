@@ -606,7 +606,7 @@ fn answer_ide_gc(fixture: &Fixture) {
 // that the IDE runs from. The answer says what the gc did, which is what the timing line reads.
 #[tokio::test]
 async fn a_start_keeps_the_ides_of_its_product_only_when_it_does_not_remount() {
-    let (fixture, prep) = start_ready().await;
+    let (fixture, prep) = ready(Fixture::tart_macos().await).await;
     answer_ide_gc(&fixture);
     let keep = IdeRetention::KeepProduct(&prep.product_digest);
     let ctx = Ctx::background();
@@ -626,6 +626,29 @@ async fn a_start_keeps_the_ides_of_its_product_only_when_it_does_not_remount() {
     previous.last_mount_digest = prep.mount_digest.clone();
     previous.write(&fixture.settings, &fixture.worker).unwrap();
     let (_, ides) = fixture.host.start_daemon_keeping(&ctx, &fixture.worker, &prep, keep).await.unwrap();
+    let gcs = fixture.channel().calls_containing("vm-guest-agent ide-gc");
+    assert_eq!(gcs.len(), 1, "{gcs:?}");
+    assert!(
+        gcs[0].ends_with(&format!("ide-gc --root /vm/data/ide --keep-product {}", prep.product_digest)),
+        "{}",
+        gcs[0]
+    );
+    assert_eq!((ides.kept.len(), ides.stopped.len()), (1, 0));
+    assert_eq!(remounts(&fixture), 0);
+}
+
+// On Docker the refresh of the shares is a settle of the bind mounts and unmounts nothing. So a start without a record
+// still keeps the lane IDEs of its product.
+#[tokio::test]
+async fn a_start_on_docker_keeps_the_ides_of_its_product_without_a_record() {
+    let (fixture, prep) = start_ready().await;
+    answer_ide_gc(&fixture);
+    let keep = IdeRetention::KeepProduct(&prep.product_digest);
+    let (_, ides) = fixture
+        .host
+        .start_daemon_keeping(&Ctx::background(), &fixture.worker, &prep, keep)
+        .await
+        .unwrap();
     let gcs = fixture.channel().calls_containing("vm-guest-agent ide-gc");
     assert_eq!(gcs.len(), 1, "{gcs:?}");
     assert!(

@@ -3,11 +3,11 @@ use avl_wire::ide::IdeRun;
 use pretty_assertions::assert_eq;
 
 use super::*;
-use crate::lane::testing::tart;
+use crate::lane::testing::pool;
 
 #[test]
 fn the_ide_contexts_live_under_the_guest_data_root() {
-    let settings = tart(GuestOs::Linux);
+    let settings = pool(GuestOs::Linux);
     assert_eq!(guest_ide_root(&settings), format!("{}/ide", settings.vm_data));
 }
 
