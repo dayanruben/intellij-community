@@ -441,9 +441,9 @@ mod lifecycle {
         assert!(after.iter().all(|call| call.starts_with("list ")), "{after:#?}");
     }
 
-    /// The engine mounts only the home, so a repository outside it is refused before the engine is touched.
+    /// The engine mounts only the home, so a Bazel output root outside it is refused before the engine is touched.
     #[tokio::test]
-    async fn a_repository_outside_the_home_is_share_outside_home() {
+    async fn a_bazel_root_outside_the_home_is_share_outside_home() {
         let fixture = Fixture::docker_builder().env("HOME", "/nonexistent-home").lima_engine().build();
         let refusal = engine(&fixture).ensure_running(&ctx(), None).await.unwrap_err();
         assert_eq!((refusal.code.as_ref(), refusal.exit), ("share_outside_home", Exit::USAGE));

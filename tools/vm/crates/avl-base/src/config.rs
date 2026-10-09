@@ -331,8 +331,8 @@ impl fmt::Display for GuestOs {
 /// runs the host's architecture for the same reason. The Docker backend's engine gate checks that the engine runs
 /// this architecture, so a mismatch (an amd64 engine on an Apple-silicon Mac, a remote `DOCKER_HOST` of another
 /// architecture) is a named refusal and never a lane built for the wrong guest. The
-/// Starlark side of the same rule is two keys: `//build:air_lane_guest_linux_on_host_linux_x64` for a Linux x86_64
-/// host, whose own build is the guest's, and `//build:air_lane_guest_linux_x64_cross` for another x86_64 host.
+/// Starlark side of the same rule is two keys: `//plugins/air/tests/integration/ide:air_lane_guest_linux_on_host_linux_x64` for a Linux x86_64
+/// host, whose own build is the guest's, and `//plugins/air/tests/integration/ide:air_lane_guest_linux_x64_cross` for another x86_64 host.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum GuestArch {
     Arm64,
@@ -727,8 +727,8 @@ static LINUX_PROFILE: GuestOsProfile = GuestOsProfile {
     shares_at_host_paths: false,
 };
 
-/// The Linux guest of the testing-ui container. The skill's script mounts the two shares read-only at their host
-/// paths, and the container runs as its `ubuntu` account with no `sudo`.
+/// The Linux guest of the testing-ui container. The skill's script mounts the Bazel share read-only at its host path,
+/// and the container runs as its `ubuntu` account with no `sudo`.
 static CONTAINER_LINUX_PROFILE: GuestOsProfile = GuestOsProfile {
     privileged: false,
     shares_at_host_paths: true,
@@ -1186,7 +1186,7 @@ pub struct Config {
     /// The host `curl` that downloads and uploads the image archive (`AIR_VM_HOST_CURL`).
     pub host_curl: String,
 
-    pub repo_share_name: String,
+    /// The name of the one share of a worker, the Bazel output user root (`AIR_VM_BAZEL_SHARE_NAME`).
     pub bazel_share_name: String,
 
     configured_bazel_user_root: PathBuf,
@@ -1201,8 +1201,8 @@ pub struct Config {
     /// is part of the launch digest. A Linux guest keeps it on `/dev/shm`, a tmpfs, so a secret never reaches the
     /// persistent data volume. A macOS guest has no tmpfs and keeps it under [`Config::vm_tmp`].
     pub vm_run_secrets: String,
-    /// The build-dependencies download cache the test JVM is redirected to, since the checkout share is
-    /// read-only. Persistent across runs: a warm cache keeps the per-class inner loop at about a minute.
+    /// The build-dependencies download cache the test JVM is redirected to, since the guest has no checkout to keep
+    /// it in. Persistent across runs: a warm cache keeps the per-class inner loop at about a minute.
     pub vm_download_cache: String,
 
     pub git: String,
@@ -1372,6 +1372,9 @@ impl Presentation {
         }
     }
 }
+
+/// The setting of the repository share, which the controller no longer has. A set value is refused.
+pub const REMOVED_REPO_SHARE_VARIABLE: &str = "AIR_VM_REPO_SHARE_NAME";
 
 impl Config {
     /// Resolves one invocation's settings, or refuses the environment. `workspace_dir` is [`WORKSPACE_DIR`] of the
@@ -1548,8 +1551,14 @@ impl Config {
             )));
         }
 
-        let repo_share_name = reader.string("AIR_VM_REPO_SHARE_NAME", "air-macos-repo");
-        reader.name(&repo_share_name, "repository share name");
+        // A worker has no repository share, because the guest reads no checkout. A set value would name a share that
+        // nothing declares, so it is refused and not ignored.
+        if reader.set(REMOVED_REPO_SHARE_VARIABLE).is_some() {
+            reader.refuse(Refusal::invalid_environment(format!(
+                "{REMOVED_REPO_SHARE_VARIABLE} is removed: a worker has no repository share, because the guest reads no \
+                 checkout (ADR 0228 of community/tools/vm/docs/decisions); unset it"
+            )));
+        }
         let bazel_share_name = reader.string("AIR_VM_BAZEL_SHARE_NAME", "air-macos-bazel");
         reader.name(&bazel_share_name, "Bazel share name");
 
@@ -1661,7 +1670,6 @@ impl Config {
             image_mirror,
             image_mirror_token: reader.optional("AIR_VM_IMAGE_MIRROR_TOKEN").map(Secret),
             host_curl: reader.string("AIR_VM_HOST_CURL", "curl"),
-            repo_share_name,
             bazel_share_name,
             configured_bazel_user_root: reader.path("AIR_VM_BAZEL_USER_ROOT", || host.bazel_user_root(&home)),
             host_paths: OnceLock::new(),

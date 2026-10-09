@@ -84,6 +84,13 @@ every macOS failure is macOS-only. The mechanism is window activation:
 [IJAI-1228](https://youtrack.jetbrains.com/issue/IJAI-1228) own it. Ask for that backend explicitly,
 and do not read a red run there as a verdict about the product.
 
+A lease takes the warmest free slot ([ADR 0229](decisions/0229-a-lease-prefers-the-warm-slot.md)). The first choice
+is a running slot whose daemon record names the launch digest of the build that asks. Then come a running slot, a
+stopped slot and a slot with no machine. Within one class the slot order of the pool stays. The probes start nothing: a
+Docker engine that is down, Parallels and `container-linux` give no running state, and every slot then keeps its
+place. `run`, `shard` and `flake` build first, so they ask with their launch digest. `lease acquire` has no build,
+so it ranks from the running state alone. The reply names the class in `slotReason`.
+
 A Tart pool is a set of **slots**, not a set of VMs. A slot is a name the controller may use, and
 the first operation that needs one clones the golden into it. So `pool init` is an optional
 pre-warm, and `pool gc` deletes the clones behind idle slots. Materializing the first slot of an
@@ -142,9 +149,9 @@ pull: run it detached. `community/tools/vm/provision/README.md` and
 The hypervisor and the guest OS are separate axes. The one Linux guest is the Docker worker, and the
 section below describes its container layer. The Tart Linux worker was retired on 2026-10-08
 ([ADR 0210](decisions/0210-the-docker-image-carries-node-and-the-tart-linux-worker-is-retired.md)).
-Everything above still applies: two read-only shares, the parity layout, the exec channel and a daemon with a
-warm IDE. On the `container-linux` backend the two shares are read-only mounts at their host paths, so the
-guest has no parity layout, and IDE Starter keeps its output tree on the container disk. Four macOS
+Everything above still applies: one read-only share, the parity layout, the exec channel and a daemon with a
+warm IDE. On the `container-linux` backend the Bazel share is a read-only mount at its host path, so the
+guest has no parity layout. Four macOS
 obligations have no counterpart here, so the controller does not put them to a Linux guest. They are TCC admission, the console-login wait, the APFS storage initializer and sealed-golden
 provenance. A Docker row of `status` has no field for any of them.
 
@@ -205,7 +212,7 @@ slots by default, as the Tart macOS pool does, and the two containers share one 
 exec channel. It lands as root, so the `sudo -H -u admin` prefixes apply unchanged, and `docker exec -i`
 carries the relay's bytes without a tty.
 
-The two shares are bind mounts at `/mnt/AirVmShares/<share-name>`, read-only, which are the paths the
+The share is a bind mount at `/mnt/AirVmShares/<share-name>`, read-only, which is the path the
 parity layout expects. **There is no remount on Docker.** A spike on 2026-09-29 replaced a file by rename
 on the host, as Bazel does. In the container, `cat` returned the new bytes at once, and `open` never
 failed with `ENOENT`. Only `stat` was late: it reported the old size at +0 s and the new size from +1 s
@@ -215,8 +222,10 @@ was needed ([ADR 0189](decisions/0189-the-docker-engine-is-a-lima-vm-the-control
 remount on Docker is a 2 s settle for the virtiofs dead nodes and the attribute cache, on both engines.
 A lane run on Docker goes through
 the same daemon, and the remount step of the daemon becomes the 2 s settle. The controller recreates a
-container when its create arguments change. The record of those arguments covers the shares, the image
-tag, the display and `AIR_VM_SCREEN`. A warm iteration compares the record too, before it reuses the
+container when its create arguments change. The record of those arguments covers the share, the image
+tag, the display and `AIR_VM_SCREEN`. The arguments name no checkout, so every checkout of the host uses the
+same container, and a switch to another checkout recreates nothing
+([ADR 0228](decisions/0228-the-guest-reads-no-checkout.md)). A warm iteration compares the record too, before it reuses the
 daemon. On a difference it recreates the container under its own lease and starts the daemon cold. A missing record also gives a recreate, and so does an engine
 container id that differs from the recorded id. `pool start` and `pool init` refuse with
 `worker_leased` when the stale container runs and another holder leases it. A stopped stale container
@@ -247,8 +256,8 @@ It boots Ubuntu 26.04 and runs a rootful `dockerd` of the Ubuntu archive. Lima f
 through its SSH connection, and on 26.04 that connection runs over vsock, not through Lima's userspace
 network stack ([ADR 0191](decisions/0191-the-engine-vm-leaves-the-usernet-path.md)). The VM has one
 network, the usernet of Lima. Its disk is raw. It mounts the home read-only at its host path, as
-the default template of Lima does, so the two shares bind as on any engine. A repository or a Bazel
-output user root outside the home is refused `share_outside_home`. The socket reaches the controller
+the default template of Lima does, so the share binds as on any engine. A Bazel output user root outside the
+home is refused `share_outside_home`. The checkout may lie anywhere, because no share holds it. The socket reaches the controller
 as `DOCKER_HOST`. The pinned CLI has no `buildx`, so the controller also pins buildx. With the pinned
 CLI (`DOCKER_BIN` unset), the controller passes `DOCKER_CONFIG=<runtime root>/docker-config` and names
 the pinned plugin in its `config.json`, on every engine. It keeps every other key of that file, so a
@@ -358,29 +367,28 @@ The CMD halves of `vm.cmd` and `trace.cmd` build and run the binaries, as `bt.cm
 
 The host paths are Windows paths, and the guest is Linux, so two steps differ from a Unix host:
 
-- **The shares.** `GuestPaths` (`avl-host-sys/src/paths.rs`) maps each host root to a guest root: itself on a Unix
-  host, and the drive form on Windows, `/c/Users/...` for `C:\Users\...`. A Windows prefix matches without case,
-  because Windows Bazel writes its output root in lower case. A host path under neither share is refused as
-  `guest_path_unmapped`. Docker binds the shares and the data volume with `--mount`, which refuses a source path with
-  `,`, `"` or `=` as `unsafe_share_path`. The parity receipt records the guest roots too (`guestRepo`,
-  `guestBazelUserRoot`), so a worker that a Unix controller provisioned provisions again once.
+- **The share.** `GuestPaths` (`avl-host-sys/src/paths.rs`) maps the host root of the Bazel share to a guest root.
+  On a Unix host that is the root itself, and on Windows the drive form, `/c/ProgramData/...` for `C:\ProgramData\...`. A Windows
+  prefix matches without case, because Windows Bazel writes its output root in lower case. A host path outside the
+  share is refused as `guest_path_unmapped`, and so is a path of the checkout, because no share holds it. Docker binds
+  the share and the data volume with `--mount`, which refuses a source path with `,`, `"` or `=` as
+  `unsafe_share_path`. The parity receipt records the guest root too (`guestBazelUserRoot`), so a worker that a Unix
+  controller provisioned provisions again once.
 - **The runfiles.** Windows Bazel writes the runfiles MANIFEST of a test and no runfiles tree. `HostRunfiles`
-  decides from the disk: a `<descriptor>.runfiles` tree is used as it is, and otherwise the controller reads
+  decides from the disk where the host reads a runfile: a `<descriptor>.runfiles` tree as it is, and otherwise
   `<descriptor>.runfiles_manifest`, then `<descriptor>.runfiles/MANIFEST`. A symlink runfile's line holds the link's
   own text, relative to its directory; the host follows it through the MANIFEST to the file, and the guest links it
   as it is. On a Windows host every absolute target is resolved through its junctions before the guest sees it,
   because Bazel's external repositories there are junctions into the repository cache, which the guest's mount
-  cannot read; the MANIFEST travels to the guest as text. A package directory of a `node_modules` store is copied
-  into the tree rather than linked, because Node resolves an import from the real path of the importing file, and
-  the dependency links beside a package are junctions on the mount. In the `parity-probe` phase, the guest
-  verb `runfiles-tree` builds the tree at `<vmData>/runfiles/<digest>`, the root the host predicted. It keeps that
-  tree and the newest other one. A root other than the predicted one is `guest_runfiles_mismatch`, and a bad reply
-  is `guest_runfiles_protocol`.
+  cannot read. A package directory of a `node_modules` store is copied into the tree rather than linked. Node
+  resolves an import from the real path of the importing file, and the dependency links beside a package are
+  junctions on the mount. The guest builds its own tree on every host; [How a run reaches the
+  guest](#how-a-run-reaches-the-guest) states how.
 
 5. `community\tools\vm.cmd --backend container-linux run <suite>` runs the lane in the testing-ui container through
-   `wslc`, the skill's Windows runtime. The controller runs the batch half of `container.cmd`, and the checkout and
-   the Bazel root are mounted read-only at their drive-form paths. The batch half prints the checkout in its `list`
-   line as the shell spelled it, so the controller matches that line without case.
+   `wslc`, the skill's Windows runtime. The controller runs the batch half of `container.cmd`, and the Bazel root is
+   mounted read-only at its drive-form path. The checkout is not mounted. The batch half prints the checkout in its
+   `list` line as the shell spelled it, so the controller matches that line without case.
 
 The `container-linux` backend has passed the `ui` lane of `flow-new-session` on a Windows 10 PC with WSL 2.9.13:
 9 tests, cold in 283 s with a daemon start of 84 s, warm in 134 s
@@ -402,43 +410,54 @@ route exists. No lane time is measured for this route.
 
 Two `jps_test` targets launch an IDE: `//plugins/air/tests/integration/ui:ui_test` and
 `//plugins/air/tests/integration/gui-chat:gui-chat_test`. Their runfiles carry everything a run
-needs. The IDE arrives as an already-assembled distribution: `//build:idea_air_lane_dist_linux` on
-the default guest, and `//build:idea_air_lane_dist` on a macOS one. `-Dair.lane.ide.config` names
+needs. The IDE arrives as an already-assembled distribution: `//plugins/air/tests/integration/ide:idea_air_lane_dist_linux` on
+the default guest, and `//plugins/air/tests/integration/ide:idea_air_lane_dist` on a macOS one. `-Dair.lane.ide.config` names
 that distribution's `_ide_config` companion target rather than the distribution itself. Beside it the targets
 carry the guest agent, the IDE flags file and the JBR archive that the IDE runs on.
 
 `run` resolves the selector with bt's resolution logic. It runs `bazel build` on the host against
 its warm cache, then it launches the built test stub in the guest. The launch environment is the one
-Bazel's test runner would provide, plus `-Didea.home.path=<repo>`, so the workspace guess never
-lands on a read-only mount.
+Bazel's test runner would provide.
 
-The guest sees host paths through two read-only shares, the repository root and Bazel's output user
-root, and a **parity layout** makes them position-identical. The repository path exists in the guest
-as a real directory of per-entry symlinks onto the read-only mount. `out` alone is redirected to a
-guest-local writable directory, and the output user root is a single symlink. A test JVM writes
-under `<checkout>/out`, so that one redirect is what makes a read-only checkout runnable. The IDE
-distribution itself is read, not written, and the IDE writes its data into its context under
-`$AIR_VM_DATA/ide`.
+**The guest reads no checkout** ([ADR 0228](decisions/0228-the-guest-reads-no-checkout.md)). It sees one read-only
+share, Bazel's output user root. A **parity layout** makes that root position-identical: the output user root is a
+single symlink onto the mount. The guest builds its own runfiles tree from the MANIFEST of the runtime descriptor,
+at `<vmData>/runfiles/<digest>`, with the `runfiles-tree` verb in the `parity-probe` phase. A runfile whose target
+is on the Bazel share is a link to its guest path. A runfile whose host file lies in the checkout is a **staged
+runfile**, such as a `pnpm-lock.yaml` of the descriptor `data`. The tree holds a copy of its bytes. The first
+request carries no bytes, so a tree of the same digest is reused. A guest without that tree refuses the request
+with `runfiles_staged_bytes_missing`, and the second request carries the bytes. The digest covers the MANIFEST,
+the path table and the digest of each staged runfile, so the host predicts the root. A root other than the
+predicted one is `guest_runfiles_mismatch`, and a bad reply is `guest_runfiles_protocol`. The verb keeps that tree
+and the newest other one.
 
-Both shares arrive on Apple's one VirtioFS automount device, and the controller mounts that device
+The daemon JVM gets `-Didea.home.path=<generation>/home`, an empty directory of its staged generation, and an
+explicit config, system and log directory under `$AIR_VM_DATA/out/daemon`. IDE Starter keeps its output tree in
+`$AIR_VM_DATA/out` (`-Dide.starter.out.dir`). So no path of the JVM derives from a checkout.
+`AirUiDaemonServer.requireStagedRuntime` refuses a home outside the generation. The IDE distribution itself is
+read, not written, and the IDE writes its data into its context under `$AIR_VM_DATA/ide`.
+
+The share arrives on Apple's one VirtioFS automount device, and the controller mounts that device
 itself: at `/mnt/AirVmShares` on a Linux guest and `/Volumes/AirVmShares` on a macOS one
 (`GuestOsProfile` in `crates/avl-base/src/config.rs`). Every `ls` and `pull` argument hangs off
 that mount point, so read a path off the guest rather than assume it. A space-free mount point
-keeps every guest path one shell word. The `container-linux` backend has no automount device: its shares
-are the skill's read-only mounts at the paths they have on the host. Its `$AIR_VM_DATA` is on the
+keeps every guest path one shell word. The `container-linux` backend has no automount device: its share
+is the skill's read-only mount at the path it has on the host. Its `$AIR_VM_DATA` is on the
 container's disk. A pull reads a guest file with the agent's `read-file` through `container.cmd exec`, as
 on Docker. The backends differ only in how a share is declared. Tart
-declares each share as `--dir=<share-name>:<host-path>:ro`, and both halves are load-bearing. The `<share-name>:` prefix
+declares the share as `--dir=<share-name>:<host-path>:ro`, and both halves are load-bearing. The `<share-name>:` prefix
 names the share's directory under the mount point. Passing no `tag=` option keeps the share on the
 single `com.apple.virtio-fs.automount` device, which is the only one the guest-side remount mounts. A
 tagged share is invisible to the guest, and an unprefixed one lands under the host directory's
 basename. `share_argument` in `crates/avl-vm/src/worker/tart.rs` owns that grammar, as `declare_shares` in
 `crates/avl-vm/src/worker/parallels.rs` owns prlctl's. A share-set change restarts the
-`tart run` process the controller owns, and it power-cycles the Parallels VM once.
+`tart run` process the controller owns, and it power-cycles the Parallels VM once. The share names no checkout, so
+a run from another checkout of the host changes no share and restarts no worker. A Parallels VM keeps a share that
+an older controller declared until `prlctl set <vm> --shf-host-del air-macos-repo` removes it.
 
 A Linux run adds `--define=air_lane_guest_os=linux` to the host build. On a Mac it selects the
 `linux_aarch64` distribution and JBR. On a Linux x86_64 host it selects the x86_64 guest, whose distribution
-is the host's own build (`//build:air_lane_guest_linux_on_host_linux_x64`). **That option and
+is the host's own build (`//plugins/air/tests/integration/ide:air_lane_guest_linux_on_host_linux_x64`). **That option and
 `--build_runfile_links` ride every Bazel command the controller runs**, build, cquery and info
 alike. They have to: both are build options, so a `cquery` that omits what the preceding `build`
 passed makes Bazel discard the analysis of every configured target. The root `.bazelrc` holds them
@@ -465,11 +484,13 @@ context. A run that is not finished refuses the remount as `daemon_mount_quiesce
 
 ### Guest-local writable state
 
-Everything a worker writes lives under `$AIR_VM_DATA`, in seven directories and no others:
+Everything a worker writes lives under `$AIR_VM_DATA`, in eight directories and the parity marker
+`.air-vm-parity.json`:
 
 | directory | holds |
 | --- | --- |
-| `out` | what a test JVM writes under `<checkout>/out`, through the parity layout's one writable redirect |
+| `out` | the output tree of IDE Starter, and the config, system and log directories of the daemon JVM under `out/daemon` |
+| `runfiles` | the runfiles trees the guest builds from the MANIFEST, with the copies of the staged runfiles |
 | `ide` | one context for each launch key of the lane IDE: its `config`, `system`, `plugins`, `log`, `project`, `home` and `bin` directories, its argument file `ide-jvm.args`, its launch record `launch.json`, and the run directories of its supervisor slot |
 | `tmp` | temporary files |
 | `build-download` | the persistent build-dependency cache |
@@ -563,7 +584,7 @@ iteration's timing line reports the one it took.
 | product inputs, meaning anything inside the prepared distribution | product stamp diff | quiesce, remount, resume, then launch the IDE again. The daemon JVM survives, and nothing is assembled |
 | the context plugins, meaning the in-IDE test bridge, which no lane distribution carries | plugins digest diff | a push of the changed plugin files and an IDE relaunch on the same context. The timing line reports `ide relaunch`, and there is **no remount** and no distribution compose |
 | the daemon's parent tier, meaning platform and framework jars | stable digest diff | an automatic daemon restart. The IDE of the same product survives it, and the timing line reports `ide keep` |
-| the container's declaration, meaning the image tag, the shares or the display | create-record diff | a recreate plus a cold daemon start; Docker only |
+| the container's declaration, meaning the image tag, the share or the display | create-record diff | a recreate plus a cold daemon start; Docker only |
 
 The three questions are asked independently, and one file may answer yes to more than one. An Air
 production jar is both hot and a product input. Treating "hot" as an answer to the product question
@@ -857,7 +878,7 @@ when a run appears or a run's journal grows. It listens on 127.0.0.1 only. `--ro
 When the site in `out/air-site` is missing, or older than `plugins/air/docs/src`, the server builds it once in
 the background: `pnpm install --frozen-lockfile` when `plugins/air/docs` has no `node_modules`, then
 `pnpm build`. The page says that the site is building, or why the build failed. The node and the pnpm are the
-ones `//:MODULE.bazel` pins for the site (`//build:air_docs_node`, `//build:air_docs_pnpm`), which the server asks
+ones `//:MODULE.bazel` pins for the site (`//plugins/air/docs/toolchain:air_docs_node`, `//plugins/air/docs/toolchain:air_docs_pnpm`), which the server asks
 Bazel for in the checkout `BUILD_WORKSPACE_DIRECTORY` names; Bazel fetches them the first time, and a regular
 build never does. Nothing has to be on the PATH. `AIR_TRACE_NODE` and `AIR_TRACE_PNPM`, set together, name the two
 directly; a server started outside a checkout uses the `pnpm` on its PATH.
@@ -979,8 +1000,9 @@ is how a run slot or a staged generation stops matching what the host believes.
 ## What is intentionally absent
 
 - **No source copying and no guest build.** No Git bundles, no snapshots, no guest checkout, no guest
-  Bazel, no guest netrc, no shared Bazel disk cache. The guest reads the host's repository and Bazel
-  outputs through read-only shares and writes only to guest-local storage. A run tests exactly what
+  Bazel, no guest netrc, no shared Bazel disk cache. The guest reads the host's Bazel outputs through a read-only
+  share and writes only to guest-local storage. The only checkout files it gets are the staged runfiles of the
+  runtime descriptor, as copies in its runfiles tree. A run tests exactly what
   `bazel build` on the host sees, and a release cleans nothing.
 - **No second execution engine.** Every lane goes through the daemon. A lane the daemon cannot
   resolve has no runner. Raw Bazel passthrough is rejected because there is no guest Bazel to receive

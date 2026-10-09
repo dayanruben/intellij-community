@@ -81,31 +81,27 @@ fn answer_running_linux_pool(fixture: &Fixture) {
     }
 }
 
-/// Leaves behind the receipt of a worker this pool last provisioned from another working copy of the repository -
-/// the state a pool shared between two checkouts is in until the next run re-provisions it. Restamped from a real
-/// receipt rather than hand-built, so the schema stays the writer's.
-fn provisioned_for_another_checkout(fixture: &Fixture, worker: &str, host_repo: &str) {
+/// Leaves behind the receipt of a worker this pool last provisioned for another Bazel output root - the state a pool
+/// is in after the output root moved, until the next run re-provisions it. Restamped from a real receipt rather than
+/// hand-built, so the schema stays the writer's.
+fn provisioned_for_another_bazel_root(fixture: &Fixture, worker: &str, bazel_root: &str) {
     write_init_receipt(&fixture.settings, worker).expect("the init receipt is written");
     let path = init_receipt_path(&fixture.settings, worker);
     let mut receipt: InitReceipt =
         serde_json::from_slice(&std::fs::read(&path).expect("the receipt is readable")).expect("the receipt decodes");
-    receipt.host_repo = host_repo.to_owned();
+    receipt.host_bazel_user_root = bazel_root.to_owned();
     let mut encoded = serde_json::to_vec(&receipt).expect("the receipt encodes");
     encoded.push(b'\n');
     std::fs::write(&path, encoded).expect("the receipt is restamped");
 }
 
-/// [`PARALLELS_INFO_JSON`] with the two read-only shares the controller declares already in place, which is what
+/// [`PARALLELS_INFO_JSON`] with the one read-only share the controller declares already in place, which is what
 /// `sharesConfigured` - and so the parity probe behind it - waits for.
 fn parallels_info_with_shares(fixture: &Fixture) -> String {
     let settings = &fixture.settings;
     let path = |path: &std::path::Path| path.to_string_lossy().into_owned();
     let mut shared = serde_json::Map::new();
     shared.insert("enabled".to_owned(), json!(true));
-    shared.insert(
-        settings.repo_share_name.clone(),
-        json!({ "enabled": true, "path": path(settings.host_repo().expect("resolved")), "mode": "ro" }),
-    );
     shared.insert(
         settings.bazel_share_name.clone(),
         json!({ "enabled": true, "path": path(settings.host_bazel_user_root().expect("resolved")), "mode": "ro" }),
@@ -259,8 +255,8 @@ async fn tri_state_facts_are_null_never_false() {
 
 // --- the parity refusal ----------------------------------------------------------------------------------------
 
-/// `guest_init_stale` is the normal state of a pool shared between two checkouts, and the next run re-provisions
-/// the worker for the one that asked. Keeping only `parityReady` made a self-repairing worker indistinguishable from
+/// `guest_init_stale` is the state of a pool whose Bazel output root moved, and the next run re-provisions the worker
+/// for the root that asked. Keeping only `parityReady` made a self-repairing worker indistinguishable from
 /// a layout that needs looking at.
 #[tokio::test]
 async fn a_parity_refusal_keeps_its_code() {
@@ -269,7 +265,7 @@ async fn a_parity_refusal_keeps_its_code() {
         Answer::ListJson,
         tart_list(&[("air-macos-1", 80.0, true, "running"), ("air-macos-2", 80.0, true, "running")]),
     );
-    provisioned_for_another_checkout(&fixture, "air-macos-1", "/another/checkout");
+    provisioned_for_another_bazel_root(&fixture, "air-macos-1", "/another/bazel");
     write_init_receipt(&fixture.settings, "air-macos-2").expect("the init receipt is written");
     answer_running_macos_pool(&fixture);
     let outcome = status(&fixture).await;
@@ -427,8 +423,8 @@ async fn ssh_host_key_uniqueness_is_decided_over_the_whole_pool() {
 // --- the parallels row -----------------------------------------------------------------------------------------
 
 /// The Parallels path needs none of the guards the Tart path was missing - Parallels is refused with anything but a
-/// macOS guest - but it discarded the parity refusal in the same way, and a worker provisioned from another checkout
-/// of this repository is exactly as stale there.
+/// macOS guest - but it discarded the parity refusal in the same way, and a worker provisioned for another Bazel
+/// output root is exactly as stale there.
 #[tokio::test]
 async fn the_parallels_row_keeps_its_parity_refusal() {
     let (fixture, _) = parallels_fixture();
@@ -447,7 +443,7 @@ async fn the_parallels_row_keeps_its_parity_refusal() {
     assert_eq!((&row["parityReady"], &row["parityError"]), (&json!(true), &Value::Null), "{row}");
     assert_eq!(outcome.data["backend"], json!("parallels"));
 
-    provisioned_for_another_checkout(&fixture, "macOS", "/another/checkout");
+    provisioned_for_another_bazel_root(&fixture, "macOS", "/another/bazel");
     let outcome = status(&fixture).await;
     let row = parallels_row(&outcome);
     assert_eq!(

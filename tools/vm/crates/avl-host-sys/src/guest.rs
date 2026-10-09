@@ -64,8 +64,8 @@ pub use agent::{
 pub use external::{external_file, external_files};
 pub use mount::{remount_script, share_mount_path};
 pub use parity::{
-    InitReceipt, PARITY_MARKER, ParityError, ShareMount, init_receipt_path, parity_marker_content, parity_script, read_init_receipt,
-    validate_parity_entry_name, write_init_receipt,
+    InitReceipt, PARITY_MARKER, ParityError, ShareMount, init_receipt_path, parity_marker_content, parity_marker_path, parity_script,
+    read_init_receipt, write_init_receipt,
 };
 pub use sshkeys::{PeerChannels, parse_ssh_host_key_fingerprint};
 pub use supervisor::{AgentAccount, OLDER_AGENT_HINT, ParkedDaemonProbe, RunSlot, SupervisorOptions};
@@ -84,12 +84,12 @@ pub struct Guest<'a> {
 
 // --- host paths ----------------------------------------------------------------------------------------------
 
-/// Resolves the two host directories the guest must see: the repository checkout and Bazel's output user root.
-/// The guest sees each one at its [`GuestPaths`] root, which is the same absolute path on a Unix host.
+/// Resolves the two host directories a run needs: the repository checkout and Bazel's output user root.
 ///
-/// Everything a host-built runtime descriptor names lives under one of them, which is what makes a copy-free guest
-/// run possible at all. Both are resolved together and published together through [`Config::set_host_paths`],
-/// because a config carrying one of them is a config no reader can trust.
+/// The guest sees the output root alone, at its [`GuestPaths`] root, which is the same absolute path on a Unix host.
+/// The checkout stays on the host: the host build, the suite selection and the report read it, and the guest gets
+/// copies of the few source runfiles it needs. Both are resolved together and published together through
+/// [`Config::set_host_paths`], because a config carrying one of them is a config no reader can trust.
 ///
 /// Idempotent, and cheap on the second call: a config that already has its paths is answered without another
 /// `git rev-parse` or another realpath.
@@ -122,11 +122,11 @@ pub async fn ensure_host_paths(ctx: &Ctx, runner: &Runner, settings: &Config) ->
     GuestPaths::of(settings).map(drop)
 }
 
-/// The checkout the guest reads through the repository share.
+/// The checkout the host build runs in.
 ///
 /// The `--is-inside-work-tree` probe is not redundant with `--show-toplevel`: the override path skips the first
-/// command entirely, and an override naming a directory that is not a checkout would otherwise be shared into the
-/// guest and fail as a missing `.git` probe two steps later, blaming the mount.
+/// command entirely, and an override naming a directory that is not a checkout would otherwise reach the host build
+/// and fail there, far from the setting that named it.
 async fn resolve_host_repo(ctx: &Ctx, runner: &Runner, settings: &Config) -> Result<PathBuf, Refusal> {
     let not_a_checkout = |message: String| Refusal::new("host_repo_required", Exit::USAGE, message);
     let candidate = if let Some(configured) = &settings.host_repo_override {

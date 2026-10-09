@@ -198,10 +198,13 @@ fn the_run_argv_declares_suspendable_only_when_it_is_on() {
         let joined = argv.join(" ");
         assert_eq!(joined.contains("--suspendable"), want, "AIR_VM_SUSPENDABLE={setting}: {joined}");
         assert_eq!(argv.last().map(String::as_str), Some(worker), "{joined}");
-        // The share grammar is the backend's, and it must reach the argv by name rather than by tag.
-        for share in [&fixture.settings.repo_share_name, &fixture.settings.bazel_share_name] {
-            assert!(joined.contains(&format!("--dir={share}:")), "{joined}");
-        }
+        // The share grammar is the backend's, and it must reach the argv by name rather than by tag. The one share
+        // is the Bazel output root: no share holds the checkout.
+        assert!(
+            joined.contains(&format!("--dir={}:", fixture.settings.bazel_share_name)),
+            "{joined}"
+        );
+        assert_eq!(joined.matches("--dir=").count(), 1, "{joined}");
     }
 }
 

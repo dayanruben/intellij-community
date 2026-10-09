@@ -52,7 +52,7 @@ use avl_host_sys::Ctx;
 use avl_host_sys::guest::ShareMount;
 
 use crate::worker::container_linux::ContainerLinux;
-use crate::worker::docker::Docker;
+use crate::worker::docker::{ContainerState, Docker};
 #[cfg(unix)]
 use crate::worker::parallels::Parallels;
 #[cfg(unix)]
@@ -87,6 +87,18 @@ pub(crate) fn is_unsupported(refusal: &Refusal) -> bool {
 ///
 /// Every question takes a worker name rather than the value holding one, because a backend instance serves the
 /// whole pool: `pool gc` walks every slot. On Windows the Docker and the container-linux backends are the only ones.
+/// What the controller can observe of one slot without a start: the facts that rank a free slot for a lease.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SlotState {
+    Running,
+    /// The machine exists and does not run, so it keeps its disk or its volume.
+    Stopped,
+    /// No machine has the name of the slot.
+    Absent,
+    /// The backend gave no answer.
+    Unknown,
+}
+
 #[expect(
     clippy::large_enum_variant,
     reason = "a manager holds one machine for its whole life, so a box would save no memory"
@@ -168,6 +180,52 @@ impl Machine {
             Self::Tart(_) | Self::Parallels(_) => ShareMount::VirtioFs,
             Self::Docker(_) | Self::ContainerLinux(_) => ShareMount::Bind,
         }
+    }
+
+    /// The state of each slot in `workers`, asked without a start and without a change: the facts that rank a free
+    /// slot for a lease ([`crate::worker::lease::SlotReason`]).
+    ///
+    /// Tart answers from its run process and its VM list. Docker answers from `inspect` once its engine answers, and a
+    /// Docker engine that is down is not started, so each slot is then [`SlotState::Unknown`]. A backend with one
+    /// slot, Parallels and `container-linux`, answers [`SlotState::Unknown`] and asks nothing. A probe that fails is
+    /// [`SlotState::Unknown`] too: the ranking is a preference, never a refusal.
+    pub(crate) async fn slot_states(&self, ctx: &Ctx, workers: &[&str]) -> Vec<SlotState> {
+        let mut states = Vec::with_capacity(workers.len());
+        match self {
+            #[cfg(unix)]
+            Self::Tart(tart) => {
+                for worker in workers {
+                    states.push(match tart.running(ctx, worker).await {
+                        Ok(true) => SlotState::Running,
+                        Ok(false) => match tart.exists(ctx, worker).await {
+                            Ok(true) => SlotState::Stopped,
+                            Ok(false) => SlotState::Absent,
+                            Err(_) => SlotState::Unknown,
+                        },
+                        Err(_) => SlotState::Unknown,
+                    });
+                }
+            }
+            Self::Docker(docker) => {
+                let reached = docker.reach_engine(ctx).await.unwrap_or(false);
+                for worker in workers {
+                    states.push(if reached {
+                        match docker.state(ctx, worker).await {
+                            Ok(ContainerState::Running) => SlotState::Running,
+                            Ok(ContainerState::Absent) => SlotState::Absent,
+                            Ok(_) => SlotState::Stopped,
+                            Err(_) => SlotState::Unknown,
+                        }
+                    } else {
+                        SlotState::Unknown
+                    });
+                }
+            }
+            #[cfg(unix)]
+            Self::Parallels(_) => states.resize(workers.len(), SlotState::Unknown),
+            Self::ContainerLinux(_) => states.resize(workers.len(), SlotState::Unknown),
+        }
+        states
     }
 
     /// Whether the worker's machine is up, by whatever this backend can observe. Not "is the guest ready": a

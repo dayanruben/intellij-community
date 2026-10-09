@@ -167,24 +167,135 @@ fn an_unreadable_manifest_is_refused_by_name() {
     );
 }
 
-/// The host names the root the guest builds: the destination, then the digest of the MANIFEST and the table.
+/// The inputs of a guest tree name the checkout, the table of the shares and the destination of the trees.
 #[test]
-fn the_guest_root_of_a_manifest_is_its_tree_digest_under_the_destination() {
+fn the_tree_inputs_name_the_checkout_the_table_and_the_destination() {
     let directory = tempfile::tempdir().unwrap();
     let settings = windows_settings(directory.path());
-    let (descriptor, manifest) = windows_descriptor(directory.path());
-    let runfiles = HostRunfiles::of(&descriptor).unwrap();
-    let map: PathMap = GuestPaths::of(&settings).unwrap().map().clone();
+    let inputs = GuestTreeInputs::of(&settings).unwrap();
     assert_eq!(guest_runfiles_destination(&settings), "/data/runfiles");
-    assert_eq!(
-        runfiles.guest_root(&settings).unwrap(),
-        format!("/data/runfiles/{}", tree_digest(manifest.as_bytes(), &map))
-    );
+    assert_eq!(inputs.destination, "/data/runfiles");
+    assert_eq!(inputs.host_repo, PathBuf::from(r"C:\dev\iw"));
+    assert_eq!(inputs.path_map, GuestPaths::of(&settings).unwrap().map().clone());
+}
 
-    // A tree is opened through its share, at its guest path.
-    let tree = HostRunfiles::Tree(PathBuf::from(r"C:\ProgramData\_bazel\x\ui_daemon.runtime.json.runfiles"));
+/// A checkout, a Bazel root whose external repository links into the checkout, and the MANIFEST of a descriptor over
+/// both, as a Unix host has them.
+#[cfg(unix)]
+struct UnixHost {
+    _directory: tempfile::TempDir,
+    repo: PathBuf,
+    bazel: PathBuf,
+    descriptor: PathBuf,
+}
+
+#[cfg(unix)]
+impl UnixHost {
+    fn new() -> Self {
+        let directory = tempfile::tempdir().unwrap();
+        let root = fscopy::resolve_links(directory.path()).unwrap();
+        let (repo, bazel) = (root.join("repo"), root.join("bazel"));
+        let write = |path: &Path, content: &str| {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, content).unwrap();
+        };
+        write(&bazel.join("out/a.jar"), "jar");
+        write(&repo.join("tools/pnpm-lock.yaml"), "lock: 1\n");
+        write(&repo.join("community/java/x/rt.jar"), "rt");
+        write(&repo.join("community/java/annotations/b.xml"), "b");
+        write(&repo.join("community/java/annotations/c/d.xml"), "dd");
+        std::fs::create_dir_all(bazel.join("external")).unwrap();
+        std::os::unix::fs::symlink(repo.join("community"), bazel.join("external/community+")).unwrap();
+        let descriptor = bazel.join("ui_daemon.runtime.json");
+        let community = bazel.join("external/community+");
+        let manifest = format!(
+            "_main/lib/a.jar {}\n_main/tools/pnpm-lock.yaml {}\ncommunity+/java/x/rt.jar {}\ncommunity+/java/annotations {}\n\
+             _main/lib/alias ../lib/a.jar\n_main/empty \n",
+            bazel.join("out/a.jar").display(),
+            repo.join("tools/pnpm-lock.yaml").display(),
+            community.join("java/x/rt.jar").display(),
+            community.join("java/annotations").display(),
+        );
+        std::fs::write(&manifest_paths(&descriptor)[0], manifest).unwrap();
+        Self {
+            _directory: directory,
+            repo,
+            bazel,
+            descriptor,
+        }
+    }
+
+    fn inputs(&self, host: HostOs) -> GuestTreeInputs {
+        GuestTreeInputs {
+            host_repo: self.repo.clone(),
+            path_map: PathMap::new(vec![avl_wire::path_map::PathPrefix::identity(self.bazel.to_string_lossy())]),
+            destination: "/data/runfiles".to_owned(),
+            host,
+        }
+    }
+}
+
+/// A target on the Bazel share stays a MANIFEST line for the guest to link. A target in the checkout, directly or
+/// through a link of the Bazel root, is a staged runfile with its digest and its length, and a directory there is one
+/// staged runfile per file. The host names the root: the destination, then the digest of the request.
+#[cfg(unix)]
+#[test]
+fn the_guest_tree_links_a_share_target_and_stages_a_checkout_target() {
+    let host = UnixHost::new();
+    let runfiles = HostRunfiles::of_on(&host.descriptor, HostOs::Linux).unwrap();
+    let tree = runfiles.guest_tree(&host.inputs(HostOs::Linux)).unwrap();
     assert_eq!(
-        tree.guest_root(&settings).unwrap(),
-        "/c/ProgramData/_bazel/x/ui_daemon.runtime.json.runfiles"
+        tree.request.manifest_text,
+        format!(
+            "_main/lib/a.jar {}\n_main/lib/alias ../lib/a.jar\n_main/empty \n",
+            host.bazel.join("out/a.jar").display()
+        )
     );
+    let sha = |text: &str| hex::encode(Sha256::digest(text.as_bytes()));
+    let staged = |path: &str, text: &str| StagedRunfile {
+        path: path.to_owned(),
+        sha256: sha(text),
+        size: text.len() as u64,
+    };
+    assert_eq!(
+        tree.request.staged,
+        [
+            staged("_main/tools/pnpm-lock.yaml", "lock: 1\n"),
+            staged("community+/java/x/rt.jar", "rt"),
+            staged("community+/java/annotations/b.xml", "b"),
+            staged("community+/java/annotations/c/d.xml", "dd"),
+        ]
+    );
+    assert_eq!(
+        tree.staged_files,
+        [
+            host.repo.join("tools/pnpm-lock.yaml"),
+            host.repo.join("community/java/x/rt.jar"),
+            host.repo.join("community/java/annotations/b.xml"),
+            host.repo.join("community/java/annotations/c/d.xml"),
+        ]
+    );
+    assert!(!tree.request.with_bytes && !tree.request.copy_package_stores);
+    assert_eq!(tree.root, format!("/data/runfiles/{}", tree_digest(&tree.request)));
+
+    // The tree Bazel built gives the same plan as its MANIFEST, and a Windows host copies the package stores.
+    let windows = runfiles.guest_tree(&host.inputs(HostOs::Windows)).unwrap();
+    assert!(windows.request.copy_package_stores);
+    assert_ne!(windows.root, tree.root);
+}
+
+/// A tree without a MANIFEST gives the guest nothing to build from, so it is refused by name.
+#[test]
+fn a_tree_without_a_manifest_is_refused_by_name() {
+    let directory = tempfile::tempdir().unwrap();
+    let tree = HostRunfiles::Tree(directory.path().join("ui_daemon.runtime.json.runfiles"));
+    let inputs = GuestTreeInputs {
+        host_repo: directory.path().join("repo"),
+        path_map: PathMap::default(),
+        destination: "/data/runfiles".to_owned(),
+        host: HostOs::Linux,
+    };
+    let refusal = tree.guest_tree(&inputs).unwrap_err();
+    assert_eq!(refusal.code, "runfiles_manifest_missing");
+    assert!(refusal.message.contains("ui_daemon.runtime.json.runfiles"), "{}", refusal.message);
 }

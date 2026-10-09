@@ -13,9 +13,12 @@ use avl_host_sys::Ctx;
 use avl_host_sys::fs::secret_matches;
 use avl_host_sys::guest::ParkedDaemonProbe;
 use avl_wire::progress::LeaseDisposition;
+use serde::Serialize;
 
 use super::receipt::{remove_lease_receipts, reusable_lease_receipt, write_lease_receipt};
 use super::{ACQUIRE_LOCK_TIMEOUT, AcquireRequest, release_by_receipt, try_atomic_lease};
+use crate::daemon::state::HostState;
+use crate::worker::hypervisor::SlotState;
 use crate::worker::worker::{Lease, Manager, read_lease, remove_idle_stop_record};
 
 #[cfg(test)]
@@ -28,6 +31,104 @@ pub(crate) struct HeldWorker {
     pub receipt: PathBuf,
     /// The lease already existed under this holder and was recovered through its original receipt.
     pub recovered: bool,
+    /// Why the acquisition chose this slot.
+    pub slot_reason: SlotReason,
+}
+
+/// Why a lease is on its slot. An acquisition ranks the free slots by class ([`rank_slots`]), so a lease lands on
+/// the warmest slot, and within one class the slot order of the pool stays.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum SlotReason {
+    /// Class 1: a running slot whose daemon record names the launch digest of the build that asks.
+    WarmDaemon,
+    /// Class 2: a running slot with another daemon, or with none.
+    Running,
+    /// Class 2 too: the backend gave no running state, so the slot keeps its place in the pool order.
+    Unranked,
+    /// Class 3: a stopped slot, which keeps its disk or its volume.
+    Stopped,
+    /// Class 4: a slot with no machine.
+    Absent,
+    /// The lease already existed under this holder, and the acquisition recovered it.
+    Recovered,
+    /// The caller named its own lease, so no acquisition chose the slot.
+    Borrowed,
+}
+
+impl SlotReason {
+    /// The class of a free slot from its state, and whether its daemon serves the build that asks.
+    pub(crate) const fn of(state: SlotState, warm_daemon: bool) -> Self {
+        match state {
+            SlotState::Running if warm_daemon => Self::WarmDaemon,
+            SlotState::Running => Self::Running,
+            SlotState::Unknown => Self::Unranked,
+            SlotState::Stopped => Self::Stopped,
+            SlotState::Absent => Self::Absent,
+        }
+    }
+
+    /// The rank of the class: the lower, the earlier a lease takes the slot.
+    const fn class(self) -> u8 {
+        match self {
+            Self::WarmDaemon | Self::Recovered | Self::Borrowed => 1,
+            Self::Running | Self::Unranked => 2,
+            Self::Stopped => 3,
+            Self::Absent => 4,
+        }
+    }
+
+    /// The word of the `slotReason` field and of the text reply.
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::WarmDaemon => "warm-daemon",
+            Self::Running => "running",
+            Self::Unranked => "unranked",
+            Self::Stopped => "stopped",
+            Self::Absent => "absent",
+            Self::Recovered => "recovered",
+            Self::Borrowed => "borrowed",
+        }
+    }
+}
+
+/// One free slot as the ranking reads it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct SlotFacts {
+    pub worker: String,
+    pub reason: SlotReason,
+}
+
+/// The free slots in the order a lease takes them: by class, and in the pool order within one class. A pure
+/// function, so the order is a fact of its input alone.
+pub(crate) fn rank_slots(facts: &[SlotFacts]) -> Vec<&SlotFacts> {
+    let mut ranked: Vec<&SlotFacts> = facts.iter().collect();
+    // A stable sort keeps the pool order within one class.
+    ranked.sort_by_key(|slot| slot.reason.class());
+    ranked
+}
+
+impl Manager {
+    /// The facts of each free slot in `workers`: its state ([`crate::worker::hypervisor::Machine::slot_states`]),
+    /// and for a running slot whether the daemon record of the slot names `launch_digest`. Nothing is started or
+    /// changed.
+    pub(crate) async fn slot_preference(&self, ctx: &Ctx, workers: &[&str], launch_digest: Option<&str>) -> Vec<SlotFacts> {
+        let states = self.machine().slot_states(ctx, workers).await;
+        workers
+            .iter()
+            .zip(states)
+            .map(|(worker, state)| {
+                let warm_daemon = state == SlotState::Running
+                    && launch_digest.is_some_and(|digest| {
+                        HostState::read(self.settings(), worker).is_some_and(|record| record.launch_digest == digest)
+                    });
+                SlotFacts {
+                    worker: (*worker).to_owned(),
+                    reason: SlotReason::of(state, warm_daemon),
+                }
+            })
+            .collect()
+    }
 }
 
 /// Takes at most `request.count()` workers under one pool-wide lock and answers them.
@@ -85,6 +186,7 @@ async fn acquire_held_set(ctx: &Ctx, manager: &Manager, request: &AcquireRequest
             lease: existing,
             receipt,
             recovered: true,
+            slot_reason: SlotReason::Recovered,
         });
         // A single-worker acquisition answers from the first worker that already holds it, without reading the rest
         // of the pool - the behaviour every caller that predates a count already relies on.
@@ -116,13 +218,28 @@ async fn place_pending(
     placed: &mut Vec<Lease>,
 ) -> Result<(), Refusal> {
     let settings = manager.settings();
-    for worker in &settings.workers {
+    let free: Vec<&str> = settings
+        .workers
+        .iter()
+        .map(String::as_str)
+        .filter(|worker| !taken.contains(worker))
+        .collect();
+    // One free slot has no order to choose, so a one-slot pool asks the backend nothing.
+    let facts = if free.len() > 1 && !pending.is_empty() {
+        manager.slot_preference(ctx, &free, request.launch_digest()).await
+    } else {
+        free.iter()
+            .map(|worker| SlotFacts {
+                worker: (*worker).to_owned(),
+                reason: SlotReason::Unranked,
+            })
+            .collect()
+    };
+    for slot in rank_slots(&facts) {
         let Some(holder) = pending.get(placed.len()) else {
             break;
         };
-        if taken.contains(worker.as_str()) {
-            continue;
-        }
+        let worker = &slot.worker;
         let lease = Lease {
             schema_version: SCHEMA_VERSION,
             backend: settings.backend,
@@ -142,6 +259,7 @@ async fn place_pending(
             lease,
             receipt,
             recovered: false,
+            slot_reason: slot.reason,
         });
     }
     if held.is_empty() {

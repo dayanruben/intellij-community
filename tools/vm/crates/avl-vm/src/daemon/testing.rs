@@ -534,17 +534,32 @@ pub(crate) fn fixture_descriptor_for(jbr_platform: &str) -> Value {
     })
 }
 
+/// The fixture runfile that is a source file of the checkout, as a lock file of the descriptor `data` is.
+pub(crate) const FIXTURE_SOURCE_RUNFILE: &str = "_main/data/project.zip";
+
 /// Materializes the descriptor for `jbr_platform` and its runfiles tree in `directory`, answering the descriptor path.
-pub(crate) fn write_runtime_fixture(directory: &Path, jbr_platform: &str) -> PathBuf {
+/// [`FIXTURE_SOURCE_RUNFILE`] is a file of `checkout`, and the tree links to it, as Bazel links a source runfile.
+pub(crate) fn write_runtime_fixture(directory: &Path, checkout: &Path, jbr_platform: &str) -> PathBuf {
     let descriptor_path = directory.join("ui_daemon.runtime.json");
     let root = avl_wire::runtime::runfiles_root(&descriptor_path);
+    let mut manifest = String::new();
     for (logical_path, content) in FIXTURE_RUNFILES {
         let target = root.join(logical_path);
         if let Some(parent) = target.parent() {
             std::fs::create_dir_all(parent).expect("the runfiles tree is created");
         }
-        std::fs::write(&target, content).expect("a runfile is written");
+        if logical_path == FIXTURE_SOURCE_RUNFILE {
+            let source = checkout.join(logical_path.trim_start_matches("_main/"));
+            std::fs::create_dir_all(source.parent().expect("a source has a directory")).expect("the source directory is created");
+            std::fs::write(&source, content).expect("a source runfile is written");
+            std::os::unix::fs::symlink(&source, &target).expect("the tree links the source runfile");
+        } else {
+            std::fs::write(&target, content).expect("a runfile is written");
+        }
+        manifest.push_str(&format!("{logical_path} {}\n", target.display()));
     }
+    // Bazel writes the MANIFEST into the tree too, and the guest builds its own tree from it.
+    std::fs::write(root.join("MANIFEST"), manifest).expect("the MANIFEST is written");
     std::fs::write(&descriptor_path, fixture_descriptor_for(jbr_platform).to_string()).expect("the descriptor is written");
     descriptor_path
 }
@@ -661,6 +676,8 @@ impl GuestPorts {
 /// in assertions are literals.
 pub(crate) struct DaemonFixture {
     pool: HostPool,
+    /// The directory of the descriptor and its runfiles tree, outside the checkout.
+    _bazel_out: tempfile::TempDir,
     pub(crate) manager: Arc<Manager>,
     pub(crate) runner: Runner,
     /// The interrupt service of the runner and the host; [`Interrupts::deliver`] interrupts without a signal.
@@ -819,10 +836,10 @@ impl DaemonFixture {
             Timings::fast(),
         ));
         manager.prepare_runtime_dirs().expect("the runtime directories are created");
-        let out = pool.root().join("out");
-        std::fs::create_dir_all(&out).expect("the output directory is created");
+        // The Bazel outputs lie outside the checkout, as on a real host, so only the source runfile is staged.
+        let bazel_out = tempfile::tempdir().expect("a directory for the Bazel outputs");
         let platform = crate::lane::env::guest_jbr_platform(settings.guest_os, settings.guest_arch);
-        let bazel = Arc::new(FakeBazel::new(write_runtime_fixture(&out, platform)));
+        let bazel = Arc::new(FakeBazel::new(write_runtime_fixture(bazel_out.path(), pool.root(), platform)));
         // Advances only when a poll sleeps, so a poll loop's suite never waits out a real budget.
         let clock = Arc::new(FakeClock::at("2026-08-23T12:00:00Z"));
         let stdin = Arc::new(ScriptedStdin::default());
@@ -844,6 +861,7 @@ impl DaemonFixture {
         ports.listen(daemon.port(), daemon.server_side());
         let fixture = Self {
             pool,
+            _bazel_out: bazel_out,
             manager,
             runner,
             interrupts,
@@ -934,6 +952,21 @@ impl DaemonFixture {
         };
         let staged = serde_json::to_string(&result).expect("a stage result encodes");
         self.on("stage", answer_text(staged));
+        // The runfiles-tree double names the root the guest would build: the digest of the request it was sent.
+        self.on(
+            "runfiles-tree",
+            handler(|_, options| {
+                let stdin = options.stdin.as_deref().unwrap_or_default();
+                let (line, _) = avl_wire::runfiles::split_request_stdin(stdin);
+                let request: avl_wire::runfiles::RunfilesTreeRequest =
+                    serde_json::from_slice(line).expect("a runfiles-tree request decodes");
+                let root = format!("{}/{}", request.destination, avl_wire::runfiles::tree_digest(&request));
+                Ok(agent_reply(
+                    "runfiles-tree",
+                    &json!({"root": root, "digest": "d", "entries": 1, "reused": true}),
+                ))
+            }),
+        );
         // The launch-prep double does what the guest does: it decodes the request and renders the @-file from the
         // classpath the stage above reported. A double that echoed the requested digest back would agree with the
         // controller no matter what either half actually rendered, which is the one thing this reply proves.

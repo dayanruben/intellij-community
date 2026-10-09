@@ -121,18 +121,30 @@ fn render_is_the_inverse_of_parse() {
     assert_eq!(RunfilesManifest::parse(&manifest.render()).unwrap(), manifest);
 }
 
+fn request(manifest: &str, table: PathMap) -> RunfilesTreeRequest {
+    RunfilesTreeRequest {
+        schema_version: SCHEMA_VERSION,
+        manifest_text: manifest.to_owned(),
+        path_map: table,
+        destination: "/home/admin/WorkerData/runfiles".to_owned(),
+        staged: Vec::new(),
+        with_bytes: false,
+        copy_package_stores: false,
+    }
+}
+
 #[test]
 fn the_request_and_the_result_travel_as_camel_case_json() {
-    let request = RunfilesTreeRequest {
-        schema_version: SCHEMA_VERSION,
-        manifest_text: "_main/a C:/a\n".to_owned(),
-        path_map: PathMap::new(vec![PathPrefix::new("C:/b", "/mnt/b")]),
-        destination: "/home/admin/WorkerData/runfiles".to_owned(),
-    };
+    let mut request = request("_main/a C:/a\n", PathMap::new(vec![PathPrefix::new("C:/b", "/mnt/b")]));
+    request.staged.push(StagedRunfile {
+        path: "_main/lock.yaml".to_owned(),
+        sha256: "ab".to_owned(),
+        size: 2,
+    });
     let text = serde_json::to_string(&request).unwrap();
     assert_eq!(
         text,
-        r#"{"schemaVersion":3,"manifestText":"_main/a C:/a\n","pathMap":{"prefixes":[{"host":"C:/b","guest":"/mnt/b"}]},"destination":"/home/admin/WorkerData/runfiles"}"#
+        r#"{"schemaVersion":4,"manifestText":"_main/a C:/a\n","pathMap":{"prefixes":[{"host":"C:/b","guest":"/mnt/b"}]},"destination":"/home/admin/WorkerData/runfiles","staged":[{"path":"_main/lock.yaml","sha256":"ab","size":2}],"withBytes":false,"copyPackageStores":false}"#
     );
     assert_eq!(serde_json::from_str::<RunfilesTreeRequest>(&text).unwrap(), request);
     let result = RunfilesTreeResult {
@@ -200,17 +212,52 @@ fn a_manifest_that_a_windows_bazel_wrote_parses_and_maps() {
     );
 }
 
-/// The name depends on both inputs and on nothing else, so the host predicts the root the guest builds.
+/// The name depends on every input but the bytes flag, so the host predicts the root the guest builds.
 #[test]
-fn the_tree_digest_names_the_manifest_and_the_table() {
+fn the_tree_digest_names_the_manifest_the_table_the_staged_runfiles_and_the_copy_rule() {
     let table = PathMap::new(vec![PathPrefix::new("C:/b", "/mnt/b")]);
-    let digest = tree_digest(b"_main/a C:/b/a\n", &table);
+    let base = request("_main/a C:/b/a\n", table.clone());
+    let digest = tree_digest(&base);
     assert!(crate::stage::is_sha256_hex(&digest), "{digest}");
-    assert_eq!(digest, tree_digest(b"_main/a C:/b/a\n", &table));
-    assert_ne!(digest, tree_digest(b"_main/a C:/b/b\n", &table));
+    assert_eq!(digest, tree_digest(&base));
+    assert_eq!(
+        digest,
+        tree_digest(&RunfilesTreeRequest {
+            with_bytes: true,
+            ..base.clone()
+        })
+    );
+    assert_ne!(digest, tree_digest(&request("_main/a C:/b/b\n", table)));
     assert_ne!(
         digest,
-        tree_digest(b"_main/a C:/b/a\n", &PathMap::new(vec![PathPrefix::new("C:/b", "/mnt/c")]))
+        tree_digest(&request("_main/a C:/b/a\n", PathMap::new(vec![PathPrefix::new("C:/b", "/mnt/c")])))
     );
-    assert_ne!(digest, tree_digest(b"_main/a C:/b/a\n", &PathMap::default()));
+    assert_ne!(digest, tree_digest(&request("_main/a C:/b/a\n", PathMap::default())));
+    let staged = RunfilesTreeRequest {
+        staged: vec![StagedRunfile {
+            path: "_main/lock.yaml".to_owned(),
+            sha256: "ab".to_owned(),
+            size: 2,
+        }],
+        ..base.clone()
+    };
+    assert_ne!(digest, tree_digest(&staged));
+    assert_ne!(
+        digest,
+        tree_digest(&RunfilesTreeRequest {
+            copy_package_stores: true,
+            ..base
+        })
+    );
+}
+
+/// The request is one JSON line, and the bytes of the staged runfiles follow it unchanged.
+#[test]
+fn the_stdin_is_the_request_line_and_then_the_bytes() {
+    let request = request("_main/a C:/b/a\n", PathMap::default());
+    let stdin = request_stdin(&request, &[b"one\n".to_vec(), b"two".to_vec()]);
+    let (line, bytes) = split_request_stdin(&stdin);
+    assert_eq!(serde_json::from_slice::<RunfilesTreeRequest>(line).unwrap(), request);
+    assert_eq!(bytes, b"one\ntwo");
+    assert_eq!(split_request_stdin(b"{}"), (&b"{}"[..], &b""[..]));
 }

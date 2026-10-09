@@ -93,28 +93,25 @@ pub(crate) struct EngineInputs {
 impl EngineInputs {
     /// The inputs of this invocation: the sizes of a Linux worker, the home, and the image pins.
     ///
-    /// Refuses before the host paths are resolved. Refuses `share_outside_home` when the repository or the Bazel output
-    /// user root is not under the home, and a home that is not UTF-8, because the template is text. The paths are
-    /// compared as real paths, because the host paths are real paths and `HOME` may name a symlink.
+    /// Refuses before the host paths are resolved. Refuses `share_outside_home` when the Bazel output user root, the
+    /// one share, is not under the home, and a home that is not UTF-8, because the template is text. The paths are
+    /// compared as real paths, because the host paths are real paths and `HOME` may name a symlink. The checkout may
+    /// lie anywhere: no share holds it.
     pub(crate) fn of(settings: &Config) -> Result<Self, Refusal> {
         let real = |path: &Path| real_path(path).unwrap_or_else(|_| path.to_owned());
         let home = real(&settings.home);
-        for (path, what) in [
-            (settings.host_repo()?, "the repository"),
-            (settings.host_bazel_user_root()?, "the Bazel output user root"),
-        ] {
-            if !real(path).starts_with(&home) {
-                return Err(Refusal::new(
-                    "share_outside_home",
-                    Exit::USAGE,
-                    format!(
-                        "{what} {} is not under the home {}, and the Lima engine mounts only the home; move it under \
-                         the home, or set DOCKER_HOST or DOCKER_BIN to use another engine",
-                        path.display(),
-                        home.display()
-                    ),
-                ));
-            }
+        let bazel_user_root = settings.host_bazel_user_root()?;
+        if !real(bazel_user_root).starts_with(&home) {
+            return Err(Refusal::new(
+                "share_outside_home",
+                Exit::USAGE,
+                format!(
+                    "the Bazel output user root {} is not under the home {}, and the Lima engine mounts only the home; \
+                     move it under the home, or set DOCKER_HOST or DOCKER_BIN to use another engine",
+                    bazel_user_root.display(),
+                    home.display()
+                ),
+            ));
         }
         let home = home.to_str().map(str::to_owned).ok_or_else(|| {
             Refusal::new(

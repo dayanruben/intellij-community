@@ -36,17 +36,13 @@ fn control_port_files(fixture: &Fixture) -> [bool; 3] {
     ["container.ctl_port", "container.ctl_bearer", "container.json"].map(|name| fixture.settings.container_linux_root.join(name).is_file())
 }
 
-/// The `start` argv the fixture expects: the worker directory, the two shares read-only at their guest roots, and the
+/// The `start` argv the fixture expects: the worker directory, the Bazel share read-only at its guest root, and the
 /// published daemon port.
 fn expected_start(fixture: &Fixture, worker: &str) -> Vec<String> {
     let settings = &fixture.settings;
     let paths = GuestPaths::of(settings).expect("the guest paths render");
     let mut argv = vec!["start".to_owned(), settings.worker_dir(worker).to_string_lossy().into_owned()];
-    for (share, guest) in shares(settings)
-        .expect("the shares render")
-        .iter()
-        .zip([paths.repo(), paths.bazel_user_root()])
-    {
+    for (share, guest) in shares(settings).expect("the shares render").iter().zip([paths.bazel_user_root()]) {
         argv.push("--ro".to_owned());
         argv.push(format!("{}:{guest}", share.path.display()));
     }

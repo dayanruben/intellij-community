@@ -7,7 +7,6 @@ use std::time::Duration;
 use avl_base::format::{clip, words};
 use avl_base::{Backend, Exit, OrRefuse, Refusal, Scope};
 use avl_host_sys::guest::{AgentAccount, GUEST_COMMAND_TIMEOUT, Guest, ShareMount, SupervisorOptions, guest_join, user_argv};
-use avl_host_sys::paths::GuestPaths;
 use avl_host_sys::{Backoff, Channel, Ctx, Poll, SpawnOptions};
 use avl_report::digest;
 use avl_wire::daemon::{self as wire, LABEL, StateFile};
@@ -21,7 +20,7 @@ use serde_json::{Value, json};
 use crate::daemon::build::PreparedBuild;
 use crate::daemon::host::Host;
 use crate::daemon::http::{StatusProbe, protocol_refusal, require_supported_protocol};
-use crate::daemon::stage::{GuestRuntime, short};
+use crate::daemon::stage::{GuestRuntime, guest_daemon_directories, guest_home, short};
 use crate::daemon::state::{HostState, guest_state_dir};
 use crate::lane::ide::{IdeRetention, gc_guest_ides, gc_note, guest_ide_root};
 use avl_base::RefusalExt;
@@ -361,9 +360,9 @@ impl Host {
         let visible = {
             let (step, _phase) = ctx.begin("parity-probe");
             let guest = self.guest(&step, channel);
-            // A MANIFEST becomes the guest's own tree first, so the probe below asks about the tree the daemon
-            // runs from. A tree Bazel built needs no call. Inside this phase, because the phase table is a contract.
-            guest.ensure_runfiles_tree(&prep.runfiles, &prep.guest_runfiles_root).await?;
+            // The guest builds its own tree first, so the probe below asks about the tree the daemon runs from.
+            // Inside this phase, because the phase table is a contract.
+            guest.ensure_runfiles_tree(&prep.guest_tree).await?;
             guest
                 .succeeds(&user_argv(settings, &words(["/bin/test", "-f", &location])), GUEST_COMMAND_TIMEOUT)
                 .await
@@ -571,14 +570,22 @@ impl Host {
     /// `${RUNFILES_ROOT}` nothing substituted - is therefore still made on the host, before a guest is asked for
     /// anything.
     ///
-    /// Three flags tell the daemon how to launch the lane IDE: the installed guest agent, the directory of the IDE
-    /// contexts, and the home of the staged JVM, which the IDE runs on too. They come after the static flags of the
-    /// descriptor, so they win over a runfiles agent that a lane flag names.
+    /// The home of the daemon JVM is an empty directory of the generation, and its config, system, log and IDE
+    /// Starter output directories are on the guest disk, each named by its own flag. So no path of the JVM derives from
+    /// a home that holds the checkout. Three flags tell the daemon how to launch the lane IDE: the installed guest
+    /// agent, the directory of the IDE contexts, and the home of the staged JVM, which the IDE runs on too. They come
+    /// after the static flags of the descriptor, so they win over a runfiles agent that a lane flag names.
     fn launch_request(&self, prep: &PreparedBuild, staged: &GuestRuntime, state_dir: &str, run_tmp: &str) -> Result<LaunchPrep, Refusal> {
         let settings = &self.settings;
-        let guest_repo = GuestPaths::of(settings)?.repo().to_owned();
-        let mut extra_flags = vec![
-            format!("-Didea.home.path={guest_repo}"),
+        let home = guest_home(settings, &prep.runtime_digest);
+        let directories = guest_daemon_directories(settings);
+        let mut extra_flags = vec![format!("-Didea.home.path={home}")];
+        for (name, directory) in &directories {
+            extra_flags.push(format!("-Didea.{name}.path={directory}"));
+        }
+        extra_flags.extend([
+            // IDE Starter keeps its output tree on the guest disk instead of under the home.
+            format!("-Dide.starter.out.dir={}", settings.vm_out),
             format!("-Dintellij.build.download.cache.dir={}", settings.vm_download_cache),
             format!("-Dair.ui.daemon.state.dir={state_dir}"),
             format!("-Dair.ui.daemon.port={}", self.settings.daemon.port),
@@ -588,14 +595,11 @@ impl Host {
             format!("-Dair.lane.agent={}", settings.vm_agent),
             format!("-Dair.lane.ide.root={}", guest_ide_root(settings)),
             format!("-Dair.lane.java.home={}", java_home_of(&staged.java_binary)?),
-        ];
+        ]);
         if settings.backend == Backend::ContainerLinux {
             // A published port forwards to the container's address, not to its loopback, so the daemon binds every
             // interface of the container. Its network is its own, and the token guards each request.
             extra_flags.push("-Dair.ui.daemon.bind=0.0.0.0".to_owned());
-            // The checkout is a read-only mount at its host path, so IDE Starter keeps its output tree on the
-            // container disk instead of under <checkout>/out.
-            extra_flags.push(format!("-Dide.starter.out.dir={}", settings.vm_out));
         }
         let options = LaunchOptions {
             test_tmp_dir: run_tmp.to_owned(),
@@ -610,7 +614,10 @@ impl Host {
             schema_version: stage_wire::SCHEMA_VERSION,
             runtime_digest: prep.runtime_digest.clone(),
             stable_count: u32::try_from(prep.descriptor.classpath.stable.len()).unwrap_or(u32::MAX),
-            directories: vec![state_dir.to_owned(), guest_join(run_tmp, "outputs")],
+            directories: [state_dir.to_owned(), guest_join(run_tmp, "outputs"), home]
+                .into_iter()
+                .chain(directories.into_iter().map(|(_, directory)| directory))
+                .collect(),
             remove_files: vec![guest_join(state_dir, "daemon.json")],
             arg_file: ArgFileRequest {
                 destination: guest_join(state_dir, "daemon-jvm.args"),

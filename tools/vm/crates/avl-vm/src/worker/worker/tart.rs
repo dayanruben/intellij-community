@@ -242,10 +242,10 @@ impl Manager {
     /// Makes sure the next `tart run` either resumes a guest state that matches what it is about to declare, or
     /// resumes nothing at all.
     ///
-    /// Restoring against a changed declaration is not rejected by Tart: both shares ride one virtio-fs device, so
+    /// Restoring against a changed declaration is not rejected by Tart: every share rides one virtio-fs device, so
     /// dropping or repointing one changes the device's *contents* rather than the machine's topology and
-    /// `restoreMachineStateFrom` succeeds. Measured on 2026-08-12 - a resume declaring one of the two shares came up
-    /// without a word. The only safe move is to spend the saved state deliberately: resume with the argv that
+    /// `restoreMachineStateFrom` succeeds. Measured on 2026-08-12, with two shares - a resume declaring one of them
+    /// came up without a word. The only safe move is to spend the saved state deliberately: resume with the argv that
     /// produced it (or, when nothing was recorded, with the current one, where the restore either takes or fails
     /// loudly), shut the guest down cleanly, and let the caller cold-boot.
     pub(super) async fn discard_incompatible_suspended_state(
@@ -544,20 +544,17 @@ impl Manager {
         guest.ensure_ready(self).await
     }
 
-    /// Whether the running worker was launched with shares that no longer describe the host.
+    /// Whether the running worker was launched with a share that no longer describes the host.
     ///
     /// The init receipt is the record of what it was launched for. Every way of not having one - never provisioned,
     /// a receipt naming another worker, a schema this build does not speak - answers false, because the layout is
-    /// then built in place and no restart is needed.
+    /// then built in place and no restart is needed. The share names no checkout, so a second checkout of the host
+    /// restarts nothing.
     fn share_declaration_stale(&self, worker: &str) -> bool {
-        let (Ok(receipt), Ok(repo), Ok(bazel_user_root)) = (
-            read_init_receipt(&self.settings, worker),
-            self.settings.host_repo(),
-            self.settings.host_bazel_user_root(),
-        ) else {
+        let (Ok(receipt), Ok(bazel_user_root)) = (read_init_receipt(&self.settings, worker), self.settings.host_bazel_user_root()) else {
             return false;
         };
-        Path::new(&receipt.host_repo) != repo || Path::new(&receipt.host_bazel_user_root) != bazel_user_root
+        Path::new(&receipt.host_bazel_user_root) != bazel_user_root
     }
 
     /// [`Manager::require_release_ready`] for a Tart worker. A stopped worker is refused, and `lease release` never

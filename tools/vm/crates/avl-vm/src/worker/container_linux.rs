@@ -2,7 +2,7 @@
 //! checkout.
 //!
 //! A container-linux worker is the Linux guest of the skill's image. The script starts the container and mounts the
-//! two read-only shares at their host paths; the guest writes the control port and its bearer into the skill's output
+//! read-only Bazel share at its host path, and no checkout; the guest writes the control port and its bearer into the skill's output
 //! root, `out/testing-ui`. The runtime's exec serves the developer terminal of `exec` in text mode and `pull`. Every
 //! other guest command goes through the control port
 //! ([`ControlPortChannel`](crate::worker::channel::ControlPortChannel)). The guest runs as the one unprivileged
@@ -177,9 +177,8 @@ impl ContainerLinux {
 
     // --- start and stop ----------------------------------------------------------------------------------
 
-    /// The `start` argv of one worker: the worker directory as the program directory, the two shares read-only at
-    /// their guest roots, which are their host paths, and the daemon's guest port published at the host port of the
-    /// settings.
+    /// The `start` argv of one worker: the worker directory as the program directory, the Bazel share read-only at its
+    /// guest root, which is its host path, and the daemon's guest port published at the host port of the settings.
     ///
     /// A host path with a colon is refused, because the runtime splits a mount at it, as Docker refuses the characters
     /// of its own mount grammar. Refused before the host paths are resolved, as the shares are.
@@ -187,7 +186,7 @@ impl ContainerLinux {
         let settings = &self.settings;
         let paths = GuestPaths::of(settings)?;
         let mut argv = self.command(&["start", &path_text(&settings.worker_dir(worker))]);
-        for (share, guest) in shares(settings)?.iter().zip([paths.repo(), paths.bazel_user_root()]) {
+        for (share, guest) in shares(settings)?.iter().zip([paths.bazel_user_root()]) {
             let path = mount_path(&share.path, &share.name)?;
             argv.push("--ro".to_owned());
             argv.push(format!("{path}:{guest}"));

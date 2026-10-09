@@ -43,23 +43,17 @@ fn declared_data_accepts_directories_but_classpath_inputs_do_not() {
 }
 
 /// A host that keeps no tree (Windows) stamps each input at its MANIFEST target. The bytes are the same, so every
-/// identity of the content is the same as over the tree, and only the guest root differs: the tree the guest
-/// builds, named by the digest of the MANIFEST and the path table.
+/// identity of the content is the same as over the tree. The guest builds its tree from the MANIFEST on both hosts.
 #[tokio::test]
 async fn the_stamp_through_a_manifest_is_the_stamp_of_the_tree() {
     let fixture = Fixture::new().await;
     let over_tree = fixture.prepared().await;
-    assert!(matches!(over_tree.runfiles, HostRunfiles::Tree(_)));
 
     let descriptor = &fixture.bazel.descriptor_path;
     let store = crate::daemon::testing::replace_tree_with_manifest(descriptor);
-    let manifest_path = &avl_host_sys::runfiles::manifest_paths(descriptor)[0];
+    assert!(matches!(HostRunfiles::of(descriptor).unwrap(), HostRunfiles::Manifest { .. }));
 
     let over_manifest = fixture.prepared().await;
-    let HostRunfiles::Manifest { path, .. } = &over_manifest.runfiles else {
-        panic!("a host with only a MANIFEST read {:?}", over_manifest.runfiles);
-    };
-    assert_eq!(path, manifest_path);
     assert_eq!(over_manifest.runtime_digest, over_tree.runtime_digest);
     assert_eq!(over_manifest.product_digest, over_tree.product_digest);
     assert_eq!(over_manifest.mount_digest, over_tree.mount_digest);
@@ -68,10 +62,7 @@ async fn the_stamp_through_a_manifest_is_the_stamp_of_the_tree() {
         "a hot jar travels by its MANIFEST target, was {}",
         over_manifest.hot_jars[0].path
     );
-    assert_eq!(
-        over_manifest.guest_runfiles_root,
-        over_manifest.runfiles.guest_root(&fixture.settings).unwrap()
-    );
+    assert_eq!(over_manifest.guest_runfiles_root, over_manifest.guest_tree.root);
     assert!(
         over_manifest
             .guest_runfiles_root
@@ -79,8 +70,32 @@ async fn the_stamp_through_a_manifest_is_the_stamp_of_the_tree() {
         "{}",
         over_manifest.guest_runfiles_root
     );
-    // The boot digest covers the root that is sent, so the other root is another launch.
+    // The same source runfile is staged, and the MANIFEST names other targets, so it is another tree and launch.
+    assert_eq!(over_manifest.guest_tree.request.staged, over_tree.guest_tree.request.staged);
+    assert_ne!(over_manifest.guest_runfiles_root, over_tree.guest_runfiles_root);
     assert_ne!(over_manifest.launch_digest, over_tree.launch_digest);
+}
+
+/// The fixture's source runfile lies in the checkout, so it is a staged runfile with its digest and its length. Every
+/// other runfile stays a MANIFEST line for the guest to link.
+#[tokio::test]
+async fn a_runfile_in_the_checkout_is_staged_with_its_digest() {
+    let fixture = Fixture::new().await;
+    let prep = fixture.prepared().await;
+    let tree = &prep.guest_tree;
+    let source = crate::daemon::testing::FIXTURE_SOURCE_RUNFILE;
+    assert_eq!(tree.request.staged.len(), 1, "{:?}", tree.request.staged);
+    let staged = &tree.request.staged[0];
+    assert_eq!(
+        (staged.path.as_str(), staged.sha256.as_str(), staged.size),
+        (source, digest::sha256_text("data-a").as_str(), 6)
+    );
+    assert_eq!(tree.staged_files.len(), 1);
+    assert!(!tree.request.manifest_text.contains(source), "{}", tree.request.manifest_text);
+    assert_eq!(
+        tree.request.manifest_text.lines().count(),
+        crate::daemon::testing::FIXTURE_RUNFILES.len() - 1
+    );
 }
 
 // The trap this closes: bazel replaces a jar by rename, so a host build during a run changes nothing the run can
@@ -115,7 +130,7 @@ async fn hot_jar_drift_reports_a_jar_that_is_gone() {
 async fn the_launch_digest_is_composed_of_the_runtime_the_boot_settings_and_the_environment() {
     let fixture = Fixture::new().await;
     let prep = fixture.prepared().await;
-    let boot = controller_boot_digest(&fixture.settings, &prep.guest_runfiles_root, 27_100).unwrap();
+    let boot = controller_boot_digest(&fixture.settings, &prep.guest_runfiles_root, 27_100, &prep.runtime_digest);
     assert_eq!(
         prep.launch_digest,
         launch_digest(&prep.runtime_digest, &boot, &prep.daemon_environment)
@@ -228,7 +243,7 @@ async fn the_daemon_port_enters_the_launch_digest() {
     let fixture = Fixture::with_environment(&[("AIR_VM_DAEMON_PORT", "27101")]).await;
     let prep = fixture.prepared().await;
     let launched_on = |port| {
-        let boot = controller_boot_digest(&fixture.settings, &prep.guest_runfiles_root, port).unwrap();
+        let boot = controller_boot_digest(&fixture.settings, &prep.guest_runfiles_root, port, &prep.runtime_digest);
         launch_digest(&prep.runtime_digest, &boot, &prep.daemon_environment)
     };
     assert_eq!(prep.launch_digest, launched_on(27_101));
@@ -245,7 +260,7 @@ async fn the_daemon_environment_enters_the_launch_digest() {
         !prep.daemon_environment.is_empty(),
         "the daemon environment is empty, so this test guards nothing"
     );
-    let boot = controller_boot_digest(&fixture.settings, &prep.guest_runfiles_root, 27_100).unwrap();
+    let boot = controller_boot_digest(&fixture.settings, &prep.guest_runfiles_root, 27_100, &prep.runtime_digest);
     let other = BTreeMap::from([("NODE_BIN".to_owned(), "/other/node".to_owned())]);
     assert_ne!(
         prep.launch_digest,

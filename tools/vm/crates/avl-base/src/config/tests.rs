@@ -618,10 +618,10 @@ fn every_refusal_has_its_code_and_exit_status() {
             "4000",
         ),
         (
-            "an unsafe share name",
-            &[("AIR_VM_REPO_SHARE_NAME", "air repo")],
-            "unsafe_name",
-            "repository share name",
+            "the removed repository share",
+            &[("AIR_VM_REPO_SHARE_NAME", "air-macos-repo")],
+            "invalid_environment",
+            "AIR_VM_REPO_SHARE_NAME is removed",
         ),
         (
             "an unsafe bazel share name",

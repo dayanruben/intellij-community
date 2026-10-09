@@ -264,7 +264,11 @@ async fn an_acquisition_is_idempotent_through_its_original_receipt() {
     assert_eq!(lease_file(&first), lease_file(&second));
     assert_eq!(first.data["recovered"], false);
     assert_eq!(second.data["recovered"], true);
-    assert!(second.text.ends_with("recovered=true"), "{}", second.text);
+    assert!(second.text.contains("\nrecovered=true\n"), "{}", second.text);
+    // The reply names why the slot was chosen: the first one by its state, the second one by the recovery.
+    assert_eq!(first.data["slotReason"], "absent");
+    assert_eq!(second.data["slotReason"], "recovered");
+    assert!(second.text.ends_with("slot_reason=recovered"), "{}", second.text);
     assert_eq!(receipt_files(&fixture.settings).len(), 1);
 }
 

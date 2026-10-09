@@ -53,6 +53,11 @@ targets:
   - ../crates/avl-vm/src/report/time.rs
   - ../crates/avl-vm/src/worker/hypervisor.rs
   - ../crates/avl-host-sys/src/share.rs
+  - ../crates/avl-host-sys/src/paths.rs
+  - ../crates/avl-host-sys/src/runfiles.rs
+  - ../crates/avl-host-sys/src/guest/runfiles.rs
+  - ../crates/avl-guest/src/runfiles.rs
+  - ../crates/avl-wire/src/runfiles.rs
   - ../crates/avl-vm/src/worker/tart.rs
   - ../crates/avl-vm/src/worker/docker.rs
   - ../crates/avl-vm/src/worker/container.rs
@@ -344,6 +349,36 @@ The rest of the scenario matrix is in
   the IDE contexts, and the home of the staged JVM. The IDE runs on that JVM too.
   [@test] ../crates/avl-vm/src/daemon/start/tests.rs
 
+- The guest reads no checkout. A worker has one share, the Bazel output user root, read-only, on every backend. A
+  path of the checkout does not map to a guest path. A set `AIR_VM_REPO_SHARE_NAME` is refused.
+  [@test] ../crates/avl-host-sys/src/share/tests.rs
+  [@test] ../crates/avl-host-sys/src/paths/tests.rs
+  [@test] ../crates/avl-base/src/config/tests.rs
+  [@test] ../crates/avl-vm/src/worker/docker/tests.rs (`a_second_checkout_declares_the_same_container`)
+  [@test] ../crates/avl-vm/src/worker/container_linux/tests.rs
+
+- The parity layout links the Bazel output root and makes the writable roots of a run. It makes no checkout
+  directory and probes no `.git`. Its marker and its receipt name no checkout, so a worker serves every checkout of
+  the host.
+  [@test] ../crates/avl-host-sys/src/guest/parity/tests.rs
+
+- The guest builds its runfiles tree from the MANIFEST on every host. A runfile whose target is on the Bazel share is
+  a link. A runfile whose real path lies in the checkout is a staged runfile, and the tree holds a copy of it. The guest
+  checks each copy by its length and its sha256. A target under neither is refused. The first request carries no bytes, and
+  the guest asks for the bytes only when it has no tree of the digest.
+  [@test] ../crates/avl-host-sys/src/runfiles/tests.rs
+  [@test] ../crates/avl-host-sys/src/guest/runfiles/tests.rs
+  [@test] ../crates/avl-guest/src/runfiles/tests.rs
+  [@test] ../crates/avl-wire/src/runfiles/tests.rs
+  [@test] ../crates/avl-vm/src/daemon/build/tests.rs (`a_runfile_in_the_checkout_is_staged_with_its_digest`)
+  [@test] ../crates/avl-vm/src/daemon/start/tests.rs
+
+- The home of the daemon JVM is an empty directory of its staged generation. Its config, system and log directories
+  and the output tree of IDE Starter are on the guest disk. Each one has its own flag, so no path derives from a
+  checkout. The daemon refuses a home outside its generation.
+  [@test] ../crates/avl-vm/src/daemon/start/tests.rs
+  [@test] ../../../../plugins/air/tests/integration/uiDaemon/testSrc/AirUiDaemonStagedHomeTest.kt
+
 - A run that rules out each of its classes is not a run that matched no class. The controller gives the
   reason of each class, and does not tell the person to look at the selector.
   [@test] ../crates/avl-vm/src/daemon/command/tests.rs
@@ -593,9 +628,9 @@ The daemon's half and the IDE's half of supervision are in
   [@test] ../crates/avl-vm/src/lane/observe/status/tests.rs
 
 - Each verdict which can carry a reason has an error field beside it on the same row. `parityReady` is such
-  a verdict, and `parityError` gives the refusal code. A worker which a different checkout provisioned
-  reports `parityReady` false with `guest_init_stale`. The next run of this checkout provisions that worker
-  again. The controller resolves the host paths of the pool one time. A host path which it cannot resolve
+  a verdict, and `parityError` gives the refusal code. A worker which the controller provisioned for a different
+  Bazel output root reports `parityReady` false with `guest_init_stale`. The next run provisions that worker
+  again. A worker which a different checkout provisioned is ready, because the layout names no checkout. The controller resolves the host paths of the pool one time. A host path which it cannot resolve
   is `hostPathsError` of the answer, and not a refusal on each row. Every `parityReady` of that pool is
   then null, and `parityError` gives only a code of the guest.
   [@test] ../crates/avl-vm/src/lane/observe/status/tests.rs
@@ -761,6 +796,13 @@ The daemon's half and the IDE's half of supervision are in
 - At the deadline the idle stop stops a running worker that no lease holds. It keeps a leased worker, and a
   worker whose record is gone or names another nonce. It never starts a server that is down.
   [@test] ../crates/avl-vm/src/worker/worker/docker/tests.rs
+
+- An acquisition ranks the free slots. The first choice is a running slot whose daemon serves the build that asks.
+  Then come a running slot, a stopped slot and an absent slot. Within one class the pool order stays, and a slot without a running
+  state keeps its place. The probes start nothing. The holder recovery comes first. The reply names the class in
+  `slotReason`.
+  [@test] ../crates/avl-vm/src/worker/lease/set/tests.rs
+  [@test] ../crates/avl-vm/src/worker/lease/tests.rs
 
 - A lease acquisition and a start remove the deadline record, so the worker keeps running for its new holder.
   [@test] ../crates/avl-vm/src/worker/lease/tests.rs

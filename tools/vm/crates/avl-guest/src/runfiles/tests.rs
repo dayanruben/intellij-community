@@ -30,7 +30,7 @@ fn table(shares: &Path) -> PathMap {
 
 fn request(manifest: &str, shares: &Path, destination: &Path) -> Value {
     json!({
-        "schemaVersion": 3,
+        "schemaVersion": 4,
         "manifestText": manifest,
         "pathMap": table(shares),
         "destination": destination,
@@ -80,8 +80,9 @@ fn every_line_becomes_its_runfile_under_the_digest_and_a_second_build_reuses_it(
     assert_eq!(again["data"]["root"], data["root"]);
 }
 
-/// A package directory of a `node_modules` store is copied into the tree, and the dependency link beside it stays a
-/// link of the tree, so Node's real-path resolution from the copy finds the tree's links.
+/// With the copy rule of a Windows host, a package directory of a `node_modules` store is copied into the tree, and
+/// the dependency link beside it stays a link of the tree, so Node's real-path resolution from the copy finds the
+/// tree's links. Without the rule the package is a link onto the share, as every other target.
 #[test]
 fn a_node_modules_package_directory_is_copied_into_the_tree() {
     let directory = tempfile::tempdir().unwrap();
@@ -96,8 +97,18 @@ fn a_node_modules_package_directory_is_copied_into_the_tree() {
         "_main/pkg/node_modules/.aspect_rules_js/x@1/node_modules/y ../../y@1/node_modules/y\n",
         "_main/pkg/data.txt C:/Users/air/repo/pkg/data.txt\n",
     );
-    let document = run(&request(text, &shares, &destination)).document();
+    let linked = run(&request(text, &shares, &destination)).document();
+    let linked_root = Path::new(linked["data"]["root"].as_str().unwrap()).to_path_buf();
+    assert!(
+        fs::symlink_metadata(linked_root.join("_main/pkg/node_modules/.aspect_rules_js/x@1/node_modules/x"))
+            .unwrap()
+            .is_symlink()
+    );
+    let mut copying = request(text, &shares, &destination);
+    copying["copyPackageStores"] = json!(true);
+    let document = run(&copying).document();
     assert_eq!(document["ok"], true, "{document}");
+    assert_ne!(document["data"]["digest"], linked["data"]["digest"]);
     let root = Path::new(document["data"]["root"].as_str().unwrap()).to_path_buf();
     let copied = root.join("_main/pkg/node_modules/.aspect_rules_js/x@1/node_modules/x");
     assert!(fs::symlink_metadata(&copied).unwrap().is_dir());
@@ -109,6 +120,72 @@ fn a_node_modules_package_directory_is_copied_into_the_tree() {
     );
     // A file outside a store is still a link.
     assert!(fs::symlink_metadata(root.join("_main/pkg/data.txt")).unwrap().is_symlink());
+}
+
+/// The request with the staged runfiles and their bytes on one stdin.
+fn staged_stdin(request: &Value, bytes: &[&[u8]]) -> Vec<u8> {
+    let mut stdin = request.to_string().into_bytes();
+    stdin.push(b'\n');
+    for chunk in bytes {
+        stdin.extend_from_slice(chunk);
+    }
+    stdin
+}
+
+fn staged_request(shares: &Path, destination: &Path, with_bytes: bool) -> Value {
+    let mut request = request(
+        "_main/pkg/lib.jar C:/Users/air/_bazel/execroot/_main/bazel-out/lib.jar\n",
+        shares,
+        destination,
+    );
+    request["staged"] = json!([
+        {"path": "_main/tools/pnpm-lock.yaml", "sha256": hex::encode(Sha256::digest(b"lock: 1\n")), "size": 8},
+        {"path": "community+/java/mockJDK/rt.jar", "sha256": hex::encode(Sha256::digest(b"jar")), "size": 3},
+    ]);
+    request["withBytes"] = json!(with_bytes);
+    request
+}
+
+/// A staged runfile is a copy of its bytes in the tree. A request without the bytes reuses that tree, and with no tree
+/// of its digest it is refused by its own code, so the host sends the bytes.
+#[test]
+fn a_staged_runfile_is_a_copy_and_a_request_without_bytes_only_reuses() {
+    let directory = tempfile::tempdir().unwrap();
+    let (shares, destination) = (directory.path().join("shares"), directory.path().join("runfiles"));
+
+    let answered = run(&staged_request(&shares, &destination, false));
+    assert_eq!(answered.exit, 70, "{}", answered.stderr);
+    assert_eq!(answered.code(), STAGED_BYTES_MISSING_CODE);
+    assert!(fs::read_dir(&destination).is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound));
+
+    let stdin = staged_stdin(&staged_request(&shares, &destination, true), &[b"lock: 1\n", b"jar"]);
+    let document = run_agent(&["runfiles-tree"], &stdin).document();
+    assert_eq!(document["ok"], true, "{document}");
+    assert_eq!(document["data"]["entries"], 3);
+    let root = Path::new(document["data"]["root"].as_str().unwrap()).to_path_buf();
+    let lock = root.join("_main/tools/pnpm-lock.yaml");
+    assert!(fs::symlink_metadata(&lock).unwrap().is_file());
+    assert_eq!(fs::read(&lock).unwrap(), b"lock: 1\n");
+    assert_eq!(fs::read(root.join("community+/java/mockJDK/rt.jar")).unwrap(), b"jar");
+    assert!(fs::symlink_metadata(root.join("_main/pkg/lib.jar")).unwrap().is_symlink());
+
+    let again = run(&staged_request(&shares, &destination, false)).document();
+    assert_eq!(again["data"]["reused"], true, "{again}");
+    assert_eq!(again["data"]["root"], document["data"]["root"]);
+}
+
+/// Bytes that are short, long or of another digest are refused, and leave no tree.
+#[test]
+fn staged_bytes_that_do_not_match_the_request_are_refused() {
+    let directory = tempfile::tempdir().unwrap();
+    let (shares, destination) = (directory.path().join("shares"), directory.path().join("runfiles"));
+    let request = staged_request(&shares, &destination, true);
+    for bytes in [&[&b"lock: 1\n"[..], b"ja"][..], &[b"lock: 1\n", b"jarX"], &[b"lock: 2\n", b"jar"]] {
+        let answered = run_agent(&["runfiles-tree"], &staged_stdin(&request, bytes));
+        assert_eq!(answered.exit, 70, "{}", answered.stderr);
+        assert_eq!(answered.code(), "guest_runfiles_tree_failed");
+    }
+    assert!(fs::read_dir(&destination).is_ok_and(|mut entries| entries.next().is_none()));
 }
 
 /// Another table links to other targets, so it is another digest and another tree.
@@ -163,7 +240,7 @@ fn a_request_or_a_manifest_the_verb_cannot_act_on_is_the_verbs_refusal() {
         );
     }
     let mut wrong = request(MANIFEST, &shares, &destination);
-    wrong["schemaVersion"] = json!(4);
+    wrong["schemaVersion"] = json!(3);
     assert_eq!(refused(&wrong), "guest_runfiles_tree_failed");
     let mut relative = request(MANIFEST, &shares, &destination);
     relative["destination"] = json!("runfiles");

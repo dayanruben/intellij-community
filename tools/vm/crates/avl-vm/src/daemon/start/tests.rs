@@ -528,7 +528,12 @@ async fn a_full_start_boots_polls_and_records_its_state() {
     for fragment in [
         format!("-Dair.ui.daemon.controller.launch.digest={}", prep.launch_digest),
         "-Dair.ui.daemon.port=27100".to_owned(),
-        format!("-Didea.home.path={}", fixture.root().display()),
+        // The home is an empty directory of the generation, and every path the platform derives from it is named.
+        format!("-Didea.home.path={generation}/home"),
+        format!("-Didea.config.path={}/daemon/config", fixture.settings.vm_out),
+        format!("-Didea.system.path={}/daemon/system", fixture.settings.vm_out),
+        format!("-Didea.log.path={}/daemon/log", fixture.settings.vm_out),
+        format!("-Dide.starter.out.dir={}", fixture.settings.vm_out),
         // How the daemon launches the lane IDE: the installed agent, the context root, and the staged JVM home.
         format!("-Dair.lane.agent={}", fixture.settings.vm_agent),
         "-Dair.lane.ide.root=/vm/data/ide".to_owned(),
@@ -539,7 +544,21 @@ async fn a_full_start_boots_polls_and_records_its_state() {
     assert_eq!(request.arg_file.main_class, "com.example.Main");
     assert_eq!(request.arg_file.destination, "/vm/data/daemon/daemon-jvm.args");
     assert_eq!(request.remove_files, ["/vm/data/daemon/daemon.json"]);
-    assert_eq!(request.directories.len(), 2);
+    assert_eq!(
+        request.directories[2..],
+        [
+            format!("{generation}/home"),
+            format!("{}/daemon/config", fixture.settings.vm_out),
+            format!("{}/daemon/system", fixture.settings.vm_out),
+            format!("{}/daemon/log", fixture.settings.vm_out),
+        ]
+    );
+    // No flag names the checkout: the guest has none.
+    assert!(
+        !prefix.contains(&fixture.root().display().to_string()),
+        "the launch names the checkout {}:\n{prefix}",
+        fixture.root().display()
+    );
 
     // The supervisor start runs the staged JVM under /usr/bin/env with the run environment.
     let starts = channel.calls_containing("vm-guest-agent start");
@@ -882,44 +901,67 @@ async fn a_start_over_a_record_whose_run_will_not_finish_refuses_and_launches_no
     );
 }
 
-/// A host that keeps no tree has the guest build it: inside the parity probe phase, before the probe and before the
-/// stage, with the MANIFEST by its guest path, and at the root the launch already names.
+/// The guest builds its own tree inside the parity probe phase, before the probe and before the stage, at the root the
+/// launch already names. The first request carries no bytes; a guest without the tree refuses it, and the second
+/// request carries the bytes of every staged runfile after the request line.
 #[tokio::test]
-async fn a_host_without_a_tree_has_the_guest_build_it_before_the_probe() {
-    let fixture = Fixture::new().await;
-    crate::daemon::testing::replace_tree_with_manifest(&fixture.bazel.descriptor_path);
-    let (fixture, prep) = ready(fixture).await;
+async fn the_guest_builds_its_tree_before_the_probe_and_gets_the_bytes_when_it_has_none() {
+    let (fixture, prep) = start_ready().await;
     let root = prep.guest_runfiles_root.clone();
     fixture.on(
         "runfiles-tree",
-        handler(move |_, _| {
+        handler(move |_, options| {
+            let stdin = options.stdin.as_deref().unwrap_or_default();
+            let (line, _) = avl_wire::runfiles::split_request_stdin(stdin);
+            let request: avl_wire::runfiles::RunfilesTreeRequest = serde_json::from_slice(line).unwrap();
+            if !request.with_bytes {
+                return Ok(Captured {
+                    exit_code: 70,
+                    stderr: json!({"schemaVersion": 1, "ok": false, "command": "runfiles-tree",
+                        "error": {"code": avl_wire::runfiles::STAGED_BYTES_MISSING_CODE, "message": "no tree"}})
+                    .to_string(),
+                    ..Captured::default()
+                });
+            }
             Ok(agent_reply(
                 "runfiles-tree",
-                &json!({"root": root, "digest": "d", "entries": 9, "reused": false}),
+                &json!({"root": root, "digest": "d", "entries": 11, "reused": false}),
             ))
         }),
     );
     start(&fixture, &prep).await.unwrap();
 
     let calls = fixture.channel().calls();
+    let trees: Vec<usize> = (0..calls.len())
+        .filter(|index| calls[*index].line().contains(" runfiles-tree"))
+        .collect();
+    assert_eq!(trees.len(), 2, "{:?}", fixture.channel().lines());
     let at = |fragment: &str| {
         calls
             .iter()
             .position(|call| call.line().contains(fragment))
             .unwrap_or_else(|| panic!("no call contains {fragment:?}"))
     };
-    let built = at(" runfiles-tree");
-    assert!(built < at(&format!("/bin/test -f {}", self_location(&prep))));
-    assert!(built < at(" stage "));
-    let request: avl_wire::runfiles::RunfilesTreeRequest = serde_json::from_slice(calls[built].options.stdin.as_deref().unwrap()).unwrap();
-    let paths = GuestPaths::of(&fixture.settings).unwrap();
-    let avl_host_sys::runfiles::HostRunfiles::Manifest { bytes, .. } =
-        avl_host_sys::runfiles::HostRunfiles::of(&fixture.bazel.descriptor_path).unwrap()
-    else {
-        panic!("a MANIFEST");
-    };
-    assert_eq!(request.manifest_text, String::from_utf8(bytes).unwrap());
-    assert_eq!(request.path_map, *paths.map());
+    assert!(trees[1] < at(&format!("/bin/test -f {}", self_location(&prep))));
+    assert!(trees[1] < at(" stage "));
+    let stdin = |index: usize| calls[index].options.stdin.clone().unwrap();
+    let first = stdin(trees[0]);
+    let (line, bytes) = avl_wire::runfiles::split_request_stdin(&first);
+    let request: avl_wire::runfiles::RunfilesTreeRequest = serde_json::from_slice(line).unwrap();
+    assert_eq!((request.with_bytes, bytes.len()), (false, 0));
+    assert_eq!(
+        request.path_map,
+        *avl_host_sys::paths::GuestPaths::of(&fixture.settings).unwrap().map()
+    );
+    let second = stdin(trees[1]);
+    let (_, bytes) = avl_wire::runfiles::split_request_stdin(&second);
+    let expected: Vec<u8> = prep
+        .guest_tree
+        .staged_files
+        .iter()
+        .flat_map(|file| std::fs::read(file).unwrap())
+        .collect();
+    assert_eq!(bytes, expected.as_slice());
     // What the guest runs from is the built tree.
     assert!(
         self_location(&prep).starts_with(&format!("{}/", prep.guest_runfiles_root)),

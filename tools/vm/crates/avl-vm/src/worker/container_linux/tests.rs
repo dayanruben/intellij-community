@@ -56,10 +56,10 @@ fn backend(settings: &Arc<Config>) -> ContainerLinux {
 
 // --- start ----------------------------------------------------------------------------------------------------
 
-/// The two shares are read-only mounts at their guest roots, which on a Unix host are the host paths themselves, so
-/// the guest needs no parity layout.
+/// The Bazel share is a read-only mount at its guest root, which on a Unix host is the host path itself, so the guest
+/// needs no parity layout. The checkout is not mounted at all.
 #[test]
-fn start_mounts_the_shares_read_only_at_their_host_paths() {
+fn start_mounts_the_bazel_share_read_only_at_its_host_path_and_no_checkout() {
     let root = tempfile::tempdir().expect("a temporary directory");
     let settings = settings(root.path(), "/Users/air/idea", "/Users/air/.cache/bazel");
     let backend = backend(&settings);
@@ -70,8 +70,6 @@ fn start_mounts_the_shares_read_only_at_their_host_paths() {
             driver(&settings).as_str(),
             "start",
             &worker_dir,
-            "--ro",
-            "/Users/air/idea:/Users/air/idea",
             "--ro",
             "/Users/air/.cache/bazel:/Users/air/.cache/bazel",
             "--publish",
@@ -84,10 +82,10 @@ fn start_mounts_the_shares_read_only_at_their_host_paths() {
 #[test]
 fn a_share_path_with_a_colon_is_refused() {
     let root = tempfile::tempdir().expect("a temporary directory");
-    let settings = settings(root.path(), "/Users/air/a:b/idea", "/Users/air/.cache/bazel");
+    let settings = settings(root.path(), "/Users/air/idea", "/Users/air/a:b/bazel");
     let refusal = backend(&settings).start_argv(WORKER).unwrap_err();
     assert_eq!((refusal.code.as_ref(), refusal.exit), ("unsafe_share_path", Exit::DATA_ERR));
-    assert!(refusal.message.contains("/Users/air/a:b/idea"), "{}", refusal.message);
+    assert!(refusal.message.contains("/Users/air/a:b/bazel"), "{}", refusal.message);
 }
 
 /// A Windows path carries its drive colon, which the runtime reads as Docker does, so that one colon passes; any
