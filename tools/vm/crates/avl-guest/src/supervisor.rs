@@ -43,7 +43,7 @@ use crate::reply::{self, AgentRefusal, Streams};
 pub(crate) use launch::LaunchHost;
 pub(crate) use supervise::supervise;
 #[cfg(test)]
-pub(crate) use supervise::{ENVIRONMENT_ALLOWLIST, child_path};
+pub(crate) use supervise::{CONTEXT_UTF8_LOCALE, ENVIRONMENT_ALLOWLIST, child_path, has_utf8_locale};
 
 use crate::reply::AgentRefusalExt;
 use identity::{ProcessIdentity, child_is_alive, identity_matches, supervisor_is_alive};

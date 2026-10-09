@@ -70,6 +70,12 @@ pub(crate) const ENVIRONMENT_ALLOWLIST: [&str; 10] = [
     "DBUS_SESSION_BUS_ADDRESS",
 ];
 
+/// The locale that a child of the [`EnvironmentPolicy::Context`] policy gets as `LC_ALL` when the supervisor has no UTF-8 one.
+///
+/// The JVM encodes a file name in the character set of the locale. Under the POSIX locale it cannot represent a
+/// non-ASCII name, so the IDE refuses such a file. Every guest OS of the lane has this locale.
+pub(crate) const CONTEXT_UTF8_LOCALE: &str = "C.UTF-8";
+
 /// The environment a supervised child is launched with, out of the supervisor's own on the guest `host`, by `policy`.
 ///
 /// No agent-CLI guesses here: the controller resolves them in this guest and passes the answer with the child's
@@ -109,6 +115,8 @@ fn inherited_environment(host: LaunchHost, inherited: impl IntoIterator<Item = (
 
 /// The closed environment of the IDE of `context`: the [`ENVIRONMENT_ALLOWLIST`] subset of the supervisor's own,
 /// `HOME` on the home of the context, and the `bin` directory of the context first in the PATH of the guest OS.
+///
+/// An inherited UTF-8 locale stays as it is. Any other locale, or none, gets `LC_ALL` set to [`CONTEXT_UTF8_LOCALE`].
 fn context_environment(
     host: LaunchHost,
     inherited: impl IntoIterator<Item = (OsString, OsString)>,
@@ -123,7 +131,21 @@ fn context_environment(
     path.push(":");
     path.push(child_path(host));
     environment.insert("PATH".into(), path);
+    if !has_utf8_locale(&environment) {
+        environment.insert("LC_ALL".into(), CONTEXT_UTF8_LOCALE.into());
+    }
     environment
+}
+
+/// Whether the locale that `environment` gives to the character type is a UTF-8 one. `LC_ALL` decides when it is set
+/// and not empty, else `LANG`. The context policy passes no `LC_CTYPE`.
+pub(crate) fn has_utf8_locale(environment: &BTreeMap<OsString, OsString>) -> bool {
+    ["LC_ALL", "LANG"]
+        .into_iter()
+        .filter_map(|name| environment.get(&OsString::from(name)))
+        .find(|value| !value.is_empty())
+        .and_then(|value| value.to_str())
+        .is_some_and(|value| value.to_ascii_lowercase().replace('-', "").contains("utf8"))
 }
 
 /// Adapts an argv the way an interactive shell would: repository `.cmd` launchers are shell/cmd polyglots without

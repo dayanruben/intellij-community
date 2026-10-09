@@ -10,7 +10,7 @@ use super::*;
 use crate::cli::CancelArgs;
 use crate::ide::fixture::{FakeIde, Fixture, NO_DISPLAY_CHECK, PORT_PROPERTY, mode, prepared, wait_for_file};
 use crate::ide::{CODE_IDE_RUNNING, live_run, prepare};
-use crate::supervisor::{ENVIRONMENT_ALLOWLIST, LaunchHost, LiveSystem, child_path};
+use crate::supervisor::{CONTEXT_UTF8_LOCALE, ENVIRONMENT_ALLOWLIST, LaunchHost, LiveSystem, child_path, has_utf8_locale};
 use crate::testing::run_agent;
 
 /// A launcher that no refused launch reaches.
@@ -220,12 +220,17 @@ fn the_prepared_context_runs_the_ide_as_a_supervisor_run() {
     );
     assert_eq!(record.java_home, fixture.text("jbr"));
 
-    // The environment is the layout of the context and the allowlist of the agent's own environment, and nothing else.
+    // The environment is the layout of the context, the allowlist of the agent's own environment and a UTF-8 locale, and
+    // nothing else. Under Bazel the test has no locale, so the IDE gets the UTF-8 one.
     let environment = printed_environment(&fs::read_to_string(tools.join("env.txt")).unwrap());
     let mut expected: BTreeMap<String, String> = ENVIRONMENT_ALLOWLIST
         .iter()
         .filter_map(|name| std::env::var(name).ok().map(|value| ((*name).to_owned(), value)))
         .collect();
+    let inherited = expected.iter().map(|(name, value)| (name.into(), value.into())).collect();
+    if !has_utf8_locale(&inherited) {
+        expected.insert("LC_ALL".to_owned(), CONTEXT_UTF8_LOCALE.to_owned());
+    }
     expected.insert("HOME".to_owned(), prepared_context.home_dir.clone());
     expected.insert(
         "PATH".to_owned(),

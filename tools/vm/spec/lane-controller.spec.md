@@ -665,6 +665,10 @@ The daemon's half and the IDE's half of supervision are in
   of the agent's own environment. No other variable of the agent reaches the IDE.
   [@test] ../crates/avl-guest/src/supervisor/tests.rs
 
+- The lane IDE always runs under a UTF-8 locale. A UTF-8 locale of the agent's own environment stays as it is. When
+  the agent has no locale, or one that is not UTF-8, the IDE gets `LC_ALL=C.UTF-8`.
+  [@test] ../crates/avl-guest/src/supervisor/tests.rs
+
 - The run spec of the IDE records the environment policy and its context directory. It holds no variable value.
   A run spec without a policy inherits the environment of the agent, as the daemon run does.
   [@test] ../crates/avl-wire/src/supervisor/tests.rs

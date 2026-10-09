@@ -12,7 +12,7 @@ use super::identity::{classify_exit, normalized_exit_code};
 use super::launch::{CHANNEL_VARIABLES, LaunchHost, SuperviseLaunch, supervise_launch_for};
 use super::log::{last_complete_lines, read_log_suffix};
 use super::state::{ActivePointer, claim_active, read_active, write_json_atomic};
-use super::supervise::{ENVIRONMENT_ALLOWLIST, child_environment, child_spawn_argv};
+use super::supervise::{CONTEXT_UTF8_LOCALE, ENVIRONMENT_ALLOWLIST, child_environment, child_spawn_argv};
 
 // --- the decisions of a supervised run --------------------------------------------------------------------------
 
@@ -634,6 +634,52 @@ fn the_context_environment_is_the_layout_and_the_allowlist() {
     for name in CHANNEL_VARIABLES {
         assert!(!ENVIRONMENT_ALLOWLIST.contains(&name), "{name}");
     }
+}
+
+/// The IDE of a context always runs under a UTF-8 locale, so it can read a non-ASCII file name. An inherited UTF-8
+/// locale stays as it is. A missing, an empty or a non-UTF-8 one gets `LC_ALL` set to the UTF-8 locale, because
+/// `LC_ALL` wins over `LANG`.
+#[test]
+fn the_context_environment_has_a_utf8_locale() {
+    let policy = EnvironmentPolicy::Context {
+        context_dir: "/data/ide/key-1".to_owned(),
+    };
+    let utf8 = Some(CONTEXT_UTF8_LOCALE);
+    /// The inherited locale variables, and the `LANG` and `LC_ALL` that the IDE gets.
+    type LocaleCase = (&'static [(&'static str, &'static str)], Option<&'static str>, Option<&'static str>);
+    let cases: [LocaleCase; 8] = [
+        (&[], None, utf8),
+        (&[("LANG", "")], Some(""), utf8),
+        (&[("LANG", "C")], Some("C"), utf8),
+        (&[("LANG", "en_US.ISO-8859-1")], Some("en_US.ISO-8859-1"), utf8),
+        (&[("LANG", "en_US.UTF-8")], Some("en_US.UTF-8"), None),
+        (&[("LC_ALL", "de_DE.utf8")], None, Some("de_DE.utf8")),
+        (&[("LC_ALL", ""), ("LANG", "en_US.UTF-8")], Some("en_US.UTF-8"), Some("")),
+        (&[("LC_ALL", "POSIX"), ("LANG", "en_US.UTF-8")], Some("en_US.UTF-8"), utf8),
+    ];
+    for (inherited, lang, lc_all) in cases {
+        let inherited = inherited.iter().map(|(name, value)| (OsString::from(name), OsString::from(value)));
+        for host in [LaunchHost::Linux, LaunchHost::Macos] {
+            let environment = child_environment(host, inherited.clone(), &policy);
+            let value = |name: &str| environment.get(&OsString::from(name)).and_then(|value| value.to_str());
+            assert_eq!(
+                (value("LANG"), value("LC_ALL")),
+                (lang, lc_all),
+                "{host:?} {:?}",
+                inherited.clone().collect::<Vec<_>>()
+            );
+        }
+    }
+    let inherit = child_environment(
+        LaunchHost::Linux,
+        [(OsString::from("LANG"), OsString::from("C"))],
+        &EnvironmentPolicy::Inherit,
+    );
+    assert_eq!(
+        inherit.get(&OsString::from("LC_ALL")),
+        None,
+        "the inherit policy keeps the locale of the supervisor"
+    );
 }
 
 #[test]

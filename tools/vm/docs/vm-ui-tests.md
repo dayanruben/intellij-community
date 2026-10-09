@@ -489,8 +489,8 @@ context, in one call. So the context is also the run slot of the IDE. The IDE ar
 
 The environment of the IDE is closed, and the layout of its context sets it. `HOME` is the `home` directory of the
 context, and `PATH` starts with its `bin` directory. The agent copies a short allowlist from its own environment,
-for example `DISPLAY`, `LANG` and `TMPDIR`. No other variable reaches the IDE, and the run spec records this
-policy and no value
+for example `DISPLAY`, `LANG` and `TMPDIR`. When the agent has no UTF-8 locale, the IDE gets `LC_ALL=C.UTF-8`.
+No other variable reaches the IDE, and the run spec records this policy and no value
 ([ADR 0221](../../../../plugins/air/docs/decisions/0221-the-lane-ide-runs-in-a-closed-environment-and-no-secret-crosses-the-agent.md)).
 The bridge token is a private file of the config directory, `config/air-ui-test/token`, which the daemon
 writes. No launch document, argument file or argv holds it.
