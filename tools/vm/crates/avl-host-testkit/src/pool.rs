@@ -17,7 +17,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use avl_base::config::{DOCKER_SOCKET_PATH_LIMIT, HostOs};
+use avl_base::config::{DOCKER_SOCKET_PATH_LIMIT, HostOs, MacosHost};
 use avl_base::{Backend, Config, GuestArch, GuestOs};
 use avl_host_sys::Runner;
 use avl_testkit::tartfake::{Answer, Binary, Fake};
@@ -52,6 +52,7 @@ pub struct HostPoolBuilder {
     backend: Backend,
     guest_os: GuestOs,
     guest_arch: GuestArch,
+    macos: MacosHost,
     tart_version: String,
     parallels: bool,
     git: bool,
@@ -70,6 +71,7 @@ impl HostPool {
             backend,
             guest_os,
             guest_arch: GuestArch::Arm64,
+            macos: crate::FIXTURE_MACOS,
             tart_version: tart_version.to_owned(),
             parallels: false,
             git: false,
@@ -131,6 +133,14 @@ impl HostPoolBuilder {
     #[must_use]
     pub const fn guest_arch(mut self, guest_arch: GuestArch) -> Self {
         self.guest_arch = guest_arch;
+        self
+    }
+
+    /// Loads the settings on the macOS release `macos` instead of [`crate::FIXTURE_MACOS`]. Only a pool that loads as a
+    /// macOS host reads it.
+    #[must_use]
+    pub const fn on_macos(mut self, macos: MacosHost) -> Self {
+        self.macos = macos;
         self
     }
 
@@ -283,7 +293,7 @@ impl HostPoolBuilder {
         } else {
             HostOs::CURRENT
         };
-        let mut settings = crate::load_config_on(host, self.backend, self.guest_os, &environment, root.path());
+        let mut settings = crate::load_config_on_release(host, self.macos, self.backend, self.guest_os, &environment, root.path());
         settings.guest_arch = self.guest_arch;
         let settings = Arc::new(settings);
         if self.host_paths {

@@ -226,9 +226,11 @@ One rule decides the engine, and no flag selects it ([ADR 0224](decisions/0224-a
 `DOCKER_HOST` names an engine, the controller runs that CLI against that engine. When neither variable
 is set, a macOS host of macOS 26 or newer, on Apple silicon, runs Apple `container`. An older macOS runs
 a Docker CLI that Bazel pins against a Lima VM that the controller owns. `AIR_VM_DOCKER_ENGINE=lima` or
-`AIR_VM_DOCKER_ENGINE=container` overrides the version either way. The controller reads the version
-from the host at each command. So a Mac installs nothing, as for Tart. OrbStack is the fast path, and
-the first two lane rows of the cost table ran on it. A Mac with OrbStack keeps it with one variable:
+`AIR_VM_DOCKER_ENGINE=container` overrides the version either way. On a macOS older than 26, the engine
+gate refuses `AIR_VM_DOCKER_ENGINE=container` with `container_macos_too_old` (exit 2), before it runs a
+`container` command. The controller reads the version from the host at each command. So a Mac installs
+nothing, as for Tart. OrbStack is the fast path, and the first two lane rows of the cost table ran on it.
+A Mac with OrbStack keeps it with one variable:
 
 ```bash
 export DOCKER_HOST=unix://$HOME/.orbstack/run/docker.sock   # or DOCKER_BIN=<OrbStack's docker>

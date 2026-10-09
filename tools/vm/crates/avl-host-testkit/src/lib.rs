@@ -85,10 +85,22 @@ pub const FIXTURE_MACOS: MacosHost = MacosHost {
 
 /// [`load_config`] as a controller on `host` resolves it, for a fixture of a macOS host on every host.
 pub fn load_config_on(host: HostOs, backend: Backend, guest_os: GuestOs, environment: &[(String, String)], root: &Path) -> Config {
+    load_config_on_release(host, FIXTURE_MACOS, backend, guest_os, environment, root)
+}
+
+/// [`load_config_on`] on the macOS release `macos` instead of [`FIXTURE_MACOS`], for a suite of an older macOS.
+pub fn load_config_on_release(
+    host: HostOs,
+    macos: MacosHost,
+    backend: Backend,
+    guest_os: GuestOs,
+    environment: &[(String, String)],
+    root: &Path,
+) -> Config {
     let environment = Environment::from_pairs(environment.iter().cloned());
     Config::load_on(
         host,
-        Some(FIXTURE_MACOS),
+        Some(macos),
         Selection { backend, guest_os },
         &environment,
         &root.join("scripts"),

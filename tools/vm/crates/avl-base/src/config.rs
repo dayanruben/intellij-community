@@ -85,7 +85,8 @@ pub const CONTAINER_LABEL: &str = "@community//tools/vm:air_container_darwin_arm
 pub const DOCKER_ENGINE_VARIABLE: &str = "AIR_VM_DOCKER_ENGINE";
 
 /// The first major version of macOS on which Apple `container` is the default engine. Apple `container` 1.5.0 needs
-/// macOS 26. An older macOS runs the Lima engine.
+/// macOS 26. An older macOS runs the Lima engine, and the gate of the Apple `container` engine refuses it
+/// `container_macos_too_old`.
 pub const CONTAINER_MACOS_MAJOR: u32 = 26;
 
 /// The file in which macOS keeps its release. [`MacosHost::read`] reads `ProductVersion` from it, so the load starts
@@ -956,6 +957,10 @@ pub struct Config {
     pub docker_host: Option<String>,
     /// The engine the containers of a Docker pool run on ([`DockerEngine::decide`]); a test fixture may pin it.
     pub docker_engine: DockerEngine,
+    /// The macOS release that the load read ([`MacosHost::read`]), or `None` on another host and when the version file
+    /// names no version. The gate of the Apple `container` engine refuses a release older than
+    /// [`CONTAINER_MACOS_MAJOR`].
+    pub macos: Option<MacosHost>,
     /// The Apple `container` executable `CONTAINER_BIN` names, or `None` for the pinned CLI at [`CONTAINER_LABEL`].
     /// Only the Apple `container` engine reads it.
     pub container: Option<PathBuf>,
@@ -1415,6 +1420,7 @@ impl Config {
             docker,
             docker_host,
             docker_engine,
+            macos: macos.filter(|_| host == HostOs::Macos),
             container: reader.optional("CONTAINER_BIN").map(PathBuf::from),
             vm_dns,
             home: home.clone(),

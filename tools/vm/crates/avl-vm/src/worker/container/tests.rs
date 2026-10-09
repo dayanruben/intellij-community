@@ -105,7 +105,7 @@ fn the_pinned_container_has_the_major_version_the_controller_speaks() {
 
 #[cfg(unix)]
 mod lifecycle {
-    use avl_base::config::CONTAINER_WORKER_MEMORY_MIB;
+    use avl_base::config::{CONTAINER_WORKER_MEMORY_MIB, MacosHost};
     use avl_testkit::tartfake::{Answer, MIRROR_HEADER, MIRROR_HEADER_MODE, MIRROR_UPLOAD};
 
     use pretty_assertions::assert_eq;
@@ -370,6 +370,35 @@ mod lifecycle {
             !environment.iter().any(|(name, _)| name == "DOCKER_CONFIG" || name == "DOCKER_HOST"),
             "{environment:?}"
         );
+    }
+
+    /// `AIR_VM_DOCKER_ENGINE=container` on macOS 15 is refused `container_macos_too_old` before any `container`
+    /// command runs. A `CONTAINER_BIN` that names no CLI gets the same refusal, so a Mac without the tool gets it too.
+    /// The remedy names the floor and the Lima engine.
+    #[tokio::test]
+    async fn an_older_macos_is_refused_before_any_container_command() {
+        let macos_15 = MacosHost {
+            major: 15,
+            apple_silicon: true,
+        };
+        for container_bin in [None, Some("/nonexistent/bin/container")] {
+            let mut builder = Fixture::docker_builder().container_engine().on_macos(macos_15);
+            if let Some(path) = container_bin {
+                builder = builder.env("CONTAINER_BIN", path);
+            }
+            let fixture = builder.build();
+            assert!(fixture.settings.runs_container_engine(), "{container_bin:?}");
+            let refusal = docker(&fixture).require_available(&ctx(), "").await.unwrap_err();
+            assert_eq!(
+                (refusal.code.as_ref(), refusal.exit),
+                ("container_macos_too_old", Exit::USAGE),
+                "{container_bin:?}"
+            );
+            for named in ["macOS 26 or newer", "runs macOS 15", "AIR_VM_DOCKER_ENGINE=lima"] {
+                assert!(refusal.message.contains(named), "{named:?} in {}", refusal.message);
+            }
+            assert_eq!(fixture.fake.calls(), Vec::<String>::new(), "{container_bin:?}");
+        }
     }
 
     /// A server of another install with another major version is refused, and the controller does not touch it. One

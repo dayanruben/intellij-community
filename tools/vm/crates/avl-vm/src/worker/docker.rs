@@ -535,8 +535,12 @@ impl Docker {
     /// started yet is the common case.
     ///
     /// On the Apple `container` engine the gate is [`AppleContainer::ensure_running`]: the server of the login session,
-    /// started when it is down, and refused when it belongs to another install of another major version.
+    /// started when it is down, and refused when it belongs to another install of another major version. A host that
+    /// cannot run the engine is refused before the CLI is resolved ([`AppleContainer::require_supported_host`]).
     pub(crate) async fn require_available_for(&self, ctx: &Ctx, authorized: Option<&Lease>) -> Result<(), Refusal> {
+        if let Some(apple) = &self.apple {
+            apple.require_supported_host()?;
+        }
         let program = self.resolve_executable(ctx).await?;
         if let Some(apple) = &self.apple {
             return apple.ensure_running(ctx, program).await;

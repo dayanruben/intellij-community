@@ -14,6 +14,7 @@
 use std::ops::Deref;
 use std::sync::Arc;
 
+use avl_base::config::MacosHost;
 use avl_base::{Backend, Config, GuestArch, GuestOs, SCHEMA_VERSION};
 use avl_host_sys::Runner;
 use avl_host_sys::guest::BazelHost;
@@ -265,6 +266,12 @@ impl FixtureBuilder {
     /// Pins the guest's architecture; see [`HostPoolBuilder::guest_arch`].
     pub(crate) fn guest_arch(mut self, guest_arch: GuestArch) -> Self {
         self.pool = self.pool.guest_arch(guest_arch);
+        self
+    }
+
+    /// Loads the settings on the macOS release `macos`; see [`HostPoolBuilder::on_macos`].
+    pub(crate) fn on_macos(mut self, macos: MacosHost) -> Self {
+        self.pool = self.pool.on_macos(macos);
         self
     }
 

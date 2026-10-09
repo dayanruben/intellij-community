@@ -25,6 +25,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use avl_base::config::{CONTAINER_MACOS_MAJOR, DOCKER_ENGINE_VARIABLE};
 use avl_base::{Config, Exit, GuestArch, Refusal, Reporter};
 use avl_host_sys::lock::{LockGuard, LockManager};
 use avl_host_sys::{Captured, Ctx, ProbeExit, ProbeOutput, ProcError, Runner, SpawnOptions, probe_unanswered};
@@ -199,21 +200,44 @@ impl AppleContainer {
         Ok(self.status(ctx, program).await?.running())
     }
 
+    /// Refuses a host that cannot run the engine, before any `container` command runs. So a host without the CLI gets
+    /// this refusal, and not `container_missing`.
+    ///
+    /// - A host that is not Apple silicon is refused `unsupported_backend_operation`: Apple builds the engine for it
+    ///   only.
+    /// - A macOS older than [`CONTAINER_MACOS_MAJOR`] is refused `container_macos_too_old`, exit 2: Apple `container`
+    ///   1.5.0 needs macOS 26. The engine rule chooses the Lima engine there, so only `AIR_VM_DOCKER_ENGINE=container`
+    ///   gets here. A Mac whose version file names no version passes.
+    pub(crate) fn require_supported_host(&self) -> Result<(), Refusal> {
+        if self.settings.guest_arch != GuestArch::Arm64 {
+            return Err(unsupported(format!(
+                "the Apple container engine runs on Apple silicon only; set {DOCKER_ENGINE_VARIABLE}=lima to use the Lima engine"
+            )));
+        }
+        match self.settings.macos {
+            Some(macos) if macos.major < CONTAINER_MACOS_MAJOR => Err(Refusal::new(
+                "container_macos_too_old",
+                Exit::USAGE,
+                format!(
+                    "the Apple container engine needs macOS {CONTAINER_MACOS_MAJOR} or newer, and this host runs macOS {}; \
+                     set {DOCKER_ENGINE_VARIABLE}=lima, or unset it, to use the Lima engine",
+                    macos.major
+                ),
+            )),
+            _ => Ok(()),
+        }
+    }
+
     /// Brings the server up and refuses a server this controller must not use.
     ///
-    /// 1. A host that is not Apple silicon is refused `unsupported_backend_operation`: Apple builds the engine for it
-    ///    only.
+    /// 1. A host that cannot run the engine is refused ([`AppleContainer::require_supported_host`]).
     /// 2. A server that runs is checked ([`AppleContainer::require_own_server`]).
     /// 3. Otherwise the start runs under the pool-wide image lock, so two slots do not download the kernel at once.
     ///    The status is read again under the lock, and only a server that is still down is started:
     ///    `system start --enable-kernel-install`, with its log in [`Config::container_system_log_path`].
     /// 4. The status after the start must say `running`, and the server must pass the check.
     pub(crate) async fn ensure_running(&self, ctx: &Ctx, program: &Path) -> Result<(), Refusal> {
-        if self.settings.guest_arch != GuestArch::Arm64 {
-            return Err(unsupported(
-                "the Apple container engine runs on Apple silicon only; set AIR_VM_DOCKER_ENGINE=lima to use the Lima engine",
-            ));
-        }
+        self.require_supported_host()?;
         let status = self.status(ctx, program).await?;
         if status.running() {
             return self.require_own_server(&status, program);
@@ -302,7 +326,7 @@ impl AppleContainer {
             .await
             .map_err(|error| match error {
                 ProcError::Exited { refusal, .. } => engine_start_failed(format!(
-                    "{}; the start log is {}; the engine needs macOS 26 or newer",
+                    "{}; the start log is {}; the engine needs macOS {CONTAINER_MACOS_MAJOR} or newer",
                     refusal.message,
                     log.display()
                 )),

@@ -1242,6 +1242,15 @@ fn the_macos_version_chooses_the_engine() {
     assert_eq!(CONTAINER_MACOS_MAJOR, 26);
 }
 
+/// The settings keep the release of a macOS host, so the gate of the Apple `container` engine can refuse an older
+/// macOS that `AIR_VM_DOCKER_ENGINE=container` chose. Another host keeps no release.
+#[test]
+fn the_settings_keep_the_macos_release() {
+    let chosen = load_on_release(HostOs::Macos, MACOS_15, docker(), &env(&[("AIR_VM_DOCKER_ENGINE", "container")]));
+    assert_eq!((chosen.docker_engine, chosen.macos), (DockerEngine::AppleContainer, Some(MACOS_15)));
+    assert_eq!(load_on_release(HostOs::Linux, MACOS_26, docker(), &env(&[])).macos, None);
+}
+
 /// A macOS host reads its release from its version file, and another host has none.
 #[test]
 fn the_host_reads_its_own_release() {
