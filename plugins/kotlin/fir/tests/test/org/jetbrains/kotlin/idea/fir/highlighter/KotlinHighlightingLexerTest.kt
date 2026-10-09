@@ -2,30 +2,30 @@
 
 package org.jetbrains.kotlin.idea.fir.highlighter
 
-import com.intellij.testFramework.LexerTestCase
+import com.intellij.platform.testFramework.junit5.codeInsight.fixture.lexerFixture
+import com.intellij.testFramework.junit5.fixture.TestFixtures
 import org.jetbrains.kotlin.idea.highlighter.KotlinHighlightingLexer
-import org.junit.internal.runners.JUnit38ClassRunner
-import org.junit.runner.RunWith
+import org.junit.jupiter.api.Test
 
-@RunWith(JUnit38ClassRunner::class)
-class KotlinHighlightingLexerTest : LexerTestCase() {
-    override fun createLexer() = KotlinHighlightingLexer()
+@TestFixtures
+class KotlinHighlightingLexerTest {
+    private val lexer by lexerFixture("") { KotlinHighlightingLexer() }
 
+    @Test
     fun testCharLiteralValidEscape() {
-        doTest(
+        lexer.doTest(
             "'\\n'", """CHARACTER_LITERAL (''')
                            |VALID_STRING_ESCAPE_TOKEN ('\n')
                            |CHARACTER_LITERAL (''')""".trimMargin()
         )
     }
 
+    @Test
     fun testCharLiteralInvalidEscape() {
-        doTest(
+        lexer.doTest(
             "'\\q'", """CHARACTER_LITERAL (''')
                            |INVALID_CHARACTER_ESCAPE_TOKEN ('\q')
                            |CHARACTER_LITERAL (''')""".trimMargin()
         )
     }
-
-    override fun getDirPath() = throw UnsupportedOperationException()
 }
