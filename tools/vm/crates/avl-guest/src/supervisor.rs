@@ -46,7 +46,7 @@ pub(crate) use supervise::supervise;
 pub(crate) use supervise::{CONTEXT_UTF8_LOCALE, ENVIRONMENT_ALLOWLIST, child_path, has_utf8_locale};
 
 use crate::reply::AgentRefusalExt;
-use identity::{ProcessIdentity, child_is_alive, identity_matches, supervisor_is_alive};
+use identity::{GroupMember, ProcessIdentity, child_is_alive, identity_matches, supervisor_is_alive};
 use state::{FinishExtra, RunPaths, finish_state, prepare_root, read_state, reconcile};
 
 pub(crate) const POLL_INTERVAL: Duration = Duration::from_millis(50);
@@ -63,6 +63,8 @@ pub(crate) trait System {
     fn identity(&self, pid: i32) -> Option<ProcessIdentity>;
     /// Whether any process of `pgid` is still there.
     fn group_alive(&self, pgid: i32) -> bool;
+    /// The processes of `pgid` that are still there.
+    fn group_members(&self, pgid: i32) -> Vec<GroupMember>;
     fn signal_group(&self, pgid: i32, signal: Signal);
     fn now(&self) -> Timestamp;
     fn sleep(&self, duration: Duration);
@@ -78,6 +80,10 @@ impl System for LiveSystem {
 
     fn group_alive(&self, pgid: i32) -> bool {
         identity::group_alive(pgid)
+    }
+
+    fn group_members(&self, pgid: i32) -> Vec<GroupMember> {
+        identity::group_members(pgid)
     }
 
     fn signal_group(&self, pgid: i32, signal: Signal) {

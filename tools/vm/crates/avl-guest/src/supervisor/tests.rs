@@ -66,6 +66,7 @@ struct FakeSystem {
     groups: RefCell<HashSet<i32>>,
     ignores_term: RefCell<HashSet<i32>>,
     signals: RefCell<Vec<(i32, Signal)>>,
+    commands: RefCell<HashMap<i32, String>>,
     on_sleep: RefCell<Option<Box<dyn FnOnce()>>>,
 }
 
@@ -77,6 +78,7 @@ impl FakeSystem {
             groups: RefCell::default(),
             ignores_term: RefCell::default(),
             signals: RefCell::default(),
+            commands: RefCell::default(),
             on_sleep: RefCell::default(),
         }
     }
@@ -105,6 +107,22 @@ impl System for FakeSystem {
 
     fn group_alive(&self, pgid: i32) -> bool {
         self.groups.borrow().contains(&pgid)
+    }
+
+    fn group_members(&self, pgid: i32) -> Vec<GroupMember> {
+        let commands = self.commands.borrow();
+        let mut members: Vec<GroupMember> = self
+            .identities
+            .borrow()
+            .values()
+            .filter(|identity| identity.pgid == pgid)
+            .map(|identity| GroupMember {
+                pid: identity.pid,
+                command: commands.get(&identity.pid).cloned().unwrap_or_default(),
+            })
+            .collect();
+        members.sort_by_key(|member| member.pid);
+        members
     }
 
     fn signal_group(&self, pgid: i32, signal: Signal) {
@@ -317,6 +335,67 @@ fn a_running_run_with_a_live_child_is_unchanged() {
     system.process(500, 500, "Sat Sep 26 11:11:11 2026");
     let lost = reconcile(&system, root.path(), running).unwrap();
     assert_eq!(lost.phase, Phase::Orphaned, "the group is alive, so the slot is held");
+}
+
+// --- the members that outlive the child ------------------------------------------------------------------------
+
+/// The IDE leaves processes in its group that it started without a group of their own: the JCEF helper, and an agent
+/// that is still in its TERM handler. Once the child is reaped, the supervisor KILLs them and names them in the
+/// supervisor log, so the run finishes and the reconcile does not orphan it.
+#[test]
+fn the_members_that_outlive_the_child_are_killed_and_named() {
+    use super::supervise::end_leftover_members;
+    let system = FakeSystem::new();
+    system.process(701, 700, "Sat Sep 26 10:00:03 2026");
+    system.process(702, 700, "Sat Sep 26 10:00:04 2026");
+    system.commands.borrow_mut().insert(701, "/jbr/lib/cef_server --pid=700".to_owned());
+    system
+        .commands
+        .borrow_mut()
+        .insert(702, format!("/jbr/bin/java -cp {}", "x".repeat(400)));
+    let directory = tempfile::tempdir().unwrap();
+    let paths = RunPaths::new(directory.path(), "run-a");
+    fs::create_dir_all(&paths.directory).unwrap();
+
+    end_leftover_members(&system, 700, &paths, "run-a");
+    assert_eq!(*system.signals.borrow(), vec![(700, Signal::SIGKILL)]);
+    assert!(!system.group_alive(700));
+    let log = fs::read_to_string(&paths.supervisor_log).unwrap();
+    let line = log.lines().next().unwrap().split_once(' ').unwrap().1;
+    let java = format!("/jbr/bin/java -cp {}", "x".repeat(200 - "/jbr/bin/java -cp ".len()));
+    assert_eq!(
+        line,
+        format!(
+            "finish run-a: KILL to group 700, members that outlived the child: 2 [701 /jbr/lib/cef_server --pid=700; 702 {java}]; the group is gone"
+        )
+    );
+
+    // A group that is already empty is not signalled, and the log gets no line.
+    end_leftover_members(&system, 700, &paths, "run-a");
+    assert_eq!(system.signals.borrow().len(), 1);
+    assert_eq!(fs::read_to_string(&paths.supervisor_log).unwrap().lines().count(), 1);
+}
+
+/// The members of a group come from the `pid pgid args` table of `ps`. A line of another group, a header and a
+/// line that does not parse are no member.
+#[test]
+fn the_members_of_a_group_are_read_from_the_ps_table() {
+    use super::identity::members_in_table;
+    let table = "  PID  PGID ARGS\n  701   700 /jbr/lib/cef_server  --pid=700\n  702   702 /bin/sleep 60\n  703   700 \n garbage\n";
+    assert_eq!(
+        members_in_table(table, 700),
+        vec![
+            GroupMember {
+                pid: 701,
+                command: "/jbr/lib/cef_server --pid=700".to_owned(),
+            },
+            GroupMember {
+                pid: 703,
+                command: String::new(),
+            },
+        ]
+    );
+    assert_eq!(members_in_table(table, 0), Vec::new());
 }
 
 // --- cancel --------------------------------------------------------------------------------------------------
@@ -867,4 +946,58 @@ fn a_real_run_starts_reports_and_cancels() {
     assert!(finished.cancellation.unwrap().term_sent_at.is_some());
     assert!(!identity::group_alive(pgid), "the child's group outlived the cancel");
     assert_eq!(super::active(&LiveSystem, &run.root).unwrap().active, None);
+}
+
+/// A child that exits and leaves a process in its group does not orphan its run: the supervisor kills that process,
+/// names it in the supervisor log, and the run finishes with the exit of the child.
+#[test]
+fn a_real_run_whose_child_leaves_a_member_finishes() {
+    if !Path::new("/bin/ps").is_file() || !Path::new("/bin/sleep").is_file() {
+        eprintln!("skipped: /bin/ps or /bin/sleep is not on this host");
+        return;
+    }
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("ui-runs");
+    let launcher = Launcher {
+        self_exe: agent_launcher(directory.path()),
+        host: LaunchHost::Macos,
+    };
+    let run = RunArgs {
+        root: RootArgs { root: root.clone() },
+        run_id: "run-leftover".to_owned(),
+    };
+    // The child lives long enough to be identified, and its background sleep stays in its group.
+    let args = StartArgs {
+        run: run.clone(),
+        cwd: directory.path().to_path_buf(),
+        snapshot_id: None,
+        argv: vec!["/bin/sh".into(), "-c".into(), "/bin/sleep 60 & exec /bin/sleep 1".into()],
+    };
+    let started = start(&LiveSystem, &launcher, &args).unwrap();
+    let pgid = started.pgid.unwrap();
+
+    let until = std::time::Instant::now() + Duration::from_secs(15);
+    let mut state = status(&LiveSystem, &root, "run-leftover").unwrap();
+    while state.phase == Phase::Running && std::time::Instant::now() < until {
+        thread::sleep(POLL_INTERVAL);
+        state = status(&LiveSystem, &root, "run-leftover").unwrap();
+    }
+    let supervisor_log = fs::read_to_string(root.join("run-leftover/supervisor.log")).unwrap();
+    assert_eq!(
+        (state.phase, state.outcome.clone(), state.exit_code),
+        (Phase::Finished, Some(Outcome::Succeeded), Some(0)),
+        "{state:?}\n{supervisor_log}"
+    );
+    assert!(!identity::group_alive(pgid), "the leftover member outlived the run");
+    let finish = supervisor_log
+        .lines()
+        .find(|line| line.contains(" finish run-leftover: "))
+        .unwrap_or_default();
+    assert!(
+        finish.contains(&format!("KILL to group {pgid}, members that outlived the child: 1 ["))
+            && finish.contains("/bin/sleep 60]")
+            && finish.ends_with("; the group is gone"),
+        "{supervisor_log}"
+    );
+    assert_eq!(active(&LiveSystem, &run.root).unwrap().active, None);
 }

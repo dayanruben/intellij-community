@@ -691,6 +691,11 @@ The daemon's half and the IDE's half of supervision are in
 - A launch kills the JCEF helpers that name its context, and no other process.
   [@test] ../crates/avl-guest/src/ide/reap/tests.rs
 
+- When the child of a run exits, the supervisor kills the processes that stay in the process group of the child. The
+  supervisor log of the run names each of them. The run then finishes with the exit of the child, and it is not
+  orphaned.
+  [@test] ../crates/avl-guest/src/supervisor/tests.rs
+
 - `cancel --thread-dump` writes a thread dump of the process before the signal. The dump of an IDE run goes into
   the log directory of its launch. A failed dump keeps its file.
   [@test] ../crates/avl-guest/src/supervisor/thread_dump/tests.rs

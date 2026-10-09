@@ -7,6 +7,7 @@
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs::{self, File};
+use std::io::Write;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
@@ -30,6 +31,10 @@ use crate::reply::AgentRefusalExt;
 const IDENTITY_TIMEOUT: Duration = Duration::from_secs(2);
 /// The exit a rejected run records: the slot belongs to another run.
 const REJECTED_EXIT: i32 = 75;
+/// How long the members that outlived the child get to leave the process table after their KILL.
+const LEFTOVER_EXIT_TIMEOUT: Duration = Duration::from_secs(2);
+/// The most characters of a command line that the supervisor log gives for one leftover member.
+const LEFTOVER_COMMAND_CHARS: usize = 200;
 
 /// The PATH a supervised child starts with: the system directories of the guest OS, and Homebrew's only on macOS.
 ///
@@ -270,6 +275,8 @@ pub(crate) fn supervise(system: &dyn System, root: &Path, run_id: &str) -> Resul
 
     let child_identity = identify_child(system, &mut watched, child_pid);
     if let Some(outcome) = watched.outcome.clone() {
+        // The spawn put the child into a session of its own, so its pid is the id of its group.
+        end_leftover_members(system, child_pid, &paths, run_id);
         current.phase = Phase::Running;
         current.started_at = Some(stamp(system.now()));
         finish_state(
@@ -303,6 +310,7 @@ pub(crate) fn supervise(system: &dyn System, root: &Path, run_id: &str) -> Resul
     publish_state(root, &current);
 
     let cancellation = watch_until_settled(system, root, &mut current, &child_identity, &paths, &mut watched);
+    end_leftover_members(system, child_identity.pgid, &paths, run_id);
     let outcome = watched.outcome.clone().unwrap_or_else(ExitOutcome::failed_to_start);
     let (result, code, signal) = finish_of(cancellation.as_ref(), outcome);
     finish_state(
@@ -460,6 +468,49 @@ fn honour_cancellation(
         }
     }
     record
+}
+
+/// Kills the members of the group `pgid` that outlived the reaped child, waits up to [`LEFTOVER_EXIT_TIMEOUT`] for
+/// them to end, and names them in the supervisor log of the run.
+///
+/// Such a member is a process that the child started without a group of its own, as the IDE starts its JCEF helper
+/// and its agent processes. The kernel gives no new process the id of a group that still exists, so `pgid` names only
+/// this group, and the KILL reaches no other process. A group that outlives the wait stays for the reconcile, which
+/// records the run as orphaned.
+pub(crate) fn end_leftover_members(system: &dyn System, pgid: i32, paths: &RunPaths, run_id: &str) {
+    if !system.group_alive(pgid) {
+        return;
+    }
+    let members = system.group_members(pgid);
+    system.signal_group(pgid, Signal::SIGKILL);
+    let until = deadline(system, LEFTOVER_EXIT_TIMEOUT);
+    while system.group_alive(pgid) && system.now() < until {
+        system.sleep(POLL_INTERVAL);
+    }
+    let result = if system.group_alive(pgid) {
+        format!("the group still has members after {} ms", LEFTOVER_EXIT_TIMEOUT.as_millis())
+    } else {
+        "the group is gone".to_owned()
+    };
+    let named = members
+        .iter()
+        .map(|member| {
+            format!(
+                "{} {}",
+                member.pid,
+                member.command.chars().take(LEFTOVER_COMMAND_CHARS).collect::<String>()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+    if let Ok(log) = open_append(&paths.supervisor_log) {
+        let _ = writeln!(
+            &log,
+            "{} finish {run_id}: KILL to group {pgid}, members that outlived the child: {} [{named}]; {result}",
+            stamp(system.now()),
+            members.len()
+        );
+    }
 }
 
 fn reject(system: &dyn System, root: &Path, run_id: &str, failure: String) -> Result<(), AgentRefusal> {
