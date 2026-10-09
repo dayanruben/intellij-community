@@ -2,9 +2,21 @@
 package com.intellij.java.lexer
 
 import com.intellij.platform.syntax.lexer.Lexer
-import com.intellij.testFramework.syntax.LexerTestCase
+import com.intellij.platform.testFramework.junit5.codeInsight.fixture.syntaxLexerFixture
+import com.intellij.testFramework.junit5.fixture.TestFixtures
+import org.junit.jupiter.api.Test
 
-abstract class AbstractBasicJavadocLexerTest : LexerTestCase() {
+@TestFixtures
+abstract class AbstractBasicJavadocLexerTest {
+  private val lexer by syntaxLexerFixture("") { createLexer() }
+
+  protected abstract fun createLexer(): Lexer
+
+  protected fun doTest(text: String, expected: String) {
+    lexer.doTest(text, expected)
+  }
+
+  @Test
   fun testSnippetAttributes() {
     doTest("""
       /**
@@ -54,6 +66,7 @@ DOC_SPACE ('\n')
 DOC_COMMENT_END ('*/')""")
   }
 
+  @Test
   fun testAttributeNextToColon() {
     doTest("""
       /**
@@ -86,6 +99,7 @@ DOC_SPACE ('\n')
 DOC_COMMENT_END ('*/')""")
   }
 
+  @Test
   fun testAttributeListOnSeveralLines() {
     doTest("""
       /**
@@ -130,6 +144,7 @@ DOC_COMMENT_END ('*/')""")
   }
 
 
+  @Test
   fun testColonOnNextLine() {
     doTest("""
       /**
@@ -156,6 +171,7 @@ DOC_SPACE ('\n ')
 DOC_COMMENT_END ('*/')""")
   }
 
+  @Test
   fun testBalancedBraces() {
     doTest("""
       /**
@@ -201,6 +217,7 @@ DOC_SPACE ('\n ')
 DOC_COMMENT_END ('*/')""")
   }
 
+  @Test
   fun testParameterized() {
     doTest("///@see List<List<List>>", """
 DOC_COMMENT_LEADING_ASTERISKS ('///')
@@ -215,6 +232,7 @@ DOC_TAG_VALUE_GT ('>')
 DOC_TAG_VALUE_GT ('>')""")
   }
 
+  @Test
   fun testParameterized02() {
     doTest("///@see #meth(List<List<Int>>)", """
 DOC_COMMENT_LEADING_ASTERISKS ('///')
@@ -234,6 +252,7 @@ DOC_TAG_VALUE_RPAREN (')')
 """)
   }
 
+  @Test
   fun testParameterizedMalformed() {
     doTest("""
       /// {@link List<}
@@ -260,6 +279,7 @@ DOC_TAG_VALUE_LT ('<')
 DOC_TAG_VALUE_RPAREN (')')""")
   }
 
+  @Test
   fun testParameterizedMarkdown() {
     doTest("///[List<List<List>>]", """
 DOC_COMMENT_LEADING_ASTERISKS ('///')
@@ -275,6 +295,7 @@ DOC_RBRACKET (']')
 """)
   }
 
+  @Test
   fun testParameterizedMarkdown02() {
     doTest("///[#meth(List<List<Int>>)]", """
 DOC_COMMENT_LEADING_ASTERISKS ('///')
@@ -294,6 +315,7 @@ DOC_RBRACKET (']')
 """)
   }
   
+  @Test
   fun testTagWithoutName() {
     doTest("""///{@} hewwo""", """
       DOC_COMMENT_LEADING_ASTERISKS ('///')
@@ -303,9 +325,4 @@ DOC_RBRACKET (']')
       DOC_COMMENT_DATA (' hewwo')
     """.trimIndent())
   }
-
-  abstract override fun createLexer(): Lexer
-
-  override val dirPath: String
-    get() = ""
 }

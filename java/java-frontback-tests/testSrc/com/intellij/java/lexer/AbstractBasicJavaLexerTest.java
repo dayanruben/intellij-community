@@ -1,10 +1,30 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.java.lexer;
 
-import com.intellij.testFramework.syntax.LexerTestCase;
+import com.intellij.platform.syntax.lexer.Lexer;
+import com.intellij.platform.testFramework.junit5.codeInsight.fixture.SyntaxLexerTestFixture;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
+import com.intellij.testFramework.junit5.fixture.TestFixtures;
 import org.jetbrains.annotations.NotNull;
+import org.junit.jupiter.api.Test;
 
-public abstract class AbstractBasicJavaLexerTest extends LexerTestCase {
+import static com.intellij.platform.testFramework.junit5.codeInsight.fixture.SyntaxLexerTestFixtureKt.syntaxLexerFixture;
+
+@TestFixtures
+public abstract class AbstractBasicJavaLexerTest {
+  private final TestFixture<SyntaxLexerTestFixture> lexer = syntaxLexerFixture("", () -> createLexer());
+
+  protected abstract @NotNull Lexer createLexer();
+
+  protected void doTest(@NotNull String text, @NotNull String expected) {
+    lexer.get().doTest(text, expected);
+  }
+
+  protected void doTest(@NotNull String text, @NotNull String expected, @NotNull Lexer lexer) {
+    this.lexer.get().doTest(text, expected, lexer);
+  }
+
+  @Test
   public void testClassicNumericLiterals() {
     doTest("0 1234 01234 0x1234",
            """
@@ -83,6 +103,7 @@ public abstract class AbstractBasicJavaLexerTest extends LexerTestCase {
              FLOAT_LITERAL ('.0f')""");
   }
 
+  @Test
   public void testTigerNumericLiterals() {
     doTest("0xap0f 0xab.p0F 0x.abcP0f 0xabc.defP0F",
            """
@@ -108,6 +129,7 @@ public abstract class AbstractBasicJavaLexerTest extends LexerTestCase {
            "IDENTIFIER ('p0')");
   }
 
+  @Test
   public void testCoinNumericLiterals() {
     doTest("1_2 0_1 012__34 0x1_2_3_4 0B0 0b0001_0010_0100_1000",
            """
@@ -188,6 +210,7 @@ public abstract class AbstractBasicJavaLexerTest extends LexerTestCase {
              DOUBLE_LITERAL ('0xa_bc.de_fP1_234D')""");
   }
 
+  @Test
   public void testMalformedCoinLiterals() {
     doTest("_1 _b ._ 0_ 0_8 0x_f 0b_1 0B2 0x1.0_p-1 1.0e_1022 0._1",
            """
@@ -215,6 +238,7 @@ public abstract class AbstractBasicJavaLexerTest extends LexerTestCase {
              DOUBLE_LITERAL ('0._1')""");
   }
 
+  @Test
   public void testMalformedOperators() {
     doTest("(i > = 0)",
            """
@@ -230,16 +254,19 @@ public abstract class AbstractBasicJavaLexerTest extends LexerTestCase {
              """);
   }
 
+  @Test
   public void testJava8Tokens() {
     doTest("none :: ->",
            "IDENTIFIER ('none')\nWHITE_SPACE (' ')\nDOUBLE_COLON ('::')\nWHITE_SPACE (' ')\nARROW ('->')");
   }
 
+  @Test
   public void testUnicodeLiterals() {
     doTest("Ɐ Σx dΦ",
            "IDENTIFIER ('Ɐ')\nWHITE_SPACE (' ')\nIDENTIFIER ('Σx')\nWHITE_SPACE (' ')\nIDENTIFIER ('dΦ')");
   }
 
+  @Test
   public void testLastSymbol() {
     doTest("\u001a",
            "WHITE_SPACE ('\u001a')");
@@ -255,6 +282,7 @@ public abstract class AbstractBasicJavaLexerTest extends LexerTestCase {
            "WHITE_SPACE ('   ')\nIDENTIFIER ('something\u001A')");
   }
 
+  @Test
   public void testTextBlockLiterals() {
     doTest("\"\"\"\n hi there. \"\"\" ", "TEXT_BLOCK_LITERAL ('\"\"\"\\n hi there. \"\"\"')\nWHITE_SPACE (' ')");
     doTest("\"\"\" ", "TEXT_BLOCK_LITERAL ('\"\"\" ')");
@@ -271,6 +299,7 @@ public abstract class AbstractBasicJavaLexerTest extends LexerTestCase {
     doTest("\"\"\"\n ...\n\"\" \"\"\" ", "TEXT_BLOCK_LITERAL ('\"\"\"\\n ...\\n\"\" \"\"\"')\nWHITE_SPACE (' ')");
   }
 
+  @Test
   public void testStringTemplates() {
     doTest("\"\\{}\"", "STRING_TEMPLATE_BEGIN ('\"\\{')\nSTRING_TEMPLATE_END ('}\"')");
     doTest("\"\"\"\n\\{}\"\"\"", "TEXT_BLOCK_TEMPLATE_BEGIN ('\"\"\"\\n\\{')\nTEXT_BLOCK_TEMPLATE_END ('}\"\"\"')");
@@ -423,6 +452,7 @@ public abstract class AbstractBasicJavaLexerTest extends LexerTestCase {
              TEXT_BLOCK_TEMPLATE_END ('}\\nxx""\"')""");
   }
 
+  @Test
   public void testStringTemplateStateResetOnRestart() {
     var lexer = createLexer();
 
@@ -441,6 +471,7 @@ public abstract class AbstractBasicJavaLexerTest extends LexerTestCase {
       RBRACE ('}')""", lexer);
   }
 
+  @Test
   public void testStringLiterals() {
     doTest("\"", "STRING_LITERAL ('\"')");
     doTest("\" ", "STRING_LITERAL ('\" ')");
@@ -463,6 +494,7 @@ public abstract class AbstractBasicJavaLexerTest extends LexerTestCase {
     doTest(" \"\\u000a\" ", "WHITE_SPACE (' ')\nSTRING_LITERAL ('\"\\u000a\"')\nWHITE_SPACE (' ')");
   }
 
+  @Test
   public void testCharLiterals() {
     doTest("'\\u005c\\u005c'", "CHARACTER_LITERAL (''\\u005c\\u005c'')"); // unicode escaped escaped slash '\\'
     doTest("\\u0027\\u005c\\u005c'", "CHARACTER_LITERAL ('\\u0027\\u005c\\u005c'')"); // unicode escaped escaped slash '\\'
@@ -480,6 +512,7 @@ public abstract class AbstractBasicJavaLexerTest extends LexerTestCase {
     doTest("'\\u005C' ", "CHARACTER_LITERAL (''\\u005C' ')"); // closing quote is escaped with unicode escaped backslash
   }
 
+  @Test
   public void testComments() {
     doTest("//", "END_OF_LINE_COMMENT ('//')");
     doTest("\\u002f\\u002F", "END_OF_LINE_COMMENT ('\\u002f\\u002F')");
@@ -512,6 +545,7 @@ public abstract class AbstractBasicJavaLexerTest extends LexerTestCase {
            "END_OF_LINE_COMMENT ('//\\\\')\nWHITE_SPACE ('\\u000A ')\nIDENTIFIER ('test')"); // escaped backslash, followed by a unicode escape
   }
 
+  @Test
   public void testWhitespace() {
     doTest(" ", "WHITE_SPACE (' ')");
     doTest("\t", "WHITE_SPACE ('\t')");
@@ -529,10 +563,5 @@ public abstract class AbstractBasicJavaLexerTest extends LexerTestCase {
     doTest("\\u000A\\u000A", "WHITE_SPACE ('\\u000A\\u000A')");
     doTest("\\\\u000A", "BAD_CHARACTER ('\\')\nBAD_CHARACTER ('\\')\nIDENTIFIER ('u000A')");
     doTest("\\\\\\u000A", "BAD_CHARACTER ('\\')\nBAD_CHARACTER ('\\')\nWHITE_SPACE ('\\u000A')");
-  }
-
-  @Override
-  protected @NotNull String getDirPath() {
-    return "";
   }
 }
