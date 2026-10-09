@@ -171,6 +171,7 @@ impl Controller {
                 };
                 bench.command(ctx, verb).await
             }
+            Cmd::Report { verb } => crate::report::command_report(&self.settings, verb),
         }
     }
 }

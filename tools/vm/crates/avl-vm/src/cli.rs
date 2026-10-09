@@ -36,6 +36,7 @@ use crate::daemon::flake::{DEFAULT_FLAKE_RESET, FlakeArgs, flake_reset_names};
 use crate::daemon::shard::{MAX_USEFUL_SHARDS, ShardArgs};
 use crate::daemon::{DaemonVerb, Junit5FilterKind, RunCommandArgs};
 use crate::lane::{LsArgs, PeekabooArgs};
+use crate::report::ReportVerb;
 use crate::worker::lease::{AcquireRequest, LeaseCommand, parse_count};
 use crate::worker::worker::{PoolCommand, PoolTarget};
 use avl_base::{Environment, Exit, Refusal, Selection};
@@ -268,6 +269,11 @@ pub(crate) enum Cmd {
         #[command(subcommand)]
         verb: BenchVerb,
     },
+    /// Reads what a run left on this host; needs no worker.
+    Report {
+        #[command(subcommand)]
+        verb: ReportVerb,
+    },
 }
 
 impl Cmd {
@@ -289,6 +295,7 @@ impl Cmd {
             Self::Pull { .. } => "pull",
             Self::Vnc => "vnc",
             Self::Bench { .. } => "bench",
+            Self::Report { .. } => "report",
         }
     }
 

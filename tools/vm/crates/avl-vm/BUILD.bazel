@@ -16,6 +16,8 @@ avl_crate(
         "//tools/vm:lima.MODULE.bazel",
         "//tools/vm:provision/versions.env",
         "//tools/vm:tart.MODULE.bazel",
+        # The golden trace bundle, one of the scenarios of the fixture run of `report time`.
+        "//tools/vm/crates/avl-trace:testdata",
         "//tools/vm/crates/avl-testkit:avl-fake-bin",
     ] + glob(["testdata/**"]),
     # The Windows fakes are copies of this binary; see `avl_testkit::fakebin`.

@@ -935,3 +935,23 @@ fn a_trial_count_or_reset_the_measurement_cannot_use_is_a_usage_refusal() {
         assert!(refusal.message.contains(fragment), "{argv:?}: {}", refusal.message);
     }
 }
+
+// `report time` reads the runtime root of the invocation and needs no worker, so a run that is not there is its own
+// refusal in the envelope of the command.
+#[tokio::test]
+async fn report_time_answers_from_the_runtime_root_and_refuses_a_run_that_is_not_there() {
+    let envelope = refusal(&Hermetic::new().invoke(&["report", "time", "run-none", "--json"]).await);
+    assert_eq!(envelope["command"], "report");
+    assert_eq!(code(&envelope), "report_run_unknown");
+    assert!(message(&envelope).contains("runtime"), "{envelope}");
+    let Parsed::Invocation(invocation) = parse_argv(&["report", "time", "run-a", "--baseline", "iter-b"], &TerminalFacts::default()) else {
+        panic!("report time did not parse");
+    };
+    let Some(Cmd::Report {
+        verb: ReportVerb::Time(args),
+    }) = invocation.command
+    else {
+        panic!("not report time");
+    };
+    assert_eq!((args.run.as_str(), args.baseline.as_deref()), ("run-a", Some("iter-b")));
+}

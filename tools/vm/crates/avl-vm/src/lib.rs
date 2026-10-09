@@ -16,7 +16,8 @@
 //!   commands that observe a leased worker;
 //! - [`worker`]: the Tart, Parallels and Docker backends, the Apple `container` and Lima engines of a Docker pool on a
 //!   Mac, readiness gates, the pool, and leases;
-//! - [`bench`]: the start-up measurement of the IDE on this host, from a staged copy of its dev distribution.
+//! - [`bench`]: the start-up measurement of the IDE on this host, from a staged copy of its dev distribution;
+//! - [`report`]: `report time`, read from the journal, the reports and the traces that a run left on this host.
 
 mod bench;
 mod cli;
@@ -25,6 +26,7 @@ mod controller;
 mod daemon;
 mod image;
 mod lane;
+mod report;
 mod terminal;
 mod viewer;
 mod worker;

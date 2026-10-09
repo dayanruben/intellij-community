@@ -49,6 +49,8 @@ targets:
   - ../crates/avl-report/src/report.rs
   - ../crates/avl-report/src/aggregate.rs
   - ../crates/avl-report/src/aggregate/persist.rs
+  - ../crates/avl-vm/src/report.rs
+  - ../crates/avl-vm/src/report/time.rs
   - ../crates/avl-vm/src/worker/hypervisor.rs
   - ../crates/avl-host-sys/src/share.rs
   - ../crates/avl-vm/src/worker/tart.rs
@@ -465,6 +467,18 @@ The daemon's half and the IDE's half of supervision are in
   after the files of the expiry, and at most eight. The journal keeps the record as a `runProgress` event.
   [@test] ../crates/avl-wire/src/report/tests.rs
   [@test] ../crates/avl-wire/src/daemon/tests.rs
+
+- `report time <run or iteration>` says where the time of a run went. It reads the journal of the run, the report of
+  each iteration and the spans of the trace bundles, and needs no worker. The answer is the total, and the time
+  inside the test cases and outside them. It adds the launches of the lane IDE and the time of the `restart` spans.
+  It also names the ten longest test cases and the ten lane spans with the most self time. An iteration id names
+  that iteration of the newest run that reported it. A file that cannot be read is a note of the answer.
+  [@test] ../crates/avl-vm/src/report/time/tests.rs
+  [@test] ../crates/avl-vm/src/cli/tests.rs
+
+- With `--baseline <run or iteration>`, `report time` adds the ratio of each test class, this run over the
+  baseline. It also adds the median ratio over the classes that took more than 5 s in the baseline.
+  [@test] ../crates/avl-vm/src/report/time/tests.rs
 
 - On the daemon control channel, a field that is absent is absent, and is not null. The controller tells
   the two apart. The controller refuses an explicit null on that channel.
