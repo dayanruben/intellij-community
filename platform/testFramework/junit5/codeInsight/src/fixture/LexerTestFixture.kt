@@ -24,7 +24,6 @@ import kotlin.io.path.readText
 /**
  * Lexer test helpers for a JUnit 5 test. Create the fixture with [lexerFixture].
  *
- * The fixture has the API of [com.intellij.testFramework.LexerTestCase] without the JUnit 3 base class.
  * The fixture needs no test application.
  */
 @TestOnly
