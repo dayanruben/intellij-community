@@ -461,6 +461,11 @@ The daemon's half and the IDE's half of supervision are in
   dump before a kill.
   [@test] ../crates/avl-wire/src/report/tests.rs
 
+- The dumps that each `slowStep` record names are evidence too. The controller fetches them beside the report,
+  after the files of the expiry, and at most eight. The journal keeps the record as a `runProgress` event.
+  [@test] ../crates/avl-wire/src/report/tests.rs
+  [@test] ../crates/avl-wire/src/daemon/tests.rs
+
 - On the daemon control channel, a field that is absent is absent, and is not null. The controller tells
   the two apart. The controller refuses an explicit null on that channel.
   [@test] ../../../../plugins/air/tests/integration/uiDaemon/testSrc/AirUiDaemonProtocolTest.kt

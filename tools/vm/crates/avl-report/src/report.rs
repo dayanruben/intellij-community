@@ -27,7 +27,7 @@ use avl_wire::report::{
     ActiveTest, Case, CaseStatus, EvidenceArtifact, ExecutionCounts, Failure, FailureKind, FailureSource, Integrity,
     MAX_FAILURE_DETAIL_CHARS, MAX_FAILURE_MESSAGE_CHARS, MAX_RELEVANT_FRAMES, ORDERING, RUN_REPORT_SCHEMA_VERSION, RetrievedIntegrity,
     RetrievedXml, RunReport, SkippedContainer, Source, Status, Suite, TraceArchive, Tree, Watchdog, WatchdogExpiry, WatchdogState,
-    XmlCounts, safe_evidence_paths,
+    XmlCounts, expiry_evidence_paths,
 };
 
 #[cfg(test)]
@@ -52,7 +52,7 @@ pub struct Input {
     pub events: Vec<RunEvent>,
     pub source: RetrievedXml,
     /// The guest files the controller managed to fetch, or the reason it could not. Every entry names a path
-    /// [`safe_evidence_paths`] admitted.
+    /// [`avl_wire::report::safe_evidence_paths`] admitted.
     pub evidence: Vec<EvidenceArtifact>,
     /// An empty diagnostic and none are different facts on the document: the first says something wrote a reason
     /// and lost it.
@@ -481,7 +481,7 @@ fn watchdog_report(events: &[RunEvent]) -> Watchdog {
             deadline: Some(expired.deadline.clone()),
             expired_at: Some(expired.expired_at.clone()),
             active_execution: expired.active_execution.clone(),
-            evidence: safe_evidence_paths(events),
+            evidence: expiry_evidence_paths(events),
         }),
         _ => None,
     });

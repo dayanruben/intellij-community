@@ -303,7 +303,7 @@ fn the_plan_record_carries_the_discovered_classes() {
 #[test]
 fn protocol_version_is_the_one_kotlin_declares() {
     // A literal, so bumping the constant without the Kotlin side is a deliberate two-file change.
-    assert_eq!(PROTOCOL_VERSION, 4, "`AIR_UI_DAEMON_PROTOCOL_VERSION` must move with it");
+    assert_eq!(PROTOCOL_VERSION, 5, "`AIR_UI_DAEMON_PROTOCOL_VERSION` must move with it");
 }
 
 // A dynamic node carries its factory's method and its own display name, so a progress line names both; a plain
