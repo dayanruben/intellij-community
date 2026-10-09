@@ -248,8 +248,13 @@ impl Host {
             ("AIR_VM_RUNTIME_ROOT", runtime.as_str()),
             ("AIR_VM_WORKERS", "air-docker-1,air-docker-2"),
         ]);
-        let settings = Config::load(Selection { backend, guest_os }, &environment, &repo.join(WORKSPACE_DIR))
-            .unwrap_or_else(|refusal| panic!("the fixture environment was refused: {refusal:?}"));
+        let settings = Config::load(
+            avl_base::HostFacts::without_memory(),
+            Selection { backend, guest_os },
+            &environment,
+            &repo.join(WORKSPACE_DIR),
+        )
+        .unwrap_or_else(|refusal| panic!("the fixture environment was refused: {refusal:?}"));
         // The backend names the worker directory, `docker-air-docker-1` for a Docker worker.
         for worker in ["air-docker-1", "air-docker-2", "air-macos-1", "container-linux-1"] {
             std::fs::create_dir_all(settings.worker_dir(worker)).expect("a fixture directory");

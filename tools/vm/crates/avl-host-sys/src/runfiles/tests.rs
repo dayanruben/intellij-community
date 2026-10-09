@@ -10,6 +10,7 @@ use crate::testing::fixture_backend;
 /// A Linux-guest config whose host paths are the two Windows roots of a real host.
 fn windows_settings(root: &Path) -> Config {
     let settings = Config::load(
+        avl_base::HostFacts::without_memory(),
         Selection {
             backend: fixture_backend(GuestOs::Linux),
             guest_os: GuestOs::Linux,

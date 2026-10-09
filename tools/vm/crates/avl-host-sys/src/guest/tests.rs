@@ -439,6 +439,7 @@ fn unresolved_settings(root: &Path, extra: &[(&str, &str)]) -> Config {
         environment.set(*name, *value);
     }
     Config::load(
+        avl_base::HostFacts::without_memory(),
         Selection {
             backend: avl_base::Backend::Docker,
             guest_os: GuestOs::Linux,

@@ -226,6 +226,27 @@ async fn a_pool_verb_that_is_missing_unknown_or_overlong_is_a_usage_error() {
     }
 }
 
+// `pool idle-stop` is the detached process a release starts, so it parses but is not in the help of `pool`.
+#[test]
+fn the_idle_stop_verb_parses_and_stays_out_of_the_help() {
+    let parsed = invocation(
+        &["--backend", "docker", "pool", "idle-stop", "air-docker-1", "--nonce", "n-1"],
+        &terminal(),
+    );
+    let Some(Cmd::Pool { verb }) = parsed.command else {
+        panic!("not a pool command: {:?}", parsed.command);
+    };
+    assert_eq!(
+        PoolCommand::from(verb),
+        PoolCommand::IdleStop {
+            worker: "air-docker-1".to_owned(),
+            nonce: "n-1".to_owned(),
+        }
+    );
+    assert!(!long_help_of(&["pool"]).contains("idle-stop"));
+    assert!(long_help_of(&["lease", "release"]).contains("AIR_VM_IDLE_STOP"));
+}
+
 #[tokio::test]
 async fn naming_no_command_answers_the_usage_text_with_no_command_named() {
     let answer = Hermetic::new().invoke(&[]).await;

@@ -52,7 +52,13 @@ impl Fixture {
             backend: Backend::Parallels,
             guest_os: GuestOs::Macos,
         };
-        let settings = Config::load(selection, &environment, &root.path().join("scripts")).unwrap();
+        let settings = Config::load(
+            avl_base::HostFacts::without_memory(),
+            selection,
+            &environment,
+            &root.path().join("scripts"),
+        )
+        .unwrap();
         let host_repo = root.path().join("idea");
         let host_bazel = root.path().join("bazel");
         for path in [&host_repo, &host_bazel] {
@@ -555,6 +561,7 @@ async fn the_parallels_guest_line_is_one_quoted_shell_string() {
 fn settings_for(backend: Backend) -> Config {
     let environment = Environment::from_pairs([("HOME", "/Users/air"), ("TART_BIN", "tart"), ("AIR_VM_PARALLELS_BIN", "prlctl")]);
     Config::load(
+        avl_base::HostFacts::without_memory(),
         Selection {
             backend,
             guest_os: GuestOs::Macos,

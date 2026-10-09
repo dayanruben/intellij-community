@@ -16,7 +16,7 @@ use avl_wire::progress::LeaseDisposition;
 
 use super::receipt::{remove_lease_receipts, reusable_lease_receipt, write_lease_receipt};
 use super::{ACQUIRE_LOCK_TIMEOUT, AcquireRequest, release_by_receipt, try_atomic_lease};
-use crate::worker::worker::{Lease, Manager, read_lease};
+use crate::worker::worker::{Lease, Manager, read_lease, remove_idle_stop_record};
 
 #[cfg(test)]
 mod tests;
@@ -204,6 +204,8 @@ async fn place_lease(ctx: &Ctx, manager: &Manager, worker: &str, lease: &Lease) 
             if !try_atomic_lease(settings, worker, lease)? {
                 return Ok(None);
             }
+            // The new holder keeps the worker running: the idle stop of the last release finds no record.
+            remove_idle_stop_record(settings, worker)?;
             write_lease_receipt(settings, lease).map(Some).inspect_err(|_| {
                 let _ = std::fs::remove_file(settings.lease_path(worker));
             })

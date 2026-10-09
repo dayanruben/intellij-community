@@ -626,6 +626,8 @@ async fn an_image_is_built_once_from_a_fresh_context() {
     );
     let builds = || fixture.fake.calls().into_iter().filter(|call| call.starts_with("build ")).count();
     assert_eq!(builds(), 1);
+    // Only the Apple `container` engine has a builder VM to stop.
+    assert!(!fixture.fake.saw_call_containing("builder stop"), "{:#?}", fixture.fake.calls());
     let digest = tag.rsplit(':').next().unwrap();
     let context = fixture.settings.runtime_root.join("docker-context").join(digest);
     assert_eq!(std::fs::read_to_string(context.join("Dockerfile")).unwrap(), DOCKERFILE);

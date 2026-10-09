@@ -17,7 +17,7 @@ use std::fmt::Debug;
 use std::path::Path;
 use std::sync::Arc;
 
-use avl_base::config::{HostOs, MacosHost, WORKSPACE_DIR};
+use avl_base::config::{HostFacts, HostOs, MacosHost, WORKSPACE_DIR};
 use avl_base::report::{Buffer, Mode, Terminal};
 use avl_base::{Backend, Config, Environment, GuestOs, Outcome, Refusal, Reporter, Selection};
 use avl_host_sys::{Interrupts, Runner};
@@ -87,6 +87,10 @@ pub const FIXTURE_MACOS: MacosHost = MacosHost {
     apple_silicon: true,
 };
 
+/// The host memory every fixture loads on: 64 GiB, so the Apple `container` pool keeps its floor of two slots
+/// (`avl_base::config::default_docker_slots`) and no suite depends on the memory of the test host.
+pub const FIXTURE_HOST_MEMORY_MIB: u64 = 64 * 1024;
+
 /// [`load_config`] as a controller on `host` resolves it, for a fixture of a macOS host on every host.
 pub fn load_config_on(host: HostOs, backend: Backend, guest_os: GuestOs, environment: &[(String, String)], root: &Path) -> Config {
     load_config_on_release(host, FIXTURE_MACOS, backend, guest_os, environment, root)
@@ -104,7 +108,10 @@ pub fn load_config_on_release(
     let environment = Environment::from_pairs(environment.iter().cloned());
     Config::load_on(
         host,
-        Some(macos),
+        HostFacts {
+            macos: Some(macos),
+            memory_mib: Some(FIXTURE_HOST_MEMORY_MIB),
+        },
         Selection { backend, guest_os },
         &environment,
         &root.join(WORKSPACE_DIR),

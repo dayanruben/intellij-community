@@ -84,6 +84,8 @@ impl Manager {
         worker: &str,
         authorized: Option<&Lease>,
     ) -> Result<StartState, Refusal> {
+        // A start keeps the worker running, so the idle stop of the last release finds no record.
+        super::remove_idle_stop_record(&self.settings, worker)?;
         docker.require_available_for(ctx, authorized).await?;
         ensure_host_paths(ctx, &self.runner, &self.settings).await?;
         (self.build_boot)(ctx.clone()).await?;

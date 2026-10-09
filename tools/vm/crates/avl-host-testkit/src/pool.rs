@@ -222,7 +222,7 @@ impl HostPoolBuilder {
     /// loads them, with `AIR_VM_DOCKER_ENGINE=container` and neither `DOCKER_BIN` nor `DOCKER_HOST`, so the real engine
     /// rule chooses the engine. `CONTAINER_BIN` names the fake `container` beside the fake `docker`, and `AIR_VM_DNS`
     /// names a nameserver, so no suite reads the resolver of its host. `AIR_VM_HOST_CURL` names the fake `curl`, so no
-    /// suite downloads from the file mirror.
+    /// suite downloads from the file mirror. `AIR_VM_IDLE_STOP` is `off`, so no release starts a detached process.
     #[must_use]
     pub const fn with_container_engine(mut self) -> Self {
         self.container_engine = true;
@@ -299,9 +299,11 @@ impl HostPoolBuilder {
                     ("CONTAINER_BIN".to_owned(), container.executable().to_string_lossy().into_owned()),
                     ("AIR_VM_DNS".to_owned(), "192.0.2.53".to_owned()),
                     ("AIR_VM_HOST_CURL".to_owned(), curl.executable().to_string_lossy().into_owned()),
+                    // No idle stop, because a release would start a detached process. A suite of the idle stop sets it.
+                    ("AIR_VM_IDLE_STOP".to_owned(), "off".to_owned()),
                 ]);
             }
-            // One slot, because the fake `docker` holds one container. The production pool has two; a suite that
+            // One slot, because the fake `docker` holds one container. The production pool has two or more; a suite that
             // needs more slots names them with `AIR_VM_MAX_WORKERS`.
             environment.push(("AIR_VM_MAX_WORKERS".to_owned(), "1".to_owned()));
             // The engine runs the pinned architecture natively, so the gate passes unless a suite reseeds it.

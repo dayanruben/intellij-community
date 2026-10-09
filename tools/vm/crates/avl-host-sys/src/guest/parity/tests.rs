@@ -57,6 +57,7 @@ fn the_parity_script_of_a_windows_host_names_only_guest_paths() {
     let root = tempfile::tempdir().unwrap();
     let home = root.path().to_string_lossy().into_owned();
     let settings = Config::load(
+        avl_base::HostFacts::without_memory(),
         Selection {
             backend: fixture_backend(GuestOs::Linux),
             guest_os: GuestOs::Linux,
@@ -132,6 +133,7 @@ fn the_parity_script_refuses_a_foreign_tree_and_builds_its_own() {
         (GuestOs::Linux, "air-docker-1")
     };
     let settings = Config::load(
+        avl_base::HostFacts::without_memory(),
         Selection {
             backend: avl_base::Backend::Tart,
             guest_os,
@@ -416,6 +418,7 @@ async fn parity_broken_separates_provisionable_from_real() {
 
     let home = host.dir().join("elsewhere").to_string_lossy().into_owned();
     let unresolved = Config::load(
+        avl_base::HostFacts::without_memory(),
         Selection {
             backend: fixture_backend(GuestOs::Linux),
             guest_os: GuestOs::Linux,

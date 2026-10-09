@@ -494,9 +494,17 @@ async fn release_one_lease(ctx: &Ctx, manager: &Manager, lease: &Lease, probe: &
     // The next holder gets no file of this one's runs: a run removes its own, unless its controller died first.
     crate::lane::secrets::clear_run_secrets(&guest).await?;
     remove_lease(settings, lease)?;
+    // On the Apple `container` engine the idle worker stops after a grace period, because its VM keeps its memory
+    // while it runs. The warm daemon lives until then.
+    let Some(idle_stop_at) = manager.schedule_idle_stop(ctx, worker).await? else {
+        return Ok(Outcome {
+            data: json!({ "worker": worker, "released": true }),
+            text: format!("released={worker}"),
+        });
+    };
     Ok(Outcome {
-        data: json!({ "worker": worker, "released": true }),
-        text: format!("released={worker}"),
+        data: json!({ "worker": worker, "released": true, "idleStopAt": idle_stop_at }),
+        text: format!("released={worker}\nidle_stop_at={idle_stop_at}"),
     })
 }
 

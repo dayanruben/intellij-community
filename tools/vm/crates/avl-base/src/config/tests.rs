@@ -62,6 +62,18 @@ fn container_linux() -> Selection {
     }
 }
 
+/// The memory of the host every test loads on: 64 GiB, which gives the Apple `container` pool its floor of two slots,
+/// as `FIXTURE_HOST_MEMORY_MIB` of the host testkit does.
+const HOST_MEMORY_MIB: u64 = 64 * 1024;
+
+/// The facts of a host of the release `macos` and of [`HOST_MEMORY_MIB`].
+const fn facts(macos: MacosHost) -> HostFacts {
+    HostFacts {
+        macos: Some(macos),
+        memory_mib: Some(HOST_MEMORY_MIB),
+    }
+}
+
 fn load(selection: Selection, environment: &Environment) -> Config {
     load_on(POOL_HOST, selection, environment)
 }
@@ -71,12 +83,12 @@ fn load_on(host: HostOs, selection: Selection, environment: &Environment) -> Con
 }
 
 fn load_on_release(host: HostOs, macos: MacosHost, selection: Selection, environment: &Environment) -> Config {
-    Config::load_on(host, Some(macos), selection, environment, Path::new(WORKSPACE))
+    Config::load_on(host, facts(macos), selection, environment, Path::new(WORKSPACE))
         .unwrap_or_else(|refusal| panic!("the environment was refused on {host}: {refusal:?}"))
 }
 
 fn refuse_on(host: HostOs, selection: Selection, environment: &Environment) -> Refusal {
-    match Config::load_on(host, Some(MACOS_15), selection, environment, Path::new(WORKSPACE)) {
+    match Config::load_on(host, facts(MACOS_15), selection, environment, Path::new(WORKSPACE)) {
         Ok(config) => panic!("the environment was accepted on {host}: {config:?}"),
         Err(refusal) => refusal,
     }
@@ -166,7 +178,7 @@ fn the_runtime_root_keeps_its_on_disk_name() {
         assert_eq!(moved.configured_bazel_user_root(), Path::new("/bazel"), "{host}");
     }
     // Config::load resolves the defaults of the current host.
-    let current = Config::load(docker(), &env(&[]), Path::new(WORKSPACE)).unwrap();
+    let current = Config::load(HostFacts::without_memory(), docker(), &env(&[]), Path::new(WORKSPACE)).unwrap();
     assert_eq!(current.runtime_root, load_on(HostOs::CURRENT, docker(), &env(&[])).runtime_root);
 }
 
@@ -852,6 +864,109 @@ fn an_explicit_pool_fixes_its_size() {
     assert_eq!(scaled.workers[4], "air-docker-5");
 }
 
+/// A Docker pool on a macOS 26 host of `memory_mib`, which runs the Apple `container` engine.
+fn container_pool(memory_mib: Option<u64>, pairs: &[(&str, &str)]) -> Config {
+    let facts = HostFacts {
+        macos: Some(MACOS_26),
+        memory_mib,
+    };
+    Config::load_on(HostOs::Macos, facts, docker(), &env(pairs), Path::new(WORKSPACE))
+        .unwrap_or_else(|refusal| panic!("the environment was refused: {refusal:?}"))
+}
+
+const GIB: u64 = 1024;
+
+/// The variables of one case.
+type Pairs<'a> = &'a [(&'a str, &'a str)];
+
+// On the Apple `container` engine the workers get at most a quarter of the host memory, from 2 slots to 16.
+#[test]
+fn the_container_pool_follows_the_host_memory() {
+    let cases: [(Option<u64>, Pairs<'_>, usize); 7] = [
+        (Some(128 * GIB), &[], 4),
+        (Some(256 * GIB), &[], 8),
+        (Some(64 * GIB), &[], 2),
+        (Some(32 * GIB), &[], 2),
+        (Some(1024 * GIB), &[], 16),
+        (None, &[], 2),
+        // Larger workers give fewer slots.
+        (Some(128 * GIB), &[("AIR_VM_MEMORY_MB", "16384")], 2),
+    ];
+    for (memory_mib, pairs, slots) in cases {
+        let config = container_pool(memory_mib, pairs);
+        assert_eq!(config.docker_engine, DockerEngine::AppleContainer);
+        assert_eq!(config.workers.len(), slots, "{memory_mib:?} {pairs:?}");
+        assert_eq!(config.host_memory_mib, memory_mib);
+    }
+    let sized = container_pool(Some(128 * GIB), &[]);
+    assert_eq!(sized.workers[3], "air-docker-4");
+    assert_eq!(sized.pool_rule.to_string(), "host 128 GiB, 8 GiB per worker");
+    assert_eq!(container_pool(None, &[]).pool_rule, PoolRule::UnknownHostMemory);
+}
+
+// `AIR_VM_MAX_WORKERS` and `AIR_VM_WORKERS` win over the host memory rule.
+#[test]
+fn a_pool_setting_wins_over_the_host_memory() {
+    let max = container_pool(Some(128 * GIB), &[("AIR_VM_MAX_WORKERS", "3")]);
+    assert_eq!((max.workers.len(), max.pool_rule), (3, PoolRule::MaxWorkers));
+    assert_eq!(max.pool_rule.to_string(), "AIR_VM_MAX_WORKERS");
+    let named = container_pool(Some(128 * GIB), &[("AIR_VM_WORKERS", "air-docker-1")]);
+    assert_eq!((named.workers.len(), named.pool_rule), (1, PoolRule::Named));
+}
+
+// The Lima engine shares one VM of 16 GiB, and an external engine has no cap, so both keep 2 slots on a large host.
+#[test]
+fn only_the_container_pool_follows_the_host_memory() {
+    let lima = container_pool(Some(128 * GIB), &[("AIR_VM_DOCKER_ENGINE", "lima")]);
+    assert_eq!(lima.docker_engine, DockerEngine::Lima);
+    assert_eq!((lima.workers.len(), lima.pool_rule), (2, PoolRule::Default));
+    let external = container_pool(Some(128 * GIB), &[("DOCKER_HOST", "unix:///var/run/docker.sock")]);
+    assert_eq!(external.docker_engine, DockerEngine::External);
+    assert_eq!((external.workers.len(), external.pool_rule), (2, PoolRule::Default));
+    let facts = HostFacts {
+        macos: Some(MACOS_26),
+        memory_mib: Some(128 * GIB),
+    };
+    let tart = Config::load_on(HostOs::Macos, facts, tart_macos(), &env(&[]), Path::new(WORKSPACE)).unwrap();
+    assert_eq!(tart.workers.len(), 2);
+}
+
+// An idle Apple `container` worker stops an hour after its release by default. Seconds, zero included, or `off`
+// change it, and a malformed value is refused. Every other engine and backend has no idle stop.
+#[test]
+fn the_idle_stop_is_the_container_engines_alone() {
+    let pool = |pairs: &[(&str, &str)]| container_pool(Some(128 * GIB), pairs).idle_stop;
+    assert_eq!(pool(&[]), Some(IDLE_STOP_DEFAULT));
+    assert_eq!(IDLE_STOP_DEFAULT, Duration::from_secs(3_600));
+    assert_eq!(pool(&[("AIR_VM_IDLE_STOP", "60")]), Some(Duration::from_secs(60)));
+    assert_eq!(pool(&[("AIR_VM_IDLE_STOP", "0")]), Some(Duration::ZERO));
+    assert_eq!(pool(&[("AIR_VM_IDLE_STOP", "off")]), None);
+    assert_eq!(pool(&[("AIR_VM_IDLE_STOP", "60"), ("AIR_VM_DOCKER_ENGINE", "lima")]), None);
+    assert_eq!(load(docker(), &env(&[("AIR_VM_IDLE_STOP", "60")])).idle_stop, None);
+    assert_eq!(load(tart_macos(), &env(&[])).idle_stop, None);
+    for malformed in ["-1", "1h", "1.5", "never"] {
+        let refusal = refuse(docker(), &env(&[("AIR_VM_IDLE_STOP", malformed)]));
+        assert_eq!(refusal.code, "invalid_environment", "{malformed}");
+        assert!(refusal.message.contains("AIR_VM_IDLE_STOP"), "{}", refusal.message);
+    }
+}
+
+#[test]
+fn the_default_slots_are_a_pure_rule() {
+    assert_eq!(default_docker_slots(Some(128 * GIB), 8_192), 4);
+    assert_eq!(default_docker_slots(Some(128 * GIB), 0), MAX_POOL_SLOTS);
+    assert_eq!(default_docker_slots(Some(u64::MAX), 1), MAX_POOL_SLOTS);
+    assert_eq!(default_docker_slots(None, 8_192), DEFAULT_POOL_SLOTS);
+    assert_eq!(
+        PoolRule::HostMemory {
+            host_mib: 7_680,
+            worker_mib: 2_048
+        }
+        .to_string(),
+        "host 7.5 GiB, 2 GiB per worker"
+    );
+}
+
 // The set of guests is closed, so a guest with no profile cannot be constructed; its spelling is a usage
 // refusal, and every profile field is set.
 #[test]
@@ -903,7 +1018,7 @@ fn root_disk_options_accept_only_tarts_own_spelling() {
     for value in ["caching=cached,sync=none", "sync=none", "caching", ""] {
         let result = Config::load_on(
             POOL_HOST,
-            Some(MACOS_15),
+            facts(MACOS_15),
             tart_macos(),
             &env(&[("AIR_VM_ROOT_DISK_OPTS", value)]),
             Path::new("/repo"),
@@ -913,7 +1028,7 @@ fn root_disk_options_accept_only_tarts_own_spelling() {
     for value in ["caching=Cached", "sync=none;rm -rf /", "sync = none", "caching,,sync"] {
         let result = Config::load_on(
             POOL_HOST,
-            Some(MACOS_15),
+            facts(MACOS_15),
             tart_macos(),
             &env(&[("AIR_VM_ROOT_DISK_OPTS", value)]),
             Path::new("/repo"),
@@ -1377,7 +1492,7 @@ fn the_macos_version_chooses_the_engine() {
         assert_eq!(config.docker_engine, engine, "{macos:?} {pairs:?}");
     }
     // A macOS host whose release is unknown runs the Lima engine.
-    let unknown = Config::load_on(HostOs::Macos, None, docker(), &env(&[]), Path::new(WORKSPACE)).unwrap();
+    let unknown = Config::load_on(HostOs::Macos, HostFacts::default(), docker(), &env(&[]), Path::new(WORKSPACE)).unwrap();
     assert_eq!(unknown.docker_engine, DockerEngine::Lima);
     // The release takes no part on another host.
     for host in [HostOs::Linux, HostOs::Windows] {

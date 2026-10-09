@@ -98,6 +98,22 @@ const SYSTEM_VERSION_PLIST: &str = "/System/Library/CoreServices/SystemVersion.p
 /// until it stops, so the limit is the price of a running worker.
 pub const CONTAINER_WORKER_MEMORY_MIB: u32 = 8_192;
 
+/// The slot count of a pool that no setting sizes, and the floor of the host memory rule ([`default_docker_slots`]).
+pub const DEFAULT_POOL_SLOTS: u32 = 2;
+
+/// The most slots a pool may have, through `AIR_VM_MAX_WORKERS` or through the host memory rule.
+pub const MAX_POOL_SLOTS: u32 = 16;
+
+/// The workers of an Apple `container` pool get at most one part in this many of the host memory
+/// ([`default_docker_slots`]).
+pub const HOST_MEMORY_SHARE_DIVISOR: u64 = 4;
+
+/// The grace period after a lease release before an idle Apple `container` worker stops ([`Config::idle_stop`]).
+pub const IDLE_STOP_DEFAULT: Duration = Duration::from_hours(1);
+
+/// The idle stop setting: seconds, or `off`.
+pub const IDLE_STOP_VARIABLE: &str = "AIR_VM_IDLE_STOP";
+
 /// The target name of a label: what follows the last `:`. A pin label names an alias, and the alias has the name of
 /// the repository that it forwards to.
 pub fn label_target(label: &str) -> &str {
@@ -489,6 +505,85 @@ impl MacosHost {
     }
 }
 
+/// The facts of the host that the settings read and that this crate does not probe itself.
+///
+/// The caller of [`Config::load`] hands them in. The memory probe needs `libc`, which this crate does not link, so
+/// `avl_host_sys::host::memory_mib` answers it. A test pins both facts, as it pins the [`HostOs`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct HostFacts {
+    /// The macOS release ([`MacosHost::read`]), or `None` on another host.
+    pub macos: Option<MacosHost>,
+    /// The physical memory of the host in MiB, or `None` when nothing probed it. The default pool size of the Apple
+    /// `container` engine follows it ([`default_docker_slots`]).
+    pub memory_mib: Option<u64>,
+}
+
+impl HostFacts {
+    /// The macOS release of this host and no memory: the facts of a caller that sizes no pool.
+    pub fn without_memory() -> Self {
+        Self {
+            macos: MacosHost::read(),
+            memory_mib: None,
+        }
+    }
+}
+
+/// The default slot count of a pool on the Apple `container` engine: one part in [`HOST_MEMORY_SHARE_DIVISOR`] of the
+/// host memory, divided by the memory of one worker, from [`DEFAULT_POOL_SLOTS`] to [`MAX_POOL_SLOTS`].
+///
+/// A host of 128 GiB with workers of 8 GiB gets 4 slots, a host of 64 GiB gets 2, and a host of 256 GiB gets 8. A host
+/// of unknown memory gets [`DEFAULT_POOL_SLOTS`].
+pub fn default_docker_slots(memory_mib: Option<u64>, worker_mib: u32) -> u32 {
+    let Some(host_mib) = memory_mib else {
+        return DEFAULT_POOL_SLOTS;
+    };
+    let slots = host_mib / (HOST_MEMORY_SHARE_DIVISOR * u64::from(worker_mib.max(1)));
+    u32::try_from(slots)
+        .unwrap_or(MAX_POOL_SLOTS)
+        .clamp(DEFAULT_POOL_SLOTS, MAX_POOL_SLOTS)
+}
+
+/// Why the pool has its slot count, as `status` prints it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PoolRule {
+    /// `AIR_VM_WORKERS` names the slots.
+    Named,
+    /// `AIR_VM_MAX_WORKERS` sets the count.
+    MaxWorkers,
+    /// The Apple `container` default follows the host memory ([`default_docker_slots`]).
+    HostMemory { host_mib: u64, worker_mib: u32 },
+    /// The Apple `container` default on a host of unknown memory: [`DEFAULT_POOL_SLOTS`].
+    UnknownHostMemory,
+    /// The default of every other engine and backend: [`DEFAULT_POOL_SLOTS`].
+    Default,
+    /// The one VM that `AIR_VM_PARALLELS_VM` names.
+    ParallelsVm,
+}
+
+impl fmt::Display for PoolRule {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::Named => f.write_str("AIR_VM_WORKERS"),
+            Self::MaxWorkers => f.write_str("AIR_VM_MAX_WORKERS"),
+            Self::HostMemory { host_mib, worker_mib } => {
+                write!(f, "host {}, {} per worker", gib(host_mib), gib(u64::from(worker_mib)))
+            }
+            Self::UnknownHostMemory => f.write_str("host memory unknown"),
+            Self::Default => f.write_str("default"),
+            Self::ParallelsVm => f.write_str("AIR_VM_PARALLELS_VM"),
+        }
+    }
+}
+
+/// A size in MiB as GiB: `128 GiB`, or `7.5 GiB` when it is not a whole number.
+fn gib(mib: u64) -> String {
+    if mib.is_multiple_of(1024) {
+        format!("{} GiB", mib / 1024)
+    } else {
+        format!("{}.{} GiB", mib / 1024, mib % 1024 * 10 / 1024)
+    }
+}
+
 /// The major version of `ProductVersion` in the XML of `SystemVersion.plist`: the digits before the first dot of the
 /// string that follows the key.
 fn product_major(plist: &str) -> Option<u32> {
@@ -827,6 +922,26 @@ impl<'a> Reader<'a> {
         Duration::from_secs(u64::from(self.positive_int(name, fallback)))
     }
 
+    /// A count of seconds that may be zero, or `off`, which answers `None`.
+    fn seconds_or_off(&mut self, name: &str, fallback: Option<Duration>) -> Option<Duration> {
+        let Some(raw) = self.set(name) else {
+            return fallback;
+        };
+        let trimmed = raw.trim();
+        if trimmed.eq_ignore_ascii_case("off") {
+            return None;
+        }
+        match trimmed.parse::<u32>() {
+            Ok(value) if trimmed.bytes().all(|byte| byte.is_ascii_digit()) => Some(Duration::from_secs(u64::from(value))),
+            _ => {
+                self.refuse(Refusal::invalid_environment(format!(
+                    "{name} must be a count of seconds or `off`, not {raw:?}"
+                )));
+                fallback
+            }
+        }
+    }
+
     fn bounded_positive_int(&mut self, name: &str, fallback: u32, maximum: u32) -> u32 {
         let value = self.positive_int(name, fallback);
         if value > maximum {
@@ -915,14 +1030,20 @@ fn worker_root_disk_gb(reader: &mut Reader<'_>, guest_os: GuestOs) -> u32 {
 /// and fixes the pool at that size; otherwise slots are `<prefix>-1 … <prefix>-N`, with a prefix distinct per pool,
 /// because a name collision would hand a Linux lease a macOS worker.
 ///
-/// A Docker pool has two slots unless `AIR_VM_MAX_WORKERS` says otherwise, as a Tart pool has. It started with one
-/// container on 2026-09-29, the user's choice while nothing sized the engine. Since the Docker pool is the default
-/// (ADR 0190) it has two, so a `shard` and a second session each find a worker, and the Lima engine is sized for two
-/// lanes ([`LIMA_ENGINE_MEMORY_MIB`]).
+/// A pool has [`DEFAULT_POOL_SLOTS`] slots unless `AIR_VM_MAX_WORKERS` says otherwise. On the Apple `container` engine
+/// the default follows the host memory instead ([`default_docker_slots`]), because each worker is a VM of
+/// `worker_mib`. A Lima slot shares one engine VM sized for two lanes ([`LIMA_ENGINE_MEMORY_MIB`]), and a container on
+/// an external engine has no cap, so those pools keep the fixed default (ADR 0226).
 ///
 /// A container-linux pool has one slot, `container-linux-1`: the skill's script runs one container, so an
 /// `AIR_VM_MAX_WORKERS` other than 1 is refused there.
-fn worker_slots(reader: &mut Reader<'_>, backend: Backend) -> Vec<String> {
+fn worker_slots(
+    reader: &mut Reader<'_>,
+    backend: Backend,
+    engine: DockerEngine,
+    worker_mib: u32,
+    memory_mib: Option<u64>,
+) -> (Vec<String>, PoolRule) {
     if let Some(explicit) = reader.set("AIR_VM_WORKERS") {
         let workers: Vec<String> = explicit
             .split(',')
@@ -936,7 +1057,7 @@ fn worker_slots(reader: &mut Reader<'_>, backend: Backend) -> Vec<String> {
                 Exit::USAGE,
                 "AIR_VM_WORKERS is set but names no workers",
             ));
-            return Vec::new();
+            return (Vec::new(), PoolRule::Named);
         }
         let mut seen = std::collections::HashSet::new();
         if !workers.iter().all(|worker| seen.insert(worker)) {
@@ -945,9 +1066,9 @@ fn worker_slots(reader: &mut Reader<'_>, backend: Backend) -> Vec<String> {
                 Exit::USAGE,
                 "AIR_VM_WORKERS must name distinct workers",
             ));
-            return Vec::new();
+            return (Vec::new(), PoolRule::Named);
         }
-        return workers;
+        return (workers, PoolRule::Named);
     }
     let (default_prefix, default_count) = match backend {
         Backend::Docker => ("air-docker", 2),
@@ -957,18 +1078,31 @@ fn worker_slots(reader: &mut Reader<'_>, backend: Backend) -> Vec<String> {
     let prefix = reader.string("AIR_VM_WORKER_PREFIX", default_prefix);
     if let Err(refusal) = validate_name(&prefix, "worker name prefix") {
         reader.refuse(refusal);
-        return Vec::new();
+        return (Vec::new(), PoolRule::Default);
     }
-    let max_workers = reader.bounded_positive_int("AIR_VM_MAX_WORKERS", default_count, 16);
+    let (fallback, default_rule) = match (backend, engine, memory_mib) {
+        (Backend::Docker, DockerEngine::AppleContainer, Some(host_mib)) => (
+            default_docker_slots(memory_mib, worker_mib),
+            PoolRule::HostMemory { host_mib, worker_mib },
+        ),
+        (Backend::Docker, DockerEngine::AppleContainer, None) => (DEFAULT_POOL_SLOTS, PoolRule::UnknownHostMemory),
+        _ => (default_count, PoolRule::Default),
+    };
+    let rule = if reader.set("AIR_VM_MAX_WORKERS").is_some() {
+        PoolRule::MaxWorkers
+    } else {
+        default_rule
+    };
+    let max_workers = reader.bounded_positive_int("AIR_VM_MAX_WORKERS", fallback, MAX_POOL_SLOTS);
     if backend == Backend::ContainerLinux && max_workers != 1 {
         reader.refuse(Refusal::new(
             "invalid_worker_pool",
             Exit::USAGE,
             format!("AIR_VM_MAX_WORKERS must be 1 for the {backend} backend, whose skill runs one container"),
         ));
-        return Vec::new();
+        return (Vec::new(), rule);
     }
-    (1..=max_workers).map(|index| format!("{prefix}-{index}")).collect()
+    ((1..=max_workers).map(|index| format!("{prefix}-{index}")).collect(), rule)
 }
 
 // --- the resolved settings -------------------------------------------------------------------------------
@@ -1128,6 +1262,18 @@ pub struct Config {
 
     pub runtime_root: PathBuf,
     pub workers: Vec<String>,
+    /// Why [`Config::workers`] has its length, for `status`.
+    pub pool_rule: PoolRule,
+    /// How long an unleased worker on the Apple `container` engine keeps running after a lease release
+    /// (`AIR_VM_IDLE_STOP`), or `None` when it keeps running until `pool stop`.
+    ///
+    /// The default is [`IDLE_STOP_DEFAULT`]. Zero stops the worker inside the release. A running worker VM returns no
+    /// memory to the host until it stops, so the stop is what gives the memory back. Every other engine and backend
+    /// reads `None`: a container stop on the Lima engine frees nothing, an external engine belongs to the operator,
+    /// and a Tart worker suspends with `pool stop`.
+    pub idle_stop: Option<Duration>,
+    /// The physical memory of the host in MiB that the load read ([`HostFacts::memory_mib`]).
+    pub host_memory_mib: Option<u64>,
     pub image_root: PathBuf,
 
     /// The `container.cmd` of the `testing-ui` skill, which starts and drives the testing-ui container: the script of
@@ -1229,16 +1375,17 @@ impl Presentation {
 
 impl Config {
     /// Resolves one invocation's settings, or refuses the environment. `workspace_dir` is [`WORKSPACE_DIR`] of the
-    /// checkout, which the image pipeline is found relative to. The macOS release is read from the host here, once.
-    pub fn load(selection: Selection, environment: &Environment, workspace_dir: &Path) -> Result<Self, Refusal> {
-        Self::load_on(HostOs::CURRENT, MacosHost::read(), selection, environment, workspace_dir)
+    /// checkout, which the image pipeline is found relative to. The caller reads the facts of this host once and
+    /// hands them in ([`HostFacts`]).
+    pub fn load(facts: HostFacts, selection: Selection, environment: &Environment, workspace_dir: &Path) -> Result<Self, Refusal> {
+        Self::load_on(HostOs::CURRENT, facts, selection, environment, workspace_dir)
     }
 
-    /// [`Config::load`] as a controller on `host` of the macOS release `macos` resolves it, so a test can resolve the
-    /// settings of another host. Only a macOS host reads `macos`.
+    /// [`Config::load`] as a controller on `host` with the facts `facts` resolves it, so a test can resolve the
+    /// settings of another host. Only a macOS host reads the macOS release.
     pub fn load_on(
         host: HostOs,
-        macos: Option<MacosHost>,
+        facts: HostFacts,
         selection: Selection,
         environment: &Environment,
         workspace_dir: &Path,
@@ -1287,6 +1434,7 @@ impl Config {
                 "a Tart worker is a macOS guest; a Linux guest is a Docker worker, which --backend docker gives",
             ));
         }
+        let HostFacts { macos, memory_mib } = facts;
         let mut reader = Reader::new(environment);
         let linux = guest_os == GuestOs::Linux;
         let tart = backend == Backend::Tart;
@@ -1338,9 +1486,26 @@ impl Config {
         let docker = docker_bin.or_else(|| (host != HostOs::Macos).then(|| PathBuf::from("docker")));
         let lima_home = reader.path("AIR_VM_LIMA_HOME", || home.join(".local/state/JetBrains/air-vm-ui-tests/lima"));
 
-        let workers = match backend {
-            Backend::Tart | Backend::Docker | Backend::ContainerLinux => worker_slots(&mut reader, backend),
-            Backend::Parallels => vec![reader.string("AIR_VM_PARALLELS_VM", "macOS")],
+        // The daemon JVM sets no `-Xmx`, so its default maximum heap follows the cap. The Lima engine is one VM that
+        // the containers of a Docker pool share, so it gets 16 GiB. An Apple `container` worker is a VM of its own;
+        // see [`Config::vm_memory_mib`]. It resolves before the slots, because the Apple `container` pool size
+        // follows it.
+        let vm_memory_fallback = match (backend, docker_engine) {
+            (Backend::Docker, DockerEngine::Lima) => LIMA_ENGINE_MEMORY_MIB,
+            (Backend::Docker, DockerEngine::AppleContainer) => CONTAINER_WORKER_MEMORY_MIB,
+            _ => 32_768,
+        };
+        let vm_memory_mib = reader.positive_int("AIR_VM_MEMORY_MB", vm_memory_fallback);
+
+        // Read on every pool, so a malformed value is refused everywhere; only the Apple `container` engine uses it.
+        let idle_stop = reader.seconds_or_off(IDLE_STOP_VARIABLE, Some(IDLE_STOP_DEFAULT));
+        let idle_stop = idle_stop.filter(|_| backend == Backend::Docker && docker_engine == DockerEngine::AppleContainer);
+
+        let (workers, pool_rule) = match backend {
+            Backend::Tart | Backend::Docker | Backend::ContainerLinux => {
+                worker_slots(&mut reader, backend, docker_engine, vm_memory_mib, memory_mib)
+            }
+            Backend::Parallels => (vec![reader.string("AIR_VM_PARALLELS_VM", "macOS")], PoolRule::ParallelsVm),
         };
         for worker in &workers {
             reader.name(worker, "worker name");
@@ -1387,15 +1552,6 @@ impl Config {
         reader.name(&repo_share_name, "repository share name");
         let bazel_share_name = reader.string("AIR_VM_BAZEL_SHARE_NAME", "air-macos-bazel");
         reader.name(&bazel_share_name, "Bazel share name");
-
-        // The daemon JVM sets no `-Xmx`, so its default maximum heap follows the cap. The Lima engine is one VM that
-        // the two containers of a Docker pool share, so it gets 16 GiB. An Apple `container` worker is a VM of its
-        // own; see [`Config::vm_memory_mib`].
-        let vm_memory_fallback = match (backend, docker_engine) {
-            (Backend::Docker, DockerEngine::Lima) => LIMA_ENGINE_MEMORY_MIB,
-            (Backend::Docker, DockerEngine::AppleContainer) => CONTAINER_WORKER_MEMORY_MIB,
-            _ => 32_768,
-        };
 
         let vm_node_fallback = if linux {
             // The Docker image installs the pinned Node into `/usr/local`.
@@ -1528,7 +1684,7 @@ impl Config {
             vm_agent_source: reader.optional("AIR_VM_GUEST_AGENT_SOURCE").map(PathBuf::from),
             vm_data,
             vm_cpu: reader.positive_int("AIR_VM_CPU", 8),
-            vm_memory_mib: reader.positive_int("AIR_VM_MEMORY_MB", vm_memory_fallback),
+            vm_memory_mib,
             vm_display: reader.string("AIR_VM_RESOLUTION", "1920x1080px"),
             vm_root_disk_gb,
             vm_screen,
@@ -1543,6 +1699,9 @@ impl Config {
             vm_suspendable: reader.boolean("AIR_VM_SUSPENDABLE", true),
             runtime_root,
             workers,
+            pool_rule,
+            idle_stop,
+            host_memory_mib: memory_mib,
             image_root: reader.path("AIR_VM_IMAGE_ROOT", || workspace_dir.join("provision")),
             container_linux_script: checkout.join(".agents/skills/testing-ui/scripts/container.cmd"),
             container_linux_root: checkout.join("out/testing-ui"),
@@ -1705,6 +1864,17 @@ impl Config {
     /// declares other shares or another image, and is made again.
     pub fn docker_create_record_path(&self, worker: &str) -> PathBuf {
         self.worker_dir(worker).join("docker-create.json")
+    }
+
+    /// The deadline of the idle stop of an unleased worker, which a lease release writes ([`Config::idle_stop`]). A
+    /// lease acquisition and a start remove it.
+    pub fn idle_stop_record_path(&self, worker: &str) -> PathBuf {
+        self.worker_dir(worker).join("idle-stop.json")
+    }
+
+    /// Where the detached process of the idle stop writes its output.
+    pub fn idle_stop_log_path(&self, worker: &str) -> PathBuf {
+        self.worker_dir(worker).join("idle-stop.log")
     }
 
     /// Where the image build writes its log: pool-wide, because every Docker worker runs the one image.

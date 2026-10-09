@@ -21,6 +21,8 @@ use serde_json::Value;
 use super::receipt::receipt_files;
 use super::*;
 use crate::worker::testing::Fixture;
+#[cfg(unix)]
+use crate::worker::worker::{IdleStopRequest, read_idle_stop_record};
 
 pub(super) fn ctx() -> Ctx {
     Ctx::background()
@@ -423,6 +425,88 @@ async fn a_standalone_docker_release_resolves_the_pinned_cli() {
     assert_ne!(docker.program(), "");
     assert!(fixture.fake.saw_call_containing("inspect --type container --format"));
     assert_eq!(read_lease(&fixture.settings.lease_path(worker)).unwrap(), None);
+}
+
+/// A container pool whose one worker runs and is leased, with `AIR_VM_IDLE_STOP` at `seconds`.
+#[cfg(unix)]
+async fn leased_container_worker(seconds: &str) -> (Fixture, Outcome) {
+    let fixture = Fixture::docker_builder()
+        .container_engine()
+        .env("AIR_VM_IDLE_STOP", seconds)
+        .build();
+    let worker = fixture.worker(0).to_owned();
+    fixture.manager.start_without_lifecycle_lock(&ctx(), &worker).await.unwrap();
+    let held = acquire(&fixture, "agent").await.unwrap();
+    // The run slot is empty: no daemon and no iteration.
+    fixture.guest.answer(|argv, _| {
+        Ok(if has(argv, "active") {
+            active_reply(None)
+        } else {
+            Captured::default()
+        })
+    });
+    fixture.fake.forget_calls();
+    (fixture, held)
+}
+
+/// On the Apple `container` engine a release writes the idle stop record and asks for its detached process, with the
+/// nonce of the record. The reply names the deadline. The warm daemon stays, so nothing stops the container yet.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_container_release_schedules_the_idle_stop() {
+    let (fixture, held) = leased_container_worker("60").await;
+    let worker = fixture.worker(0);
+    let released = release(&fixture, &lease_file(&held), &FakeProbe::default()).await.unwrap();
+    let record = read_idle_stop_record(&fixture.settings, worker).expect("the idle stop record");
+    assert_eq!(released.data["idleStopAt"], Value::from(record.deadline.clone()), "{released:?}");
+    assert_eq!(released.text, format!("released={worker}\nidle_stop_at={}", record.deadline));
+    let requests = avl_base::sync::lock(&fixture.idle_stops).clone();
+    assert_eq!(
+        requests,
+        [IdleStopRequest {
+            worker: worker.to_owned(),
+            nonce: record.nonce,
+        }]
+    );
+    assert!(
+        !fixture.fake.calls().iter().any(|call| call.starts_with("stop ")),
+        "{:#?}",
+        fixture.fake.calls()
+    );
+}
+
+/// `AIR_VM_IDLE_STOP=off` writes no record and starts no process, and `0` stops the worker inside the release.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_container_release_without_a_grace_writes_no_record() {
+    let (fixture, held) = leased_container_worker("off").await;
+    let worker = fixture.worker(0);
+    let released = release(&fixture, &lease_file(&held), &FakeProbe::default()).await.unwrap();
+    assert_eq!(released.data, serde_json::json!({ "worker": worker, "released": true }));
+    assert_eq!(read_idle_stop_record(&fixture.settings, worker), None);
+    assert!(avl_base::sync::lock(&fixture.idle_stops).is_empty());
+
+    let (fixture, held) = leased_container_worker("0").await;
+    let worker = fixture.worker(0);
+    let released = release(&fixture, &lease_file(&held), &FakeProbe::default()).await.unwrap();
+    assert!(released.data["idleStopAt"].is_string(), "{released:?}");
+    assert_eq!(read_idle_stop_record(&fixture.settings, worker), None);
+    assert!(avl_base::sync::lock(&fixture.idle_stops).is_empty());
+    let calls = fixture.fake.calls();
+    assert!(calls.contains(&format!("stop -t 10 {worker}")), "{calls:#?}");
+}
+
+/// An acquisition removes the record of the last release, so the waiting process finds no record and the new holder
+/// keeps a running worker.
+#[cfg(unix)]
+#[tokio::test]
+async fn an_acquisition_removes_the_idle_stop_record() {
+    let (fixture, held) = leased_container_worker("60").await;
+    let worker = fixture.worker(0);
+    release(&fixture, &lease_file(&held), &FakeProbe::default()).await.unwrap();
+    assert!(read_idle_stop_record(&fixture.settings, worker).is_some());
+    acquire(&fixture, "agent-2").await.unwrap();
+    assert_eq!(read_idle_stop_record(&fixture.settings, worker), None);
 }
 
 /// A CLI that no `DOCKER_BIN` names and no Bazel resolves is still `docker_missing`, which a caller retries against.

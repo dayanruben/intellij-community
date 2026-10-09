@@ -15,7 +15,7 @@
 //! real exit and a real zombie.
 
 use std::ops::Deref;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 #[cfg(unix)]
 use avl_base::config::MacosHost;
@@ -39,7 +39,7 @@ use nix::unistd::Pid;
 
 #[cfg(unix)]
 use crate::worker::tart::{MINIMUM_VERSION, ProcessIdentity};
-use crate::worker::worker::{Dependencies, GuestBootBuilder, Lease, Manager, Timings, builds_nothing};
+use crate::worker::worker::{Dependencies, GuestBootBuilder, IdleStopRequest, Lease, Manager, Timings, builds_nothing};
 
 /// The version the fake `tart` answers. A Windows host has no fake `tart`, and its fake `docker` reads no version.
 #[cfg(unix)]
@@ -55,6 +55,15 @@ pub(crate) struct Fixture {
     pool: HostPool,
     pub(crate) manager: Manager,
     pub(crate) guest: Arc<FakeGuests>,
+    /// Every detached idle stop process that the manager was asked to start. The manager of a fixture starts none.
+    #[cfg_attr(
+        windows,
+        expect(
+            dead_code,
+            reason = "the suites of the idle stop drive the fake Apple container, which is Unix only"
+        )
+    )]
+    pub(crate) idle_stops: Arc<Mutex<Vec<IdleStopRequest>>>,
     /// What the runner of [`Fixture::manager`] probes in place of the host, for the pids of the table.
     #[cfg(unix)]
     processes: Arc<FakeProcesses>,
@@ -370,12 +379,20 @@ impl FixtureBuilder {
         let runner = pool.runner().with_process_table(Arc::clone(&processes) as Arc<dyn ProcessTable>);
         #[cfg(windows)]
         let runner = pool.runner();
-        let manager = manager_with_bazel(&pool.settings, runner, channel, self.build_boot, host);
+        let idle_stops = Arc::new(Mutex::new(Vec::new()));
+        let recorder = Arc::clone(&idle_stops);
+        let manager = manager_with_bazel(&pool.settings, runner, channel, self.build_boot, host).with_idle_stop_spawner(Arc::new(
+            move |_: &Manager, request: &IdleStopRequest| {
+                avl_base::sync::lock(&recorder).push(request.clone());
+                Ok(())
+            },
+        ));
         manager.prepare_runtime_dirs().expect("the runtime directories are created");
         Fixture {
             pool,
             manager,
             guest,
+            idle_stops,
             #[cfg(unix)]
             processes,
             #[cfg(unix)]

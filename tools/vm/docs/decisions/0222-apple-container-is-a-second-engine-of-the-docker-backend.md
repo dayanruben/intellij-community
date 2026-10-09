@@ -189,8 +189,9 @@ it.
 
 - The Docker dialect still pulls from the registry. A later change may move it to the file mirror too, so that both
   engines have one image source.
-- The builder VM keeps running after a build, with 1.47 GiB in use of its 4 GiB on 2026-10-09. A `builder stop` after
-  the build would free that memory.
+- Done on 2026-10-10: the builder VM stops after each build, `builder stop` after the build and its publish
+  ([ADR 0226](0226-the-container-pool-follows-the-host-memory-and-the-builder-stops.md)). It held 1.47 GiB of its 4
+  GiB after a build on 2026-10-09.
 
 - Mirror the kernel (`[kernel] url` and `binaryPath` of `config.toml`) and the `vminit` and builder images on
   JetBrains hosts. The first start then downloads 30 MB instead of 700 MB.

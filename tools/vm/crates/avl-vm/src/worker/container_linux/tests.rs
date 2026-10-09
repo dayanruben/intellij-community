@@ -26,6 +26,7 @@ fn settings_of_checkout(checkout: &Path, repo: &str, bazel: &str) -> Arc<Config>
     let runtime = checkout.join("runtime").to_string_lossy().into_owned();
     let environment = Environment::from_pairs([("HOME", "/Users/air"), ("AIR_VM_RUNTIME_ROOT", runtime.as_str())]);
     let settings = Config::load(
+        avl_base::HostFacts::without_memory(),
         Selection {
             backend: Backend::ContainerLinux,
             guest_os: GuestOs::Linux,

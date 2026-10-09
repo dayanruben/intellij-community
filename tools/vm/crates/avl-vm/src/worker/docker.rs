@@ -1075,7 +1075,9 @@ impl Docker {
     /// platform of [`PUBLISHED_PLATFORMS`] after the build.
     ///
     /// The Apple dialect pulls the image archive from the file mirror, and publishes the archive of the platform of
-    /// the host there. Its publish needs the mirror token, and a missing token is refused before the build.
+    /// the host there. Its publish needs the mirror token, and a missing token is refused before the build. After a
+    /// build and its publish it stops the builder VM ([`AppleContainer::stop_builder`]). A stop that fails is a note,
+    /// because the image is ready.
     pub(crate) async fn ensure_image(&self, ctx: &Ctx) -> Result<String, Refusal> {
         let tag = self.image_tag();
         if self.settings.docker_push && self.dialect() == Dialect::AppleContainer {
@@ -1115,6 +1117,12 @@ impl Docker {
         self.write_image_record(&tag, ImageSource::Built)?;
         if self.settings.docker_push {
             self.publish(ctx, &tag, &context).await?;
+        }
+        if let Some(apple) = &self.apple {
+            let program = self.resolve_executable(ctx).await?;
+            if let Err(refusal) = apple.stop_builder(ctx, program).await {
+                self.note(None, format!("cannot stop the builder after the build: {}", refusal.message));
+            }
         }
         Ok(tag)
     }

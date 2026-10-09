@@ -44,6 +44,7 @@ fn channel_with(root: &Path, port: u16, extra: &[(&str, &str)]) -> ControlPortCh
     pairs.extend(extra.iter().copied());
     let environment = Environment::from_pairs(pairs);
     let settings = Config::load(
+        avl_base::HostFacts::without_memory(),
         Selection {
             backend: Backend::ContainerLinux,
             guest_os: GuestOs::Linux,

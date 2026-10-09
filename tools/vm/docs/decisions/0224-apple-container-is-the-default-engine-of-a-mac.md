@@ -98,8 +98,10 @@ user took this decision on 2026-10-09, on the evidence of one host.
 - Done on 2026-10-09: the gate of the engine refuses `AIR_VM_DOCKER_ENGINE=container` on a macOS older than 26 with
   `container_macos_too_old`, exit 2, before any `container` command runs. The gate refuses it, not the load, so a
   command that asks no engine still loads its settings.
-- The follow-ups of ADR 0222 stay open: the file mirror for the Docker dialect, a `builder stop` after a build, and a
-  JetBrains mirror of the kernel, `vminit` and the builder image.
+- The follow-ups of ADR 0222 stay open: the file mirror for the Docker dialect, and a JetBrains mirror of the kernel,
+  `vminit` and the builder image.
+- Done on 2026-10-10: the builder stops after each build
+  ([ADR 0226](0226-the-container-pool-follows-the-host-memory-and-the-builder-stops.md)).
 
 ## Alternatives rejected
 

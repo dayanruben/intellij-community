@@ -358,16 +358,24 @@ impl AppleContainer {
 
     // --- the builder -------------------------------------------------------------------------------------
 
-    /// Stops and deletes the builder VM before `pool recycle all`. The next build makes it again. A builder that does
-    /// not exist is no error: `builder stop` then exits 1 with `notFound`, and `builder delete` exits 0.
-    ///
-    /// Never `system stop`: it stops every container of the login session.
-    pub(crate) async fn delete_builder(&self, ctx: &Ctx, program: &Path) -> Result<(), Refusal> {
+    /// Stops the builder VM, after each image build and before a delete. A stopped builder returns its
+    /// [`BUILDER_MEMORY`] to the host and keeps its image, so the next build starts it again without a pull. A builder
+    /// that does not exist is no error: `builder stop` then exits 1 with `notFound`.
+    pub(crate) async fn stop_builder(&self, ctx: &Ctx, program: &Path) -> Result<(), Refusal> {
         let stop = command(program, &["builder", "stop"]);
         let stopped = self.runner.capture(ctx, &stop, &SpawnOptions::within(SYSTEM_QUERY_TIMEOUT)).await?;
         if stopped.exit_code != 0 && !is_not_found(&stopped) {
             return Err(subprocess_failed(&stop, &stopped));
         }
+        Ok(())
+    }
+
+    /// Stops and deletes the builder VM before `pool recycle all`. The next build makes it again. A builder that does
+    /// not exist is no error: `builder stop` then exits 1 with `notFound`, and `builder delete` exits 0.
+    ///
+    /// Never `system stop`: it stops every container of the login session.
+    pub(crate) async fn delete_builder(&self, ctx: &Ctx, program: &Path) -> Result<(), Refusal> {
+        self.stop_builder(ctx, program).await?;
         let delete = command(program, &["builder", "delete"]);
         let deleted = self
             .runner

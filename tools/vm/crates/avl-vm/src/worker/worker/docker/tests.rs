@@ -7,6 +7,8 @@ use pretty_assertions::assert_eq;
 
 use super::*;
 use crate::worker::testing::{Fixture, find_step};
+#[cfg(unix)]
+use crate::worker::worker::{IdleStopVerdict, read_idle_stop_record, remove_idle_stop_record};
 use crate::worker::worker::{PoolCommand, PoolTarget};
 
 fn ctx() -> Ctx {
@@ -472,4 +474,136 @@ async fn the_docker_readiness_gate_recreates_a_hung_stale_container_under_its_ow
         docker(&fixture).read_create_record(worker).unwrap().container_id,
         "fake-container-2"
     );
+}
+
+// --- the idle stop on the Apple `container` engine ---------------------------------------------------------------
+
+/// A container pool with an idle stop of `seconds`, whose one worker runs.
+#[cfg(unix)]
+async fn idle_container_pool(seconds: &str) -> Fixture {
+    let fixture = Fixture::docker_builder()
+        .container_engine()
+        .env("AIR_VM_IDLE_STOP", seconds)
+        .build();
+    let worker = fixture.worker(0);
+    fixture.manager.start_without_lifecycle_lock(&ctx(), worker).await.unwrap();
+    fixture.fake.forget_calls();
+    fixture
+}
+
+/// The nonce of the one idle stop that the fixture was asked to start.
+#[cfg(unix)]
+fn scheduled_nonce(fixture: &Fixture) -> String {
+    let requests = avl_base::sync::lock(&fixture.idle_stops).clone();
+    assert_eq!(requests.len(), 1, "{requests:?}");
+    requests[0].nonce.clone()
+}
+
+#[cfg(unix)]
+fn stop_calls(fixture: &Fixture) -> Vec<String> {
+    fixture.fake.calls().into_iter().filter(|call| call.starts_with("stop ")).collect()
+}
+
+/// An unleased running worker whose record carries the nonce is stopped with `stop -t 10`, and the record goes.
+#[cfg(unix)]
+#[tokio::test]
+async fn an_idle_stop_stops_an_unleased_running_worker() {
+    let fixture = idle_container_pool("60").await;
+    let worker = fixture.worker(0);
+    let deadline = fixture
+        .manager
+        .schedule_idle_stop(&ctx(), worker)
+        .await
+        .unwrap()
+        .expect("a deadline");
+    let record = read_idle_stop_record(&fixture.settings, worker).expect("the record");
+    assert_eq!(record.deadline, deadline);
+    let nonce = scheduled_nonce(&fixture);
+    assert_eq!(record.nonce, nonce);
+    let released: jiff::Timestamp = record.released_at.parse().unwrap();
+    let due: jiff::Timestamp = record.deadline.parse().unwrap();
+    assert_eq!(due.duration_since(released), jiff::SignedDuration::from_secs(60));
+
+    let verdict = fixture.manager.idle_stop_worker(&ctx(), worker, &nonce).await.unwrap();
+    assert_eq!(verdict, IdleStopVerdict::Stopped);
+    assert_eq!(stop_calls(&fixture), [format!("stop -t 10 {worker}")]);
+    assert_eq!(read_idle_stop_record(&fixture.settings, worker), None);
+}
+
+/// A leased worker keeps running, and so does a worker whose record is gone or carries another nonce: a later
+/// operation took the slot.
+#[cfg(unix)]
+#[tokio::test]
+async fn an_idle_stop_keeps_a_worker_that_somebody_took() {
+    let fixture = idle_container_pool("60").await;
+    let worker = fixture.worker(0);
+    fixture.manager.schedule_idle_stop(&ctx(), worker).await.unwrap();
+    let nonce = scheduled_nonce(&fixture);
+    assert_eq!(
+        fixture.manager.idle_stop_worker(&ctx(), worker, "another-nonce").await.unwrap(),
+        IdleStopVerdict::Superseded
+    );
+    let lease = fixture.write_lease(worker, "token-1");
+    assert_eq!(
+        fixture.manager.idle_stop_worker(&ctx(), worker, &nonce).await.unwrap(),
+        IdleStopVerdict::Leased
+    );
+    std::fs::remove_file(fixture.settings.lease_path(&lease.worker)).unwrap();
+    remove_idle_stop_record(&fixture.settings, worker).unwrap();
+    assert_eq!(
+        fixture.manager.idle_stop_worker(&ctx(), worker, &nonce).await.unwrap(),
+        IdleStopVerdict::Superseded
+    );
+    assert_eq!(stop_calls(&fixture), Vec::<String>::new());
+}
+
+/// A server that is down runs no container, so the idle stop starts nothing, stops nothing and removes the record.
+#[cfg(unix)]
+#[tokio::test]
+async fn an_idle_stop_on_a_stopped_engine_starts_nothing() {
+    let fixture = Fixture::docker_builder().container_engine().env("AIR_VM_IDLE_STOP", "60").build();
+    let worker = fixture.worker(0);
+    fixture.manager.schedule_idle_stop(&ctx(), worker).await.unwrap();
+    let nonce = scheduled_nonce(&fixture);
+    assert_eq!(
+        fixture.manager.idle_stop_worker(&ctx(), worker, &nonce).await.unwrap(),
+        IdleStopVerdict::AlreadyStopped
+    );
+    let calls = fixture.fake.calls();
+    assert!(
+        !calls
+            .iter()
+            .any(|call| call.starts_with("system start") || call.starts_with("stop ")),
+        "{calls:#?}"
+    );
+    assert_eq!(read_idle_stop_record(&fixture.settings, worker), None);
+}
+
+/// The detached process waits for the deadline and then stops the worker. A process of another nonce exits at once.
+/// A start removes the record, so the process of the last release stops nothing.
+#[cfg(unix)]
+#[tokio::test]
+async fn the_idle_stop_process_waits_for_the_deadline() {
+    let fixture = idle_container_pool("1").await;
+    let worker = fixture.worker(0);
+    fixture.manager.schedule_idle_stop(&ctx(), worker).await.unwrap();
+    let nonce = scheduled_nonce(&fixture);
+    let superseded = fixture.manager.pool_idle_stop(&ctx(), worker, "another-nonce").await.unwrap();
+    assert_eq!(superseded.text, format!("{worker}: idle_stop=superseded"));
+    let started = std::time::Instant::now();
+    let stopped = fixture.manager.pool_idle_stop(&ctx(), worker, &nonce).await.unwrap();
+    assert_eq!(stopped.data["idleStop"], "stopped", "{stopped:?}");
+    assert!(
+        started.elapsed() >= std::time::Duration::from_millis(500),
+        "{:?}",
+        started.elapsed()
+    );
+    assert_eq!(stop_calls(&fixture), [format!("stop -t 10 {worker}")]);
+
+    fixture.manager.schedule_idle_stop(&ctx(), worker).await.unwrap();
+    let second = avl_base::sync::lock(&fixture.idle_stops)[1].nonce.clone();
+    fixture.manager.start_without_lifecycle_lock(&ctx(), worker).await.unwrap();
+    assert_eq!(read_idle_stop_record(&fixture.settings, worker), None);
+    let after_start = fixture.manager.pool_idle_stop(&ctx(), worker, &second).await.unwrap();
+    assert_eq!(after_start.data["idleStop"], "superseded");
 }

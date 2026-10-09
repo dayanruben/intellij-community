@@ -55,6 +55,7 @@ use crate::worker::tart::Tart;
 
 mod container_linux;
 mod docker;
+mod idle_stop;
 mod lifecycle;
 #[cfg(unix)]
 mod parallels;
@@ -67,6 +68,11 @@ mod tart;
 #[cfg(unix)]
 mod tests;
 
+#[cfg(test)]
+pub(crate) use idle_stop::IdleStopRequest;
+#[cfg(all(test, unix))]
+pub(crate) use idle_stop::IdleStopVerdict;
+pub(crate) use idle_stop::{read_idle_stop_record, remove_idle_stop_record};
 pub(crate) use lifecycle::lease_authorizes;
 pub(crate) use lifecycle::{HeldLeases, HeldLeasesGuard};
 pub(crate) use lifecycle::{StartState, StopState, Timings};
@@ -186,6 +192,8 @@ pub(crate) struct Manager {
     timings: Timings,
     /// The leases this invocation holds while it runs one body per leased worker ([`Manager::hold_leases`]).
     held: Arc<HeldLeases>,
+    /// How a lease release starts the detached process of an idle stop ([`idle_stop::spawn_detached_idle_stop`]).
+    idle_stop: idle_stop::IdleStopSpawner,
 }
 
 impl Manager {
@@ -260,6 +268,7 @@ impl Manager {
             bazel,
             build_boot: build_guest_boot,
             timings,
+            idle_stop: Arc::new(idle_stop::spawn_detached_idle_stop),
         }
     }
 

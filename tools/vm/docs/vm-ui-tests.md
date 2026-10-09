@@ -58,7 +58,7 @@ runs in it.
 | image | a Dockerfile from a digest-pinned `ubuntu:26.04`, pulled from the JetBrains registry by its content tag, built when the pull fails | a sealed Packer golden | one pre-existing VM | the skill's image, which its `start` builds |
 | session | `Xvfb :88` and fluxbox, from the image's entrypoint | Aqua | Aqua | the skill's `Xvnc :1`, with noVNC |
 | root disk and memory | on Apple `container` a VM of its own, 8 GiB; on Lima the engine VM's, shared by every container | 120 GB, 32 GiB | the VM's own | the container's disk, 6 GiB |
-| `pool stop` | stops the container, and on Lima then the VM when nothing is leased, keeps nothing warm | `tart suspend`, keeps the daemon and the IDE | suspends | removes the container and the staged runtime with it, keeps nothing warm |
+| `pool stop` | stops the container, and on Lima then the VM when nothing is leased, keeps nothing warm; on Apple `container` an unleased worker also stops by itself an hour after its release | `tart suspend`, keeps the daemon and the IDE | suspends | removes the container and the staged runtime with it, keeps nothing warm |
 | Robot screenshot | a real frame | black, see ADR 0113 | a real frame | a real frame |
 | Peekaboo | no | no | yes | no |
 | provenance | the base digest and the image tag | a seal receipt per worker | none | none |
@@ -304,9 +304,17 @@ env -u DOCKER_HOST ./community/tools/vm.cmd run AgentSessionToolWindowComposerUi
   archive of the host platform after the build. This engine publishes no other platform.
 - **The sizes.** `AIR_VM_MEMORY_MB` is the memory of one worker, 8192 MiB by default, and `AIR_VM_CPU` its CPUs. A
   running worker returns no memory to the host until it stops. Each build gives the builder the CPUs of a worker and
-  4 GiB.
+  4 GiB, and the builder stops after the build.
+- **The pool size.** The workers get at most a quarter of the host memory, from 2 to 16 slots. A host of 128 GiB with
+  workers of 8 GiB has 4 slots, and a host of 64 GiB has 2. `AIR_VM_MAX_WORKERS` sets the count
+  ([ADR 0226](decisions/0226-the-container-pool-follows-the-host-memory-and-the-builder-stops.md)).
+- **The idle stop.** A release keeps the warm daemon for an hour. Then the unleased worker stops, and it gives its
+  memory back. The next run starts it again with a cold daemon, and the volume keeps the staged runtime.
+  `AIR_VM_IDLE_STOP` sets the grace in seconds, `off` keeps the worker running, and `0` stops it at the release
+  ([ADR 0227](decisions/0227-an-idle-container-worker-stops-itself.md)).
 - **The pool commands.** `pool stop` stops the containers only. `pool recycle all` deletes the builder too. `status`
-  prints `engine=container` and whether the server runs, and it never starts the server.
+  prints `engine=container`, whether the server runs, the pool size with its reason, and the idle stop deadline of
+  each worker. It never starts the server.
 - **A boot that fails.** The engine keeps no exit code. A container that stops while it starts is refused
   `container_exited`, with its log and its boot log, which holds the code.
 

@@ -11,7 +11,7 @@ use std::sync::LazyLock;
 use crate::worker::docker::{ContainerState, Docker, ImageSource};
 use crate::worker::hypervisor::Machine;
 use crate::worker::lima::EngineState;
-use crate::worker::worker::{Manager, read_lease};
+use crate::worker::worker::{Manager, read_idle_stop_record, read_lease};
 use avl_base::format::words;
 use avl_base::{Backend, Config, Outcome, Refusal};
 use avl_host_sys::guest::{GUEST_COMMAND_TIMEOUT, Guest, ensure_host_paths};
@@ -283,6 +283,9 @@ struct DockerWorkerStatus {
     parity_ready: Option<bool>,
     parity_error: Option<String>,
     lease: Option<LeaseSummary>,
+    /// When the idle stop of the last release stops the worker, on the Apple `container` engine. Null when no
+    /// idle stop waits.
+    idle_stop_at: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -296,6 +299,11 @@ struct DockerStatusData {
     /// the Apple `container` server (`running` or `stopped`). Null for the engine of the host environment, which this
     /// controller does not own.
     engine_status: Option<String>,
+    /// The slot count of the pool.
+    pool_size: usize,
+    /// Why the pool has that count: `AIR_VM_WORKERS`, `AIR_VM_MAX_WORKERS`, `host 128 GiB, 8 GiB per worker`,
+    /// `host memory unknown`, or `default`.
+    pool_rule: String,
     workers: Vec<DockerWorkerStatus>,
     host_repo: String,
     host_bazel_user_root: String,
@@ -395,12 +403,14 @@ async fn docker_status(ctx: &Ctx, manager: &Manager, docker: &Docker) -> Result<
             .collect::<Result<Vec<_>, Refusal>>()?
     };
     let engine = settings.docker_engine.as_str();
+    let pool_rule = settings.pool_rule.to_string();
     let engine_line = format!(
-        "pool: engine={engine}{}{}",
+        "pool: engine={engine}{} pool={} ({pool_rule}){}",
         engine_status
             .as_deref()
             .map(|word| format!(" engine_status={word}"))
             .unwrap_or_default(),
+        settings.workers.len(),
         host_paths_fragment(host_paths.error.as_deref())
     );
     let text = std::iter::once(engine_line)
@@ -412,6 +422,8 @@ async fn docker_status(ctx: &Ctx, manager: &Manager, docker: &Docker) -> Result<
             backend: settings.backend,
             engine,
             engine_status,
+            pool_size: settings.workers.len(),
+            pool_rule,
             workers,
             host_repo: host_paths.repo,
             host_bazel_user_root: host_paths.bazel_user_root,
@@ -476,7 +488,13 @@ async fn docker_worker_status(
         parity_ready: layout.parity.ready,
         parity_error: layout.parity.error,
         lease,
+        idle_stop_at: idle_stop_at(settings, worker),
     })
+}
+
+/// The deadline of the idle stop that waits for the worker, if one does.
+fn idle_stop_at(settings: &Config, worker: &str) -> Option<String> {
+    read_idle_stop_record(settings, worker).map(|record| record.deadline)
 }
 
 /// The row of a worker whose Lima engine does not run: only the lease and the image tag are known without the engine.
@@ -495,13 +513,19 @@ fn unreachable_docker_worker_status(settings: &Config, worker: &str, image: &Doc
         parity_ready: None,
         parity_error: None,
         lease: lease_summary(settings, worker)?,
+        idle_stop_at: idle_stop_at(settings, worker),
     })
 }
 
 fn render_docker_status_line(row: &DockerWorkerStatus) -> String {
     let exit_code = row.exit_code.map(|code| format!("({code})")).unwrap_or_default();
+    let idle_stop = row
+        .idle_stop_at
+        .as_deref()
+        .map(|deadline| format!(" idle_stop={deadline}"))
+        .unwrap_or_default();
     format!(
-        "{}: {}{exit_code} lease={} image={} declaration={} parity={}",
+        "{}: {}{exit_code} lease={} image={} declaration={} parity={}{idle_stop}",
         row.worker,
         row.state,
         leased_word(row.lease.as_ref()),

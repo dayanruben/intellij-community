@@ -200,6 +200,10 @@ pub(crate) enum Cmd {
         action: ImageAction,
     },
     /// Materializes, starts, stops, collects or recycles the pool.
+    ///
+    /// The pool has two slots. On the Apple container engine the default follows the host memory instead: the workers
+    /// get at most a quarter of it, from 2 to 16 slots, so a host of 128 GiB with workers of 8 GiB has 4. status names
+    /// the size and its reason. AIR_VM_MAX_WORKERS sets the count, and AIR_VM_WORKERS names the slots.
     Pool {
         #[command(subcommand)]
         verb: PoolVerb,
@@ -342,6 +346,15 @@ pub(crate) enum PoolVerb {
         #[arg(value_name = "all|worker", value_parser = pool_target)]
         target: PoolTarget,
     },
+    /// The detached process of an idle stop, which a lease release on the Apple container engine starts.
+    #[command(hide = true)]
+    IdleStop {
+        #[arg(value_name = "WORKER")]
+        worker: String,
+        /// The nonce of the idle stop record that the release wrote.
+        #[arg(long, value_name = "NONCE")]
+        nonce: String,
+    },
 }
 
 fn pool_target(value: &str) -> Result<PoolTarget, Refusal> {
@@ -356,6 +369,7 @@ impl From<PoolVerb> for PoolCommand {
             PoolVerb::Stop { target } => Self::Stop(target),
             PoolVerb::Gc => Self::Gc,
             PoolVerb::Recycle { target } => Self::Recycle(target),
+            PoolVerb::IdleStop { worker, nonce } => Self::IdleStop { worker, nonce },
         }
     }
 }
@@ -382,6 +396,10 @@ pub(crate) enum LeaseVerb {
     /// The pool's leases; with a receipt, that worker's holder too.
     Show,
     /// Releases the receipt's lease.
+    ///
+    /// The worker keeps its warm daemon for the next lease. On the Apple container engine an unleased worker stops
+    /// AIR_VM_IDLE_STOP seconds after the release, 3600 by default, and the reply names the deadline as idleStopAt.
+    /// `off` keeps it running, and 0 stops it at the release. The next run starts it again with a cold daemon.
     Release,
 }
 

@@ -675,6 +675,8 @@ async fn an_absent_docker_worker_reports_every_key() {
             "backend": "docker",
             "engine": "host",
             "engineStatus": null,
+            "poolSize": 1,
+            "poolRule": "AIR_VM_MAX_WORKERS",
             "workers": [{
                 "worker": "air-docker-1",
                 "exists": false,
@@ -689,6 +691,7 @@ async fn an_absent_docker_worker_reports_every_key() {
                 "parityReady": null,
                 "parityError": null,
                 "lease": null,
+                "idleStopAt": null,
             }],
             "hostRepo": host_repo,
             "hostBazelUserRoot": host_repo,
@@ -697,7 +700,7 @@ async fn an_absent_docker_worker_reports_every_key() {
     );
     assert_eq!(
         outcome.text,
-        "pool: engine=host\n\
+        "pool: engine=host pool=1 (AIR_VM_MAX_WORKERS)\n\
          air-docker-1: absent lease=free image=missing declaration=n/a parity=n/a"
     );
     assert!(
@@ -737,7 +740,7 @@ async fn a_running_docker_worker_with_a_current_declaration_is_ready() {
     );
     assert_eq!(
         outcome.text,
-        "pool: engine=host\n\
+        "pool: engine=host pool=1 (AIR_VM_MAX_WORKERS)\n\
          air-docker-1: running lease=free image=local declaration=current parity=ready"
     );
     // A Linux guest in a container is asked no macOS question either.
@@ -796,7 +799,7 @@ async fn an_exited_docker_worker_keeps_its_exit_code() {
     assert_eq!(row["declarationCurrent"], json!(true), "{row}");
     assert_eq!(
         outcome.text,
-        "pool: engine=host\n\
+        "pool: engine=host pool=1 (AIR_VM_MAX_WORKERS)\n\
          air-docker-1: exited(1) lease=free image=local declaration=current parity=n/a"
     );
     assert!(
@@ -867,7 +870,7 @@ async fn a_docker_status_states_a_host_path_refusal_once() {
     );
     assert_eq!(
         outcome.text,
-        "pool: engine=host host_paths=not-ready(host_repo_required)\n\
+        "pool: engine=host pool=1 (AIR_VM_MAX_WORKERS) host_paths=not-ready(host_repo_required)\n\
          air-docker-1: running lease=free image=missing declaration=n/a parity=n/a"
     );
     assert_docker_status_wrote_nothing(&fixture);
@@ -887,7 +890,9 @@ async fn a_docker_status_on_a_stopped_container_server_starts_nothing() {
     );
     assert_eq!(docker_row(&outcome)["state"], json!("unknown"));
     assert!(
-        outcome.text.starts_with("pool: engine=container engine_status=stopped\n"),
+        outcome
+            .text
+            .starts_with("pool: engine=container engine_status=stopped pool=1 (AIR_VM_MAX_WORKERS)\n"),
         "{}",
         outcome.text
     );
@@ -913,6 +918,25 @@ async fn a_docker_status_on_a_running_container_server_asks_it() {
     assert_docker_status_wrote_nothing(&fixture);
 }
 
+/// A worker whose idle stop waits names its deadline, in the row and in the line.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_docker_status_names_the_idle_stop_deadline() {
+    let fixture = Fixture::docker_container();
+    let worker = fixture.settings.workers[0].clone();
+    let deadline = "2026-10-10T12:00:00.000Z";
+    std::fs::write(
+        fixture.settings.idle_stop_record_path(&worker),
+        format!(
+            r#"{{"schemaVersion":{SCHEMA_VERSION},"worker":"{worker}","releasedAt":"2026-10-10T11:00:00.000Z","deadline":"{deadline}","nonce":"n-1"}}"#
+        ),
+    )
+    .unwrap();
+    let outcome = status(&fixture).await;
+    assert_eq!(docker_row(&outcome)["idleStopAt"], json!(deadline));
+    assert!(outcome.text.ends_with(&format!(" idle_stop={deadline}")), "{}", outcome.text);
+}
+
 // --- the Lima engine -------------------------------------------------------------------------------------------
 
 /// An engine never created is `Absent`, and `status` resolves no `limactl`, starts nothing and asks no `docker`
@@ -934,7 +958,7 @@ async fn a_docker_status_on_an_absent_lima_engine_starts_nothing() {
     );
     assert_eq!(
         outcome.text,
-        "pool: engine=lima engine_status=Absent\n\
+        "pool: engine=lima engine_status=Absent pool=1 (AIR_VM_MAX_WORKERS)\n\
          air-docker-1: unknown lease=free image=unknown declaration=n/a parity=n/a"
     );
     assert!(fixture.fake.calls().is_empty(), "{:?}", fixture.fake.calls());
@@ -953,7 +977,9 @@ async fn a_docker_status_on_a_running_lima_engine_asks_it() {
     assert_eq!(outcome.data["engineStatus"], json!("Running"));
     assert_eq!(docker_row(&outcome)["state"], json!("absent"));
     assert!(
-        outcome.text.starts_with("pool: engine=lima engine_status=Running\n"),
+        outcome
+            .text
+            .starts_with("pool: engine=lima engine_status=Running pool=1 (AIR_VM_MAX_WORKERS)\n"),
         "{}",
         outcome.text
     );

@@ -437,7 +437,7 @@ mod lifecycle {
     }
 
     /// The whole start in the Apple dialect: the download of the image archive, which the mirror does not hold, then a
-    /// build that names the builder sizes and the nameserver, then a create with the memory, the CPUs and the
+    /// build that names the builder sizes and the nameserver, then the stop of the builder, then a create with the memory, the CPUs and the
     /// nameserver of a worker and without `--hostname`, then the start. A second start keeps the running container.
     #[tokio::test]
     async fn a_start_speaks_the_apple_dialect() {
@@ -469,6 +469,8 @@ mod lifecycle {
             "{create}"
         );
         assert!(!create.contains("--hostname"), "{create}");
+        assert!(position(&calls, "build ") < position(&calls, "builder stop"));
+        assert!(position(&calls, "builder stop") < position(&calls, "create "));
         assert!(position(&calls, "create ") < position(&calls, &format!("start {worker}")));
         let record = docker(&fixture).read_create_record(worker).unwrap();
         assert_eq!(record.container_id, worker);
@@ -481,7 +483,9 @@ mod lifecycle {
         );
         let after = &fixture.fake.calls()[before..];
         assert!(
-            !after.iter().any(|call| call.starts_with("create ") || call.starts_with("start ")),
+            !after
+                .iter()
+                .any(|call| call.starts_with("create ") || call.starts_with("start ") || call.starts_with("builder ")),
             "{after:#?}"
         );
     }

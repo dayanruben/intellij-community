@@ -751,6 +751,33 @@ The daemon's half and the IDE's half of supervision are in
   worker that has a warm daemon.
   [@test] ../crates/avl-vm/src/worker/lease/tests.rs
 
+- On the Apple `container` engine, a release keeps the warm daemon until the idle deadline only. The release
+  writes the deadline record and starts a detached `pool idle-stop` process, and the reply names `idleStopAt`.
+  `AIR_VM_IDLE_STOP` sets the grace, 3600 s by default. `off` writes nothing, and `0` stops the worker inside the
+  release.
+  [@test] ../crates/avl-vm/src/worker/lease/tests.rs
+  [@test] ../crates/avl-base/src/config/tests.rs
+
+- At the deadline the idle stop stops a running worker that no lease holds. It keeps a leased worker, and a
+  worker whose record is gone or names another nonce. It never starts a server that is down.
+  [@test] ../crates/avl-vm/src/worker/worker/docker/tests.rs
+
+- A lease acquisition and a start remove the deadline record, so the worker keeps running for its new holder.
+  [@test] ../crates/avl-vm/src/worker/lease/tests.rs
+  [@test] ../crates/avl-vm/src/worker/worker/docker/tests.rs
+
+- On the Apple `container` engine the default pool size follows the host memory. The workers get at most a
+  quarter of it, from 2 to 16 slots. `AIR_VM_MAX_WORKERS` and `AIR_VM_WORKERS` win, and every other engine and
+  backend keeps 2 slots. `status` names the size and its reason.
+  [@test] ../crates/avl-base/src/config/tests.rs
+  [@test] ../crates/avl-host-sys/src/host/tests.rs
+  [@test] ../crates/avl-vm/src/lane/observe/status/tests.rs
+
+- On the Apple `container` engine the builder VM stops after each image build. The Docker dialect has no builder
+  to stop.
+  [@test] ../crates/avl-vm/src/worker/container/tests.rs
+  [@test] ../crates/avl-vm/src/worker/docker/tests.rs
+
 - A release succeeds when the run slot is free. A release also succeeds when the slot holds the idle daemon of
   this controller.
   [@test] ../crates/avl-vm/src/worker/lease/tests.rs

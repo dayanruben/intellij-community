@@ -30,6 +30,11 @@ pub(crate) enum PoolCommand {
     /// Rebuilds workers from scratch. The target is never defaulted, where `start` and `stop` default it to the
     /// whole pool: this one deletes clones, so recycling every worker on the host is something an operator types.
     Recycle(PoolTarget),
+    /// The detached process of the idle stop that a lease release started ([`Manager::pool_idle_stop`]).
+    IdleStop {
+        worker: String,
+        nonce: String,
+    },
 }
 
 /// Which workers of the pool a command is about.
@@ -87,6 +92,7 @@ impl Manager {
             PoolCommand::Recycle(target) => self.pool_recycle(ctx, &target).await,
             PoolCommand::Start(target) => self.pool_start_or_stop(ctx, Switch::Start, &target).await,
             PoolCommand::Stop(target) => self.pool_start_or_stop(ctx, Switch::Stop, &target).await,
+            PoolCommand::IdleStop { worker, nonce } => self.pool_idle_stop(ctx, &worker, &nonce).await,
         }
     }
 

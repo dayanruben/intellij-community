@@ -674,8 +674,13 @@ fn settings(root: &Path) -> Config {
         ("TART_BIN", "tart"),
         ("AIR_VM_RUNTIME_ROOT", runtime.to_str().unwrap()),
     ]);
-    Config::load(Selection::DEFAULT, &environment, Path::new("/repo/scripts"))
-        .unwrap_or_else(|refusal| panic!("the environment was refused: {refusal:?}"))
+    Config::load(
+        avl_base::HostFacts::without_memory(),
+        Selection::DEFAULT,
+        &environment,
+        Path::new("/repo/scripts"),
+    )
+    .unwrap_or_else(|refusal| panic!("the environment was refused: {refusal:?}"))
 }
 
 #[cfg(unix)]
