@@ -6,7 +6,6 @@ import org.jetbrains.kotlin.builtins.StandardNames
 import org.jetbrains.kotlin.idea.base.codeInsight.KotlinDeclarationNameValidator
 import org.jetbrains.kotlin.idea.base.codeInsight.KotlinNameSuggester
 import org.jetbrains.kotlin.idea.base.codeInsight.KotlinNameSuggestionProvider
-import org.jetbrains.kotlin.idea.refactoring.inline.codeInliner.AbstractCodeInliner
 import org.jetbrains.kotlin.idea.refactoring.inline.codeInliner.MutableCodeToInline
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.psi.KtExpression
@@ -25,7 +24,7 @@ import org.jetbrains.kotlin.renderer.render
  * Modifies [MutableCodeToInline] introducing a variable initialized by [value] and replacing all of [usages] with its use.
  * The variable must be initialized (and so the value is calculated) before any other code in [MutableCodeToInline].
  * @param value Value to use for variable initialization
- * @param valueType Type of the value
+ * @param isValueNullable Whether the type of the value is nullable, or `null` if the type is unknown
  * @param usages Usages to be replaced. This collection can be empty and in this case the actual variable is not needed.
  * But the expression [value] must be calculated because it may have side effects.
  * @param expressionToBeReplaced Expression to be replaced by the [MutableCodeToInline].
@@ -35,7 +34,7 @@ import org.jetbrains.kotlin.renderer.render
 context(_: KaSession)
 internal fun MutableCodeToInline.introduceValue(
     value: KtExpression,
-    valueType: AbstractCodeInliner.TypeDescription?,
+    isValueNullable: Boolean?,
     usages: Collection<KtExpression>,
     expressionToBeReplaced: KtExpression,
     nameSuggestion: String? = null,
@@ -89,7 +88,7 @@ internal fun MutableCodeToInline.introduceValue(
 
         mainExpression = psiFactory.buildExpression {
             appendExpression(value)
-            if (valueType?.isMarkedNullable != false) {
+            if (isValueNullable != false) {
                 appendFixedText("?")
             }
 

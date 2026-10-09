@@ -1,0 +1,257 @@
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+package com.intellij.openapi.editor.impl.experimental
+
+/**
+ * A span of document characters that share one state: the replay's unit of work. The
+ * [ItemTree] of a [ReplayWalker] holds them in document order.
+ *
+ * The span covers the lvs `[firstUnit, firstUnit + length)`, which always ascend. A real lv is at
+ * or above 0. A placeholder span ends at -2, so every placeholder lv stays below 0, and [NO_UNIT]
+ * stays free for the document edges.
+ *
+ * The two states are the paper's `sp` and `se`. They are private: every transition is a
+ * method here, so the rules that guard them cannot be bypassed from the walk.
+ *
+ * The prepare state is not-inserted, inserted, or deleted k times. The effect state is inserted
+ * or deleted. Five pairs can occur, as (prepare, effect):
+ * - A = (inserted, inserted), the state of a new item;
+ * - B = (not-inserted, inserted);
+ * - C = (not-inserted, deleted);
+ * - D = (inserted, deleted);
+ * - Ek = (deleted k times, deleted), for k of 1 or more.
+ *
+ * The transitions:
+ * - [deleteHere] takes A or D to E1;
+ * - [retreat] of an insert takes A to B and D to C, and [advance] of an insert reverses that;
+ * - [retreat] of a delete takes E1 to D and Ek to E(k-1), and [advance] of a delete reverses that;
+ * - [splitAfter] gives both pieces the state of the span.
+ *
+ * The effect state only goes from inserted to deleted, because the effect version never takes
+ * an event back. A deleted prepare state therefore always comes with a deleted effect state.
+ * The constructor checks that, and every transition checks the state it starts from.
+ *
+ * [originLeft] and [rightParent] order concurrent insertions, and they belong to the FIRST unit of
+ * the span. Inside an insert run, every later unit has the unit before it as the left origin and no
+ * right parent. So [splitAfter] rebuilds them without storing them.
+ */
+internal class Item(
+  /**
+   * The lv of the first unit. A right parent always names this one.
+   */
+  val firstUnit: LV,
+  length: Int,
+  val originLeft: LV,
+  val rightParent: LV,
+  private var prepareState: Int = INSERTED,
+  private var effectState: Int = INSERTED,
+) {
+  var length: Int = length
+    private set
+
+  /**
+   * The number of the [ItemTree] leaf that holds this item, or -1 before a tree files it. The tree
+   * keeps it, so a change of the item finds its leaf without a search, and a leaf split only
+   * rewrites this number.
+   */
+  private var leafNumber: Int = -1
+
+  init {
+    checkLength(length)
+    checkStates(prepareState, effectState)
+  }
+
+  /**
+   * The lv of the last unit. A left origin always names this one.
+   */
+  val lastUnit: LV get() = firstUnit + length - 1
+
+  /**
+   * Whether the prepare version has these characters.
+   */
+  val inPrepare: Boolean get() = prepareState == INSERTED
+
+  /**
+   * Whether the effect version has these characters.
+   */
+  val inEffect: Boolean get() = effectState == INSERTED
+
+  /**
+   * Whether the prepare version already reached the op that creates the item.
+   */
+  val appliedInPrepare: Boolean get() = prepareState != NOT_YET_INSERTED
+
+  val prepareWidth: Int get() = if (inPrepare) length else 0
+
+  val effectWidth: Int get() = if (inEffect) length else 0
+
+  fun leafNumber(): Int {
+    return leafNumber
+  }
+
+  /**
+   * Whether an [ItemTree] holds this item.
+   */
+  fun isFiled(): Boolean {
+    return leafNumber >= 0
+  }
+
+  /**
+   * Files this item under the leaf [number] of its [ItemTree]. Only the tree calls this.
+   */
+  fun fileUnderLeaf(number: Int) {
+    leafNumber = number
+  }
+
+  /**
+   * Whether the span stands in for the document at the common ancestor.
+   */
+  private val isPlaceholder: Boolean get() = firstUnit < 0
+
+  fun contains(unit: LV): Boolean = unit >= firstUnit && unit < firstUnit + length
+
+  fun coversExactly(unit: LV, units: Int): Boolean = firstUnit == unit && length == units
+
+  fun startsBefore(unit: LV): Boolean = firstUnit < unit
+
+  /**
+   * Takes one op of the prepare version back. The retreat of an insert makes the span not inserted.
+   * The retreat of a delete takes one delete off it, which can make it inserted again.
+   */
+  fun retreat(isDelete: Boolean) {
+    if (isDelete) {
+      require(prepareState >= DELETED) {
+        "Retreat of a delete, but the item is not deleted in the prepare version"
+      }
+      require(effectState == DELETED) {
+        "Retreat of a delete, but the item is not deleted in the effect version"
+      }
+      prepareState--
+    } else {
+      require(inPrepare) {
+        "Retreat of an insert, but the item is not inserted in the prepare version"
+      }
+      prepareState = NOT_YET_INSERTED
+    }
+  }
+
+  /**
+   * Applies one op to the prepare version again. The advance of an insert makes the span inserted,
+   * and the advance of a delete adds one delete to it.
+   */
+  fun advance(isDelete: Boolean) {
+    if (isDelete) {
+      require(prepareState >= INSERTED) {
+        "Advance of a delete, but the item is not yet inserted in the prepare version"
+      }
+      require(effectState == DELETED) {
+        "Advance of a delete, but the item is not deleted in the effect version"
+      }
+      prepareState++
+    } else {
+      require(!appliedInPrepare) {
+        "Advance of an insert, but the item is already inserted in the prepare version"
+      }
+      prepareState = INSERTED
+    }
+  }
+
+  /**
+   * Removes the span from both versions.
+   */
+  fun deleteHere() {
+    require(inPrepare) {
+      "Delete of an item that is not inserted in the prepare version"
+    }
+    prepareState = DELETED
+    effectState = DELETED
+  }
+
+  /**
+   * Splits after [units] units. This item keeps the left part; the right part is
+   * returned, and [ItemTree.splitAt] files it.
+   *
+   * A placeholder piece keeps `originLeft = NO_UNIT`, because the reference gives that origin to
+   * every placeholder unit. A real piece anchors on the unit before it and has no right parent.
+   * Inside an insert run, every unit but the first has those two origins.
+   */
+  fun splitAfter(units: Int): Item {
+    require(units in 1 until length) {
+      "The split after $units units is outside the span of length $length"
+    }
+    val right = Item(
+      firstUnit = firstUnit + units,
+      length = length - units,
+      originLeft = if (isPlaceholder) NO_UNIT else firstUnit + units - 1,
+      rightParent = NO_UNIT,
+      prepareState = prepareState,
+      effectState = effectState,
+    )
+    length = units
+    return right
+  }
+
+  /**
+   * An empty span would own no unit, and the walk could never reach it by an lv.
+   */
+  private fun checkLength(length: Int) {
+    require(length >= 1) {
+      "The span length is not positive: $length"
+    }
+  }
+
+  /**
+   * Fails unless the pair is one of the five states in the class KDoc.
+   */
+  private fun checkStates(prepareState: Int, effectState: Int) {
+    require(effectState == INSERTED || effectState == DELETED) {
+      "The effect state $effectState is not a state"
+    }
+    require(prepareState >= NOT_YET_INSERTED) {
+      "The prepare state $prepareState is not a state"
+    }
+    require(prepareState < DELETED || effectState == DELETED) {
+      "The prepare version deleted the span, but the effect version has it"
+    }
+  }
+
+  override fun toString(): String {
+    val kind = if (isPlaceholder) "placeholder" else "item"
+    val span = if (firstUnit == lastUnit) "$firstUnit" else "$firstUnit..$lastUnit"
+    // The two states agree most of the time, and a disagreement is what a reader looks for.
+    val states = if (prepareState == effectState) {
+      stateName(prepareState)
+    } else {
+      "prepare=${stateName(prepareState)} effect=${stateName(effectState)}"
+    }
+    return "$kind[$span] $states"
+  }
+
+  private companion object {
+    /**
+     * The prepare version has not reached the op that creates the item.
+     */
+    const val NOT_YET_INSERTED = -1
+
+    /**
+     * The version has the characters.
+     */
+    const val INSERTED = 0
+
+    /**
+     * The version removed the characters. A prepare state counts stacked concurrent deletes.
+     */
+    const val DELETED = 1
+
+    /**
+     * The state as a word. A delete states how many deletes stacked on it, because a prepare
+     * state counts them and only the count tells one concurrent delete from several.
+     */
+    fun stateName(state: Int): String {
+      return when (state) {
+        NOT_YET_INSERTED -> "not-inserted"
+        INSERTED -> "inserted"
+        else -> "deleted($state)"
+      }
+    }
+  }
+}

@@ -1731,6 +1731,7 @@ c:com.intellij.openapi.actionSystem.DefaultCompactActionGroup
 - <init>(com.intellij.openapi.actionSystem.AnAction[]):V
 f:com.intellij.openapi.actionSystem.EmptyAction
 - com.intellij.openapi.actionSystem.AnAction
+- com.intellij.openapi.project.DumbAware
 - <init>():V
 - <init>(Z):V
 - actionPerformed(com.intellij.openapi.actionSystem.AnActionEvent):V
@@ -10826,6 +10827,7 @@ c:com.intellij.ui.treeStructure.Tree
 - isExpanded(javax.swing.tree.TreePath):Z
 - isFileColorsEnabled():Z
 - isHorizontalAutoScrollingEnabled():Z
+- p:isSamePathUnderMouse(javax.swing.tree.TreePath,javax.swing.tree.TreePath):Z
 - p:isWideSelection():Z
 - paint(java.awt.Graphics):V
 - p:paintComponent(java.awt.Graphics):V

@@ -135,6 +135,70 @@ class PyTypeCheckerExplanationTest : PyCodeInsightTestCase() {
     x: int = get_str_or_bytes()  # WARNING TOOLTIP Not all members of str | bytes are assignable to int
     """.trimIndent())
 
+  /** Every failing member of a wide union gets its own reason. The bound itself lives in PyCompositeBreakdownTest. */
+  @Test
+  @TestFor(issues = ["PY-91327"])
+  fun `a union explains each failing member`() = test("""
+    from typing import Protocol
+    class A(Protocol):
+        a: int
+    class C1: pass
+    class C2: pass
+    class C3: pass
+    class C4: pass
+    class C5: pass
+    def get_five() -> C1 | C2 | C3 | C4 | C5: ...
+    x: A = get_five()  # WARNING TOOLTIP C1 lacks attribute a, which A requires \n C5 lacks attribute a, which A requires
+    """.trimIndent())
+
+  /** The provided value is the intersection, so the breakdown states that no member is assignable. */
+  @Test
+  @TestFor(issues = ["PY-91327"])
+  fun `an intersection value explains that no member is assignable`() = test("""
+    class A: pass
+    class B: pass
+    def sink(v: int) -> None: ...
+    def f(x: A) -> None:
+        if isinstance(x, B):
+            sink(x)  # WARNING TOOLTIP No member of A & B is assignable to int
+    """.trimIndent())
+
+  /** The required side is the intersection, so every unmet member earns its own arm. */
+  @Test
+  @TestFor(issues = ["PY-91327"])
+  @TestCaseOptions(additionalSdkRoots = [SdkRoot(TY_EXTENSIONS_ROOT, OrderRootTypeEnum.CLASSES)])
+  fun `an intersection requirement explains each unmet member`() = test("""
+    from typing import Protocol
+    from ty_extensions import Intersection
+    class HasA(Protocol):
+        a: int
+    class HasB(Protocol):
+        b: int
+    class C: pass
+    def sink(v: Intersection[HasA, HasB]) -> None: ...
+    sink(C())  # WARNING TOOLTIP C does not satisfy every member of HasA & HasB \n C lacks attribute a, which HasA requires \n C lacks attribute b, which HasB requires
+    """.trimIndent())
+
+  /**
+   * Pins the summary header a union past the bound reports. A TOOLTIP fragment is a substring check, so this
+   * cannot see the per-member lines go away; PyCompositeBreakdownTest asserts the tree.
+   */
+  @Test
+  @TestFor(issues = ["PY-91327"])
+  fun `a union past the breakdown bound reports the summary header`() = test("""
+    from typing import Protocol
+    class A(Protocol):
+        a: int
+    class C1: pass
+    class C2: pass
+    class C3: pass
+    class C4: pass
+    class C5: pass
+    class C6: pass
+    def get_six() -> C1 | C2 | C3 | C4 | C5 | C6: ...
+    x: A = get_six()  # WARNING TOOLTIP Not all members of C1 | C2 | C3 | C4 | C5 | C6 are assignable to A
+    """.trimIndent())
+
   @Test
   fun `callable return type mismatch is reported`() = test("""
     from typing import Callable
@@ -627,4 +691,8 @@ class PyTypeCheckerExplanationTest : PyCodeInsightTestCase() {
     data = [True]
     c.put(data)  # WARNING Expected type 'list[int]', got 'list[bool]' instead # PY-89564
     """.trimIndent())
+
+  private companion object {
+    const val TY_EXTENSIONS_ROOT = "types/tyExtensions"
+  }
 }

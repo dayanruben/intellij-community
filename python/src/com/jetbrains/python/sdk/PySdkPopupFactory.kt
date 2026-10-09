@@ -1,14 +1,16 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.sdk
 
+import com.intellij.python.sdk.backend.findSdk
 import com.intellij.ide.DataManager
 import com.intellij.ide.ui.icons.icon
-import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.actionSystem.ActionPlaces
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.actionSystem.impl.PresentationFactory
 import com.intellij.openapi.actionSystem.impl.Utils
 import com.intellij.openapi.application.EDT
@@ -20,7 +22,6 @@ import com.intellij.openapi.ui.popup.ListPopup
 import com.intellij.openapi.util.Condition
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.python.pyproject.model.evolution.setPythonInterpreter
-import com.intellij.python.sdk.backend.asInterpreterRef
 import com.intellij.python.sdk.backend.pythonInterpreterAsync
 import com.jetbrains.python.project.PyProject.Companion.asPyProject
 import com.intellij.python.sdk.common.PyInterpreterItem
@@ -36,7 +37,6 @@ import com.jetbrains.python.configuration.observeSdkConfigurationInProgress
 import com.jetbrains.python.run.PythonInterpreterTargetEnvironmentFactory
 import com.jetbrains.python.run.codeCouldProbablyBeRunWithConfig
 import com.jetbrains.python.sdk.inspections.InterpreterSettingsQuickFix
-import com.jetbrains.python.sdk.legacy.PythonSdkUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.withContext
@@ -104,6 +104,9 @@ class PySdkPopupFactory(val module: Module) {
       override fun isSelectable(value: PopupFactoryImpl.ActionItem): Boolean =
         if (value.action === content.second) !module.project.isSdkConfigurationInProgress.value
         else super.isSelectable(value)
+
+      override fun getAdText(): String? =
+        (content.second as? ActionGroup)?.templatePresentation?.getClientProperty(ActionUtil.POPUP_AD_TEXT)
     }
     val popup = ListPopupImpl(module.project, null, step, null).apply { setHandleAutoSelectionBeforeShow(true) }
 
@@ -141,9 +144,10 @@ class PySdkPopupFactory(val module: Module) {
     val group = DefaultActionGroup()
     addSwitchInterpreterActions(group, interpreters)
 
-    val addInterpreterGroup = DefaultActionGroup(PyBundle.message("python.sdk.action.add.new.interpreter.text"), true)
-    addInterpreterGroup.addAll(collectAddInterpreterActions(module.asModuleOrProject) { })
-    ActionManager.getInstance().getAction("Python.NewInterpreter.Extra")?.let { addInterpreterGroup.add(it) }
+    val addInterpreterGroup = createAddInterpreterActionGroup(module.asModuleOrProject) { }.apply {
+      templatePresentation.text = PyBundle.message("python.sdk.action.add.new.interpreter.text")
+      isPopup = true
+    }
     group.add(addInterpreterGroup)
 
     group.addSeparator()
@@ -190,13 +194,12 @@ class PySdkPopupFactory(val module: Module) {
   /**
    * These rows paired with the SDK each one names, dropping a row whose interpreter is gone.
    *
-   * Reads the SDK table once, so a whole list costs one pass rather than a lookup per row. A list is built off the EDT
-   * and the actions from it later, so an interpreter can be renamed or removed in between — that is the dropped row.
+   * Reads the interpreter registry once, so a whole list costs one pass rather than a lookup per row. A list is built
+   * off the EDT and the actions from it later, so an interpreter can be renamed or removed in between — that is the
+   * dropped row.
    */
-  private fun List<PyInterpreterItem>.withSdks(): List<Pair<PyInterpreterItem, Sdk>> {
-    val byRef = PythonSdkUtil.getAllSdks().associateBy { it.asInterpreterRef() }
-    return mapNotNull { item -> byRef[item.ref]?.let { item to it } }
-  }
+  private fun List<PyInterpreterItem>.withSdks(): List<Pair<PyInterpreterItem, Sdk>> =
+    mapNotNull { item -> item.findSdk()?.let { item to it } }
 
   private inner class SwitchToSdkAction(item: PyInterpreterItem, val sdk: Sdk) : DumbAwareAction() {
 

@@ -650,10 +650,6 @@
       <reference ref="ConsoleView.ClearAll"/>
     </group>
 
-    <reference ref="DumpLookupElementWeights">
-      <add-to-group group-id="MaintenanceGroup" anchor="last"/>
-    </reference>
-
     <reference ref="JumpToColorsAndFonts"/>
 
     <reference ref="ArrangementRulesGroup">
@@ -717,10 +713,6 @@
     </group>
 
     <!--endregion-->
-
-    <reference ref="IdeScriptingConsole">
-      <add-to-group group-id="MaintenanceGroup"/>
-    </reference>
 
     <reference ref="FileChooser.LightEditGotoOpenedFile">
       <add-to-group group-id="FileChooserToolbar" anchor="after" relative-to-action="FileChooser.GotoDesktop"/>

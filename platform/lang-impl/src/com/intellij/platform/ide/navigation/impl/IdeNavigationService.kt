@@ -43,6 +43,7 @@ import com.intellij.platform.backend.navigation.impl.DirectoryNavigationRequest
 import com.intellij.platform.backend.navigation.impl.RawNavigationRequest
 import com.intellij.platform.backend.navigation.impl.SourceNavigationRequest
 import com.intellij.platform.backend.navigation.impl.asDecompilerRequestIfAny
+import com.intellij.platform.backend.navigation.impl.contextOrAny
 import com.intellij.platform.ide.navigation.CaretPlacement
 import com.intellij.platform.ide.navigation.NavigationOptions
 import com.intellij.platform.ide.navigation.NavigationService
@@ -140,33 +141,41 @@ internal class IdeNavigationService(private val project: Project) : NavigationSe
     }
 
     return taskCoordinator.runWithTracking {
-      withContext(isInNavigation.asContextElement(true)) {
-        twoPhaseExecutor.submit(
-          prepare = {
-            val currentPreparation = this
-            prepareWithProgressIfNeeded(options) {
-              // keep the visible progress as one task
-              reportSequentialProgress { reporter ->
-                val requests = reporter.indeterminateStep {
-                  limitRequestsToNavigate(action())
-                }.takeIf { it.isNotEmpty() }
-                requests?.let {
-                  if (!currentPreparation.registerTargetKey(it, options)) {
-                    return@reportSequentialProgress null
-                  }
-                  it to reporter.indeterminateStep {
-                    preloadTargetDocuments(it)
+      @Suppress("IncorrectCancellationExceptionHandling")
+      try {
+        withContext(isInNavigation.asContextElement(true)) {
+          twoPhaseExecutor.submit(
+            prepare = {
+              val currentPreparation = this
+              prepareWithProgressIfNeeded(options) {
+                // keep the visible progress as one task
+                reportSequentialProgress { reporter ->
+                  val requests = reporter.indeterminateStep {
+                    limitRequestsToNavigate(action())
+                  }.takeIf { it.isNotEmpty() }
+                  requests?.let {
+                    if (!currentPreparation.registerTargetKey(it, options)) {
+                      return@reportSequentialProgress null
+                    }
+                    it to reporter.indeterminateStep {
+                      preloadTargetDocuments(it)
+                    }
                   }
                 }
               }
             }
+          ) { requests ->
+            withHistoryIfNeeded(options) {
+              navigate(project = project, requests = requests.first, options = options)
+            }.takeIf { it }
           }
-        ) { requests ->
-          withHistoryIfNeeded(options) {
-            navigate(project = project, requests = requests.first, options = options)
-          }.takeIf { it }
-        }
-      } ?: false
+        } ?: false
+      }
+      catch (_: CancellationException) {
+        currentCoroutineContext().ensureActive()
+        // a newer navigation or the user canceled this one, but the caller is still active
+        false
+      }
     }
   }
 
@@ -474,7 +483,7 @@ private suspend fun navigateToSourceImpl(
     else {
       val requestedEditor = (options.requestedEditor as? RequestedEditor.Specific)?.editor
       if (requestedEditor != null) {
-        val descriptor = OpenFileDescriptor(project, request.file, offset)
+        val descriptor = OpenFileDescriptor(project, request.file, request.contextOrAny, offset)
         val fileNavigator = serviceAsync<FileNavigator>()
         if (fileNavigator is FileNavigatorImpl &&
             fileNavigator.navigateInRequestedEditorAsync(descriptor, requestedEditor, options.requestFocus)) {
@@ -556,7 +565,7 @@ private suspend fun openFile(
     return true
   }
 
-  val descriptor = OpenFileDescriptor(project, file, hostOffset)
+  val descriptor = OpenFileDescriptor(project, file, request.contextOrAny, hostOffset)
   val fileNavigator = serviceAsync<FileNavigator>()
   suspend fun tryNavigate(fileEditors: Sequence<FileEditor>): Boolean {
     for (editor in fileEditors) {

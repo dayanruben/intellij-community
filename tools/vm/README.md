@@ -54,9 +54,10 @@ and `:air-trace` natively.
 
 ## The Docker image
 
-`docker/` holds the image of a Docker Linux worker (`--backend docker`, ADR 0183): the `Dockerfile` and its
-entrypoint `air-display`, which starts the X display and the window manager. `avl-vm` embeds both files and
-builds the image; nobody builds it by hand. The base is `DOCKER_BASE_IMAGE` in the skill's `provision/versions.env`.
+`docker/` holds the image of the Linux worker (`--backend docker`, ADR 0183): the `Dockerfile` and its
+entrypoint `air-display`. The entrypoint starts the X display and the window manager. The image carries the guest
+Node (ADR 0210). `avl-vm` embeds both files and
+builds the image; nobody builds it by hand. The base is `DOCKER_BASE_IMAGE` in `community/tools/vm/provision/versions.env`.
 `docker/engine.lima.yaml` is the template of the Lima VM that runs the engine on a macOS host (ADR 0189). `avl-vm`
 embeds it too. `docker.MODULE.bazel` pins the Docker CLI and its `docker-buildx` plugin, and `lima.MODULE.bazel` pins
 Lima.
@@ -131,7 +132,7 @@ and copy `<bin>_closure.txt` from `out/bazel-bin` over `closure.txt`.
 | contracts | `avl-wire` | the documents that cross a boundary: the run supervisor and every guest verb's name, staging and the generation layout, the Bazel runtime descriptor and the daemon's JVM @-file, the daemon control channel, progress records and the run journal, the agent-facing report, the runfiles MANIFEST reader, the host-to-guest path table `PathMap`, and the receipt of a raw pull. Each is declared once for both ends |
 | | `avl-trace` | the scenario traces that the recorder writes: the lane protocol, OTLP, the bundle with its manifest encoder and decoder and its file names, and the bridge's trace routes. The golden transcript and bundles are its `testdata`, a public filegroup the Kotlin contract tests read. The transcript of the routes of `air-trace serve` is there too, and the docs site's test reads it |
 | | `avl-trace-tools` | the tools over the traces, which the recorder does not run: the deterministic zips with the media stored (`air-trace pack` and the guest's `trace-pack-ready`), the discovery of bundles in directories and zips, and the viewer URLs with the default port of `air-trace serve` |
-| base | `avl-base` | the exit vocabulary `Exit` and the controller's refusal, `refusal::Refusal<Exit>` with the constructors of `RefusalExt`, the `{ok,…}` envelope, the `AIR_VM_*` settings and their per-guest defaults (`src/config.rs`), phase timing, ids, the journal and history, atomic file publication. The image pins are read from the skill's `provision/versions.env` at compile time |
+| base | `avl-base` | the exit vocabulary `Exit` and the controller's refusal, `refusal::Refusal<Exit>` with the constructors of `RefusalExt`, the `{ok,…}` envelope, the `AIR_VM_*` settings and their per-guest defaults (`src/config.rs`), phase timing, ids, the journal and history, atomic file publication. The image pins are read from `community/tools/vm/provision/versions.env` at compile time |
 | guest | `avl-guest` | the guest half and the agent binary: the run supervisor, the runtime stager, the Linux boot and macOS image verbs, `trace-pack-ready`, the `relay` verb that bridges its stdin and stdout to a loopback port inside the guest, the `runfiles-tree` verb that builds a runfiles tree from the MANIFEST of a Windows host, and the `read-file` verb that writes one file on stdout unchanged for a pull |
 | host system | `avl-host-sys` | subprocesses, each with its timeout, and the byte stream of an exec channel child, the one wait loop with its budget and backoff (`Poll`), the batched lookup of the pinned files (`external_files`), the process-wide interrupt service and the operation context, locks and host-process identity, private files, the one mapping of host paths to guest paths (`GuestPaths`), the choice of a runfiles tree or a MANIFEST (`HostRunfiles`); what a guest must be to run host-built outputs (the read-only share set and its mount, the parity layout, TCC admission, the agent install, the run supervisor, the Linux guest's packages); the detached trace viewer: its probe and the one start of a detached server, which `air-trace serve --detach` and the controller share (`viewer`) |
 | workers | `avl-vm` (`worker`) | the three backends, Tart, Parallels and Docker, of which a Windows host has Docker only (the binaries, the share grammars, the sealed golden, worker provenance, the Docker image and its containers), the Lima engine VM of a Docker pool on a macOS host, one dispatch for each lifecycle operation, the one resolver of the pinned tools (`PinnedTools`), readiness gates and the `pool` commands, lease ownership, receipts and the `lease` commands |
@@ -156,7 +157,7 @@ and the defaults of the verb.
 | --- | --- | --- |
 | `welcome` | How long does the IDE take to show the welcome screen, in the modal and the non-modal arm? | A session directory with its `summary.json`, and a text digest. |
 | `open-project <project>` | How long does a running IDE take to open a project and paint its editor? | A session with the open-project arm. |
-| `project <project>` | How long does the IDE take from its start on a project to the highlighted editor? | A session with the project arm. |
+| `project <project>` | How long does the IDE take from its start on a project to the highlighted editor, or, with `--arm empty-editor`, to the built Air composer of an empty editor area? `--cold` starts each empty-editor run with empty caches. | A session with the project arm, the empty-editor arm, or both. |
 | `replay <session>` | What does a finished session give when the controller parses it again? | A new `summary.json` and the digest, without an IDE. |
 | `trace <session>` | What runs between the frame and the welcome paint? | The anchors of one run, and one line per span in the window. |
 | `activities <session>` | Which post-startup activities run while the welcome panel paints? | One table by class and one table by plugin for one run. |

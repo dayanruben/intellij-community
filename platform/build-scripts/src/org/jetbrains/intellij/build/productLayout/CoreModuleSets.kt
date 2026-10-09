@@ -291,7 +291,6 @@ object CoreModuleSets {
     embeddedModule("intellij.platform.ide.json")
     embeddedModule("intellij.platform.ide.dnd")
     embeddedModule("intellij.platform.ide.codeinsight.inline")
-    embeddedModule("intellij.platform.pasta")
     embeddedModule("intellij.platform.diagnostic.startUpPerformanceReporter")
     // optional: it depends on `intellij.libraries.pty4j`, which the bundled plugin `intellij.pty4j.plugin` holds.
     // A product without that plugin skips this module at startup.
@@ -311,6 +310,8 @@ object CoreModuleSets {
     module("intellij.platform.ide.colorPicker")
     // intellij.platform.ide.impl captures and analyzes heap dumps through the service of this module
     module("intellij.platform.ide.hprof")
+    // owns MaintenanceGroup of the Tools | Internal Actions menu; registry.ui, ide.scripting, ide.internal and plugins add actions to it
+    module("intellij.platform.ide.maintenance")
     // intellij.platform.execution.impl creates the error tree view through the service of this module
     module("intellij.platform.ide.errorTreeView")
     // keeps the Learn tab in every product with ide.impl

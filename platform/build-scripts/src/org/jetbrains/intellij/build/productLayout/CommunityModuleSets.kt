@@ -14,7 +14,7 @@ import org.jetbrains.intellij.build.productLayout.LibraryModuleSets.librariesLsp
  *
  * This file contains IDE feature module sets:
  * - **essential**: IDE editing and navigation features, built from coreLang and the feature sets
- * - **splitCore/credentialStore/editor/searchEverywhere/scopes/find/executionSplit/ideInternal**: the feature sets
+ * - **splitCore/credentialStore/searchEverywhere/scopes/find/executionSplit/ideInternal**: the feature sets
  *   that essential nests, and that a lean product adds itself
  * - **debugger**: Debugger platform
  * - **vcs**: Version control support
@@ -43,7 +43,7 @@ object CommunityModuleSets {
   /**
    * Essential platform modules required by most IDE products.
    *
-   * The set nests [CoreModuleSets.coreLang] and the feature sets [splitCore], [credentialStore], [editor],
+   * The set nests [CoreModuleSets.coreLang] and the feature sets [splitCore], [credentialStore],
    * [searchEverywhere], [scopes], [find], [executionSplit], [ideInternal] and [builtInServer].
    * A lean product such as Draft takes coreLang and adds only the feature sets that it needs.
    *
@@ -58,7 +58,6 @@ object CommunityModuleSets {
     moduleSet(coreLang())
     moduleSet(splitCore())
     moduleSet(credentialStore())
-    moduleSet(editor())
     moduleSet(searchEverywhere())
     moduleSet(scopes())
     moduleSet(find())
@@ -162,17 +161,6 @@ object CommunityModuleSets {
   }
 
   /**
-   * The editor modules and their backend and frontend split.
-   *
-   * [essential] nests this set. A lean product such as Draft adds the set itself.
-   */
-  fun editor(): ModuleSet = moduleSet("editor") {
-    module("intellij.platform.editor")
-    module("intellij.platform.editor.backend")
-    module("intellij.platform.editor.frontend")
-  }
-
-  /**
    * The Search Everywhere popup and its backend and frontend split.
    *
    * [essential] nests this set. A lean product such as Draft adds the set itself.
@@ -221,6 +209,7 @@ object CommunityModuleSets {
    * The module registers the platform implementations of `StatisticsNotificationManager` and `LatencyRecorder`.
    *
    * [essential] nests this set. A lean product can leave the set out. The platform callers of these services are null-safe.
+   * The internal actions join `MaintenanceGroup`, which `intellij.platform.ide.maintenance` of [CoreModuleSets.coreLang] owns.
    */
   fun ideInternal(): ModuleSet = moduleSet("ide.internal") {
     module("intellij.platform.ide.internal")
@@ -485,6 +474,8 @@ object CommunityModuleSets {
     module("intellij.platform.langInjection")
     module("intellij.platform.langInjection.backend")
     module("intellij.platform.versionDownloadManager")
+    module("intellij.platform.registry.ui") // the Registry dialog; Find Action opens it, Tools | Internal Actions lists it in internal mode
+    module("intellij.platform.ide.scripting") // the IDE Scripting Console, the ideScript command and the startup scripts
 
     moduleSet(vcs())
     moduleSet(lsp())

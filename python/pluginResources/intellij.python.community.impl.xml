@@ -402,13 +402,6 @@
     <applicationService serviceImplementation="com.jetbrains.python.debugger.variablesview.usertyperenderers.PyUserTypeRenderersSettings"/>
     <configurationType implementation="com.jetbrains.python.run.PythonConfigurationType"/>
 
-    <!-- Locked configurations should go first to be overwritten by real ones-->
-    <configurationType implementation="com.jetbrains.python.run.DjangoServerLockedRunConfigurationType" order="first"/>
-    <configurationType implementation="com.jetbrains.python.run.FlaskServerLockedRunConfigurationType" order="first"/>
-    <configurationType implementation="com.jetbrains.python.run.DbtRunLockedConfigurationType" order="first"/>
-    <configurationType implementation="com.jetbrains.python.run.FastAPILockedRunConfigurationType" order="first"/>
-    <facetIgnorer implementation="com.jetbrains.python.run.DjangoFacetIgnorer"/>
-
     <programRunner implementation="com.jetbrains.python.run.PythonRunner" order="before defaultRunRunner"/>
     <programRunner implementation="com.jetbrains.python.debugger.PythonDebugProgramRunner"
                    order="before intellij.platform.dap.DapProgramRunner, before defaultDebugRunner"/>
@@ -962,6 +955,10 @@
     <registryKey key="python.activate.virtualenv.on.run" defaultValue="true"
                  description="Whether enabled activates virtualenv before script execution and passes environment to the process"/>
 
+    <registryKey key="python.typing.composite.breakdown.max.members" defaultValue="5"
+                 description="The widest union or intersection type that still gets a per-member type mismatch breakdown, or 0 for no bound"/>
+
+
     <python.processOutput.common.processOutputIconMapping implementation="com.jetbrains.python.sdk.SdkIconMapping"/>
 
     <!-- Debugger Show value tooltip -->
@@ -975,6 +972,9 @@
   </extensions>
 
   <extensionPoints>
+    <extensionPoint qualifiedName="Pythonid.frameworkIconProvider"
+                    interface="com.jetbrains.python.run.PyFrameworkIconProvider"
+                    dynamic="true"/>
     <extensionPoint qualifiedName="Pythonid.packageInstalledIconProvider"
                     interface="com.jetbrains.python.packaging.toolwindow.packages.tree.renderers.PyPackageInstalledIconProvider"
                     dynamic="true"/>
@@ -1129,9 +1129,6 @@
     <evoEnvironmentProvider id="PipEvoProvider"
                             order="after CondaEvoProvider"
                             implementation="com.jetbrains.python.venv.sdk.evolution.VenvEvoEnvironmentProvider"/>
-    <evoEnvironmentProvider id="AdvancedEvoProvider"
-                            order="last"
-                            implementation="com.jetbrains.python.sdk.evolution.AdvancedEvoEnvironmentProvider"/>
 
     <pyReferenceCustomTargetChecker implementation="com.jetbrains.python.testing.pyTestFixtures.PyTestFixtureTargetChecker"/>
 
@@ -1198,6 +1195,7 @@
 
     <!-- Experimental packaging extensions-->
     <pySdkProvider implementation="com.jetbrains.python.sdk.pipenv.PyPipEnvSdkProvider"/>
+    <pySdkDataProvider implementation="com.jetbrains.python.sdk.pipenv.PyPipEnvSdkDataProvider"/>
 
 
     <pythonSdkReadOnlyProvider implementation="com.jetbrains.python.sdk.readOnly.PythonSystemSdkReadOnlyProvider"/>
@@ -1205,6 +1203,9 @@
     <pythonPackageManagerProvider implementation="com.jetbrains.python.sdk.poetry.PoetryPackageManagerProvider"/>
 
     <pySdkProvider implementation="com.jetbrains.python.sdk.uv.UvSdkProvider"/>
+    <pySdkDataProvider implementation="com.jetbrains.python.sdk.uv.UvSdkDataProvider"/>
+    <pySdkDataProvider implementation="com.jetbrains.python.venv.sdk.VenvSdkDataProvider"/>
+    <pySdkDataProvider implementation="com.jetbrains.python.sdk.conda.CondaSdkDataProvider"/>
     <pythonPackageManagerProvider implementation="com.jetbrains.python.sdk.uv.UvPackageManagerProvider"/>
 
     <pythonPackageManagerProvider implementation="com.jetbrains.python.packaging.pip.PipPackageManagerProvider" order="last"/>
@@ -1407,7 +1408,6 @@
               text="Set PropertiesComponent Value" description="Set value in application-level PropertiesComponent"/>
       <add-to-group group-id="Internal"/>
     </group>
-    <group id="Python.NewInterpreter.Extra" popup="false"/>
   </actions>
 
   <actions>

@@ -39,8 +39,7 @@ class DialogAppender : Handler() {
 
   init {
     @Suppress("RAW_SCOPE_CREATION") // DialogAppender is a process-wide root logger handler.
-    val scope = CoroutineScope(SupervisorJob() + DiagnosticDispatchers.Default + CoroutineName("DialogAppender"))
-    scope.launch(DiagnosticDispatchers.Default) {
+    CoroutineScope(SupervisorJob() + CoroutineName("DialogAppender")).launch {
       for (item in queue) {
         when (item) {
           is Entry -> processEvent(item)
@@ -120,10 +119,8 @@ class DialogAppender : Handler() {
 
   @ApiStatus.Internal
   suspend fun awaitPendingJobs() {
-    if (LoadingState.APP_READY.isOccurred) {
-      synchronized(this) {
-        processEarlyEventsIfNeeded()
-      }
+    synchronized(this) {
+      processEarlyEventsIfNeeded()
     }
 
     val future = CompletableDeferred<Unit>()

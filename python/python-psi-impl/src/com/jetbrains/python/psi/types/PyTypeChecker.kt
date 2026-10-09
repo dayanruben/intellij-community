@@ -74,6 +74,14 @@ import kotlin.jvm.optionals.getOrElse
 
 object PyTypeChecker {
   /**
+   * The widest composite type that still gets a per-member breakdown. Past it, matching short-circuits and
+   * records one summarizing reason. `0` means no bound.
+   */
+  @ApiStatus.Internal
+  @JvmStatic
+  fun maxBreakdownMembers(): Int = Registry.intValue("python.typing.composite.breakdown.max.members", 5)
+
+  /**
    * See [match] for description.
    */
   @JvmStatic
@@ -201,20 +209,33 @@ object PyTypeChecker {
     body: () -> Boolean,
   ): Boolean {
     val collector = context.diagnostics ?: return body()
+    val (result, child) = collectInto(collector, body)
+    if (!result) {
+      collector.current.add(PyTypeMismatchExplanation(message(), child, step()))
+    }
+    return result
+  }
+
+  /**
+   * Runs [body] with recording diverted to a fresh buffer, and returns its result with what it recorded.
+   *
+   * This lets a branch that explores several candidates choose the shape of its breakdown after the walk, so
+   * no candidate is matched a second time just to record it. [recordFrameBool] and [withoutRecording] are the
+   * two degenerate cases: attach the buffer to the parent, or drop it.
+   */
+  private inline fun <T> collectInto(
+    collector: DiagnosticsCollector,
+    body: () -> T,
+  ): Pair<T, List<PyTypeMismatchExplanation>> {
     val parent = collector.current
     val child = mutableListOf<PyTypeMismatchExplanation>()
     collector.current = child
-    val result: Boolean
     try {
-      result = body()
+      return body() to child.toList()
     }
     finally {
       collector.current = parent
     }
-    if (!result) {
-      parent.add(PyTypeMismatchExplanation(message(), child.toList(), step()))
-    }
-    return result
   }
 
   /** Records a terminal reason (no children) at the current frame, if a breakdown is being collected. */
@@ -230,13 +251,18 @@ object PyTypeChecker {
    */
   private inline fun <T> withoutRecording(context: MatchContext, body: () -> T): T {
     val collector = context.diagnostics ?: return body()
-    val parent = collector.current
-    collector.current = mutableListOf()
-    return try {
-      body()
+    return collectInto(collector, body).first
+  }
+
+  /** Runs [body] with normal short-circuiting and without creating nested explanations. */
+  private inline fun <T> withoutDiagnostics(context: MatchContext, body: () -> T): T {
+    val collector = context.diagnostics ?: return body()
+    context.diagnostics = null
+    try {
+      return body()
     }
     finally {
-      collector.current = parent
+      context.diagnostics = collector
     }
   }
 
@@ -440,6 +466,24 @@ object PyTypeChecker {
       return Optional.of(false)
     }
 
+    // Composite types (PY-91327). The six branches below look alike but differ per branch:
+    //
+    //   branch                         quantifier   breakdown
+    //   actual is PyUnionType          strict flag  per failing member
+    //   expected is PyUnionType        any          one summary frame
+    //   actual is PyUnsafeUnionType    any          none
+    //   expected is PyUnsafeUnionType  any          one summary frame
+    //   expected is PyIntersectionType all          per failing member
+    //   actual is PyIntersectionType   any          one summary frame
+    //
+    // Unions match actual-first, intersections expected-first, because the `all` quantifier must be the outer
+    // check for a composite-vs-composite match to distribute. It sits on the actual side of a union and the
+    // expected side of an intersection, so `A & B <: C & D` unfolds as
+    // `(A <: C or B <: C) and (A <: D or B <: D)`.
+    //
+    // Both sides are walked, so composite-vs-composite costs |actual| x |expected|; [maxBreakdownMembers]
+    // caps the per-member detail.
+
     if (actual is PyUnionType) {
       return Optional.of(match(expected, actual, context))
     }
@@ -456,9 +500,6 @@ object PyTypeChecker {
       return Optional.of(match(expected, actual, context))
     }
 
-    // Expected-first, unlike unions: an intersection's `all` quantifier lives on the expected side
-    // (`actual <: A & B` iff it matches every member), so it must be the outer check for `A & B <: C & D` to
-    // distribute correctly as `(A <: C or B <: C) and (A <: D or B <: D)`.
     if (expected is PyIntersectionType) {
       return Optional.of(match(expected, actual, context))
     }
@@ -900,6 +941,12 @@ object PyTypeChecker {
     return match(expectedParameters, actual, context)
   }
 
+  /** Whether [composite] is too wide for a per-member breakdown. See [maxBreakdownMembers]. */
+  private fun exceedsBreakdownBound(composite: PyCompositeTypeBase): Boolean {
+    val bound = maxBreakdownMembers()
+    return bound > 0 && composite.members.size > bound
+  }
+
   private fun match(expected: PyType, actual: PyUnionType, context: MatchContext): Boolean {
     if (expected is PyTupleType) {
       // XXX A type-widening hack for cases like PyTypeTest.testDictFromTuple
@@ -912,16 +959,32 @@ object PyTypeChecker {
     // `||` short-circuits, so when strict semantics are off the literal scan still runs exactly as before.
     val requireAll = PyUnionType.isStrictSemanticsEnabled() || // checking strictly separately until PY-24834 gets implemented
                      actual.members.any { it is PyLiteralStringType || it is PyLiteralType }
-    // The original short-circuiting `all`/`any` with zero overhead when no breakdown is being collected.
-    if (context.diagnostics == null) {
-      return if (requireAll) actual.members.all { match(expected, it, context).getOrDefault(false) }
-             else actual.members.any { match(expected, it, context).getOrDefault(false) }
+    // Short-circuit when no breakdown is collected, and when the union is too wide to break down.
+    if (context.diagnostics == null || exceedsBreakdownBound(actual)) {
+      val shortCircuited = withoutDiagnostics(context) {
+        if (requireAll) actual.members.all { match(expected, it, context).getOrDefault(false) }
+        else actual.members.any { match(expected, it, context).getOrDefault(false) }
+      }
+      if (!shortCircuited) {
+        recordLeaf(context, {
+          PyMismatchStep.NoUnionMember(codifiedType(context, actual), codifiedType(context, expected), actualIsUnion = true)
+        }) {
+          PyPsiBundle.problemMessage("INSP.type.checker.breakdown.union.member.not.assignable",
+                                     codifiedType(context, actual), codifiedType(context, expected))
+        }
+      }
+      return shortCircuited
     }
 
-    // Collecting a breakdown: find the incompatible members first (discarding their trial recordings), then record
-    // only the most useful shape.
-    val failing = withoutRecording(context) {
-      actual.members.filter { !match(expected, it, context).getOrDefault(false) }
+    // One walk: buffer each failing member's reasons ([collectInto]), then pick the shape below. The shape
+    // depends on how many members fail, which is only known at the end.
+    val collector = context.diagnostics!!
+    val failing = mutableListOf<Pair<PyType?, List<PyTypeMismatchExplanation>>>()
+    for (member in actual.members) {
+      val (memberMatched, reasons) = collectInto(collector) { match(expected, member, context).getOrDefault(false) }
+      if (!memberMatched) {
+        failing.add(member to reasons)
+      }
     }
     val matched = if (requireAll) failing.isEmpty() else failing.size < actual.members.size
     if (matched) return true
@@ -930,7 +993,7 @@ object PyTypeChecker {
       // Exactly one incompatible member: the "Not all members …" umbrella and a naming frame would only add
       // redundant levels (the member's own reason already names it, e.g. "`C` is incompatible with protocol `P`"),
       // so record that reason directly under the headline, which already shows the whole union.
-      match(expected, failing.single(), context)
+      collector.current.addAll(failing.single().second)
     }
     else {
       // Several incompatible members: the "Not all members of X are assignable to Y" umbrella, then a frame per
@@ -946,13 +1009,10 @@ object PyTypeChecker {
         // so mark the direction — a call-site renderer must not read the required type as a "union with members".
         PyMismatchStep.NoUnionMember(codifiedType(context, actual), codifiedType(context, expected), actualIsUnion = true)
       }) {
-        for (member in failing) {
-          recordFrameBool(context, {
-            PyPsiBundle.problemMessage("INSP.type.checker.breakdown.union.member.incompatible",
-                                       codifiedType(context, member), codifiedType(context, expected))
-          }, {
-            PyMismatchStep.UnionMember(codifiedType(context, member))
-          }) { match(expected, member, context).getOrDefault(false) }
+        for ((member, reasons) in failing) {
+          val message = PyPsiBundle.problemMessage("INSP.type.checker.breakdown.union.member.incompatible",
+                                                   codifiedType(context, member), codifiedType(context, expected))
+          collector.current.add(PyTypeMismatchExplanation(message, reasons, PyMismatchStep.UnionMember(codifiedType(context, member))))
         }
         false
       }
@@ -990,16 +1050,90 @@ object PyTypeChecker {
     }, {
       PyMismatchStep.NoUnionMember(codifiedType(context, actual), codifiedType(context, expected))
     }) {
-      expected.members.any { type: PyType? -> match(type, actual, context).getOrDefault(true) }
+      // Past the bound the summary node keeps its line but loses the per-member sub-reasons.
+      if (exceedsBreakdownBound(expected)) {
+        withoutDiagnostics(context) { expected.members.any { type: PyType? -> match(type, actual, context).getOrDefault(true) } }
+      }
+      else {
+        expected.members.any { type: PyType? -> match(type, actual, context).getOrDefault(true) }
+      }
     }
   }
 
+  /**
+   * The provided value is the intersection, so the quantifier is `any`: a value that is both `A` and `B` is
+   * accepted wherever either member is. Mirrors the expected-side union case.
+   */
   private fun match(expected: PyType, actual: PyIntersectionType, context: MatchContext): Boolean {
-    return actual.members.any { type: PyType? -> match(expected, type, context).getOrDefault(false) }
+    return recordFrameBool(context, {
+      PyPsiBundle.problemMessage("INSP.type.checker.breakdown.intersection.member.not.assignable",
+                                 codifiedType(context, actual), codifiedType(context, expected))
+    }, {
+      PyMismatchStep.NoIntersectionMember(codifiedType(context, expected), codifiedType(context, actual))
+    }) {
+      if (exceedsBreakdownBound(actual)) {
+        withoutDiagnostics(context) { actual.members.any { type: PyType? -> match(expected, type, context).getOrDefault(false) } }
+      }
+      else {
+        actual.members.any { type: PyType? -> match(expected, type, context).getOrDefault(false) }
+      }
+    }
   }
 
+  /**
+   * The required side is the intersection, so the quantifier is `all`: every member is an independent
+   * requirement, and each failing one earns its own frame.
+   */
   private fun match(expected: PyIntersectionType, actual: PyType, context: MatchContext): Boolean {
-    return expected.members.all { type: PyType? -> match(type, actual, context).getOrDefault(true) }
+    val collector = context.diagnostics
+    if (collector == null || exceedsBreakdownBound(expected)) {
+      val shortCircuited = withoutDiagnostics(context) {
+        expected.members.all { type: PyType? -> match(type, actual, context).getOrDefault(true) }
+      }
+      if (!shortCircuited) {
+        recordLeaf(context, {
+          PyMismatchStep.NoIntersectionMember(codifiedType(context, actual), codifiedType(context, expected),
+                                              expectedIsIntersection = true)
+        }) {
+          PyPsiBundle.problemMessage("INSP.type.checker.breakdown.not.assignable.to.intersection",
+                                     codifiedType(context, actual), codifiedType(context, expected))
+        }
+      }
+      return shortCircuited
+    }
+
+    // One walk, one buffer per failing member, as the actual-side union does.
+    val failing = mutableListOf<Pair<PyType?, List<PyTypeMismatchExplanation>>>()
+    for (member in expected.members) {
+      val (memberMatched, reasons) = collectInto(collector) { match(member, actual, context).getOrDefault(true) }
+      if (!memberMatched) {
+        failing.add(member to reasons)
+      }
+    }
+    if (failing.isEmpty()) return true
+
+    if (failing.size == 1) {
+      // One unmet requirement: its own reason already names the member, so an umbrella would only add a level.
+      collector.current.addAll(failing.single().second)
+    }
+    else {
+      recordFrameBool(context, {
+        PyPsiBundle.problemMessage("INSP.type.checker.breakdown.not.assignable.to.intersection",
+                                   codifiedType(context, actual), codifiedType(context, expected))
+      }, {
+        PyMismatchStep.NoIntersectionMember(codifiedType(context, actual), codifiedType(context, expected),
+                                            expectedIsIntersection = true)
+      }) {
+        for ((member, reasons) in failing) {
+          val message = PyPsiBundle.problemMessage("INSP.type.checker.breakdown.intersection.member.incompatible",
+                                                   codifiedType(context, actual), codifiedType(context, member))
+          collector.current.add(PyTypeMismatchExplanation(message, reasons,
+                                                          PyMismatchStep.IntersectionMember(codifiedType(context, member))))
+        }
+        false
+      }
+    }
+    return false
   }
 
   private fun match(expected: PyType, actual: PyUnsafeUnionType, context: MatchContext): Boolean {
@@ -1010,14 +1144,20 @@ object PyTypeChecker {
     if (actual in expected.members) {
       return true
     }
-    // Mirror of the [PyUnionType] case: record a per-member breakdown when collecting, otherwise plain `any`.
+    // Mirror of the [PyUnionType] case: record a per-member breakdown when collecting, otherwise plain `any`,
+    // and drop the sub-reasons past the breakdown bound.
     return recordFrameBool(context, {
       PyPsiBundle.problemMessage("INSP.type.checker.breakdown.not.assignable.to.union",
                                  codifiedType(context, actual), codifiedType(context, expected))
     }, {
       PyMismatchStep.NoUnionMember(codifiedType(context, actual), codifiedType(context, expected))
     }) {
-      expected.members.any { type: PyType? -> match(type, actual, context).getOrDefault(true) }
+      if (exceedsBreakdownBound(expected)) {
+        withoutDiagnostics(context) { expected.members.any { type: PyType? -> match(type, actual, context).getOrDefault(true) } }
+      }
+      else {
+        expected.members.any { type: PyType? -> match(type, actual, context).getOrDefault(true) }
+      }
     }
   }
 

@@ -20,7 +20,9 @@ import kotlin.io.path.absolute
 import kotlin.io.path.createDirectories
 import kotlin.io.path.deleteRecursively
 import kotlin.io.path.exists
+import kotlin.io.path.extension
 import kotlin.io.path.forEachDirectoryEntry
+import kotlin.io.path.isRegularFile
 import kotlin.io.path.name
 
 private val LOG = logger<WelcomeScreenProjectProvider>()
@@ -81,11 +83,6 @@ abstract class WelcomeScreenProjectProvider {
     fun isEditableWelcomeProject(project: Project): Boolean {
       val extension = getWelcomeScreenProjectProvider() ?: return false
       return extension.doIsWelcomeScreenProject(project) && extension.doIsEditableProject(project)
-    }
-
-    fun isVcsEnabled(project: Project): Boolean {
-      val isEditable = isEditableWelcomeProject(project)
-      return isEditable && getWelcomeScreenProjectProvider()?.doIsVcsEnabled() ?: false
     }
 
     fun isForceDisabledFileColors(): Boolean {
@@ -165,6 +162,9 @@ abstract class WelcomeScreenProjectProvider {
           if (name == ".idea") {
             return@forEachDirectoryEntry
           }
+          if (child.extension == "iml" && child.isRegularFile(LinkOption.NOFOLLOW_LINKS)) {
+            return@forEachDirectoryEntry
+          }
           if (PlatformUtils.isPyCharm() && name == ".venv") {
             return@forEachDirectoryEntry
           }
@@ -203,6 +203,8 @@ abstract class WelcomeScreenProjectProvider {
 
   open fun showHomeActionInProjectWidget(): Boolean = true
 
+  open fun showRunWidget(): Boolean = PlatformUtils.isPyCharm()
+
   /**
    * Return true if your project is not only a welcome screen, but also a real project where the user can create, store and edit files.
    * Junie and other features might be disabled for non-editable welcome screen projects.
@@ -211,12 +213,6 @@ abstract class WelcomeScreenProjectProvider {
   protected open fun doIsEditableProject(project: Project): Boolean {
     return false
   }
-
-  /**
-   * Return true if your project is a welcome screen that supports version control operations. This setting will be ignored unless the
-   * project is also editable. See [doIsEditableProject]
-   */
-  protected open fun doIsVcsEnabled(): Boolean = false
 
   protected abstract fun doIsForceDisabledFileColors(): Boolean
 

@@ -307,7 +307,6 @@
     <module name="intellij.platform.ide.json" loading="embedded"/>
     <module name="intellij.platform.ide.dnd" loading="embedded"/>
     <module name="intellij.platform.ide.codeinsight.inline" loading="embedded"/>
-    <module name="intellij.platform.pasta" loading="embedded"/>
     <module name="intellij.platform.diagnostic.startUpPerformanceReporter" loading="embedded"/>
     <module name="intellij.platform.ide.util.io.native"/>
     <module name="intellij.platform.ide.osCertificates" loading="required"/>
@@ -318,6 +317,7 @@
     <module name="intellij.platform.ide.remote"/>
     <module name="intellij.platform.ide.colorPicker"/>
     <module name="intellij.platform.ide.hprof"/>
+    <module name="intellij.platform.ide.maintenance"/>
     <module name="intellij.platform.ide.errorTreeView"/>
     <module name="intellij.platform.ide.learnIde"/>
     <module name="intellij.platform.ide.playback"/>
@@ -375,12 +375,6 @@
     <!-- region nested: essential > credentialStore -->
     <module name="intellij.platform.credentialStore.ui"/>
     <module name="intellij.platform.credentialStore.impl"/>
-    <!-- endregion -->
-
-    <!-- region nested: essential > editor -->
-    <module name="intellij.platform.editor"/>
-    <module name="intellij.platform.editor.backend"/>
-    <module name="intellij.platform.editor.frontend"/>
     <!-- endregion -->
 
     <!-- region nested: essential > searchEverywhere -->
@@ -555,6 +549,8 @@
     <module name="intellij.platform.langInjection"/>
     <module name="intellij.platform.langInjection.backend"/>
     <module name="intellij.platform.versionDownloadManager"/>
+    <module name="intellij.platform.registry.ui"/>
+    <module name="intellij.platform.ide.scripting"/>
     <!-- endregion -->
   </content>
 </idea-plugin>

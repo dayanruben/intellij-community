@@ -795,9 +795,6 @@ platform/dvcs-impl
 platform/dvcs-impl/shared
 platform/editor-ui-api
 platform/editor-ui-ex
-platform/editor/backend
-platform/editor/frontend
-platform/editor/shared
 platform/eel
 platform/eel-impl
 platform/eel-impl-base
@@ -885,7 +882,6 @@ platform/kernel/backend
 platform/kernel/backend/baseline
 platform/kernel/intellij.platform.kernel.impl
 platform/kernel/klogger
-platform/kernel/pasta
 platform/kernel/rpc
 platform/kernel/rpc.backend
 platform/kernel/rpc.lite
@@ -955,14 +951,17 @@ platform/platform-impl/internal/jcef
 platform/platform-impl/jcef
 platform/platform-impl/json
 platform/platform-impl/learn-ide
+platform/platform-impl/maintenance
 platform/platform-impl/mig-layout
 platform/platform-impl/os-certificates
 platform/platform-impl/playback
 platform/platform-impl/plugin-signature-verifier
 platform/platform-impl/presentation-assistant
 platform/platform-impl/recentProjects
+platform/platform-impl/registry-ui
 platform/platform-impl/remote
 platform/platform-impl/rpc
+platform/platform-impl/scripting
 platform/platform-impl/socket-connection
 platform/platform-impl/tab-in-editor
 platform/platform-impl/ui
@@ -1865,6 +1864,10 @@ python/common
 python/conda
 python/conda/common
 python/conda/frontend
+python/dbt/common
+python/django/common
+python/fastapi/common
+python/flask/common
 python/ide-common/ide-customization
 python/ide/customization.backend
 python/ide/customization.frontend

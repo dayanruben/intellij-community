@@ -1,11 +1,12 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.configuration;
 
+import com.intellij.python.sdk.backend.PyInterpreterRefsKt;
+import com.intellij.python.sdk.common.PyInterpreterRef;
 import com.intellij.ide.DataManager;
 import com.intellij.ide.HelpTooltipKt;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.DataContext;
-import com.intellij.openapi.actionSystem.DefaultActionGroup;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.options.UnnamedConfigurable;
@@ -21,7 +22,6 @@ import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.HtmlChunk;
 import com.intellij.python.sdk.backend.PythonInterpreterExtKt;
 import com.intellij.python.sdk.common.PyInterpreterItem;
-import com.intellij.python.sdk.common.PyInterpreterRef;
 import com.intellij.ui.CollectionComboBoxModel;
 import com.intellij.ui.ComboboxSpeedSearch;
 import com.intellij.ui.components.DropDownLink;
@@ -33,7 +33,6 @@ import com.jetbrains.python.packaging.PyPackageManagers;
 import com.jetbrains.python.packaging.PyPackagesNotificationPanel;
 import com.jetbrains.python.packaging.ui.PyInstalledPackagesPanel;
 import com.jetbrains.python.sdk.AddInterpreterActions;
-import com.jetbrains.python.sdk.DialogAction;
 import com.jetbrains.python.sdk.ModuleOrProject;
 import com.jetbrains.python.sdk.ProjectExtKt;
 import com.jetbrains.python.sdk.PyCustomSdkUiProvider;
@@ -321,7 +320,8 @@ public class PyActiveSdkConfigurable implements UnnamedConfigurable {
   private static PyInterpreterItem findItemFor(@NotNull Map<PyRenderedSdkType, List<PyInterpreterItem>> itemsByType,
                                                @Nullable Sdk sdk) {
     if (sdk == null) return null;
-    PyInterpreterRef ref = PythonInterpreterExtKt.asInterpreterRef(sdk);
+    PyInterpreterRef ref = PyInterpreterRefsKt.interpreterRefOf(sdk);
+    if (ref == null) return null;
     for (List<PyInterpreterItem> items : itemsByType.values()) {
       PyInterpreterItem item = ContainerUtil.find(items, candidate -> ref.equals(candidate.getRef()));
       if (item != null) return item;
@@ -343,10 +343,9 @@ public class PyActiveSdkConfigurable implements UnnamedConfigurable {
                                                              @NotNull Consumer<Sdk> onSdkCreated) {
     DataContext dataContext = DataManager.getInstance().getDataContext(dataContextComponent);
     var moduleOrProject = (module != null) ? new ModuleOrProject.ModuleAndProject(module) : new ModuleOrProject.ProjectOnly(project);
-    List<DialogAction> actions = AddInterpreterActions.collectAddInterpreterActions(moduleOrProject, onSdkCreated);
     return JBPopupFactory.getInstance().createActionGroupPopup(
       null,
-      new DefaultActionGroup(actions),
+      AddInterpreterActions.createAddInterpreterActionGroup(moduleOrProject, onSdkCreated),
       dataContext,
       JBPopupFactory.ActionSelectionAid.SPEEDSEARCH,
       false,
