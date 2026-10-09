@@ -1,15 +1,22 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.actionSystem
 
+import com.intellij.concurrency.installThreadContext
 import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.application.ModalityState
+import com.intellij.openapi.application.WriteIntentReadAction
+import com.intellij.openapi.application.contextModality
+import com.intellij.openapi.application.impl.LaterInvocator
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.junit5.TestApplication
+import com.intellij.util.application
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.junit.jupiter.api.Assertions
@@ -17,6 +24,8 @@ import org.junit.jupiter.api.Test
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.coroutines.ContinuationInterceptor
+import kotlin.coroutines.CoroutineContext
 
 @TestApplication
 class ActionCoroutineScopeTest {
@@ -26,13 +35,13 @@ class ActionCoroutineScopeTest {
   fun `coroutineScope is available in actionPerformed`() = timeoutRunBlocking {
     val gotScope = AtomicBoolean(false)
     val jobRan = CompletableDeferred<Boolean>()
-    val scopeDispatcher = AtomicReference<CoroutineDispatcher>()
+    val scopeDispatcher = AtomicReference<ContinuationInterceptor>()
 
     val action = object : AnAction() {
       override fun actionPerformed(e: AnActionEvent) {
         val scope = e.coroutineScope
         gotScope.set(true)
-        scopeDispatcher.set(scope.coroutineContext[CoroutineDispatcher])
+        scopeDispatcher.set(scope.coroutineContext[ContinuationInterceptor.Key])
         scope.launch {
           jobRan.complete(true)
         }
@@ -189,6 +198,73 @@ class ActionCoroutineScopeTest {
     val result = ActionUtil.updateAction(action, event)
     Assertions.assertTrue(result is AnActionResult.Performed)
     Assertions.assertTrue(attempted.get(), "update() should have been invoked")
+  }
+
+  @Test
+  fun `coroutineScope inherits modality and parallelized lock of modal dialog`(): Unit = timeoutRunBlocking {
+    val modalityInAction = CompletableDeferred<ModalityState>()
+    val lockElementInAction = CompletableDeferred<CoroutineContext.Element>()
+    val scopeContext = CompletableDeferred<CoroutineContext>()
+    val launchedContext = CompletableDeferred<CoroutineContext>()
+
+    val action = object : AnAction() {
+      override fun actionPerformed(e: AnActionEvent) {
+        modalityInAction.complete(ModalityState.current())
+        lockElementInAction.complete(application.threadingSupport.getLockContextElement() as CoroutineContext.Element)
+        scopeContext.complete(e.coroutineScope.coroutineContext)
+        e.coroutineScope.launch {
+          launchedContext.complete(currentCoroutineContext())
+        }
+      }
+    }
+
+    val event = com.intellij.testFramework.TestActionEvent.createTestEvent(action)
+    val outerLockElement = withContext(Dispatchers.EDT) {
+      WriteIntentReadAction.compute {
+        val outer = application.threadingSupport.getLockContextElement() as CoroutineContext.Element
+        val result = emulateModalDialog {
+          ActionUtil.performAction(action, event)
+        }
+        Assertions.assertTrue(result is AnActionResult.Performed, "Action should be performed")
+        outer
+      }
+    }
+
+    val modality = modalityInAction.await()
+    val lockElement = lockElementInAction.await()
+    Assertions.assertNotEquals(ModalityState.nonModal(), modality, "Action must run in the modality of the dialog")
+    Assertions.assertNotSame(outerLockElement, lockElement, "Modal dialog must parallelize the lock")
+
+    val scope = scopeContext.await()
+    Assertions.assertEquals(modality, scope.contextModality(), "Action scope must inherit the modality of the dialog")
+    Assertions.assertSame(lockElement, scope[lockElement.key], "Action scope must inherit the parallelized lock of the dialog")
+
+    val launched = launchedContext.await()
+    Assertions.assertEquals(modality, launched.contextModality(), "Coroutine must inherit the modality of the dialog")
+    Assertions.assertSame(lockElement, launched[lockElement.key], "Coroutine must inherit the parallelized lock of the dialog")
+  }
+}
+
+/**
+ * Repeats the steps of [com.intellij.openapi.ui.impl.DialogWrapperPeerImpl.show] for a modal dialog,
+ * because a dialog in a headless test is never modal.
+ */
+private fun <T> emulateModalDialog(body: () -> T): T {
+  val modalEntity = Any()
+  LaterInvocator.enterModal(modalEntity)
+  try {
+    val (lockContext, lockCleanup) = application.threadingSupport.parallelizeLock(false)
+    try {
+      return installThreadContext(lockContext, true) {
+        WriteIntentReadAction.compute<T> { body() }
+      }
+    }
+    finally {
+      lockCleanup()
+    }
+  }
+  finally {
+    LaterInvocator.leaveModal(modalEntity)
   }
 }
 
