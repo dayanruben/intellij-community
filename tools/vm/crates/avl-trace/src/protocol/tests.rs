@@ -107,7 +107,8 @@ impl Session {
                 );
                 self.done = true;
             }
-            Command::Hello(_) | Command::Restart | Command::DriverSteps(_) => {}
+            Command::Attach(attach) => self.require_open(line, attach.span),
+            Command::Hello(_) | Command::Restart => {}
         }
     }
 }
@@ -311,8 +312,8 @@ fn decode_command_refuses_what_the_contract_does_not_name() {
         ("an unknown phase", r#"{"op":"snap","span":0,"phase":"idle"}"#),
         ("an unknown status", r#"{"op":"done","status":"green"}"#),
         (
-            "an unknown step status",
-            r#"{"op":"driverSteps","steps":[{"name":"a","start":1,"stop":2,"status":"ok"}]}"#,
+            "the removed driverSteps op",
+            r#"{"op":"driverSteps","steps":[{"name":"a","start":1,"stop":2,"status":"passed"}]}"#,
         ),
         (
             "a parent opened later",
@@ -332,7 +333,30 @@ fn decode_command_refuses_what_the_contract_does_not_name() {
             "a call without a start",
             r#"{"op":"call","span":0,"request":"Ping","startMs":0,"durationMs":1,"ok":true}"#,
         ),
-        ("no driver step", r#"{"op":"driverSteps","steps":[]}"#),
+        (
+            "a label without a value",
+            r#"{"op":"scenario","name":"a","testClass":"C","lane":"UI","labels":[{"name":"feature","value":""}]}"#,
+        ),
+        (
+            "an unknown label field",
+            r#"{"op":"scenario","name":"a","testClass":"C","lane":"UI","labels":[{"name":"feature","value":"f","kind":"x"}]}"#,
+        ),
+        (
+            "an attachment without a file",
+            r#"{"op":"attach","name":"a","mime":"text/plain","file":"","span":0}"#,
+        ),
+        (
+            "an attachment without a span",
+            r#"{"op":"attach","name":"a","mime":"text/plain","file":"/r/a.txt"}"#,
+        ),
+        (
+            "a pass with a failure's message",
+            r#"{"op":"done","status":"passed","message":"expected <a>"}"#,
+        ),
+        (
+            "a pass with a trace",
+            r#"{"op":"done","status":"passed","trace":"java.lang.AssertionError"}"#,
+        ),
         (
             "a program that is no JSON object",
             r#"{"op":"scenario","name":"a","testClass":"C","lane":"UI","program":"x"}"#,
@@ -432,18 +456,33 @@ fn every_vocabulary_declares_its_own_words_only() {
     assert!(refused::<Launcher>("gradle"));
     assert!(refused::<CaptureSource>("vnc"));
     assert!(refused::<VideoCodec>("av1"));
-    assert!(refused::<DriverStepStatus>("ok"));
     assert!(refused::<crate::bundle::BundleStatus>("running"));
     for op in Op::ALL {
         assert_eq!(Op::from_word(op.as_str()), Some(*op));
         assert_eq!(serde_json::to_string(op).unwrap(), format!("{:?}", op.as_str()));
     }
-    // An Allure step without a status is accepted: an unfinished step has none.
-    let unfinished = decode_command(br#"{"op":"driverSteps","steps":[{"name":"a","start":1,"stop":0}]}"#).unwrap();
-    let Command::DriverSteps(driver) = unfinished else {
-        panic!("not driver steps")
+}
+
+/// The three report fields round-trip in their canonical form: the scenario's labels, an attachment, and the
+/// failure a done carries.
+#[test]
+fn labels_attachments_and_a_failed_done_are_canonical() {
+    for line in [
+        r#"{"op":"scenario","name":"a","testClass":"C","lane":"UI","labels":[{"name":"testMethod","value":"a()"},{"name":"feature","value":"Air <flows> & more"}]}"#,
+        r#"{"op":"attach","name":"Start-up classes","mime":"text/plain","file":"/r/run/attach/1.txt","span":3}"#,
+        r#"{"op":"done","status":"failed","message":"expected <a> & <b>","trace":"java.lang.AssertionError\nat com.intellij.air.Flow.<init>(Flow.kt:1)"}"#,
+        r#"{"op":"done","status":"aborted","message":"assumption failed"}"#,
+        r#"{"op":"done","status":"failed"}"#,
+    ] {
+        let command = decode_command(line.as_bytes()).unwrap_or_else(|error| panic!("{line}: {error}"));
+        assert_eq!(String::from_utf8(encode_command(&command).unwrap()).unwrap(), line);
+    }
+    let Command::Attach(attach) = decode_command(br#"{"op":"attach","name":"n","mime":"image/png","file":"/r/x.png","span":2}"#).unwrap()
+    else {
+        panic!("not an attach");
     };
-    assert_eq!(driver.steps[0].status, None);
+    assert_eq!((attach.span, attach.mime.as_str()), (2, "image/png"));
+    assert!(!Op::Attach.is_acked(), "an attachment costs the scenario no time");
 }
 
 fn command_line() -> impl Strategy<Value = String> {

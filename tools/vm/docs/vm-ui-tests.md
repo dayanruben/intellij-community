@@ -776,6 +776,21 @@ journal. `run`'s text verdict ends with a traces block, one line for each scenar
 or with `traces: not pulled: <reason>`. The JSON report names each zip and its bundles in `traceArchives`, and
 a failed pull in `tracesError`.
 
+**Allure results.** At the end of each scenario, the recorder also writes one Allure result into
+`<root>/<runId>/allure-results/`, beside the bundles of the run. The result has a step for each lane span, with the
+Before and After pictures of the step and the files that the lane attached to it. It also attaches the video, the
+`idea.log` slice and the path of the bundle. The attachment files sit in the same directory. The lane runs no Allure
+code. A pulled zip holds the results of the bundles it holds. Open the results of a run with the Allure command line:
+
+```bash
+allure serve out/air-traces/<runId>/allure-results
+```
+
+Unzip a Bazel `outputs.zip` or a pulled zip first, and pass the `allure-results` directory inside it. `allure serve`
+takes more than one directory, so the zips of one run open as one report. On TeamCity, the Air UI lane builds already
+publish `bazel.logs.zip`, which holds every Bazel test output. So the results reach TeamCity inside it. Nothing
+uploads them to Allure TestOps yet.
+
 **Opening them.** One server shows every bundle and every `vm.cmd` run on this machine, live, in the Air docs
 site:
 

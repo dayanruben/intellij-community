@@ -333,14 +333,7 @@ fn the_example_spans_are_the_transcripts_spans() {
             event::SPAN_STARTED
         );
     }
-    for name in [
-        event::SPAN_STARTED,
-        event::SNAPSHOT,
-        event::INPUT,
-        event::BRIDGE_CALL,
-        event::VIDEO,
-        event::DRIVER_STEP,
-    ] {
+    for name in [event::SPAN_STARTED, event::SNAPSHOT, event::INPUT, event::BRIDGE_CALL, event::VIDEO] {
         assert!(
             events.contains_key(name),
             "the example holds no {name} record, and the viewer is built against every kind"
