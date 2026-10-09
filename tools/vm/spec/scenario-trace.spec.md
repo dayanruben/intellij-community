@@ -172,8 +172,9 @@ pin the Kotlin and TypeScript ends to it.
   expectation sentence. Every span carries `air.span.status`, because OTLP has no word for aborted.
   [@test] ../crates/avl-trace/src/otlp/tests.rs
 
-- The span kinds are `reset`, `setup`, `step`, `operation`, `action`, `assertion`, `journey` and `restart`.
-  A span key is `<kind>:<id>` and holds no counter, time or path.
+- The span kinds are `reset`, `setup`, `step`, `operation`, `action`, `assertion`, `journey`, `restart` and
+  `relaunch`. A `relaunch` span is one part of the relaunch that a `restart` span holds. A span key is
+  `<kind>:<id>` and holds no counter, time or path.
   [@test] ../crates/avl-trace/src/protocol/tests.rs
 
 - Every log record is an event correlated with a span. The events are `air.span.started`, `air.snapshot`,

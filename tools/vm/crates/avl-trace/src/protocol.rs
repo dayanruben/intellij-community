@@ -68,14 +68,16 @@ vocabulary! {
         Assertion = "assertion",
         /// One step of a hand-authored journey, which has no generated program.
         Journey = "journey",
-        /// An IDE restart a scenario asked for.
+        /// An IDE relaunch: a restart a scenario asked for, or a recycle of an IDE the lane cannot drive.
         Restart = "restart",
+        /// One part of an IDE relaunch: the quit, the launch, the readiness gate, or a part of one of them.
+        Relaunch = "relaunch",
     }
 }
 
 /// The stable key of a span, the `air.span.key` attribute: `<kind>:<id>`, where the id is the flow step, operation
-/// or instruction id, `before` or `after` for a reset, `ide` for a restart, and the journey step's title for a
-/// journey.
+/// or instruction id, `before` or `after` for a reset, `ide` or `recycle` for a restart, the part for a relaunch,
+/// such as `quit/exit`, and the journey step's title for a journey.
 ///
 /// It is how two runs of one scenario are compared step by step, so it must not contain anything that differs
 /// between runs: no counter, no timestamp, no path. The kind prefix keeps a setup and the operation it runs apart,

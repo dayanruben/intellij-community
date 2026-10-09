@@ -485,6 +485,28 @@ fn labels_attachments_and_a_failed_done_are_canonical() {
     assert!(!Op::Attach.is_acked(), "an attachment costs the scenario no time");
 }
 
+/// A relaunch is one `restart` span, `restart:ide` or `restart:recycle`, with the restart op inside it and a
+/// `relaunch` span for each of its parts under it.
+#[test]
+fn a_relaunch_is_a_restart_span_with_its_parts_under_it() {
+    let lines = [
+        r#"{"op":"span","id":4,"parent":3,"kind":"restart","key":"restart:recycle","title":"[restart] recycle"}"#,
+        r#"{"op":"restart"}"#,
+        r#"{"op":"span","id":5,"parent":4,"kind":"relaunch","key":"relaunch:quit","title":"[relaunch] quit"}"#,
+        r#"{"op":"span","id":6,"parent":5,"kind":"relaunch","key":"relaunch:quit/exit","title":"[relaunch] process exit"}"#,
+    ];
+    let mut kinds = Vec::new();
+    for line in lines {
+        let command = decode_command(line.as_bytes()).unwrap_or_else(|error| panic!("{line}: {error}"));
+        assert_eq!(String::from_utf8(encode_command(&command).unwrap()).unwrap(), line);
+        if let Command::Span(span) = command {
+            assert_eq!(span.key, span_key(span.kind, span.key.split_once(':').unwrap().1));
+            kinds.push(span.kind);
+        }
+    }
+    assert_eq!(kinds, [SpanKind::Restart, SpanKind::Relaunch, SpanKind::Relaunch]);
+}
+
 fn command_line() -> impl Strategy<Value = String> {
     let word = "[a-z<>& ]{1,8}";
     prop_oneof![
