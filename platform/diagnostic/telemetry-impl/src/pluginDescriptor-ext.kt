@@ -6,7 +6,9 @@ import com.intellij.openapi.extensions.PluginDescriptor
 internal val pluginsExplicitlyAllowedToExportOT = setOf(
   "org.jetbrains.toolbox-enterprise-client",
   "com.intellij.ml.llm",
-  "com.jetbrains.otp.diagnostic"
+  "com.jetbrains.otp.diagnostic",
+  // The in-IDE test bridge of the Air UI lanes, which loads from the IDE context and not from the distribution.
+  "com.intellij.air.integrationTests.bridge.plugin",
 )
 
 internal fun PluginDescriptor.isAllowedToExportOT(): Boolean {
