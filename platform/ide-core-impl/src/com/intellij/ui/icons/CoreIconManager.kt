@@ -17,6 +17,7 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.DummyIcon
 import com.intellij.openapi.util.Iconable
 import com.intellij.openapi.util.Iconable.ICON_FLAG_FAST_ONLY
 import com.intellij.openapi.util.findIconUsingDeprecatedImplementation
@@ -204,6 +205,10 @@ class CoreIconManager : IconManager, CoreAwareIconManager {
   override fun withIconBadge(icon: Icon, color: Paint): Icon = BadgeIcon(icon, color)
 
   override fun colorizedIcon(baseIcon: Icon, colorProvider: () -> Color): Icon {
+    // A test JVM that loaded the icon before it activated the icon manager holds a dummy icon. There is nothing to colorize.
+    if (baseIcon is DummyIcon) {
+      return baseIcon
+    }
     if (baseIcon !is CachedImageIcon) {
       thisLogger().error("$baseIcon must be instance of CachedImageIcon (actualClass=${baseIcon::class.java})")
       return baseIcon
