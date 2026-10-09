@@ -1,11 +1,16 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.intellij.lang.regexp;
 
-import com.intellij.testFramework.LexerTestCase;
-import org.jetbrains.annotations.NotNull;
+import com.intellij.lexer.Lexer;
+import com.intellij.platform.testFramework.junit5.codeInsight.fixture.LexerTestFixture;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
+import com.intellij.testFramework.junit5.fixture.TestFixtures;
+import org.junit.jupiter.api.Test;
 
 import java.util.EnumSet;
+import java.util.function.Supplier;
 
+import static com.intellij.platform.testFramework.junit5.codeInsight.fixture.LexerTestFixtureKt.lexerFixture;
 import static org.intellij.lang.regexp.RegExpCapability.ALLOW_EMPTY_CHARACTER_CLASS;
 import static org.intellij.lang.regexp.RegExpCapability.COMMENT_MODE;
 import static org.intellij.lang.regexp.RegExpCapability.DANGLING_METACHARACTERS;
@@ -26,11 +31,25 @@ import static org.intellij.lang.regexp.RegExpCapability.PCRE_NUMBERED_GROUP_REF;
 import static org.intellij.lang.regexp.RegExpCapability.POSIX_BRACKET_EXPRESSIONS;
 import static org.intellij.lang.regexp.RegExpCapability.TRANSFORMATION_ESCAPES;
 import static org.intellij.lang.regexp.RegExpCapability.WHITESPACE_IN_CLASS;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * @author Bas Leijdekkers
  */
-public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
+@TestFixtures
+public class RegExpLexerTest {
+  private Supplier<? extends Lexer> myLexerFactory;
+  private final TestFixture<LexerTestFixture> lexer = lexerFixture("", ".txt", true, false, () -> myLexerFactory.get());
+
+  private void setLexerFactory(Supplier<? extends Lexer> lexerFactory) {
+    myLexerFactory = lexerFactory;
+  }
+
+  private void doTest(String text, String expected) {
+    lexer.get().doTest(text, expected);
+  }
+
+  @Test
   public void testAtomicGroup() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.noneOf(RegExpCapability.class)));
     doTest("(?>atom)", """
@@ -47,6 +66,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
       GROUP_END (')')""");
   }
 
+  @Test
   public void testAmpersand() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.noneOf(RegExpCapability.class)));
     doTest("[a&&]", """
@@ -57,6 +77,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
       CLASS_END (']')""");
   }
 
+  @Test
   public void testQE() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.noneOf(RegExpCapability.class)));
     doTest("\\Q\r\n\\E", """
@@ -67,6 +88,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
       QUOTE_END ('\\E')""");
   }
 
+  @Test
   public void testEditorReplacement() {
     final String text = "\\U$1\\E\\u$3\\l$4\\L$2\\E";
     setLexerFactory(() -> new RegExpLexer(EnumSet.of(TRANSFORMATION_ESCAPES)));
@@ -104,6 +126,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
       INVALID_CHARACTER_ESCAPE_TOKEN ('\\E')""");
   }
 
+  @Test
   public void testIntersection() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.of(NESTED_CHARACTER_CLASSES)));
     doTest("[a&&]", """
@@ -113,6 +136,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
       CLASS_END (']')""");
   }
 
+  @Test
   public void testCarets() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.noneOf(RegExpCapability.class)));
     doTest("^\\^[^^]", """
@@ -124,6 +148,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
       CLASS_END (']')""");
   }
 
+  @Test
   public void testPosixBracketExpression() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.of(POSIX_BRACKET_EXPRESSIONS)));
     doTest("[[:xdigit:]]", """
@@ -134,6 +159,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
       CLASS_END (']')""");
   }
 
+  @Test
   public void testNegatedPosixBracketExpression() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.of(POSIX_BRACKET_EXPRESSIONS)));
     doTest("[[:^xdigit:]]", """
@@ -145,6 +171,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
       CLASS_END (']')""");
   }
 
+  @Test
   public void testMysqlCharExpressions() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.of(MYSQL_BRACKET_EXPRESSIONS)));
     doTest("[[.~.][.tilda.][.NUL.][.plus-sign.]]", """
@@ -164,6 +191,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
       CLASS_END (']')""");
   }
 
+  @Test
   public void testMysqlCharEqExpressions() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.of(MYSQL_BRACKET_EXPRESSIONS)));
     doTest("[[=.=][=c=]]", """
@@ -180,6 +208,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
   /**
    * \\177 is the maximum valid octal character under Ruby.
    */
+  @Test
   public void testMaxOctalNoLeadingZero1() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.of(OCTAL_NO_LEADING_ZERO, MAX_OCTAL_177)));
     doTest("\\177\\200", """
@@ -192,6 +221,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
    * \\377 is the maximum valid octal character under javascript. \\400 is interpreted as \\40 followed by a 0 character.
    * The BAD_OCT_VALUE token is converted to OCT_CHAR in com.intellij.lang.javascript.inject.JSRegexpParserDefinition
    */
+  @Test
   public void testMaxOctalNoLeadingZero2() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.of(OCTAL_NO_LEADING_ZERO, MAX_OCTAL_377)));
     doTest("\\177\\200\\377\\400", """
@@ -205,6 +235,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
   /**
    * \\777 is valid octal character in python regex dialect.
    */
+  @Test
   public void testMaxOctalNoLeadingZero3() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.of(OCTAL_NO_LEADING_ZERO)));
     doTest("\\177\\200\\377\\400\\777", """
@@ -218,6 +249,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
   /**
    * \\1 and \\11 valid under js, both inside and outside character class
    */
+  @Test
   public void testOctalNoLeadingZero1() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.of(OCTAL_NO_LEADING_ZERO)));
     doTest("\\1()\\1\\11[\\1\\11]", """
@@ -235,6 +267,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
   /**
    * \\1 not valid and \\11 valid under ruby, outside character class
    */
+  @Test
   public void testOctalNoLeadingZero2() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.of(OCTAL_NO_LEADING_ZERO, MIN_OCTAL_2_DIGITS)));
     doTest("\\1()\\1\\11[\\1\\11]", """
@@ -252,6 +285,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
   /**
    * \\1 and \\11 not valid under python, outside character class
    */
+  @Test
   public void testOctalNoLeadingZero3() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.of(OCTAL_NO_LEADING_ZERO, MIN_OCTAL_3_DIGITS)));
     doTest("\\1()\\1\\11\\111[\\1\\11\\111]", """
@@ -270,6 +304,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
 
 
   /** octal is never a back reference inside a character class, valid under js, ruby, python */
+  @Test
   public void testOctalInsideCharClass() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.of(OCTAL_NO_LEADING_ZERO)));
     doTest("()()()()()()()()()()[\\1\\10\\100]", """
@@ -301,6 +336,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
   }
 
   /** \0 always valid under js, ruby, python regex dialects, never a back reference. */
+  @Test
   public void testZeroOctalNoLeadingZero() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.of(OCTAL_NO_LEADING_ZERO)));
     doTest("\\0()\\0[\\0]", """
@@ -314,9 +350,10 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
   }
 
   /** three digit octal (\100) always valid, either octal or backreference under js, ruby and python */
+  @Test
   public void testThreeDigitOctalNoLeadingZero() {
-    final RegExpLexer lexer = new RegExpLexer(EnumSet.of(OCTAL_NO_LEADING_ZERO));
-    String result = printTokens(lexer, "\\100" +
+    final RegExpLexer regExpLexer = new RegExpLexer(EnumSet.of(OCTAL_NO_LEADING_ZERO));
+    String result = LexerTestFixture.printTokens("\\100" +
                                        "()()()()()()()()()()" +
                                        "()()()()()()()()()()" +
                                        "()()()()()()()()()()" +
@@ -326,7 +363,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
                                        "()()()()()()()()()()" +
                                        "()()()()()()()()()()" +
                                        "()()()()()()()()()()" +
-                                       "()()()()()()()()()()\\100[\\100]", 0);
+                                       "()()()()()()()()()()\\100[\\100]", 0, regExpLexer);
     
     assertTrue(result.endsWith("""
                                  BACKREF ('\\100')
@@ -336,6 +373,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
                                  """));
   }
 
+  @Test
   public void testOctalFollowedByDigit() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.of(OCTAL_NO_LEADING_ZERO)));
     doTest("\\39[\\39]", """
@@ -347,6 +385,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
       CLASS_END (']')""");
   }
 
+  @Test
   public void testOctalWithLeadingZero() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.noneOf(RegExpCapability.class)));
     doTest("\\0\\123[\\123]", """
@@ -361,6 +400,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
       CLASS_END (']')""");
   }
 
+  @Test
   public void testOctalWithLeadingZero2() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.noneOf(RegExpCapability.class)));
     doTest("\\08\\01\\00\\012\\0123\\0377\\0400", """
@@ -375,6 +415,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
       CHARACTER ('0')""");
   }
 
+  @Test
   public void testBackReference() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.noneOf(RegExpCapability.class)));
     doTest("(a)(b)(c)(d)(e)(f)(g)(h)(i)(j)\\105", """
@@ -412,6 +453,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
       CHARACTER ('5')""");
   }
 
+  @Test
   public void testPcreBackReference() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.of(PCRE_BACK_REFERENCES)));
     doTest("(a)\\g105", """
@@ -421,6 +463,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
       BACKREF ('\\g105')""");
   }
 
+  @Test
   public void testPcreRelativeBackReference() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.of(PCRE_BACK_REFERENCES)));
     doTest("(a)\\g{105}", """
@@ -430,6 +473,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
       BACKREF ('\\g{105}')""");
   }
 
+  @Test
   public void testPcreRelativeNegativeBackReference() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.of(PCRE_BACK_REFERENCES)));
     doTest("(a)\\g{-105}", """
@@ -439,6 +483,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
       BACKREF ('\\g{-105}')""");
   }
 
+  @Test
   public void testPcreRelativeNegativeInvalidBackReference() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.of(PCRE_BACK_REFERENCES)));
     doTest("(a)\\g-105", """
@@ -452,6 +497,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
       CHARACTER ('5')""");
   }
 
+  @Test
   public void testPcreConditionDefine() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.of(PCRE_CONDITIONS)));
     doTest("(?(DEFINE)(?<Name>\\w+))(?P>Name)", """
@@ -471,6 +517,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
       GROUP_END (')')""");
   }
 
+  @Test
   public void testPcreConditionVersion() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.of(PCRE_CONDITIONS)));
     doTest("(?(VERSION>=10.7)yes|no)", """
@@ -487,6 +534,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
       GROUP_END (')')""");
   }
 
+  @Test
   public void testNoPcreCondition() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.noneOf(RegExpCapability.class)));
     doTest("(?(DEFINE)(?<Name>\\w+))(?P>Name)", """
@@ -506,6 +554,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
       GROUP_END (')')""");
   }
 
+  @Test
   public void testNoNestedCharacterClasses1() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.noneOf(RegExpCapability.class)));
     doTest("[[\\]]", """
@@ -515,6 +564,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
       CLASS_END (']')""");
   }
 
+  @Test
   public void testNoNestedCharacterClasses2() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.noneOf(RegExpCapability.class)));
     doTest("[a-z&&[^aeuoi]]", """
@@ -535,6 +585,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
       CHARACTER (']')""");
   }
 
+  @Test
   public void testNestedCharacterClasses1() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.of(NESTED_CHARACTER_CLASSES)));
     doTest("[a-z&&[^aeuoi]]", """
@@ -554,6 +605,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
       CLASS_END (']')""");
   }
 
+  @Test
   public void testNestedCharacterClasses2() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.of(NESTED_CHARACTER_CLASSES)));
     doTest("[]]", """
@@ -666,6 +718,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
       CLASS_END (']')""");
   }
 
+  @Test
   public void testBoundaries() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.noneOf(RegExpCapability.class)));
     doTest("\\b\\b{g}\\B\\A\\z\\Z\\G[\\b\\b{g}\\B\\A\\z\\Z\\G]", """
@@ -690,6 +743,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
       CLASS_END (']')""");
   }
 
+  @Test
   public void testValidEscapes() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.noneOf(RegExpCapability.class)));
     doTest("\\%\\ä", "REDUNDANT_ESCAPE ('\\%')\n" +
@@ -734,6 +788,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
       ESC_CHARACTER ('\\}')""");
   }
 
+  @Test
   public void testEscapesInsideCharClass() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.noneOf(RegExpCapability.class)));
     doTest("[\\k<a> (?<t>t)\\g'q'\\R]", """
@@ -772,6 +827,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
       CLASS_END (']')""");
   }
 
+  @Test
   public void testUnicode() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.of(EXTENDED_UNICODE_CHARACTER)));
     doTest("\\u{1F680}\\x{1F680}\\u{}\\u{1}\\u{FF}\\x{fff}\\u1234\\u123\\u", """
@@ -796,6 +852,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
       CHARACTER ('}')""");
   }
 
+  @Test
   public void testHexChar() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.of(ONE_HEX_CHAR_ESCAPE)));
     doTest("\\x\\x1\\x01", """
@@ -810,6 +867,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
       HEX_CHAR ('\\x01')""");
   }
 
+  @Test
   public void testQuantifier() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.of(DANGLING_METACHARACTERS, OMIT_NUMBERS_IN_QUANTIFIERS)));
     doTest("a{,10}", """
@@ -888,6 +946,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
       CHARACTER ('}')""");
   }
 
+  @Test
   public void testQuantifier2() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.of(DANGLING_METACHARACTERS)));
     doTest("a{,10}", """
@@ -899,6 +958,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
       CHARACTER ('}')""");
   }
 
+  @Test
   public void testQuantifier3() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.of(DANGLING_METACHARACTERS, OMIT_NUMBERS_IN_QUANTIFIERS,
                                                                    OMIT_BOTH_NUMBERS_IN_QUANTIFIERS)));
@@ -915,6 +975,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
       CHARACTER ('}')""");
   }
 
+  @Test
   public void testControlCharacters() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.noneOf(RegExpCapability.class)));
     doTest("\\n\\b\\t\\r\\f[\\n\\b\\t\\r\\f]", """
@@ -945,6 +1006,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
       CLASS_END (']')""");
   }
 
+  @Test
   public void testCaret() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.noneOf(RegExpCapability.class)));
     doTest("[\\^\\^]\\^", """
@@ -955,6 +1017,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
       ESC_CHARACTER ('\\^')""");
   }
 
+  @Test
   public void testPoundSign() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.noneOf(RegExpCapability.class)));
     doTest("\\#(?x)\\#", """
@@ -965,6 +1028,7 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
       ESC_CHARACTER ('\\#')""");
   }
 
+  @Test
   public void testNumberedGroupRef() {
     setLexerFactory(() -> new RegExpLexer(EnumSet.of(PCRE_NUMBERED_GROUP_REF)));
     doTest("(abcd)(?1)", """
@@ -975,15 +1039,5 @@ public class RegExpLexerTest extends LexerTestCase.WithLexerFactory {
       CHARACTER ('d')
       GROUP_END (')')
       PCRE_NUMBERED_GROUP_REF ('(?1)')""");
-  }
-
-  @Override
-  protected void checkCorrectRestart(@NotNull String text) {
-    // NOOP. The test fails if enabled
-  }
-
-  @Override
-  protected @NotNull String getDirPath() {
-    throw new AssertionError();
   }
 }
