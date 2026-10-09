@@ -3,8 +3,8 @@
 `BT --lane ui` and `--lane ui-real` launch a real IDE with `InputEventsRobot`. That robot posts
 component-relative events through the IDE event queue, and it never moves the physical pointer.
 `BT --lane gui-chat` may still use `SmoothRobot` and physical input. A UI lane is run and judged in
-a VM, and the controller's default is a Linux container on a Docker engine, which on a Mac is a Lima
-VM. The VM isolates the host session, and it gives a failure a real screenshot. Never move a run onto the host silently.
+a VM, and the controller's default is a Linux container on a Docker engine. On a Mac that engine is Apple
+`container`, or a Lima VM on a macOS older than 26. The VM isolates the host session, and it gives a failure a real screenshot. Never move a run onto the host silently.
 
 The flow lanes validate Swing and AWT component behaviour. They do not validate native title bars
 and menus, OS dialogs, WindowServer hit testing, or physical focus. That coverage stays separate.
@@ -54,11 +54,11 @@ runs in it.
 
 | | Docker (default) | Tart macOS | Parallels |
 | --- | --- | --- | --- |
-| machine | a container on the controller's Lima VM, or on the engine that `DOCKER_BIN` or `DOCKER_HOST` names | a Tart VM | one Parallels VM |
+| machine | a container on Apple `container` or on the controller's Lima VM, or on the engine that `DOCKER_BIN` or `DOCKER_HOST` names | a Tart VM | one Parallels VM |
 | image | a Dockerfile from a digest-pinned `ubuntu:26.04`, pulled from the JetBrains registry by its content tag, built when the pull fails | a sealed Packer golden | one pre-existing VM |
 | session | `Xvfb :88` and fluxbox, from the image's entrypoint | Aqua | Aqua |
-| root disk and memory | the engine VM's, shared by every container | 120 GB, 32 GiB | the VM's own |
-| `pool stop` | stops the container, then the Lima VM when nothing is leased, keeps nothing warm | `tart suspend`, keeps the daemon and the IDE | suspends |
+| root disk and memory | on Apple `container` a VM of its own, 8 GiB; on Lima the engine VM's, shared by every container | 120 GB, 32 GiB | the VM's own |
+| `pool stop` | stops the container, and on Lima then the VM when nothing is leased, keeps nothing warm | `tart suspend`, keeps the daemon and the IDE | suspends |
 | Robot screenshot | a real frame | black, see ADR 0113 | a real frame |
 | Peekaboo | no | no | yes |
 | provenance | the base digest and the image tag | a seal receipt per worker | none |
@@ -222,17 +222,19 @@ removes the container and its volume. `pool gc` removes stopped, unleased contai
 volumes. `vnc`, `peekaboo` and `image validate|build` have no meaning here, and they refuse with
 `unsupported_backend_operation` (exit 2).
 
-One rule decides the engine, and no flag selects it. When `DOCKER_BIN` or `DOCKER_HOST` names an
-engine, the controller runs that CLI against that engine. When neither variable is set, a macOS host
-runs a Docker CLI that Bazel pins against a Lima VM that the controller owns. So a Mac installs
-nothing, as for Tart. OrbStack is the fast path, and the first two lane rows of the cost table ran on
-it. A Mac with OrbStack keeps it with one variable:
+One rule decides the engine, and no flag selects it ([ADR 0224](decisions/0224-apple-container-is-the-default-engine-of-a-mac.md)). When `DOCKER_BIN` or
+`DOCKER_HOST` names an engine, the controller runs that CLI against that engine. When neither variable
+is set, a macOS host of macOS 26 or newer, on Apple silicon, runs Apple `container`. An older macOS runs
+a Docker CLI that Bazel pins against a Lima VM that the controller owns. `AIR_VM_DOCKER_ENGINE=lima` or
+`AIR_VM_DOCKER_ENGINE=container` overrides the version either way. The controller reads the version
+from the host at each command. So a Mac installs nothing, as for Tart. OrbStack is the fast path, and
+the first two lane rows of the cost table ran on it. A Mac with OrbStack keeps it with one variable:
 
 ```bash
 export DOCKER_HOST=unix://$HOME/.orbstack/run/docker.sock   # or DOCKER_BIN=<OrbStack's docker>
 ```
 
-The VM is `air-docker-engine` under `AIR_VM_LIMA_HOME`, made from `community/tools/vm/docker/engine.lima.yaml`.
+The Lima VM is `air-docker-engine` under `AIR_VM_LIMA_HOME`, made from `community/tools/vm/docker/engine.lima.yaml`.
 It boots Ubuntu 26.04 and runs a rootful `dockerd` of the Ubuntu archive. Lima forwards the Docker socket
 through its SSH connection, and on 26.04 that connection runs over vsock, not through Lima's userspace
 network stack ([ADR 0191](decisions/0191-the-engine-vm-leaves-the-usernet-path.md)). The VM has one
@@ -264,15 +266,19 @@ DOCKER_CONFIG="<runtime root>/docker-config" docker login <registry>
 
 A Linux or a Windows host keeps the engine it has, because Lima needs QEMU on Linux and WSL2 on Windows.
 
-A Mac on Apple silicon can run the workers on Apple `container` instead of Lima, with
-`AIR_VM_DOCKER_ENGINE=container` and neither `DOCKER_BIN` nor `DOCKER_HOST` set
-([ADR 0222](decisions/0222-apple-container-is-a-second-engine-of-the-docker-backend.md)). Lima stays the default.
-Each container is a VM of its own. The controller runs the Apple CLI that Bazel pins in
+On Apple `container` ([ADR 0222](decisions/0222-apple-container-is-a-second-engine-of-the-docker-backend.md)),
+each container is a VM of its own. The controller runs the Apple CLI that Bazel pins in
 `community/tools/vm/container.MODULE.bazel`, or the one that `CONTAINER_BIN` names. It runs no Docker CLI and no buildx.
 
 ```bash
-env -u DOCKER_HOST AIR_VM_DOCKER_ENGINE=container ./community/tools/vm.cmd run AgentSessionToolWindowComposerUiTest
+env -u DOCKER_HOST ./community/tools/vm.cmd run AgentSessionToolWindowComposerUiTest
 ```
+
+- **The move from Lima.** The first `run` or `pool start` on Apple `container` makes the worker
+  containers again on that engine, and it downloads the worker image from the file mirror. The Lima VM stays on disk, and a
+  running one keeps its memory. `AIR_VM_DOCKER_ENGINE=lima ./community/tools/vm.cmd pool stop` stops it,
+  and `AIR_VM_DOCKER_ENGINE=lima ./community/tools/vm.cmd pool recycle all` deletes it
+  ([ADR 0224](decisions/0224-apple-container-is-the-default-engine-of-a-mac.md)).
 
 - **One server per login session.** The controller uses the server that runs, on the default data root of the tool.
   It never stops the server, because a `system stop` stops every container of the session, also the containers of

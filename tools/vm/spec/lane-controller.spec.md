@@ -306,8 +306,10 @@ The rest of the scenario matrix is in
   [@test] ../crates/avl-vm/src/worker/docker/tests.rs
   [@test] ../crates/avl-base/src/config/tests.rs
 
-- On a macOS host, `AIR_VM_DOCKER_ENGINE=container` runs the Docker workers on Apple `container`. A host that
-  names an engine in `DOCKER_BIN` or `DOCKER_HOST` keeps that engine. The Lima engine is the default.
+- A macOS host that names no engine runs the Docker workers on Apple `container` from macOS 26 on Apple silicon.
+  An older macOS runs them on the Lima engine. `AIR_VM_DOCKER_ENGINE=lima` or `container` overrides the version. A
+  host that names an engine in `DOCKER_BIN` or `DOCKER_HOST` keeps that engine.
+  [@test] ../crates/avl-base/src/config/tests.rs (`the_macos_version_chooses_the_engine`)
   [@test] ../crates/avl-base/src/config/tests.rs (`the_container_choice_applies_only_to_a_mac_that_names_no_engine`)
 
 - On Apple `container`, the controller uses the server of the login session and never stops it. It starts a server

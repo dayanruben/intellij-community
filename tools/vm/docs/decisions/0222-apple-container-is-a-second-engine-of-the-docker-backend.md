@@ -14,6 +14,9 @@ lanes are green on Apple `container` on at least two hosts. The number skips the
 the docs here also cite the ADRs of `plugins/air/docs/decisions`, and 0211 to 0221 are taken there. How the lane uses
 the engine is [the VM guide](../vm-ui-tests.md).
 
+Amended on 2026-10-09: [ADR 0224](0224-apple-container-is-the-default-engine-of-a-mac.md) makes Apple `container` the
+default on macOS 26 or newer, on Apple silicon. `AIR_VM_DOCKER_ENGINE` of item 1 becomes an override of that rule.
+
 ## Context
 
 The Lima engine of ADR 0189 costs a lot for one engine: a 632-line module, a VM template, three Bazel pins (the

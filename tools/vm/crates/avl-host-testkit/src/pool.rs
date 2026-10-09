@@ -158,9 +158,10 @@ impl HostPoolBuilder {
     }
 
     /// Runs the Docker pool on the Lima engine, whatever the host is: the settings load as a macOS host loads them,
-    /// with neither `DOCKER_BIN` nor `DOCKER_HOST`, so the real engine rule chooses Lima and the pinned CLI, and the
-    /// load derives the engine disk and checks the socket path. The fake `limactl` stands beside the fake `docker`, and
-    /// `AIR_VM_LIMA_HOME` is under the root. A suite resolves the pinned tools through [`HostPool::pinned_bazel`].
+    /// with `AIR_VM_DOCKER_ENGINE=lima` and neither `DOCKER_BIN` nor `DOCKER_HOST`, so the real engine rule chooses Lima
+    /// and the pinned CLI on every macOS release. The load derives the engine disk and checks the socket path. The
+    /// fake `limactl` stands beside the fake `docker`, and `AIR_VM_LIMA_HOME` is under the root. A suite resolves the
+    /// pinned tools through [`HostPool::pinned_bazel`].
     #[must_use]
     pub const fn with_lima_engine(mut self) -> Self {
         self.lima_engine = true;
@@ -236,6 +237,7 @@ impl HostPoolBuilder {
             if self.lima_engine {
                 // The directory holds it; `pinned_bazel` finds it there.
                 drop(fake.install_beside(Binary::Limactl));
+                environment.push(("AIR_VM_DOCKER_ENGINE".to_owned(), "lima".to_owned()));
             }
             if self.container_engine {
                 let container = fake.install_beside(Binary::Container);

@@ -79,9 +79,18 @@ pub fn docker_buildx_label(arch: GuestArch) -> String {
 /// `container` engine ([`DockerEngine::AppleContainer`]), unless `CONTAINER_BIN` names another executable.
 pub const CONTAINER_LABEL: &str = "@community//tools/vm:air_container_darwin_arm64";
 
-/// Chooses the engine of the Docker backend on a macOS host: `lima`, the default, or `container`. The variable is
-/// read only when neither `DOCKER_BIN` nor `DOCKER_HOST` names an engine. ADR 0222 records the transition.
+/// Chooses the engine of the Docker backend on a macOS host: `lima` or `container`. Unset, the macOS version chooses
+/// ([`MacosHost::runs_apple_container`]). The variable is read only when neither `DOCKER_BIN` nor `DOCKER_HOST` names
+/// an engine. ADR 0222 added the variable, and ADR 0224 made it an override of the version rule.
 pub const DOCKER_ENGINE_VARIABLE: &str = "AIR_VM_DOCKER_ENGINE";
+
+/// The first major version of macOS on which Apple `container` is the default engine. Apple `container` 1.5.0 needs
+/// macOS 26. An older macOS runs the Lima engine.
+pub const CONTAINER_MACOS_MAJOR: u32 = 26;
+
+/// The file in which macOS keeps its release. [`MacosHost::read`] reads `ProductVersion` from it, so the load starts
+/// no `sw_vers`.
+const SYSTEM_VERSION_PLIST: &str = "/System/Library/CoreServices/SystemVersion.plist";
 
 /// The default memory of one worker on the Apple `container` engine, in MiB. Each container is a VM of its own, and
 /// the live lane's container peaked at 6.3 GiB on 2026-10-04 (ADR 0200). A running VM returns no memory to the host
@@ -442,13 +451,53 @@ impl HostOs {
     }
 }
 
+/// A macOS host as the engine rule reads it ([`DockerEngine::decide`]).
+///
+/// [`Config::load`] reads it once from the host. A test pins it, as it pins the [`HostOs`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MacosHost {
+    /// The major version of the release: 26 for macOS 26.0.1.
+    pub major: u32,
+    /// Whether the processor is Apple silicon. Apple builds `container` for Apple silicon only.
+    pub apple_silicon: bool,
+}
+
+impl MacosHost {
+    /// This host, or `None` when it is not macOS or when its version file names no version.
+    pub fn read() -> Option<Self> {
+        if HostOs::CURRENT != HostOs::Macos {
+            return None;
+        }
+        let plist = std::fs::read_to_string(SYSTEM_VERSION_PLIST).ok()?;
+        Some(Self {
+            major: product_major(&plist)?,
+            apple_silicon: cfg!(target_arch = "aarch64"),
+        })
+    }
+
+    /// Whether Apple `container` is the default engine of this host: macOS [`CONTAINER_MACOS_MAJOR`] or newer, on
+    /// Apple silicon.
+    pub const fn runs_apple_container(self) -> bool {
+        self.apple_silicon && self.major >= CONTAINER_MACOS_MAJOR
+    }
+}
+
+/// The major version of `ProductVersion` in the XML of `SystemVersion.plist`: the digits before the first dot of the
+/// string that follows the key.
+fn product_major(plist: &str) -> Option<u32> {
+    let (_, after_key) = plist.split_once("<key>ProductVersion</key>")?;
+    let (version, _) = after_key.trim_start().strip_prefix("<string>")?.split_once("</string>")?;
+    version.trim().split('.').next()?.parse().ok()
+}
+
 /// The engine the containers of a Docker pool run on. It follows the environment and the host.
 ///
 /// When the environment names an engine, through `DOCKER_BIN` or `DOCKER_HOST`, the backend runs that CLI against
-/// that engine. When it names none, a macOS host runs the pinned CLI against a Lima VM the controller owns, so a Mac
-/// needs no Docker installation. [`DOCKER_ENGINE_VARIABLE`] set to `container` chooses the Apple `container` engine
-/// there instead. A Linux or a Windows host keeps the engine it has, because Lima needs QEMU on Linux and WSL2 on
-/// Windows, and both are installations too.
+/// that engine. When it names none, a macOS host runs an engine that needs no Docker installation. On macOS 26 or
+/// newer, on Apple silicon, that is Apple `container`. On an older macOS it is a Lima VM the controller owns, with the
+/// pinned Docker CLI. [`DOCKER_ENGINE_VARIABLE`] chooses either engine instead of the version rule. A Linux or a
+/// Windows host keeps the engine it has, because Lima needs QEMU on Linux and WSL2 on Windows, and both are
+/// installations too.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum DockerEngine {
     /// The engine of the host environment: `DOCKER_HOST`, or the default context of the CLI.
@@ -461,15 +510,17 @@ pub enum DockerEngine {
 }
 
 impl DockerEngine {
-    /// The engine rule, as a pure function of the host, of the two variables that name an engine, and of the choice
-    /// of [`DOCKER_ENGINE_VARIABLE`].
-    pub const fn decide(host: HostOs, docker_bin_set: bool, docker_host_set: bool, apple_container_chosen: bool) -> Self {
+    /// The engine rule, as a pure function of the host, of its macOS release, of the two variables that name an
+    /// engine, and of the choice of [`DOCKER_ENGINE_VARIABLE`], which is [`DockerEngine::Lima`] or
+    /// [`DockerEngine::AppleContainer`] when it is set. A macOS host of unknown release runs the Lima engine.
+    pub const fn decide(host: HostOs, macos: Option<MacosHost>, docker_bin_set: bool, docker_host_set: bool, chosen: Option<Self>) -> Self {
         if docker_bin_set || docker_host_set || !matches!(host, HostOs::Macos) {
-            Self::External
-        } else if apple_container_chosen {
-            Self::AppleContainer
-        } else {
-            Self::Lima
+            return Self::External;
+        }
+        match (chosen, macos) {
+            (Some(engine), _) => engine,
+            (None, Some(macos)) if macos.runs_apple_container() => Self::AppleContainer,
+            (None, _) => Self::Lima,
         }
     }
 
@@ -584,7 +635,7 @@ impl Selection {
     ///
     /// Docker and not Tart, on each host for its own reason:
     ///
-    /// - a macOS host runs the pinned CLI against the controller's Lima engine ([`DockerEngine::Lima`]), so it needs
+    /// - a macOS host runs Apple `container` or the controller's Lima engine ([`DockerEngine::decide`]), so it needs
     ///   no installation, as Tart needs none;
     /// - a Linux host has no Tart at all, because Tart runs only on macOS, so a Tart default there named a backend
     ///   that cannot exist;
@@ -1113,13 +1164,20 @@ impl Presentation {
 
 impl Config {
     /// Resolves one invocation's settings, or refuses the environment. `workspace_dir` is [`WORKSPACE_DIR`] of the
-    /// checkout, which the image pipeline is found relative to.
+    /// checkout, which the image pipeline is found relative to. The macOS release is read from the host here, once.
     pub fn load(selection: Selection, environment: &Environment, workspace_dir: &Path) -> Result<Self, Refusal> {
-        Self::load_on(HostOs::CURRENT, selection, environment, workspace_dir)
+        Self::load_on(HostOs::CURRENT, MacosHost::read(), selection, environment, workspace_dir)
     }
 
-    /// [`Config::load`] as a controller on `host` resolves it, so a test can resolve the settings of another host.
-    pub fn load_on(host: HostOs, selection: Selection, environment: &Environment, workspace_dir: &Path) -> Result<Self, Refusal> {
+    /// [`Config::load`] as a controller on `host` of the macOS release `macos` resolves it, so a test can resolve the
+    /// settings of another host. Only a macOS host reads `macos`.
+    pub fn load_on(
+        host: HostOs,
+        macos: Option<MacosHost>,
+        selection: Selection,
+        environment: &Environment,
+        workspace_dir: &Path,
+    ) -> Result<Self, Refusal> {
         let Selection { backend, guest_os } = selection;
         if !host.drives(backend) {
             return Err(Refusal::new(
@@ -1183,18 +1241,18 @@ impl Config {
         // The engine rule reads the two variables as they are set, before a default fills `docker`.
         let docker_bin = reader.optional("DOCKER_BIN").map(PathBuf::from);
         let docker_host = reader.optional("DOCKER_HOST");
-        let engine_choice = reader.string(DOCKER_ENGINE_VARIABLE, "lima");
-        let apple_container_chosen = match engine_choice.as_str() {
-            "lima" => false,
-            "container" => true,
-            other => {
+        let chosen_engine = match reader.optional(DOCKER_ENGINE_VARIABLE).as_deref() {
+            None => None,
+            Some("lima") => Some(DockerEngine::Lima),
+            Some("container") => Some(DockerEngine::AppleContainer),
+            Some(other) => {
                 reader.refuse(Refusal::invalid_environment(format!(
                     r#"{DOCKER_ENGINE_VARIABLE} must be "lima" or "container", not {other:?}"#
                 )));
-                false
+                None
             }
         };
-        let docker_engine = DockerEngine::decide(host, docker_bin.is_some(), docker_host.is_some(), apple_container_chosen);
+        let docker_engine = DockerEngine::decide(host, macos, docker_bin.is_some(), docker_host.is_some(), chosen_engine);
         let vm_dns = reader.optional("AIR_VM_DNS");
         if let Some(dns) = vm_dns.as_deref()
             && dns.parse::<std::net::IpAddr>().is_err()

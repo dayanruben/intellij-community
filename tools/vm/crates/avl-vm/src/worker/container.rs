@@ -1,5 +1,6 @@
-//! The Apple `container` engine: the second engine of the Docker backend on a macOS host, chosen by
-//! `AIR_VM_DOCKER_ENGINE=container` ([`avl_base::DockerEngine::AppleContainer`], ADR 0222).
+//! The Apple `container` engine: the engine of the Docker backend on a macOS host of macOS 26 or newer, on Apple
+//! silicon, or where `AIR_VM_DOCKER_ENGINE=container` chooses it ([`avl_base::DockerEngine::AppleContainer`], ADR 0222,
+//! ADR 0224).
 //!
 //! Apple `container` runs each container in a VM of its own. Its CLI has the shape of the Docker CLI, so the backend
 //! keeps its lifecycle and renders each command in the dialect of this CLI (`Dialect` in the Docker module). This
@@ -210,7 +211,7 @@ impl AppleContainer {
     pub(crate) async fn ensure_running(&self, ctx: &Ctx, program: &Path) -> Result<(), Refusal> {
         if self.settings.guest_arch != GuestArch::Arm64 {
             return Err(unsupported(
-                "the Apple container engine runs on Apple silicon only; unset AIR_VM_DOCKER_ENGINE to use the Lima engine",
+                "the Apple container engine runs on Apple silicon only; set AIR_VM_DOCKER_ENGINE=lima to use the Lima engine",
             ));
         }
         let status = self.status(ctx, program).await?;

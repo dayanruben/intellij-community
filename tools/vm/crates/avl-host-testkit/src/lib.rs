@@ -17,7 +17,7 @@ use std::fmt::Debug;
 use std::path::Path;
 use std::sync::Arc;
 
-use avl_base::config::HostOs;
+use avl_base::config::{HostOs, MacosHost};
 use avl_base::report::{Buffer, Mode, Terminal};
 use avl_base::{Backend, Config, Environment, GuestOs, Outcome, Refusal, Reporter, Selection};
 use avl_host_sys::{Interrupts, Runner};
@@ -74,11 +74,26 @@ pub fn load_config(backend: Backend, guest_os: GuestOs, environment: &[(String, 
     load_config_on(HostOs::CURRENT, backend, guest_os, environment, root)
 }
 
+/// The macOS release every fixture loads on: macOS 26 on Apple silicon, the first release that runs Apple `container`
+/// by default. Pinned and not read from the host, so a suite resolves the same engine on every macOS release. A suite
+/// that needs one engine still chooses it ([`crate::pool::HostPoolBuilder::with_lima_engine`],
+/// [`crate::pool::HostPoolBuilder::with_container_engine`]).
+pub const FIXTURE_MACOS: MacosHost = MacosHost {
+    major: 26,
+    apple_silicon: true,
+};
+
 /// [`load_config`] as a controller on `host` resolves it, for a fixture of a macOS host on every host.
 pub fn load_config_on(host: HostOs, backend: Backend, guest_os: GuestOs, environment: &[(String, String)], root: &Path) -> Config {
     let environment = Environment::from_pairs(environment.iter().cloned());
-    Config::load_on(host, Selection { backend, guest_os }, &environment, &root.join("scripts"))
-        .unwrap_or_else(|refusal| panic!("the environment was refused on {host}: {refusal:?}"))
+    Config::load_on(
+        host,
+        Some(FIXTURE_MACOS),
+        Selection { backend, guest_os },
+        &environment,
+        &root.join("scripts"),
+    )
+    .unwrap_or_else(|refusal| panic!("the environment was refused on {host}: {refusal:?}"))
 }
 
 /// The refusal a call was expected to answer.

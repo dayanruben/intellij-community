@@ -58,10 +58,10 @@ and `:air-trace` natively.
 entrypoint `air-display`. The entrypoint starts the X display and the window manager. The image carries the guest
 Node (ADR 0210). `avl-vm` embeds both files and
 builds the image; nobody builds it by hand. The base is `DOCKER_BASE_IMAGE` in `community/tools/vm/provision/versions.env`.
-`docker/engine.lima.yaml` is the template of the Lima VM that runs the engine on a macOS host (ADR 0189). `avl-vm`
-embeds it too. `docker.MODULE.bazel` pins the Docker CLI and its `docker-buildx` plugin, and `lima.MODULE.bazel` pins
-Lima. `container.MODULE.bazel` pins Apple `container`, the second engine of a Mac (`AIR_VM_DOCKER_ENGINE=container`,
-ADR 0222).
+`container.MODULE.bazel` pins Apple `container`, the engine of a Mac on macOS 26 or newer (ADR 0222, ADR 0224).
+`docker/engine.lima.yaml` is the template of the Lima VM that runs the engine on an older macOS, or with
+`AIR_VM_DOCKER_ENGINE=lima` (ADR 0189). `avl-vm` embeds it too. `docker.MODULE.bazel` pins the Docker CLI and its
+`docker-buildx` plugin, and `lima.MODULE.bazel` pins Lima.
 
 ## Crates
 

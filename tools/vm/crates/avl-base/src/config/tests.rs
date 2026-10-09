@@ -43,17 +43,34 @@ fn docker() -> Selection {
     }
 }
 
+/// macOS 15 on Apple silicon: the release a macOS host of these tests resolves on, unless a test names another. It
+/// runs the Lima engine by default.
+const MACOS_15: MacosHost = MacosHost {
+    major: 15,
+    apple_silicon: true,
+};
+
+/// macOS 26 on Apple silicon: the first release that runs Apple `container` by default.
+const MACOS_26: MacosHost = MacosHost {
+    major: 26,
+    apple_silicon: true,
+};
+
 fn load(selection: Selection, environment: &Environment) -> Config {
     load_on(POOL_HOST, selection, environment)
 }
 
 fn load_on(host: HostOs, selection: Selection, environment: &Environment) -> Config {
-    Config::load_on(host, selection, environment, Path::new(WORKSPACE))
+    load_on_release(host, MACOS_15, selection, environment)
+}
+
+fn load_on_release(host: HostOs, macos: MacosHost, selection: Selection, environment: &Environment) -> Config {
+    Config::load_on(host, Some(macos), selection, environment, Path::new(WORKSPACE))
         .unwrap_or_else(|refusal| panic!("the environment was refused on {host}: {refusal:?}"))
 }
 
 fn refuse_on(host: HostOs, selection: Selection, environment: &Environment) -> Refusal {
-    match Config::load_on(host, selection, environment, Path::new(WORKSPACE)) {
+    match Config::load_on(host, Some(MACOS_15), selection, environment, Path::new(WORKSPACE)) {
         Ok(config) => panic!("the environment was accepted on {host}: {config:?}"),
         Err(refusal) => refusal,
     }
@@ -208,8 +225,8 @@ fn a_windows_host_drives_only_docker() {
     assert_eq!(load_on(HostOs::Windows, docker(), &env(&[])).backend, Backend::Docker);
 }
 
-// Every host that is given no backend runs the Docker pool and loads its settings: a Mac on the Lima engine, a Linux
-// host, which has no Tart, and a Windows host, which drives Docker only, on the engine they have.
+// Every host that is given no backend runs the Docker pool and loads its settings: a Mac of macOS 15 on the Lima engine,
+// a Linux host, which has no Tart, and a Windows host, which drives Docker only, on the engine they have.
 #[test]
 fn every_host_defaults_to_docker() {
     for (host, engine) in [
@@ -856,6 +873,7 @@ fn root_disk_options_accept_only_tarts_own_spelling() {
     for value in ["caching=cached,sync=none", "sync=none", "caching", ""] {
         let result = Config::load_on(
             POOL_HOST,
+            Some(MACOS_15),
             tart_macos(),
             &env(&[("AIR_VM_ROOT_DISK_OPTS", value)]),
             Path::new("/repo"),
@@ -865,6 +883,7 @@ fn root_disk_options_accept_only_tarts_own_spelling() {
     for value in ["caching=Cached", "sync=none;rm -rf /", "sync = none", "caching,,sync"] {
         let result = Config::load_on(
             POOL_HOST,
+            Some(MACOS_15),
             tart_macos(),
             &env(&[("AIR_VM_ROOT_DISK_OPTS", value)]),
             Path::new("/repo"),
@@ -1107,7 +1126,7 @@ fn a_docker_backend_with_a_macos_guest_is_refused() {
 
 // --- the Docker engine -----------------------------------------------------------------------------------------
 
-/// The engine rule: a variable that names an engine wins on every host, and with neither set a macOS host runs the
+/// The engine rule: a variable that names an engine wins on every host, and with neither set a macOS 15 host runs the
 /// Lima engine with the pinned CLI, and another host runs `docker` on `PATH` against the engine it has.
 #[test]
 fn the_docker_engine_follows_the_environment_and_the_host() {
@@ -1168,6 +1187,91 @@ fn the_docker_engine_follows_the_environment_and_the_host() {
     }
     // The engine is a fact of the Docker backend only: a Tart pool on a Mac runs no Lima engine.
     assert!(!load_on(HostOs::Macos, tart_macos(), &env(&[])).runs_lima_engine());
+}
+
+/// The version rule of a macOS host that names no engine: macOS 26 or newer on Apple silicon runs Apple `container`,
+/// and an older macOS runs the Lima engine. `AIR_VM_DOCKER_ENGINE` overrides the version either way, and
+/// `DOCKER_HOST` still names the external engine. ADR 0224 records the rule.
+#[test]
+fn the_macos_version_chooses_the_engine() {
+    let intel_26 = MacosHost {
+        apple_silicon: false,
+        ..MACOS_26
+    };
+    let macos_27 = MacosHost { major: 27, ..MACOS_26 };
+    type Case<'a> = (MacosHost, &'a [(&'a str, &'a str)], DockerEngine);
+    let cases: [Case<'_>; 10] = [
+        (MACOS_26, &[], DockerEngine::AppleContainer),
+        (macos_27, &[], DockerEngine::AppleContainer),
+        (MACOS_15, &[], DockerEngine::Lima),
+        // Apple builds `container` for Apple silicon only.
+        (intel_26, &[], DockerEngine::Lima),
+        (MACOS_26, &[("AIR_VM_DOCKER_ENGINE", "lima")], DockerEngine::Lima),
+        (MACOS_15, &[("AIR_VM_DOCKER_ENGINE", "container")], DockerEngine::AppleContainer),
+        (MACOS_26, &[("DOCKER_HOST", "unix:///var/run/docker.sock")], DockerEngine::External),
+        (
+            MACOS_26,
+            &[
+                ("DOCKER_HOST", "unix:///var/run/docker.sock"),
+                ("AIR_VM_DOCKER_ENGINE", "container"),
+            ],
+            DockerEngine::External,
+        ),
+        (MACOS_26, &[("DOCKER_BIN", "/opt/orbstack/bin/docker")], DockerEngine::External),
+        // An empty variable reads as unset, so the version chooses.
+        (MACOS_26, &[("AIR_VM_DOCKER_ENGINE", "")], DockerEngine::AppleContainer),
+    ];
+    for (macos, pairs, engine) in cases {
+        let config = load_on_release(HostOs::Macos, macos, docker(), &env(pairs));
+        assert_eq!(config.docker_engine, engine, "{macos:?} {pairs:?}");
+    }
+    // A macOS host whose release is unknown runs the Lima engine.
+    let unknown = Config::load_on(HostOs::Macos, None, docker(), &env(&[]), Path::new(WORKSPACE)).unwrap();
+    assert_eq!(unknown.docker_engine, DockerEngine::Lima);
+    // The release takes no part on another host.
+    for host in [HostOs::Linux, HostOs::Windows] {
+        assert_eq!(
+            load_on_release(host, MACOS_26, docker(), &env(&[])).docker_engine,
+            DockerEngine::External,
+            "{host}"
+        );
+    }
+    // A macOS 26 worker gets the memory of one container, and no engine disk.
+    let config = load_on_release(HostOs::Macos, MACOS_26, docker(), &env(&[]));
+    assert_eq!((config.vm_memory_mib, config.vm_root_disk_gb), (CONTAINER_WORKER_MEMORY_MIB, 0));
+    assert_eq!(CONTAINER_MACOS_MAJOR, 26);
+}
+
+/// A macOS host reads its release from its version file, and another host has none.
+#[test]
+fn the_host_reads_its_own_release() {
+    let release = MacosHost::read();
+    if HostOs::CURRENT == HostOs::Macos {
+        let release = release.expect("a macOS host names its release");
+        assert!(release.major >= 11, "{release:?}");
+        assert_eq!(release.apple_silicon, cfg!(target_arch = "aarch64"));
+    } else {
+        assert_eq!(release, None);
+    }
+}
+
+/// The release comes from `ProductVersion` of `SystemVersion.plist`, in the XML that macOS 27.0.1 writes.
+#[test]
+fn the_macos_release_is_the_major_of_the_product_version() {
+    let plist = |version: &str| {
+        format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<plist version=\"1.0\">\n<dict>\n\t<key>ProductBuildVersion</key>\n\
+             \t<string>26A434</string>\n\t<key>ProductUserVisibleVersion</key>\n\t<string>{version}</string>\n\
+             \t<key>ProductVersion</key>\n\t<string>{version}</string>\n</dict>\n</plist>\n"
+        )
+    };
+    assert_eq!(product_major(&plist("27.0.1")), Some(27));
+    assert_eq!(product_major(&plist("26.0")), Some(26));
+    assert_eq!(product_major(&plist("15.7.3")), Some(15));
+    assert_eq!(product_major(&plist("26")), Some(26));
+    assert_eq!(product_major(&plist("")), None);
+    assert_eq!(product_major(&plist("x.1")), None);
+    assert_eq!(product_major("<plist><dict></dict></plist>"), None);
 }
 
 /// The Lima home is under the XDG state directory on every host, so the socket path stays short, and its files are
