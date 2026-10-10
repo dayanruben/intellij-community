@@ -6,6 +6,7 @@ import com.intellij.codeInsight.CodeInsightSettings
 import com.intellij.codeInsight.editorActions.enter.EnterHandlerDelegate
 import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.actionSystem.EditorActionHandler
 import com.intellij.openapi.util.Ref
@@ -17,6 +18,7 @@ import com.intellij.psi.codeStyle.CodeStyleManager
 import com.intellij.psi.tree.TokenSet
 import com.intellij.util.IncorrectOperationException
 import org.jetbrains.kotlin.idea.KotlinFileType
+import org.jetbrains.kotlin.kdoc.lexer.KDocTokens
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.KtDotQualifiedExpression
 import org.jetbrains.kotlin.psi.KtFunctionLiteral
@@ -63,6 +65,8 @@ class KotlinEnterHandler : EnterHandlerDelegate {
 
         if (caretOffset !in 0..text.length) return EnterHandlerDelegate.Result.Continue
 
+        if (prepareKDocEndOnSeparateLine(file, editor, caretOffset)) return EnterHandlerDelegate.Result.Continue
+
         val elementAt = file.findElementAt(caretOffset)
         if (elementAt is PsiWhiteSpace && elementAt.textContains('\n')) return EnterHandlerDelegate.Result.Continue
 
@@ -87,6 +91,61 @@ class KotlinEnterHandler : EnterHandlerDelegate {
         }
 
         return EnterHandlerDelegate.Result.Continue
+    }
+
+    private fun prepareKDocEndOnSeparateLine(file: PsiFile, editor: Editor, caretOffset: Int): Boolean {
+        val document = editor.document
+        PsiDocumentManager.getInstance(file.project).commitDocument(document)
+
+        val text = document.charsSequence
+        val lineNumber = document.getLineNumber(caretOffset)
+        val lineStartOffset = document.getLineStartOffset(lineNumber)
+        val lineEndOffset = document.getLineEndOffset(lineNumber)
+        val kDocStartOffset = findKDocStartOffset(file, text, lineStartOffset, caretOffset) ?: return false
+        val kDocEndOffset = findKDocEndOffset(file, text, caretOffset, lineEndOffset) ?: return false
+        val prefix = text.subSequence(lineStartOffset, kDocStartOffset).toString() + " "
+        val insertionOffset = deleteSeparatorBeforeKDocEnd(document, caretOffset, kDocEndOffset)
+
+        document.insertString(insertionOffset, "\n$prefix")
+        return true
+    }
+
+    private fun findKDocStartOffset(file: PsiFile, text: CharSequence, startOffset: Int, endOffset: Int): Int? {
+        var offset = endOffset - 1
+        while (offset >= startOffset) {
+            if (offset < text.length - 2 &&
+                text.startsWith("/**", offset, false) &&
+                file.findElementAt(offset)?.node?.elementType == KDocTokens.START
+            ) {
+                return offset
+            }
+            offset--
+        }
+        return null
+    }
+
+    private fun findKDocEndOffset(file: PsiFile, text: CharSequence, startOffset: Int, endOffset: Int): Int? {
+        var offset = startOffset
+        while (offset < endOffset - 1) {
+            if (text.startsWith("*/", offset, false) && file.findElementAt(offset)?.node?.elementType == KDocTokens.END) {
+                return offset
+            }
+            offset++
+        }
+        return null
+    }
+
+    private fun deleteSeparatorBeforeKDocEnd(document: Document, minOffset: Int, kDocEndOffset: Int): Int {
+        var offset = kDocEndOffset
+        val text = document.charsSequence
+        while (offset > minOffset && text[offset - 1].let { it == ' ' || it == '\t' }) {
+            offset--
+        }
+        if (offset < kDocEndOffset) {
+            document.deleteString(offset, kDocEndOffset)
+            return offset
+        }
+        return kDocEndOffset
     }
 
     // We can't use the core platform logic (EnterInStringLiteralHandler) because it assumes that the string
