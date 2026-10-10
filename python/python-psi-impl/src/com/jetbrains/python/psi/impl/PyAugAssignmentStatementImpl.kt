@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.psi.impl
 
 import com.intellij.lang.ASTNode
@@ -32,11 +32,5 @@ class PyAugAssignmentStatementImpl(astNode: ASTNode) : PyElementImpl(astNode), P
 
   override fun getReference(context: PyResolveContext): PsiPolyVariantReference {
     return PyOperatorReference(this, context)
-  }
-
-  override fun getArguments(resolvedCallee: PyCallable?): List<PyExpression> {
-    // `value` may be null for an incomplete statement (e.g. `x +=` with no right-hand side),
-    // mirror PyBinaryExpression and return an empty list instead of throwing (PY-90019).
-    return listOfNotNull(if (isRightOperator(resolvedCallee)) target else value)
   }
 }

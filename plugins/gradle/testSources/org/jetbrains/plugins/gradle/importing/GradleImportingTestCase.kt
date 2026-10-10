@@ -254,6 +254,10 @@ abstract class GradleImportingTestCase : JavaExternalSystemImportingTestCase() {
       config = injectRepo(config)
     }
     super.importProject(config, skipIndexing)
+  }
+
+  override fun importProject() {
+    super.importProject()
     handleDeprecationError(deprecationError.get())
   }
 
@@ -296,7 +300,7 @@ abstract class GradleImportingTestCase : JavaExternalSystemImportingTestCase() {
   }
 
   protected open fun handleDeprecationError(errorInfo: Couple<String>?) {
-    if (errorInfo == null) return
+    if (errorInfo == null || isWarningsAllowed) return
     handleImportFailure(errorInfo.first!!, errorInfo.second)
   }
 

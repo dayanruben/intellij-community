@@ -18,11 +18,15 @@ package com.intellij.util.xml.impl;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.editor.Document;
+import com.intellij.openapi.module.Module;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.PsiDocumentManager;
+import com.intellij.psi.PsiFile;
 import com.intellij.psi.XmlElementFactory;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.psi.xml.XmlTag;
+import com.intellij.testFramework.junit5.TestApplication;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.xml.CustomChildren;
 import com.intellij.util.xml.DomElement;
@@ -33,245 +37,287 @@ import com.intellij.util.xml.GenericAttributeValue;
 import com.intellij.util.xml.SubTag;
 import com.intellij.util.xml.TypeChooser;
 import com.intellij.util.xml.events.DomEvent;
+import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Type;
 import java.util.Arrays;
 import java.util.List;
 
-public class TreeIncrementalUpdateTest extends DomTestCase {
+import static com.intellij.testFramework.EdtTestUtil.runInEdtAndWait;
+import static com.intellij.util.xml.impl.DomTestFixtures.domModuleFixture;
+import static com.intellij.util.xml.impl.DomTestFixtures.domTestFixture;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+@TestApplication
+public class TreeIncrementalUpdateTest {
+  private static final TestFixture<Module> moduleFixture = domModuleFixture();
+  private final TestFixture<DomTestFixture> domFixture = domTestFixture(moduleFixture);
+
+  @Test
   public void testRenameCollectionTag() {
-    final MyElement rootElement = createPhysicalElement(
-      """
-        <?xml version='1.0' encoding='UTF-8'?>
-        <a>
-         <boy>
-         </boy>
-         <girl/>
-        </a>""");
-    myCallRegistry.clear();
-    assertEquals(1, rootElement.getBoys().size());
-    assertEquals(1, rootElement.getGirls().size());
-    final MyElement oldBoy = rootElement.getBoys().get(0);
-    final XmlTag tag = oldBoy.getXmlTag();
-    assertNotNull(tag);
-    final int offset = tag.getTextOffset();
-    final int endoffset = offset + tag.getTextLength();
-    WriteCommandAction.runWriteCommandAction(getProject(), () -> {
-      rootElement.getGirls().get(0).undefine();
-      final Document document = getDocument(DomUtil.getFile(rootElement));
-      PsiDocumentManager.getInstance(getProject()).doPostponedOperationsAndUnblockDocument(document);
-      document.replaceString(offset + 1, offset + 1 + "boy".length(), "girl");
-      commitDocument(document);
+    runInEdtAndWait(() -> {
+      final MyElement rootElement = createPhysicalElement(
+        """
+          <?xml version='1.0' encoding='UTF-8'?>
+          <a>
+           <boy>
+           </boy>
+           <girl/>
+          </a>""");
+      domFixture.get().getCallRegistry().clear();
+      assertEquals(1, rootElement.getBoys().size());
+      assertEquals(1, rootElement.getGirls().size());
+      final MyElement oldBoy = rootElement.getBoys().get(0);
+      final XmlTag tag = oldBoy.getXmlTag();
+      assertNotNull(tag);
+      final int offset = tag.getTextOffset();
+      final int endoffset = offset + tag.getTextLength();
+      WriteCommandAction.runWriteCommandAction(domFixture.get().getProject(), () -> {
+        rootElement.getGirls().get(0).undefine();
+        final Document document = getDocument(DomUtil.getFile(rootElement));
+        PsiDocumentManager.getInstance(domFixture.get().getProject()).doPostponedOperationsAndUnblockDocument(document);
+        document.replaceString(offset + 1, offset + 1 + "boy".length(), "girl");
+        commitDocument(document);
+      });
+      assertFalse(oldBoy.isValid());
+      assertEquals(0, rootElement.getBoys().size());
+      assertEquals(1, rootElement.getGirls().size());
+      WriteCommandAction.runWriteCommandAction(domFixture.get().getProject(), () -> {
+        final Document document = getDocument(DomUtil.getFile(rootElement));
+        document.replaceString(endoffset - "boy".length(), endoffset, "girl");
+        commitDocument(document);
+      });
+      assertEquals(0, rootElement.getBoys().size());
+      assertEquals(1, rootElement.getGirls().size());
     });
-    assertFalse(oldBoy.isValid());
-    assertEquals(0, rootElement.getBoys().size());
-    assertEquals(1, rootElement.getGirls().size());
-    WriteCommandAction.runWriteCommandAction(getProject(), () -> {
-      final Document document = getDocument(DomUtil.getFile(rootElement));
-      document.replaceString(endoffset - "boy".length(), endoffset, "girl");
-      commitDocument(document);
-    });
-    assertEquals(0, rootElement.getBoys().size());
-    assertEquals(1, rootElement.getGirls().size());
+  }
+
+  private Document getDocument(PsiFile file) {
+    return PsiDocumentManager.getInstance(domFixture.get().getProject()).getDocument(file);
+  }
+
+  private void commitDocument(Document document) {
+    PsiDocumentManager.getInstance(domFixture.get().getProject()).commitDocument(document);
   }
 
   private MyElement createPhysicalElement(final String text) throws IncorrectOperationException {
-    final XmlFile file = (XmlFile)createFile("file.xml", text);
-    final DomFileElementImpl<MyElement> fileElement = getDomManager().getFileElement(file, MyElement.class, "a");
+    final XmlFile file = (XmlFile)domFixture.get().createFile("file.xml", text);
+    final DomFileElementImpl<MyElement> fileElement = domFixture.get().getDomManager().getFileElement(file, MyElement.class, "a");
     final MyElement rootElement = fileElement.getRootElement();
     return rootElement;
   }
 
+  @Test
   public void testRenameFixedTag() {
-    final XmlFile file = (XmlFile)createFile("file.xml", """
-      <?xml version='1.0' encoding='UTF-8'?>
-      <a>
-       <aboy>
-       </aboy>
-       <agirl/>
-      </a>""");
-    final DomFileElementImpl<MyElement> fileElement = getDomManager().getFileElement(file, MyElement.class, "a");
-    myCallRegistry.clear();
-    final MyElement rootElement = fileElement.getRootElement();
-    assertNotNull(rootElement.getAboy().getXmlElement());
-    assertNotNull(rootElement.getAgirl().getXmlElement());
-    final MyElement oldBoy = rootElement.getAboy();
-    final XmlTag tag = oldBoy.getXmlTag();
-    assertNotNull(tag);
-    final int offset = tag.getTextOffset();
-    final int endoffset = offset + tag.getTextLength();
-    WriteCommandAction.runWriteCommandAction(getProject(), () -> {
-      rootElement.getAgirl().undefine();
-      final Document document = getDocument(file);
-      PsiDocumentManager.getInstance(getProject()).doPostponedOperationsAndUnblockDocument(document);
-      document.replaceString(offset + 1, offset + 1 + "aboy".length(), "agirl");
-      commitDocument(document);
+    runInEdtAndWait(() -> {
+      final XmlFile file = (XmlFile)domFixture.get().createFile("file.xml", """
+        <?xml version='1.0' encoding='UTF-8'?>
+        <a>
+         <aboy>
+         </aboy>
+         <agirl/>
+        </a>""");
+      final DomFileElementImpl<MyElement> fileElement = domFixture.get().getDomManager().getFileElement(file, MyElement.class, "a");
+      domFixture.get().getCallRegistry().clear();
+      final MyElement rootElement = fileElement.getRootElement();
+      assertNotNull(rootElement.getAboy().getXmlElement());
+      assertNotNull(rootElement.getAgirl().getXmlElement());
+      final MyElement oldBoy = rootElement.getAboy();
+      final XmlTag tag = oldBoy.getXmlTag();
+      assertNotNull(tag);
+      final int offset = tag.getTextOffset();
+      final int endoffset = offset + tag.getTextLength();
+      WriteCommandAction.runWriteCommandAction(domFixture.get().getProject(), () -> {
+        rootElement.getAgirl().undefine();
+        final Document document = getDocument(file);
+        PsiDocumentManager.getInstance(domFixture.get().getProject()).doPostponedOperationsAndUnblockDocument(document);
+        document.replaceString(offset + 1, offset + 1 + "aboy".length(), "agirl");
+        commitDocument(document);
+      });
+      assertFalse(oldBoy.isValid());
+      assertNull(rootElement.getAboy().getXmlElement());
+      assertNotNull(rootElement.getAgirl().getXmlElement());
+      WriteCommandAction.runWriteCommandAction(domFixture.get().getProject(), () -> {
+        final Document document = getDocument(file);
+        document.replaceString(endoffset - "aboy".length(), endoffset, "agirl");
+        commitDocument(document);
+      });
+      assertNull(rootElement.getAboy().getXmlElement());
+      assertNotNull(rootElement.getAgirl().getXmlElement());
     });
-    assertFalse(oldBoy.isValid());
-    assertNull(rootElement.getAboy().getXmlElement());
-    assertNotNull(rootElement.getAgirl().getXmlElement());
-    WriteCommandAction.runWriteCommandAction(getProject(), () -> {
-      final Document document = getDocument(file);
-      document.replaceString(endoffset - "aboy".length(), endoffset, "agirl");
-      commitDocument(document);
-    });
-    assertNull(rootElement.getAboy().getXmlElement());
-    assertNotNull(rootElement.getAgirl().getXmlElement());
   }
 
+  @Test
   public void testDocumentChange() {
-    final XmlFile file = (XmlFile)createFile("file.xml", """
-      <?xml version='1.0' encoding='UTF-8'?>
-      <a>
-       <child>
-        <child/>
-       </child>
-      </a>""");
-    final DomFileElementImpl<MyElement> fileElement =
-      getDomManager().getFileElement(file, MyElement.class, "a");
-    myCallRegistry.clear();
-    final MyElement rootElement = fileElement.getRootElement();
-    final MyElement oldLeaf = rootElement.getChild().getChild();
-    final XmlTag oldLeafTag = oldLeaf.getXmlTag();
+    runInEdtAndWait(() -> {
+      final XmlFile file = (XmlFile)domFixture.get().createFile("file.xml", """
+        <?xml version='1.0' encoding='UTF-8'?>
+        <a>
+         <child>
+          <child/>
+         </child>
+        </a>""");
+      final DomFileElementImpl<MyElement> fileElement =
+        domFixture.get().getDomManager().getFileElement(file, MyElement.class, "a");
+      domFixture.get().getCallRegistry().clear();
+      final MyElement rootElement = fileElement.getRootElement();
+      final MyElement oldLeaf = rootElement.getChild().getChild();
+      final XmlTag oldLeafTag = oldLeaf.getXmlTag();
 
-    WriteCommandAction.runWriteCommandAction(getProject(), () -> {
-      final Document document = getDocument(file);
-      document.replaceString(0, document.getText().length(), "<a/>");
-      commitDocument(document);
+      WriteCommandAction.runWriteCommandAction(domFixture.get().getProject(), () -> {
+        final Document document = getDocument(file);
+        document.replaceString(0, document.getText().length(), "<a/>");
+        commitDocument(document);
+      });
+      assertFalse(oldLeafTag.isValid());
+
+      domFixture.get().putExpected(new DomEvent(fileElement, false));
+      domFixture.get().assertResultsAndClear();
+
+      assertEquals(fileElement.getRootElement(), rootElement);
+      assertTrue(rootElement.isValid());
+
+      assertFalse(oldLeaf.isValid());
+
+      assertTrue(rootElement.getChild().isValid());
+      assertNull(rootElement.getChild().getXmlTag());
+      assertNull(rootElement.getChild().getChild().getXmlTag());
     });
-    assertFalse(oldLeafTag.isValid());
-
-    putExpected(new DomEvent(fileElement, false));
-    assertResultsAndClear();
-
-    assertEquals(fileElement.getRootElement(), rootElement);
-    assertTrue(rootElement.isValid());
-
-    assertFalse(oldLeaf.isValid());
-
-    assertTrue(rootElement.getChild().isValid());
-    assertNull(rootElement.getChild().getXmlTag());
-    assertNull(rootElement.getChild().getChild().getXmlTag());
   }
 
+  @Test
   public void testDocumentChange2() {
-    final XmlFile file = (XmlFile)createFile("file.xml", """
-      <?xml version='1.0' encoding='UTF-8'?>
-      <!DOCTYPE ejb-jar PUBLIC "-//Sun Microsystems, Inc.//DTD Enterprise JavaBeans 2.0//EN" "http://java.sun.com/dtd/ejb-jar_2_0.dtd">
-      <a>
-       <child>
-        <child/>
-       </child>
-      </a>""");
-    final DomFileElementImpl<MyElement> fileElement =
-      getDomManager().getFileElement(file, MyElement.class, "a");
-    myCallRegistry.clear();
-    final MyElement rootElement = fileElement.getRootElement();
-    final MyElement oldLeaf = rootElement.getChild().getChild();
-    final XmlTag oldLeafTag = oldLeaf.getXmlTag();
+    runInEdtAndWait(() -> {
+      final XmlFile file = (XmlFile)domFixture.get().createFile("file.xml", """
+        <?xml version='1.0' encoding='UTF-8'?>
+        <!DOCTYPE ejb-jar PUBLIC "-//Sun Microsystems, Inc.//DTD Enterprise JavaBeans 2.0//EN" "http://java.sun.com/dtd/ejb-jar_2_0.dtd">
+        <a>
+         <child>
+          <child/>
+         </child>
+        </a>""");
+      final DomFileElementImpl<MyElement> fileElement =
+        domFixture.get().getDomManager().getFileElement(file, MyElement.class, "a");
+      domFixture.get().getCallRegistry().clear();
+      final MyElement rootElement = fileElement.getRootElement();
+      final MyElement oldLeaf = rootElement.getChild().getChild();
+      final XmlTag oldLeafTag = oldLeaf.getXmlTag();
 
-    WriteCommandAction.runWriteCommandAction(getProject(), () -> {
-      file.getDocument().getProlog().delete();
-      final XmlTag tag = file.getDocument().getRootTag();
-      tag.setAttribute("xmlns", "something");
-      tag.setAttribute("xmlns:xsi", "something");
+      WriteCommandAction.runWriteCommandAction(domFixture.get().getProject(), () -> {
+        file.getDocument().getProlog().delete();
+        final XmlTag tag = file.getDocument().getRootTag();
+        tag.setAttribute("xmlns", "something");
+        tag.setAttribute("xmlns:xsi", "something");
+      });
+
+      assertTrue(oldLeafTag.isValid());
+
+      domFixture.get().putExpected(new DomEvent(fileElement, false));
+      domFixture.get().putExpected(new DomEvent(rootElement, false));
+      domFixture.get().putExpected(new DomEvent(rootElement, false));
+      domFixture.get().assertResultsAndClear();
+
+      assertEquals(fileElement.getRootElement(), rootElement);
+      assertTrue(rootElement.isValid());
+
+      assertTrue(rootElement.getChild().isValid());
+      assertTrue(rootElement.getChild().getXmlTag().isValid());
+      assertTrue(rootElement.getChild().getChild().getXmlTag().isValid());
     });
-
-    assertTrue(oldLeafTag.isValid());
-
-    putExpected(new DomEvent(fileElement, false));
-    putExpected(new DomEvent(rootElement, false));
-    putExpected(new DomEvent(rootElement, false));
-    assertResultsAndClear();
-
-    assertEquals(fileElement.getRootElement(), rootElement);
-    assertTrue(rootElement.isValid());
-
-    assertTrue(rootElement.getChild().isValid());
-    assertTrue(rootElement.getChild().getXmlTag().isValid());
-    assertTrue(rootElement.getChild().getChild().getXmlTag().isValid());
   }
 
+  @Test
   public void testMoveUp() {
-    final XmlFile file = (XmlFile)createFile("file.xml", """
-      <?xml version='1.0' encoding='UTF-8'?>
-      <a>
-       <child>
-        <aboy />
-        <agirl/>
-       </child>
-      </a>""");
-    final DomFileElementImpl<MyElement> fileElement = getDomManager().getFileElement(file, MyElement.class, "a");
-    myCallRegistry.clear();
-    final MyElement rootElement = fileElement.getRootElement();
-    rootElement.getChild().getAboy();
-    rootElement.getChild().getAgirl();
+    runInEdtAndWait(() -> {
+      final XmlFile file = (XmlFile)domFixture.get().createFile("file.xml", """
+        <?xml version='1.0' encoding='UTF-8'?>
+        <a>
+         <child>
+          <aboy />
+          <agirl/>
+         </child>
+        </a>""");
+      final DomFileElementImpl<MyElement> fileElement = domFixture.get().getDomManager().getFileElement(file, MyElement.class, "a");
+      domFixture.get().getCallRegistry().clear();
+      final MyElement rootElement = fileElement.getRootElement();
+      rootElement.getChild().getAboy();
+      rootElement.getChild().getAgirl();
 
-    final Document document = getDocument(file);
-    final int len = "<agirl/>".length();
-    WriteCommandAction.runWriteCommandAction(getProject(), () -> {
-      final int agirl = document.getText().indexOf("<agirl/>");
-      final int boy = document.getText().indexOf("<aboy />");
-      document.replaceString(agirl, agirl + len, "<aboy />");
-      document.replaceString(boy, boy + len, "<agirl/>");
-      commitDocument(document);
-    });
-
-    assertTrue(rootElement.isValid());
-    final XmlTag tag1 = rootElement.getXmlTag().getSubTags()[0];
-    assertEquals(getDomManager().getDomElement(tag1.findFirstSubTag("agirl")), rootElement.getChild().getAgirl());
-    assertEquals(getDomManager().getDomElement(tag1.findFirstSubTag("aboy")), rootElement.getChild().getAboy());
-  }
-
-  public void testRemoveAttributeParent() {
-    final XmlFile file = (XmlFile)createFile("file.xml", """
-      <?xml version='1.0' encoding='UTF-8'?>
-      <!DOCTYPE ejb-jar PUBLIC "-//Sun Microsystems, Inc.//DTD Enterprise JavaBeans 2.0//EN" "http://java.sun.com/dtd/ejb-jar_2_0.dtd">
-      <a>
-       <child-element xxx="239"/>
-      </a>""");
-    final DomFileElementImpl<MyElement> fileElement =
-      getDomManager().getFileElement(file, MyElement.class, "a");
-    myCallRegistry.clear();
-    final MyElement rootElement = fileElement.getRootElement();
-    final MyElement oldLeaf = rootElement.getChildElements().get(0);
-    final GenericAttributeValue<String> xxx = oldLeaf.getXxx();
-    final XmlTag oldLeafTag = oldLeaf.getXmlTag();
-
-    WriteCommandAction.runWriteCommandAction(getProject(), () -> oldLeafTag.delete());
-
-    assertFalse(oldLeaf.isValid());
-    assertFalse(xxx.isValid());
-  }
-
-  public void testTypeBeforeRootTag() {
-    getDomManager().registerFileDescription(new DomFileDescription<>(MyElement.class, "a"), getTestRootDisposable());
-
-    final XmlFile file = (XmlFile)createFile("file.xml", "<?xml version='1.0' encoding='UTF-8'?>\n" +
-                                                         "<a/>");
-
-    assertTrue(getDomManager().isDomFile(file));
-    final DomFileElementImpl<MyElement> fileElement = getDomManager().getFileElement(file, MyElement.class);
-    assertTrue(fileElement.isValid());
-    myCallRegistry.clear();
-
-    putExpected(new DomEvent(fileElement, false));
-
-    WriteCommandAction.runWriteCommandAction(getProject(), () -> {
       final Document document = getDocument(file);
-      final int i = document.getText().indexOf("<a");
-      document.insertString(i, "a");
-      commitDocument(document);
-    });
+      final int len = "<agirl/>".length();
+      WriteCommandAction.runWriteCommandAction(domFixture.get().getProject(), () -> {
+        final int agirl = document.getText().indexOf("<agirl/>");
+        final int boy = document.getText().indexOf("<aboy />");
+        document.replaceString(agirl, agirl + len, "<aboy />");
+        document.replaceString(boy, boy + len, "<agirl/>");
+        commitDocument(document);
+      });
 
-    assertFalse(getDomManager().isDomFile(file));
-    assertFalse(fileElement.isValid());
-    assertResultsAndClear();
+      assertTrue(rootElement.isValid());
+      final XmlTag tag1 = rootElement.getXmlTag().getSubTags()[0];
+      assertEquals(domFixture.get().getDomManager().getDomElement(tag1.findFirstSubTag("agirl")), rootElement.getChild().getAgirl());
+      assertEquals(domFixture.get().getDomManager().getDomElement(tag1.findFirstSubTag("aboy")), rootElement.getChild().getAboy());
+    });
+  }
+
+  @Test
+  public void testRemoveAttributeParent() {
+    runInEdtAndWait(() -> {
+      final XmlFile file = (XmlFile)domFixture.get().createFile("file.xml", """
+        <?xml version='1.0' encoding='UTF-8'?>
+        <!DOCTYPE ejb-jar PUBLIC "-//Sun Microsystems, Inc.//DTD Enterprise JavaBeans 2.0//EN" "http://java.sun.com/dtd/ejb-jar_2_0.dtd">
+        <a>
+         <child-element xxx="239"/>
+        </a>""");
+      final DomFileElementImpl<MyElement> fileElement =
+        domFixture.get().getDomManager().getFileElement(file, MyElement.class, "a");
+      domFixture.get().getCallRegistry().clear();
+      final MyElement rootElement = fileElement.getRootElement();
+      final MyElement oldLeaf = rootElement.getChildElements().get(0);
+      final GenericAttributeValue<String> xxx = oldLeaf.getXxx();
+      final XmlTag oldLeafTag = oldLeaf.getXmlTag();
+
+      WriteCommandAction.runWriteCommandAction(domFixture.get().getProject(), () -> oldLeafTag.delete());
+
+      assertFalse(oldLeaf.isValid());
+      assertFalse(xxx.isValid());
+    });
+  }
+
+  @Test
+  public void testTypeBeforeRootTag() {
+    runInEdtAndWait(() -> {
+      domFixture.get().getDomManager().registerFileDescription(new DomFileDescription<>(MyElement.class, "a"), domFixture.get().getDisposable());
+
+      final XmlFile file = (XmlFile)domFixture.get().createFile("file.xml", "<?xml version='1.0' encoding='UTF-8'?>\n" +
+                                                           "<a/>");
+
+      assertTrue(domFixture.get().getDomManager().isDomFile(file));
+      final DomFileElementImpl<MyElement> fileElement = domFixture.get().getDomManager().getFileElement(file, MyElement.class);
+      assertTrue(fileElement.isValid());
+      domFixture.get().getCallRegistry().clear();
+
+      domFixture.get().putExpected(new DomEvent(fileElement, false));
+
+      WriteCommandAction.runWriteCommandAction(domFixture.get().getProject(), () -> {
+        final Document document = getDocument(file);
+        final int i = document.getText().indexOf("<a");
+        document.insertString(i, "a");
+        commitDocument(document);
+      });
+
+      assertFalse(domFixture.get().getDomManager().isDomFile(file));
+      assertFalse(fileElement.isValid());
+      domFixture.get().assertResultsAndClear();
+    });
   }
 
   private void assertNoCache(XmlTag tag) {
-    assertNull(tag.getText(), getDomManager().getDomHandler(tag));
+    assertNull(domFixture.get().getDomManager().getDomHandler(tag), tag.getText());
     if (tag.isValid()) {
       for (XmlTag xmlTag : tag.getSubTags()) {
         assertNoCache(xmlTag);
@@ -280,293 +326,329 @@ public class TreeIncrementalUpdateTest extends DomTestCase {
   }
 
   private MyElement createElement(final String xml) throws IncorrectOperationException {
-    return createElement(xml, MyElement.class);
+    return domFixture.get().createElement(xml, MyElement.class);
   }
 
+  @Test
   public void testAddCollectionElement() {
-    final MyElement element = createElement("<a><child/><child/><child-element/></a>");
-    final MyElement child = element.getChild();
-    final MyElement child2 = element.getChild2();
-    final MyElement firstChild = element.getChildElements().get(0);
-    element.getXmlTag().add(createTag("<child-element/>"));
-    final XmlTag[] subTags = element.getXmlTag().getSubTags();
-    assertEquals(2, element.getChildElements().size());
-    assertEquals(firstChild, element.getChildElements().get(0));
-    MyElement nextChild = element.getChildElements().get(1);
+    runInEdtAndWait(() -> {
+      final MyElement element = createElement("<a><child/><child/><child-element/></a>");
+      final MyElement child = element.getChild();
+      final MyElement child2 = element.getChild2();
+      final MyElement firstChild = element.getChildElements().get(0);
+      element.getXmlTag().add(domFixture.get().createTag("<child-element/>"));
+      final XmlTag[] subTags = element.getXmlTag().getSubTags();
+      assertEquals(2, element.getChildElements().size());
+      assertEquals(firstChild, element.getChildElements().get(0));
+      MyElement nextChild = element.getChildElements().get(1);
 
-    putExpected(new DomEvent(element, false));
-    assertResultsAndClear();
+      domFixture.get().putExpected(new DomEvent(element, false));
+      domFixture.get().assertResultsAndClear();
+    });
   }
 
+  @Test
   public void testAddFixedElement() {
-    final MyElement element = createPhysicalElement("<a>" +
-                                                    "<child/>" +
-                                                    "<child><child/></child>" +
-                                                    "<child/></a>");
-    final MyElement child = element.getChild();
-    final MyElement child2 = element.getChild2();
-    final XmlTag leafTag = child2.getChild().getXmlTag();
+    runInEdtAndWait(() -> {
+      final MyElement element = createPhysicalElement("<a>" +
+                                                      "<child/>" +
+                                                      "<child><child/></child>" +
+                                                      "<child/></a>");
+      final MyElement child = element.getChild();
+      final MyElement child2 = element.getChild2();
+      final XmlTag leafTag = child2.getChild().getXmlTag();
 
-    WriteCommandAction.runWriteCommandAction(getProject(), () -> {
-      element.getXmlTag().addAfter(createTag("<child/>"), child.getXmlTag());
+      WriteCommandAction.runWriteCommandAction(domFixture.get().getProject(), () -> {
+        element.getXmlTag().addAfter(domFixture.get().createTag("<child/>"), child.getXmlTag());
+      });
+
+      assertNoCache(leafTag);
+
+      final XmlTag[] subTags = element.getXmlTag().getSubTags();
+
+      assertFalse(child2.isValid());
+      assertEquals(child, element.getChild());
+      assertFalse(child2.equals(element.getChild2()));
+
+      domFixture.get().assertCached(child, subTags[0]);
+      assertNoCache(subTags[2]);
+      assertNoCache(subTags[3]);
+
+      domFixture.get().putExpected(new DomEvent(element, false));
+      domFixture.get().putExpected(new DomEvent(element, false));
+      domFixture.get().assertResultsAndClear();
     });
-
-    assertNoCache(leafTag);
-
-    final XmlTag[] subTags = element.getXmlTag().getSubTags();
-
-    assertFalse(child2.isValid());
-    assertEquals(child, element.getChild());
-    assertFalse(child2.equals(element.getChild2()));
-
-    assertCached(child, subTags[0]);
-    assertNoCache(subTags[2]);
-    assertNoCache(subTags[3]);
-
-    putExpected(new DomEvent(element, false));
-    putExpected(new DomEvent(element, false));
-    assertResultsAndClear();
   }
 
+  @Test
   public void testAddFixedElementCanDefineIt() {
-    final MyElement element = createElement("<a></a>");
-    final MyElement child = element.getChild();
+    runInEdtAndWait(() -> {
+      final MyElement element = createElement("<a></a>");
+      final MyElement child = element.getChild();
 
-    element.getXmlTag().add(createTag("<child/>"));
+      element.getXmlTag().add(domFixture.get().createTag("<child/>"));
 
-    final XmlTag[] subTags = element.getXmlTag().getSubTags();
+      final XmlTag[] subTags = element.getXmlTag().getSubTags();
 
-    assertTrue(child.equals(element.getChild()));
-    assertTrue(element.getChild().equals(child));
+      assertTrue(child.equals(element.getChild()));
+      assertTrue(element.getChild().equals(child));
 
-    assertCached(element.getChild(), subTags[0]);
+      domFixture.get().assertCached(element.getChild(), subTags[0]);
 
-    putExpected(new DomEvent(element, false));
-    assertResultsAndClear();
-  }
-
-  public void testActuallyRemoveCollectionElement() {
-    final MyElement element = createElement("<a><child-element><child/></child-element><child-element/></a>");
-    final MyElement child = element.getChild();
-    final MyElement child2 = element.getChild2();
-    final MyElement firstChild = element.getChildElements().get(0);
-    final MyElement lastChild = element.getChildElements().get(1);
-
-    final XmlTag tag = element.getXmlTag();
-    final XmlTag childTag = tag.getSubTags()[0];
-    WriteCommandAction.runWriteCommandAction(null, () -> childTag.delete());
-
-    putExpected(new DomEvent(element, false));
-    assertResultsAndClear();
-
-    assertEquals(child, element.getChild());
-    assertEquals(child2, element.getChild2());
-    assertEquals(Arrays.asList(lastChild), element.getChildElements());
-    assertCached(lastChild, tag.getSubTags()[0]);
-  }
-
-  public void testCustomChildrenEvents() {
-    final Sepulka element = createElement("<a><foo/><bar/></a>", Sepulka.class);
-    final List<MyElement> list = element.getCustomChildren();
-    final XmlTag tag = element.getXmlTag();
-    WriteCommandAction.runWriteCommandAction(null, () -> {
-      tag.getSubTags()[0].delete();
-      tag.getSubTags()[0].delete();
+      domFixture.get().putExpected(new DomEvent(element, false));
+      domFixture.get().assertResultsAndClear();
     });
-
-    tag.add(createTag("<goo/>"));
-    putExpected(new DomEvent(element, false));
-    putExpected(new DomEvent(element, false));
-    putExpected(new DomEvent(element, false));
-    assertResultsAndClear();
-
-    assertEquals(1, element.getCustomChildren().size());
   }
 
-  public void testRemoveFixedElement() {
-    final MyElement element = createElement("<a>" +
-                                            "<child/>" +
-                                            "<child><child/></child>" +
-                                            "<child><child/></child>" +
-                                            "</a>");
-    final MyElement child = element.getChild();
-    final MyElement child2 = element.getChild2();
-    final MyElement oldLeaf = child2.getChild();
-    final XmlTag tag = element.getXmlTag();
-    XmlTag leafTag = tag.getSubTags()[2].getSubTags()[0];
-    assertNoCache(leafTag);
+  @Test
+  public void testActuallyRemoveCollectionElement() {
+    runInEdtAndWait(() -> {
+      final MyElement element = createElement("<a><child-element><child/></child-element><child-element/></a>");
+      final MyElement child = element.getChild();
+      final MyElement child2 = element.getChild2();
+      final MyElement firstChild = element.getChildElements().get(0);
+      final MyElement lastChild = element.getChildElements().get(1);
 
-    ApplicationManager.getApplication().runWriteAction(() -> {
-      tag.getSubTags()[1].delete();
+      final XmlTag tag = element.getXmlTag();
+      final XmlTag childTag = tag.getSubTags()[0];
+      WriteCommandAction.runWriteCommandAction(null, () -> childTag.delete());
 
-      assertFalse(oldLeaf.isValid());
-
-      putExpected(new DomEvent(element, false));
-      assertResultsAndClear();
+      domFixture.get().putExpected(new DomEvent(element, false));
+      domFixture.get().assertResultsAndClear();
 
       assertEquals(child, element.getChild());
-      assertFalse(child2.isValid());
-
-      tag.getSubTags()[1].delete();
+      assertEquals(child2, element.getChild2());
+      assertEquals(Arrays.asList(lastChild), element.getChildElements());
+      domFixture.get().assertCached(lastChild, tag.getSubTags()[0]);
     });
-
-    putExpected(new DomEvent(element, false));
-    assertResultsAndClear();
   }
 
+  @Test
+  public void testCustomChildrenEvents() {
+    runInEdtAndWait(() -> {
+      final Sepulka element = domFixture.get().createElement("<a><foo/><bar/></a>", Sepulka.class);
+      final List<MyElement> list = element.getCustomChildren();
+      final XmlTag tag = element.getXmlTag();
+      WriteCommandAction.runWriteCommandAction(null, () -> {
+        tag.getSubTags()[0].delete();
+        tag.getSubTags()[0].delete();
+      });
+
+      tag.add(domFixture.get().createTag("<goo/>"));
+      domFixture.get().putExpected(new DomEvent(element, false));
+      domFixture.get().putExpected(new DomEvent(element, false));
+      domFixture.get().putExpected(new DomEvent(element, false));
+      domFixture.get().assertResultsAndClear();
+
+      assertEquals(1, element.getCustomChildren().size());
+    });
+  }
+
+  @Test
+  public void testRemoveFixedElement() {
+    runInEdtAndWait(() -> {
+      final MyElement element = createElement("<a>" +
+                                              "<child/>" +
+                                              "<child><child/></child>" +
+                                              "<child><child/></child>" +
+                                              "</a>");
+      final MyElement child = element.getChild();
+      final MyElement child2 = element.getChild2();
+      final MyElement oldLeaf = child2.getChild();
+      final XmlTag tag = element.getXmlTag();
+      XmlTag leafTag = tag.getSubTags()[2].getSubTags()[0];
+      assertNoCache(leafTag);
+
+      ApplicationManager.getApplication().runWriteAction(() -> {
+        tag.getSubTags()[1].delete();
+
+        assertFalse(oldLeaf.isValid());
+
+        domFixture.get().putExpected(new DomEvent(element, false));
+        domFixture.get().assertResultsAndClear();
+
+        assertEquals(child, element.getChild());
+        assertFalse(child2.isValid());
+
+        tag.getSubTags()[1].delete();
+      });
+
+      domFixture.get().putExpected(new DomEvent(element, false));
+      domFixture.get().assertResultsAndClear();
+    });
+  }
+
+  @Test
   public void testRootTagAppearsLater() {
-    final XmlFile file = createXmlFile("");
-    final DomFileElementImpl<MyElement> fileElement = getDomManager().getFileElement(file, MyElement.class, "root");
-    myCallRegistry.clear();
+    runInEdtAndWait(() -> {
+      final XmlFile file = domFixture.get().createXmlFile("");
+      final DomFileElementImpl<MyElement> fileElement = domFixture.get().getDomManager().getFileElement(file, MyElement.class, "root");
+      domFixture.get().getCallRegistry().clear();
 
-    assertNull(fileElement.getRootElement().getXmlTag());
+      assertNull(fileElement.getRootElement().getXmlTag());
 
-    file.getDocument().replace(createXmlFile("<root/>").getDocument());
-    final XmlTag rootTag = fileElement.getRootTag();
-    assertEquals(rootTag, file.getDocument().getRootTag());
-    putExpected(new DomEvent(fileElement.getRootElement(), false));
-    assertResultsAndClear();
+      file.getDocument().replace(domFixture.get().createXmlFile("<root/>").getDocument());
+      final XmlTag rootTag = fileElement.getRootTag();
+      assertEquals(rootTag, file.getDocument().getRootTag());
+      domFixture.get().putExpected(new DomEvent(fileElement.getRootElement(), false));
+      domFixture.get().assertResultsAndClear();
+    });
   }
 
+  @Test
   public void testAnotherChildren() {
-    final MyElement element = createElement("<a><child/></a>");
-    element.getXmlTag().add(createTag("<another-child/>"));
-    assertEquals(1, element.getAnotherChildren().size());
+    runInEdtAndWait(() -> {
+      final MyElement element = createElement("<a><child/></a>");
+      element.getXmlTag().add(domFixture.get().createTag("<another-child/>"));
+      assertEquals(1, element.getAnotherChildren().size());
 
-    putExpected(new DomEvent(element, false));
-    assertResultsAndClear();
+      domFixture.get().putExpected(new DomEvent(element, false));
+      domFixture.get().assertResultsAndClear();
+    });
   }
 
+  @Test
   public void testInvalidateParent() {
-    final MyElement root = getDomManager().createMockElement(MyElement.class, null, true);
-    WriteCommandAction.writeCommandAction(getProject()).compute(() -> {
-      root.getChild().ensureTagExists();
-      root.getChild2().ensureTagExists();
-      final MyElement element = root.addChildElement().getChild();
-      element.ensureTagExists().getValue().setText("abc");
-      root.addChildElement();
-      root.addChildElement();
-      return element;
+    runInEdtAndWait(() -> {
+      final MyElement root = domFixture.get().getDomManager().createMockElement(MyElement.class, null, true);
+      WriteCommandAction.writeCommandAction(domFixture.get().getProject()).compute(() -> {
+        root.getChild().ensureTagExists();
+        root.getChild2().ensureTagExists();
+        final MyElement element = root.addChildElement().getChild();
+        element.ensureTagExists().getValue().setText("abc");
+        root.addChildElement();
+        root.addChildElement();
+        return element;
+      });
+      assertTrue(root.isValid());
+      final MyElement element = root.getChildElements().get(0).getChild();
+      assertTrue(element.isValid());
+      final MyElement child = element.getChild();
+      final MyElement genericValue = child.getChild();
+      WriteCommandAction.runWriteCommandAction(domFixture.get().getProject(), () -> {
+        final Document document = getDocument(DomUtil.getFile(element));
+        final TextRange range = element.getXmlTag().getTextRange();
+        document.replaceString(range.getStartOffset(), range.getEndOffset(), "");
+        commitDocument(document);
+      });
+      assertFalse(genericValue.isValid());
+      assertFalse(child.isValid());
+      assertFalse(element.isValid());
     });
-    assertTrue(root.isValid());
-    final MyElement element = root.getChildElements().get(0).getChild();
-    assertTrue(element.isValid());
-    final MyElement child = element.getChild();
-    final MyElement genericValue = child.getChild();
-    WriteCommandAction.runWriteCommandAction(getProject(), () -> {
-      final Document document = getDocument(DomUtil.getFile(element));
-      final TextRange range = element.getXmlTag().getTextRange();
-      document.replaceString(range.getStartOffset(), range.getEndOffset(), "");
-      commitDocument(document);
-    });
-    assertFalse(genericValue.isValid());
-    assertFalse(child.isValid());
-    assertFalse(element.isValid());
   }
 
+  @Test
   public void testCollectionChildValidAfterFormattingReparse() {
-    final MyElement root = getDomManager().createMockElement(MyElement.class, null, true);
-    final MyElement element = WriteCommandAction.writeCommandAction(getProject()).compute(() -> root.addChildElement());
-    assertTrue(root.isValid());
-    assertNotNull(element.getXmlElement());
+    runInEdtAndWait(() -> {
+      final MyElement root = domFixture.get().getDomManager().createMockElement(MyElement.class, null, true);
+      final MyElement element = WriteCommandAction.writeCommandAction(domFixture.get().getProject()).compute(() -> root.addChildElement());
+      assertTrue(root.isValid());
+      assertNotNull(element.getXmlElement());
+    });
   }
 
+  @Test
   public void testChangeImplementationClass() {
-    getTypeChooserManager().registerTypeChooser(MyElement.class, createClassChooser());
-    try {
-      final MyElement element = getDomManager().createMockElement(MyElement.class, getModule(), true);
-      final DomFileElement<MyElement> root = DomUtil.getFileElement(element);
+    runInEdtAndWait(() -> {
+      domFixture.get().getTypeChooserManager().registerTypeChooser(MyElement.class, createClassChooser());
+      try {
+        final MyElement element = domFixture.get().getDomManager().createMockElement(MyElement.class, domFixture.get().getModule(), true);
+        final DomFileElement<MyElement> root = DomUtil.getFileElement(element);
 
-      WriteCommandAction.runWriteCommandAction(getProject(), () -> {
-        element.addChildElement().addChildElement();
-      });
+        WriteCommandAction.runWriteCommandAction(domFixture.get().getProject(), () -> {
+          element.addChildElement().addChildElement();
+        });
 
-      final MyElement child = element.getChildElements().get(0);
-      MyElement grandChild = child.getChildElements().get(0);
-      assertTrue(child instanceof BarInterface);
-      assertTrue(grandChild instanceof BarInterface);
+        final MyElement child = element.getChildElements().get(0);
+        final MyElement firstGrandChild = child.getChildElements().get(0);
+        assertTrue(child instanceof BarInterface);
+        assertTrue(firstGrandChild instanceof BarInterface);
 
-      grandChild = element.getChildElements().get(0).getChildElements().get(0);
-      final XmlTag tag = grandChild.getXmlTag();
-      assertTrue(grandChild.isValid());
-      assertEquals(grandChild, root.getRootElement().getChildElements().get(0).getChildElements().get(0));
-      assertNotNull(element.getXmlTag());
-      assertNotNull(child.getXmlTag());
-      assertNotNull(tag);
-      assertTrue(tag.isValid());
+        final MyElement grandChild = element.getChildElements().get(0).getChildElements().get(0);
+        final XmlTag tag = grandChild.getXmlTag();
+        assertTrue(grandChild.isValid());
+        assertEquals(grandChild, root.getRootElement().getChildElements().get(0).getChildElements().get(0));
+        assertNotNull(element.getXmlTag());
+        assertNotNull(child.getXmlTag());
+        assertNotNull(tag);
+        assertTrue(tag.isValid());
 
-      myCallRegistry.clear();
+        domFixture.get().getCallRegistry().clear();
 
-      WriteCommandAction.runWriteCommandAction(getProject(), () -> {
-        tag.add(XmlElementFactory.getInstance(getProject()).createTagFromText("<foo/>"));
-      });
+        WriteCommandAction.runWriteCommandAction(domFixture.get().getProject(), () -> {
+          tag.add(XmlElementFactory.getInstance(domFixture.get().getProject()).createTagFromText("<foo/>"));
+        });
 
-      assertTrue(root.isValid());
-      assertTrue(element.isValid());
-      assertTrue(grandChild.isValid());
-      final MyElement newChild = root.getRootElement().getChildElements().get(0);
-      assertTrue(newChild instanceof BarInterface);
+        assertTrue(root.isValid());
+        assertTrue(element.isValid());
+        assertTrue(grandChild.isValid());
+        final MyElement newChild = root.getRootElement().getChildElements().get(0);
+        assertTrue(newChild instanceof BarInterface);
 
-      final MyElement newGrandChild = newChild.getChildElements().get(0);
-      assertTrue(newGrandChild.isValid());
-      assertTrue(newGrandChild instanceof FooInterface);
+        final MyElement newGrandChild = newChild.getChildElements().get(0);
+        assertTrue(newGrandChild.isValid());
+        assertTrue(newGrandChild instanceof FooInterface);
 
-      putExpected(new DomEvent(child, false));
-      putExpected(new DomEvent(grandChild, false));
-      assertResultsAndClear();
-    } finally {
-      getTypeChooserManager().unregisterTypeChooser(MyElement.class);
-    }
+        domFixture.get().putExpected(new DomEvent(child, false));
+        domFixture.get().putExpected(new DomEvent(grandChild, false));
+        domFixture.get().assertResultsAndClear();
+      } finally {
+        domFixture.get().getTypeChooserManager().unregisterTypeChooser(MyElement.class);
+      }
+    });
   }
 
+  @Test
   public void testChangeImplementationClass_InCollection() {
-    getTypeChooserManager().registerTypeChooser(MyElement.class, createClassChooser());
-    try {
-      final MyElement element = getDomManager().createMockElement(MyElement.class, getModule(), true);
-      final DomFileElement<MyElement> root = DomUtil.getFileElement(element);
-      WriteCommandAction.runWriteCommandAction(getProject(), () -> {
-        element.addChildElement().addChildElement();
-      });
-      final MyElement child = element.getChildElements().get(0);
-      final MyElement grandChild = child.getChildElements().get(0);
-      assertTrue(child instanceof BarInterface);
-      assertTrue(grandChild instanceof BarInterface);
+    runInEdtAndWait(() -> {
+      domFixture.get().getTypeChooserManager().registerTypeChooser(MyElement.class, createClassChooser());
+      try {
+        final MyElement element = domFixture.get().getDomManager().createMockElement(MyElement.class, domFixture.get().getModule(), true);
+        final DomFileElement<MyElement> root = DomUtil.getFileElement(element);
+        WriteCommandAction.runWriteCommandAction(domFixture.get().getProject(), () -> {
+          element.addChildElement().addChildElement();
+        });
+        final MyElement child = element.getChildElements().get(0);
+        final MyElement grandChild = child.getChildElements().get(0);
+        assertTrue(child instanceof BarInterface);
+        assertTrue(grandChild instanceof BarInterface);
 
-      assertTrue(element.isValid());
-      assertTrue(child.isValid());
-      assertTrue(grandChild.isValid());
+        assertTrue(element.isValid());
+        assertTrue(child.isValid());
+        assertTrue(grandChild.isValid());
 
-      assertNotNull(element.getXmlTag());
-      assertNotNull(child.getXmlTag());
+        assertNotNull(element.getXmlTag());
+        assertNotNull(child.getXmlTag());
 
-      final XmlTag tag = grandChild.getXmlTag();
-      assertNotNull(tag);
+        final XmlTag tag = grandChild.getXmlTag();
+        assertNotNull(tag);
 
-      myCallRegistry.clear();
+        domFixture.get().getCallRegistry().clear();
 
-      WriteCommandAction.runWriteCommandAction(getProject(), () -> {
-        tag.add(XmlElementFactory.getInstance(getProject()).createTagFromText("<foo/>"));
-      });
+        WriteCommandAction.runWriteCommandAction(domFixture.get().getProject(), () -> {
+          tag.add(XmlElementFactory.getInstance(domFixture.get().getProject()).createTagFromText("<foo/>"));
+        });
 
-      assertTrue(root.isValid());
-      assertTrue(element.isValid());
+        assertTrue(root.isValid());
+        assertTrue(element.isValid());
 
-      assertTrue(child.isValid());
-      final MyElement newChild = element.getChildElements().get(0);
-      assertTrue(newChild.isValid());
-      assertTrue(newChild.getClass().toString(), newChild instanceof BarInterface);
+        assertTrue(child.isValid());
+        final MyElement newChild = element.getChildElements().get(0);
+        assertTrue(newChild.isValid());
+        assertTrue(newChild instanceof BarInterface, newChild.getClass().toString());
 
-      assertTrue(grandChild.isValid());
-      final MyElement newGrandChild = newChild.getChildElements().get(0);
-      assertTrue(newGrandChild.isValid());
-      assertTrue(newGrandChild instanceof FooInterface);
+        assertTrue(grandChild.isValid());
+        final MyElement newGrandChild = newChild.getChildElements().get(0);
+        assertTrue(newGrandChild.isValid());
+        assertTrue(newGrandChild instanceof FooInterface);
 
-      putExpected(new DomEvent(child, false));
-      putExpected(new DomEvent(grandChild, false));
-      assertResultsAndClear();
-    } finally {
-      getTypeChooserManager().unregisterTypeChooser(MyElement.class);
-    }
+        domFixture.get().putExpected(new DomEvent(child, false));
+        domFixture.get().putExpected(new DomEvent(grandChild, false));
+        domFixture.get().assertResultsAndClear();
+      } finally {
+        domFixture.get().getTypeChooserManager().unregisterTypeChooser(MyElement.class);
+      }
+    });
   }
   /*
 
@@ -619,7 +701,7 @@ public class TreeIncrementalUpdateTest extends DomTestCase {
       public void distinguishTag(final XmlTag tag, final Type aClass)
         throws IncorrectOperationException {
         if (FooInterface.class.equals(aClass) && tag.findFirstSubTag("foo") == null) {
-          tag.add(XmlElementFactory.getInstance(getProject()).createTagFromText("<foo/>"));
+          tag.add(XmlElementFactory.getInstance(domFixture.get().getProject()).createTagFromText("<foo/>"));
         }
       }
 

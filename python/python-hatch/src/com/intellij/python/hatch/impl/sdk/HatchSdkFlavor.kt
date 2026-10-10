@@ -3,7 +3,6 @@ package com.intellij.python.hatch.impl.sdk
 import com.intellij.python.hatch.cli.HatchEnvironment
 import com.jetbrains.python.sdk.add.v2.PathHolder
 import com.intellij.python.hatch.HatchPyTool
-import com.intellij.python.pytools.common.FusId
 import com.intellij.execution.target.TargetedCommandLineBuilder
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.python.hatch.common.icons.PythonHatchCommonIcons
@@ -27,7 +26,7 @@ data class HatchSdkFlavorData(val hatchEnvironmentName: String?) : PyFlavorData 
 object HatchSdkFlavor : CPythonSdkFlavor<HatchSdkFlavorData>() {
   override fun getIcon(): Icon = PythonHatchCommonIcons.Logo
   override fun getFlavorDataClass(): Class<HatchSdkFlavorData> = HatchSdkFlavorData::class.java
-  override fun getManager(): FusId = HatchPyTool.getInstance().fusId
+  override fun getManagerId(): String = HatchPyTool.getInstance().fusId.value
 
   /** Hatch names an environment of a project by its name. Data without a name stands for the default environment. */
   override fun toolEnvRefOf(pythonBinary: PathHolder, data: HatchSdkFlavorData): String =

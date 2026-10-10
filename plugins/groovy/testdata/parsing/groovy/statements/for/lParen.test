@@ -6,5 +6,5 @@ Groovy script
     PsiWhiteSpace(' ')
     PsiElement(()('(')
     Traditional FOR clause
-      PsiErrorElement:';' expected
+      PsiErrorElement:';', <expression>, <type> or identifier expected
         <empty list>

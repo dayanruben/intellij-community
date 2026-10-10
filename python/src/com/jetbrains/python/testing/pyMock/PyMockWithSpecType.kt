@@ -7,7 +7,7 @@ import com.intellij.util.ProcessingContext
 import com.intellij.util.Processor
 import com.jetbrains.python.documentation.PyTypeRenderer
 import com.jetbrains.python.psi.AccessDirection
-import com.jetbrains.python.psi.PyCallSiteOwner
+import com.jetbrains.python.psi.PyElement
 import com.jetbrains.python.psi.PyExpression
 import com.jetbrains.python.psi.PyQualifiedNameOwner
 import com.jetbrains.python.psi.resolve.PyResolveContext
@@ -139,7 +139,7 @@ internal class PyMockWithSpecType(
     return PyMockWithSpecType(returnValueMock, specReturnType, PyMockSpecKind.CHILD)
   }
 
-  override fun getCallType(context: TypeEvalContext, callSite: PyCallSiteOwner): PyType? = getReturnType(context)
+  override fun getCallType(context: TypeEvalContext, callSite: PyElement): PyType? = getReturnType(context)
 
   override val name: String
     get() = "${mockType.name} (${specType.name ?: "?"})"

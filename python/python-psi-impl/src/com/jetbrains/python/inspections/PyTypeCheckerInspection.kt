@@ -37,12 +37,12 @@ import com.jetbrains.python.psi.PyAugAssignmentStatement
 import com.jetbrains.python.psi.PyBinaryExpression
 import com.jetbrains.python.psi.PyCallExpression
 import com.jetbrains.python.psi.PyCallExpression.PyArgumentsMapping
-import com.jetbrains.python.psi.PyCallSiteOwner
 import com.jetbrains.python.psi.PyCallable
 import com.jetbrains.python.psi.PyClass
 import com.jetbrains.python.psi.PyComprehensionElement
 import com.jetbrains.python.psi.PyDictLiteralExpression
 import com.jetbrains.python.psi.PyDoubleStarExpression
+import com.jetbrains.python.psi.PyElement
 import com.jetbrains.python.psi.PyEllipsisLiteralExpression
 import com.jetbrains.python.psi.PyExpression
 import com.jetbrains.python.psi.PyForStatement
@@ -169,7 +169,7 @@ open class PyTypeCheckerInspection : PyInspection() {
     // A class definition implicitly calls `__init_subclass__` of its base classes with the
     // class-definition keyword arguments; type-check those arguments against its parameters.
     override fun visitPyClass(node: PyClass) {
-      if (node.getArguments(null).isEmpty()) return
+      if (node.getArguments().isEmpty()) return
       checkCallSite(node)
     }
 
@@ -1028,7 +1028,7 @@ open class PyTypeCheckerInspection : PyInspection() {
       }
     }
 
-    private fun checkCallSite(callSite: PyCallSiteOwner) {
+    private fun checkCallSite(callSite: PyElement) {
       if (callSite is PyCallExpression) {
         val callee = callSite.callee ?: return
         // Check constructor call self argument type
@@ -1083,7 +1083,7 @@ open class PyTypeCheckerInspection : PyInspection() {
     }
 
     private fun analyzeOperatorCallees(
-      callSite: PyCallSiteOwner,
+      callSite: PyElement,
       operators: List<ResolvedOperator>,
     ): List<PyCalleeResults>? {
       if (operators.isEmpty()) return null
@@ -1103,7 +1103,7 @@ open class PyTypeCheckerInspection : PyInspection() {
     }
 
     private fun reportStrictUnionOperatorArgumentMismatch(
-      callSite: PyCallSiteOwner,
+      callSite: PyElement,
       analyzedCallees: List<PyCalleeResults>?,
     ): Boolean {
       if (!PyUnionType.isStrictSemanticsEnabled()) return false
@@ -1219,7 +1219,7 @@ open class PyTypeCheckerInspection : PyInspection() {
      * The two sets never intersect, which is what allows telling the sides of a resolved group apart by callable name.
      */
     private fun computeDispatchedOperators(
-      callSite: PyCallSiteOwner,
+      callSite: PyElement,
       operatorName: String,
     ): Pair<Set<String>, Set<String>> = when (callSite) {
       is PyBinaryExpression ->
@@ -1497,7 +1497,7 @@ open class PyTypeCheckerInspection : PyInspection() {
     }
 
     private fun reportIfNoCalleeMatches(
-      callSite: PyCallSiteOwner,
+      callSite: PyElement,
       calleesResults: List<Pair<PyArgumentsMapping, AnalyzeCalleeResults>>,
       allMappings: List<PyArgumentsMapping>,
     ): Boolean {
@@ -1527,7 +1527,7 @@ open class PyTypeCheckerInspection : PyInspection() {
       return true
     }
 
-    private fun reportArgumentTypeMismatch(callSite: PyCallSiteOwner, argumentsMappings: List<PyArgumentsMapping>): Boolean {
+    private fun reportArgumentTypeMismatch(callSite: PyElement, argumentsMappings: List<PyArgumentsMapping>): Boolean {
       val (shapeMatches, shapeMismatches) = argumentsMappings.partition { it.isComplete }
 
       val shapeMatchesCalleesResults = shapeMatches.mapNotNull { mapping -> analyzeCallee(mapping)?.let { mapping to it } }

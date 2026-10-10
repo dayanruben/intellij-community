@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.psi.types;
 
 import com.intellij.openapi.util.Ref;
@@ -8,8 +8,8 @@ import com.intellij.util.ProcessingContext;
 import com.intellij.util.containers.ContainerUtil;
 import com.jetbrains.python.codeInsight.typing.PyTypingTypeProvider;
 import com.jetbrains.python.psi.AccessDirection;
-import com.jetbrains.python.psi.PyCallSiteOwner;
 import com.jetbrains.python.psi.PyCallable;
+import com.jetbrains.python.psi.PyElement;
 import com.jetbrains.python.psi.PyExpression;
 import com.jetbrains.python.psi.PyFunction;
 import com.jetbrains.python.psi.PyReferenceExpression;
@@ -70,7 +70,7 @@ public class PyFunctionTypeImpl implements PyFunctionType {
 
   @Override
   public @Nullable PyType getCallType(@NotNull TypeEvalContext context,
-                                      @Nullable PyCallSiteOwner callSite,
+                                      @Nullable PyElement callSite,
                                       @NotNull List<PyCallableArgument> arguments) {
     if (!(myCallable instanceof PyFunction function)) {
       return context.getReturnType(myCallable);

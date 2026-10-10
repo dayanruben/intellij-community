@@ -3,7 +3,6 @@ package com.jetbrains.python.sdk.flavors.conda
 
 import com.jetbrains.python.sdk.add.v2.PathHolder
 import com.intellij.python.community.impl.conda.CondaPyTool
-import com.intellij.python.pytools.common.FusId
 import com.intellij.execution.target.TargetEnvironmentConfiguration
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.projectRoots.Sdk
@@ -25,7 +24,7 @@ internal object CondaEnvSdkFlavor : CPythonSdkFlavor<PyCondaFlavorData>() {
 
   override fun getFlavorDataClass(): Class<PyCondaFlavorData> = PyCondaFlavorData::class.java
 
-  override fun getManager(): FusId = CondaPyTool.getInstance().fusId
+  override fun getManagerId(): String = CondaPyTool.getInstance().fusId.value
 
   /**
    * Conda names an environment by its name, or by its directory when it has no name: the readable name of its

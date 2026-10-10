@@ -16,15 +16,24 @@ import kotlin.coroutines.EmptyCoroutineContext
 /**
  * A request of a plugin for an operation that needs the consent of the user.
  *
+ * Examples from the `com.intellij.openapi.updateSettings` package:
+ * - `InstallPluginRequest` gives a `PluginManagementAction` that installs a plugin.
+ * - `EnablePluginRequest` gives a `PluginManagementAction` that enables an installed plugin.
+ * - `DisablePluginRequest` gives a `PluginManagementAction` that disables a plugin.
+ * - `AccessPluginClassLoadersRequest` gives a `ReadPluginDescriptorsAction`.
+ *   This action returns the descriptors of the installed plugins and gives access to their class loaders.
+ *
  * @param T the type of the object that [PluginPermissionService.withPermission] gives to the action when the user allows the request.
  */
 @ApiStatus.Experimental
+@ApiStatus.NonExtendable
 interface PluginPermissionRequest<T>
 
 /**
  * Asks the user for a permission on behalf of the calling plugin.
  */
 @ApiStatus.Experimental
+@ApiStatus.NonExtendable
 interface PluginPermissionService {
   /**
    * Asks the user to allow [request] and runs [action] when the user allows it.

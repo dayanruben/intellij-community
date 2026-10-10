@@ -4,7 +4,6 @@ package com.jetbrains.python.ast
 import com.intellij.lang.ASTNode
 import com.intellij.psi.PsiElement
 import com.intellij.psi.util.QualifiedName
-import com.jetbrains.python.PyNames
 import com.jetbrains.python.PyTokenTypes
 import com.jetbrains.python.PythonDialectsTokenSetProvider
 import com.jetbrains.python.ast.impl.PyPsiUtilsCore
@@ -12,7 +11,7 @@ import com.jetbrains.python.psi.PyElementType
 import org.jetbrains.annotations.ApiStatus
 
 @ApiStatus.Experimental
-interface PyAstAugAssignmentStatement : PyAstStatement, PyAstQualifiedExpression, PyAstCallSiteOwner, PyAstReferenceOwner {
+interface PyAstAugAssignmentStatement : PyAstStatement, PyAstQualifiedExpression, PyAstReferenceOwner {
   val target: PyAstExpression
     get() {
       return childToPsi(PythonDialectsTokenSetProvider.getInstance().expressionTokens, 0)
@@ -24,14 +23,6 @@ interface PyAstAugAssignmentStatement : PyAstStatement, PyAstQualifiedExpression
 
   val operation: PsiElement?
     get() = PyPsiUtilsCore.getChildByFilter(this, PyTokenTypes.AUG_ASSIGN_OPERATIONS, 0)
-
-  fun isRightOperator(resolvedCallee: PyAstCallable?): Boolean {
-    return resolvedCallee != null && PyNames.isRightOperatorName(referencedName, resolvedCallee.getName())
-  }
-
-  fun isInplaceOperator(resolvedCallee: PyAstCallable?): Boolean {
-    return resolvedCallee != null && PyNames.isInplaceOperatorName(resolvedCallee.getName())
-  }
 
   override fun getQualifier(): PyAstExpression? {
     return this.target
@@ -52,10 +43,6 @@ interface PyAstAugAssignmentStatement : PyAstStatement, PyAstQualifiedExpression
 
   override fun getNameElement(): ASTNode? {
     return operation?.getNode()
-  }
-
-  override fun getArguments(resolvedCallee: PyAstCallable?): List<PyAstExpression?> {
-    return listOf(if (isRightOperator(resolvedCallee)) this.target else this.value)
   }
 
   override fun acceptPyVisitor(pyVisitor: PyAstElementVisitor) {

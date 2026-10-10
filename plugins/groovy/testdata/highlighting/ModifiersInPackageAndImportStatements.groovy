@@ -1,3 +1,3 @@
-@Deprecated <error descr="Package definition cannot have modifiers">private</error> <error descr="Package definition cannot have modifiers">final</error> package x;
+@Deprecated <error descr="Modifiers not allowed on package statement">private</error> <error descr="Modifiers not allowed on package statement">final</error> package x;
 
-@Deprecated <error descr="Import statement cannot have modifiers">final</error> <warning descr="Unused import">import java.lang.Object</warning>;
+@Deprecated <error descr="Modifiers not allowed on import statement">final</error> <warning descr="Unused import">import java.lang.Object</warning>;

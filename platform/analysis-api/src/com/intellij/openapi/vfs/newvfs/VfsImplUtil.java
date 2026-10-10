@@ -225,7 +225,7 @@ public final class VfsImplUtil {
     if (app.isDisposed()) return;  // we might perform a shutdown activity that includes visiting archives (IDEA-181620)
 
     var connection = app.getMessageBus().connect(app);
-    connection.subscribe(VirtualFileManager.VFS_CHANGES, new BulkFileListener() {
+    connection.subscribe(VirtualFileManager.VFS_CHANGES_BG, new BulkFileListenerBackgroundable() {
       @Override
       public void after(@NotNull List<? extends @NotNull VFileEvent> events) {
         InvalidationState state = null;
@@ -354,9 +354,9 @@ public final class VfsImplUtil {
     var file = event.getFile();
     var entryFileSystem = file.getFileSystem();
     var local = (VirtualFile)null;
-    if (entryFileSystem instanceof ArchiveFileSystem) {
-      local = ((ArchiveFileSystem)entryFileSystem).getLocalByEntry(file);
-      path = local == null ? ArchiveFileSystem.getLocalPath((ArchiveFileSystem)entryFileSystem, path) : local.getPath();
+    if (entryFileSystem instanceof ArchiveFileSystem system) {
+      local = system.getLocalByEntry(file);
+      path = local == null ? ArchiveFileSystem.getLocalPath(system, path) : local.getPath();
     }
     String[] jarPaths;
     synchronized (ourLock) {

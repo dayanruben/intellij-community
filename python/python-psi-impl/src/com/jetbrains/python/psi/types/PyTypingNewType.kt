@@ -1,9 +1,9 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.psi.types
 
 import com.jetbrains.python.PyNames
 import com.jetbrains.python.psi.AccessDirection
-import com.jetbrains.python.psi.PyCallSiteOwner
+import com.jetbrains.python.psi.PyElement
 import com.jetbrains.python.psi.PyExpression
 import com.jetbrains.python.psi.PyTargetExpression
 import com.jetbrains.python.psi.resolve.PyResolveContext
@@ -17,7 +17,7 @@ class PyTypingNewType(
   override val declarationElement: PyTargetExpression,
 ) : PyClassType by classType {
 
-  override fun getCallType(context: TypeEvalContext, callSite: PyCallSiteOwner): PyType {
+  override fun getCallType(context: TypeEvalContext, callSite: PyElement): PyType {
     return PyTypingNewType(classType.toInstance(), name, declarationElement)
   }
 

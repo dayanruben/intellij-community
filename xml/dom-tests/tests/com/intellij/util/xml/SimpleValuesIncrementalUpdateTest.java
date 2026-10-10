@@ -15,64 +15,88 @@
  */
 package com.intellij.util.xml;
 
+import com.intellij.openapi.module.Module;
+import com.intellij.testFramework.junit5.TestApplication;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.xml.events.DomEvent;
-import com.intellij.util.xml.impl.DomTestCase;
+import com.intellij.util.xml.impl.DomTestFixture;
+import org.junit.jupiter.api.Test;
 
-public class SimpleValuesIncrementalUpdateTest extends DomTestCase {
+import static com.intellij.testFramework.EdtTestUtil.runInEdtAndWait;
+import static com.intellij.util.xml.impl.DomTestFixtures.domModuleFixture;
+import static com.intellij.util.xml.impl.DomTestFixtures.domTestFixture;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+@TestApplication
+public class SimpleValuesIncrementalUpdateTest {
+  private static final TestFixture<Module> moduleFixture = domModuleFixture();
+  private final TestFixture<DomTestFixture> domFixture = domTestFixture(moduleFixture);
+
+  @Test
   public void testAttributeChange() {
-    final MyElement element = createElement("<a/>");
-    element.getXmlTag().setAttribute("attr", "foo");
-    putExpected(new DomEvent(element, false));
-    assertResultsAndClear();
-    assertTrue(element.getAttr().isValid());
+    runInEdtAndWait(() -> {
+      final MyElement element = createElement("<a/>");
+      element.getXmlTag().setAttribute("attr", "foo");
+      domFixture.get().putExpected(new DomEvent(element, false));
+      domFixture.get().assertResultsAndClear();
+      assertTrue(element.getAttr().isValid());
 
-    element.getXmlTag().setAttribute("bttr", "foo");
-    element.getXmlTag().setAttribute("attr", "bar");
-    putExpected(new DomEvent(element, false));
-    putExpected(new DomEvent(element, false));
-    assertResultsAndClear();
-    assertTrue(element.getAttr().isValid());
+      element.getXmlTag().setAttribute("bttr", "foo");
+      element.getXmlTag().setAttribute("attr", "bar");
+      domFixture.get().putExpected(new DomEvent(element, false));
+      domFixture.get().putExpected(new DomEvent(element, false));
+      domFixture.get().assertResultsAndClear();
+      assertTrue(element.getAttr().isValid());
 
-    element.getXmlTag().setAttribute("attr", null);
-    putExpected(new DomEvent(element, false));
-    assertResultsAndClear();
-    assertTrue(element.getAttr().isValid());
+      element.getXmlTag().setAttribute("attr", null);
+      domFixture.get().putExpected(new DomEvent(element, false));
+      domFixture.get().assertResultsAndClear();
+      assertTrue(element.getAttr().isValid());
+    });
   }
 
+  @Test
   public void testAttributeValueChangeAsXmlElementChange() {
-    final MyElement element = createElement("<a attr=\"foo\"/>");
-    final GenericAttributeValue<String> attr = element.getAttr();
-    attr.getXmlAttributeValue().getFirstChild().replace(createTag("<a attr=\"bar\"/>").getAttribute("attr", null).getValueElement().getFirstChild());
-    putExpected(new DomEvent(element, false));
-    assertResultsAndClear();
-    assertTrue(attr.isValid());
+    runInEdtAndWait(() -> {
+      final MyElement element = createElement("<a attr=\"foo\"/>");
+      final GenericAttributeValue<String> attr = element.getAttr();
+      attr.getXmlAttributeValue().getFirstChild().replace(domFixture.get().createTag("<a attr=\"bar\"/>").getAttribute("attr", null).getValueElement().getFirstChild());
+      domFixture.get().putExpected(new DomEvent(element, false));
+      domFixture.get().assertResultsAndClear();
+      assertTrue(attr.isValid());
+    });
   }
 
+  @Test
   public void testTagValueChange() {
-    final MyElement element = createElement("<a><child> </child></a>").getChild();
-    element.getXmlTag().getValue().setText("abc");
-    putExpected(new DomEvent(element, false));
-    assertResultsAndClear();
+    runInEdtAndWait(() -> {
+      final MyElement element = createElement("<a><child> </child></a>").getChild();
+      element.getXmlTag().getValue().setText("abc");
+      domFixture.get().putExpected(new DomEvent(element, false));
+      domFixture.get().assertResultsAndClear();
 
-    element.getXmlTag().getValue().setText(null);
-    putExpected(new DomEvent(element, false));
-    assertResultsAndClear();
+      element.getXmlTag().getValue().setText(null);
+      domFixture.get().putExpected(new DomEvent(element, false));
+      domFixture.get().assertResultsAndClear();
+    });
   }
 
+  @Test
   public void testAttrXmlEmptyUri() {
-    final MyElement element = createElement("<a xmlns=\"foo\"><ns-child attr=\"239\"/></a>" , MyElement.class);
-    getDomManager().getDomFileDescription(element.getXmlElement()).registerNamespacePolicy("foo", "foo");
+    runInEdtAndWait(() -> {
+      final MyElement element = domFixture.get().createElement("<a xmlns=\"foo\"><ns-child attr=\"239\"/></a>" , MyElement.class);
+      domFixture.get().getDomManager().getDomFileDescription(element.getXmlElement()).registerNamespacePolicy("foo", "foo");
 
-    final GenericAttributeValue<String> attr = element.getNsChild().getAttr();
-    attr.getXmlTag().setAttribute("attr", "42");
-    putExpected(new DomEvent(element.getNsChild(), false));
-    assertResultsAndClear();
+      final GenericAttributeValue<String> attr = element.getNsChild().getAttr();
+      attr.getXmlTag().setAttribute("attr", "42");
+      domFixture.get().putExpected(new DomEvent(element.getNsChild(), false));
+      domFixture.get().assertResultsAndClear();
+    });
   }
 
   private MyElement createElement(final String xml) throws IncorrectOperationException {
-    return createElement(xml, MyElement.class);
+    return domFixture.get().createElement(xml, MyElement.class);
   }
 
   public interface MyElement extends DomElement{

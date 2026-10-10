@@ -9,6 +9,7 @@ import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.RecursionManager;
 import com.intellij.openapi.util.Trinity;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.impl.source.resolve.reference.impl.providers.URLReference;
@@ -77,11 +78,15 @@ public class XmlNSDescriptorImpl implements XmlNSDescriptorEx,Validator<XmlDocum
   public XmlNSDescriptorImpl() {
   }
 
-  private static void collectDependencies(@Nullable XmlTag myTag, @NotNull XmlFile myFile, @NotNull Set<PsiFile> visited) {
-    if (visited.contains(myFile)) return;
+  /**
+   * @return true if a referenced schema location does not resolve to a file
+   */
+  private static boolean collectDependencies(@Nullable XmlTag myTag, @NotNull XmlFile myFile, @NotNull Set<PsiFile> visited) {
+    if (visited.contains(myFile)) return false;
     visited.add( myFile );
 
-    if (myTag == null) return;
+    if (myTag == null) return false;
+    boolean hasUnresolved = false;
     XmlTag[] tags = myTag.getSubTags();
 
     for (final XmlTag tag : tags) {
@@ -91,14 +96,13 @@ public class XmlNSDescriptorImpl implements XmlNSDescriptorEx,Validator<XmlDocum
         final String schemaLocation = tag.getAttributeValue("schemaLocation");
         if (schemaLocation != null) {
           final XmlFile xmlFile = XmlUtil.findNamespace(myFile, schemaLocation);
-          addDependency(xmlFile, visited);
+          hasUnresolved |= addDependency(xmlFile, visited);
         }
       } else if (equalsToSchemaName(tag, REDEFINE_TAG_NAME)) {
-        RecursionManager.doPreventingRecursion(tag, false, () -> {
+        hasUnresolved |= Boolean.TRUE.equals(RecursionManager.doPreventingRecursion(tag, false, () -> {
           final XmlFile file = getRedefinedElementDescriptorFile(tag);
-          addDependency(file, visited);
-          return null;
-        });
+          return addDependency(file, visited);
+        }));
       }
     }
 
@@ -113,17 +117,17 @@ public class XmlNSDescriptorImpl implements XmlNSDescriptorEx,Validator<XmlDocum
           PsiFile resourceLocation = ExternalResourceManager.getInstance().getResourceLocation(tokenizer.nextToken(), myFile, null);
           if (resourceLocation == null) resourceLocation = ExternalResourceManager.getInstance().getResourceLocation(uri, myFile, null);
 
-          if (resourceLocation instanceof XmlFile) addDependency((XmlFile)resourceLocation, visited);
+          hasUnresolved |= addDependency(resourceLocation instanceof XmlFile xmlFile ? xmlFile : null, visited);
         }
       }
     }
+    return hasUnresolved;
   }
 
-  private static void addDependency(final XmlFile file, final Set<PsiFile> visited) {
-    if (file != null) {
-      final XmlDocument document = file.getDocument();
-      collectDependencies(document != null ? document.getRootTag():null, file, visited);
-    }
+  private static boolean addDependency(final @Nullable XmlFile file, final Set<PsiFile> visited) {
+    if (file == null) return true;
+    final XmlDocument document = file.getDocument();
+    return collectDependencies(document != null ? document.getRootTag():null, file, visited);
   }
 
   @Override
@@ -909,8 +913,9 @@ public class XmlNSDescriptorImpl implements XmlNSDescriptorEx,Validator<XmlDocum
     }
 
     Set<PsiFile> dependenciesSet = new HashSet<>();
-    collectDependencies(myTag, myFile, dependenciesSet);
-    dependencies = ArrayUtil.append(ArrayUtil.toObjectArray(dependenciesSet), ExternalResourceManager.getInstance());
+    boolean hasUnresolved = collectDependencies(myTag, myFile, dependenciesSet);
+    Object[] deps = ArrayUtil.append(ArrayUtil.toObjectArray(dependenciesSet), ExternalResourceManager.getInstance());
+    dependencies = hasUnresolved ? ArrayUtil.append(deps, VirtualFileManager.VFS_STRUCTURE_MODIFICATIONS) : deps;
   }
 
   @Override

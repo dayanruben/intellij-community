@@ -12,12 +12,12 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.ui.playback.PlaybackContext
 import com.intellij.openapi.util.ActionCallback
 import com.intellij.openapi.util.Ref
+import com.intellij.performanceTesting.execution.RunConfigurationCommand
 import com.intellij.xdebugger.XDebugProcess
 import com.intellij.xdebugger.XDebugSessionListener
 import com.intellij.xdebugger.XDebuggerManager
 import com.intellij.xdebugger.XDebuggerManagerListener
 import com.jetbrains.performancePlugin.PerformanceTestSpan
-import com.jetbrains.performancePlugin.commands.RunConfigurationCommand
 import com.jetbrains.performancePlugin.commands.Waiter
 import com.jetbrains.performancePlugin.utils.AbstractCallbackBasedCommand
 import io.opentelemetry.api.trace.Span

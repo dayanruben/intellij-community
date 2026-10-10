@@ -4,59 +4,16 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
-import com.jetbrains.python.PyNames;
-import com.jetbrains.python.ast.impl.PyUtilCore;
 import org.jetbrains.annotations.ApiStatus;
-import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-
-import java.util.Arrays;
-import java.util.List;
-import java.util.Objects;
 
 /**
  * Represents an entire call expression, like <tt>foo()</tt> or <tt>foo.bar[1]('x')</tt>.
  */
 @ApiStatus.Experimental
 public interface PyAstCallExpression extends PyAstCallSiteExpression {
-
-  @Override
-  default @Nullable PyAstExpression getReceiver(@Nullable PyAstCallable resolvedCallee) {
-    if (resolvedCallee instanceof PyAstFunction function) {
-      if (!PyNames.NEW.equals(function.getName()) && function.getModifier() == PyAstFunction.Modifier.STATICMETHOD) {
-        return null;
-      }
-    }
-
-    final PyAstExpression callee = getCallee();
-    if (callee != null && isImplicitlyInvokedMethod(resolvedCallee) && !Objects.equals(resolvedCallee.getName(), callee.getName())) {
-      return callee;
-    }
-
-    if (callee instanceof PyAstQualifiedExpression) {
-      return ((PyAstQualifiedExpression)callee).getQualifier();
-    }
-
-    return null;
-  }
-
-  @Contract("null -> false")
-  private static boolean isImplicitlyInvokedMethod(@Nullable PyAstCallable resolvedCallee) {
-    if (PyUtilCore.isConstructorLikeMethod(resolvedCallee)) return true;
-
-    if (resolvedCallee instanceof PyAstFunction function) {
-      return PyNames.CALL.equals(function.getName()) && function.getContainingClass() != null;
-    }
-
-    return false;
-  }
-
-  @Override
-  default @NotNull List<@NotNull PyAstExpression> getArguments(@Nullable PyAstCallable resolvedCallee) {
-    return Arrays.asList(getArguments());
-  }
 
   /**
    * @return the expression representing the object being called (reference to a function).

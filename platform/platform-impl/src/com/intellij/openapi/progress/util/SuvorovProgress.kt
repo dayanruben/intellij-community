@@ -256,6 +256,7 @@ object SuvorovProgress {
       this.stealer = null
       niceOverlay.close()
       Disposer.dispose(disposable)
+      stealer.dispatchAllExistingEvents()
     }
   }
 
@@ -290,9 +291,11 @@ object SuvorovProgress {
       // we cannot acquire WI on closing
       if (progress is PotemkinProgress) {
         progress.dialog.getPopup()?.setShouldUseWriteIntentReadAction(false)
-        progress.progressFinished()
-        progress.processFinish()
+        progress.dialog.hideImmediately()
+        // it is important to dispose the progress first so that it stops stealing events
         Disposer.dispose(progress)
+        progress.dispatchAllInvocationEvents()
+        progress.processFinish()
       }
       progress.stop()
     }

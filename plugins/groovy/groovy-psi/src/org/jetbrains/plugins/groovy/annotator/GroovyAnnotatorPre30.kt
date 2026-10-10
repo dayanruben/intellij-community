@@ -26,7 +26,6 @@ import org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.T_SAFE_CHAIN_DOT
 import org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.T_SAFE_DOT
 import org.jetbrains.plugins.groovy.lang.psi.GroovyElementVisitor
 import org.jetbrains.plugins.groovy.lang.psi.api.GrArrayInitializer
-import org.jetbrains.plugins.groovy.lang.psi.api.GrDoWhileStatement
 import org.jetbrains.plugins.groovy.lang.psi.api.GrExpressionList
 import org.jetbrains.plugins.groovy.lang.psi.api.GrInExpression
 import org.jetbrains.plugins.groovy.lang.psi.api.GrLambdaExpression
@@ -34,6 +33,7 @@ import org.jetbrains.plugins.groovy.lang.psi.api.GrTryResourceList
 import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.modifiers.GrModifier
 import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.modifiers.GrModifierList
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrBlockStatement
+import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrDoWhileStatement
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrVariableDeclaration
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.arguments.GrArgumentList
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.blocks.GrClosableBlock

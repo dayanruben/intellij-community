@@ -15,10 +15,13 @@
  */
 package com.intellij.util.xml;
 
-import junit.framework.TestCase;
+import org.junit.jupiter.api.Test;
 
-public class NameStrategyTest extends TestCase {
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
+public class NameStrategyTest {
+
+  @Test
   public void testHyphenStrategy() {
     assertEquals("aaa-bbb-ccc", DomNameStrategy.HYPHEN_STRATEGY.convertName("aaaBbbCcc"));
     assertEquals("aaa-bbb-ccc", DomNameStrategy.HYPHEN_STRATEGY.convertName("AaaBbbCcc"));
@@ -28,6 +31,7 @@ public class NameStrategyTest extends TestCase {
     assertEquals("aaa-BBB", DomNameStrategy.HYPHEN_STRATEGY.convertName("AaaBBB"));
   }
 
+  @Test
   public void testHyphenStrategySplit() {
     assertEquals("aaa bbb ccc", DomNameStrategy.HYPHEN_STRATEGY.splitIntoWords("aaa-bbb-ccc"));
     assertEquals("Aaa", DomNameStrategy.HYPHEN_STRATEGY.splitIntoWords("Aaa"));
@@ -36,6 +40,7 @@ public class NameStrategyTest extends TestCase {
     assertEquals("aaa BBB", DomNameStrategy.HYPHEN_STRATEGY.splitIntoWords("aaa-BBB"));
   }
 
+  @Test
   public void testJavaStrategy() {
     assertEquals("aaaBbbCcc", DomNameStrategy.JAVA_STRATEGY.convertName("aaaBbbCcc"));
     assertEquals("aaaBbbCcc", DomNameStrategy.JAVA_STRATEGY.convertName("AaaBbbCcc"));
@@ -45,6 +50,7 @@ public class NameStrategyTest extends TestCase {
     assertEquals("aaaBBB", DomNameStrategy.JAVA_STRATEGY.convertName("AaaBBB"));
   }
 
+  @Test
   public void testJavaStrategySplit() {
     assertEquals("aaa bbb ccc", DomNameStrategy.JAVA_STRATEGY.splitIntoWords("aaaBbbCcc"));
     assertEquals("aaa", DomNameStrategy.JAVA_STRATEGY.splitIntoWords("Aaa"));

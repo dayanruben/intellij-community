@@ -5,6 +5,10 @@ load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_mod
 content_module_jar(module = ":resources")
 ### auto-generated section `dev intellij.platform.resources` end
 
+# idecli embeds a copy of this file for its trace consent prompt. The copy must stay identical to
+# the file the IDE bundles: //idecli:trace_consent_up_to_date in the root workspace compares the two.
+exports_files(["src/localConsents.json"])
+
 ### auto-generated section `build intellij.platform.resources` start
 resourcegroup(
     name = "resources_resources",

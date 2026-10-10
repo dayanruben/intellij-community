@@ -3471,6 +3471,109 @@ class PyTypeAnnotationTest : PyCodeInsightTestCase() {
     class ClassA: ...
     """.trimIndent())
 
+  /**
+   * The annotations future import defers the evaluation, so the definition runs, but reading the annotation raises a `TypeError`. The `|` is in a type
+   * expression, so `__or__` does not apply.
+   */
+  @Test
+  @TestCaseOptions(languageLevel = LanguageLevel.PYTHON313)
+  fun `quoted name in a union with the annotations future import is an error without an operator warning`() = test("""
+    from __future__ import annotations
+
+    class Cls: ...
+
+    def func(val: "Cls" | None) -> None: ...
+    #             │     └ WARNING Class 'Literal["Cls"]' does not define '__or__', so the '|' operator cannot be used on its instances FIXME
+    #             ^^^^^ ERROR Union type annotations with forward references must be wrapped in quotes entirely
+    """.trimIndent())
+
+  /**
+   * Python 3.14 defers the evaluation of annotations, so the definition runs, but reading the annotation raises a `TypeError`. The `|` is in a type
+   * expression, so `__or__` does not apply.
+   */
+  @Test
+  fun `quoted name in a union with deferred evaluation of annotations is an error without an operator warning`() = test("""
+    class Cls: ...
+
+    def func(val: "Cls" | None) -> None: ...
+    #             │     └ WARNING Class 'Literal["Cls"]' does not define '__or__', so the '|' operator cannot be used on its instances FIXME
+    #             ^^^^^ ERROR Union type annotations with forward references must be wrapped in quotes entirely
+    """.trimIndent())
+
+  /** The parameter has the shape of `ts_input` of `Timestamp.__new__` in the `timestamps.pyi` stub of pandas 1.4.1. */
+  @Test
+  @TestFor(issues = ["PY-53491"])
+  fun `PEP 604 union split over lines in a stub accepts every member`() = test(
+    """
+    from ts import Timestamp
+
+    Timestamp("2022-03-17 00:00:00")
+    #         ^^^^^^^^^^^^^^^^^^^^^ WARNING Expected type 'int', got 'Literal["2022-03-17 00:00:00"]' instead FIXME
+    Timestamp(1)
+    Timestamp(1.5)
+    #         ^^^ WARNING Expected type 'int', got 'float' instead FIXME
+    Timestamp(b"") # WARNING Expected type 'int', got 'bytes' instead FIXME Expected type 'int | float | str', got 'bytes' instead
+    """.trimIndent(),
+    "ts.pyi" to """
+    class Timestamp:
+        def __new__(
+            cls,
+            ts_input: int
+            | float
+            | str = ...,
+        ) -> Timestamp: ...
+    """.trimIndent(),
+  )
+
+  @Test
+  @TestFor(issues = ["PY-53491"])
+  fun `PEP 604 union split over lines in another module accepts every member`() = test(
+    """
+    from other import f
+
+    f("a")
+    # ^^^ WARNING Expected type 'int', got 'Literal["a"]' instead FIXME
+    f(1)
+    f(b"") # WARNING Expected type 'int', got 'bytes' instead FIXME Expected type 'int | str', got 'bytes' instead
+    """.trimIndent(),
+    "other.py" to """
+    def f(x: int
+               | str) -> None: ...
+    """.trimIndent(),
+  )
+
+  @Test
+  @TestFor(issues = ["PY-53491"])
+  fun `PEP 604 union in parentheses split over lines in another module accepts every member`() = test(
+    """
+    from other import f
+
+    f("a")
+    f(1)
+    f(b"") # WARNING Expected type 'int | str', got 'bytes' instead
+    """.trimIndent(),
+    "other.py" to """
+    def f(x: (int
+              | str)) -> None: ...
+    """.trimIndent(),
+  )
+
+  @Test
+  @TestFor(issues = ["PY-53491"])
+  fun `quoted PEP 604 union split over lines in another module accepts every member`() = test(
+    """
+    from other import f
+
+    f("a")
+    f(1)
+    f(b"") # WARNING Expected type 'int | str', got 'bytes' instead
+    """.trimIndent(),
+    "other.py" to """
+    def f(x: ''' int
+              | str ''') -> None: ...
+    """.trimIndent(),
+  )
+
   @Test
   @TestFor(issues = ["PY-76870"])
   fun `TypeVar default can be subclass of bound`() = test("""

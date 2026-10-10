@@ -44,7 +44,7 @@ public class UniqueNameGenerator implements Condition<String> {
   }
 
   public static @NlsSafe @NotNull String generateUniqueName(@NotNull String defaultName, @NotNull String prefix, @NotNull String suffix, @NotNull @Unmodifiable Collection<String> existingNames) {
-    return generateUniqueName(defaultName, prefix, suffix, s -> !existingNames.contains(s));
+    return generateUniqueName(defaultName, prefix, suffix, notExistPredicate(existingNames));
   }
 
   /**
@@ -56,6 +56,21 @@ public class UniqueNameGenerator implements Condition<String> {
    */
   public static @NlsSafe @NotNull String generateUniqueName(@NotNull String defaultName, @NotNull Condition<? super String> validator) {
     return generateUniqueName(defaultName, "", "", validator);
+  }
+
+  /**
+   * Generates a unique name. Derived names are numbered starting from 1.
+   *
+   * @param defaultName original symbol name
+   * @param existingNames a collection containing existing names which should not be reused
+   * @return the name based on the defaultName, which is definitely absent in existingNames (typically by adding a numeric suffix)
+   */
+  public static @NlsSafe @NotNull String generateUniqueNameOneBased(@NotNull String defaultName, @NotNull Collection<String> existingNames) {
+    return generateUniqueNameOneBased(defaultName, notExistPredicate(existingNames));
+  }
+
+  private static @NotNull Condition<String> notExistPredicate(@NotNull Collection<String> existingNames) {
+    return s -> !existingNames.contains(s);
   }
 
   /**

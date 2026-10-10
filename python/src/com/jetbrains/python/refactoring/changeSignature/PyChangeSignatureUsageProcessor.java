@@ -26,10 +26,10 @@ import com.jetbrains.python.psi.LanguageLevel;
 import com.jetbrains.python.psi.PyAnnotation;
 import com.jetbrains.python.psi.PyArgumentList;
 import com.jetbrains.python.psi.PyCallExpression;
-import com.jetbrains.python.psi.PyCallSiteOwner;
 import com.jetbrains.python.psi.PyCallable;
 import com.jetbrains.python.psi.PyClass;
 import com.jetbrains.python.psi.PyDecorator;
+import com.jetbrains.python.psi.PyElement;
 import com.jetbrains.python.psi.PyElementGenerator;
 import com.jetbrains.python.psi.PyExpression;
 import com.jetbrains.python.psi.PyFunction;
@@ -277,7 +277,7 @@ public class PyChangeSignatureUsageProcessor implements ChangeSignatureUsageProc
 
   private static @NotNull List<PyCallableParameter> filterExplicitParameters(@NotNull List<PyCallableParameter> parameters,
                                                                              @Nullable PyCallable callable,
-                                                                             @NotNull PyCallSiteOwner callSite,
+                                                                             @NotNull PyElement callSite,
                                                                              @NotNull PyResolveContext resolveContext) {
     final int implicitOffset;
     if (callSite instanceof PyCallExpression callExpression) {

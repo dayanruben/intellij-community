@@ -1,14 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors.
-// Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
-//
-// Portions of this file are derived from work covered by the Eclipse Public License v1.0:
-//   Copyright (c) 2016 NumberFour AG. All rights reserved.
-//   This program and the accompanying materials are made available under the terms of the
-//   Eclipse Public License v1.0, which accompanies this distribution and is available at
-//   http://www.eclipse.org/legal/epl-v10.html
-//
-// Contributors of the EPL-1.0-licensed portions:
-//   NumberFour AG - Initial API and implementation
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.psi.types
 
 import com.google.common.collect.HashMultimap

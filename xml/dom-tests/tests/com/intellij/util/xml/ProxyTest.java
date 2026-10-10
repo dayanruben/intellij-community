@@ -4,17 +4,20 @@ package com.intellij.util.xml;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.xml.ui.DomUIFactory;
-import junit.framework.TestCase;
 import net.sf.cglib.proxy.AdvancedProxy;
 import net.sf.cglib.proxy.InvocationHandler;
+import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-public class ProxyTest extends TestCase {
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
+public class ProxyTest {
+
+  @Test
   public void testExtendClass() throws Throwable {
     final List<String> invocations = new ArrayList<>();
     Implementation implementation = AdvancedProxy.createProxy(Implementation.class, new Class[]{Interface3.class}, new InvocationHandler() {
@@ -98,6 +101,7 @@ public class ProxyTest extends TestCase {
   }
 
   @SuppressWarnings("CastToIncompatibleInterface")
+  @Test
   public void testAddInterfaces() {
     final BaseImpl proxy = AdvancedProxy.createProxy(BaseImpl.class, BaseIEx.class);
     assertEquals("a", proxy.sayA());
@@ -129,6 +133,7 @@ public class ProxyTest extends TestCase {
     }
   }
 
+  @Test
   public void testCovariantFromInterface() {
     final AbstractBase.AbstractBaseImpl proxy = AdvancedProxy.createProxy(AbstractBase.AbstractBaseImpl.class, ArrayUtil.EMPTY_CLASS_ARRAY,
                                                                           new InvocationHandler() {
@@ -161,6 +166,7 @@ public class ProxyTest extends TestCase {
     }
   }
 
+  @Test
   public void testCovariantFromBaseClass() {
     final CovariantFromBaseClassTest.Impl proxy = AdvancedProxy.createProxy(CovariantFromBaseClassTest.Impl.class,
                                                                             ArrayUtil.EMPTY_CLASS_ARRAY, new InvocationHandler() {
@@ -175,6 +181,7 @@ public class ProxyTest extends TestCase {
     assertEquals("a", ((CovariantFromBaseClassTest.Intf)proxy).sayA());
   }
 
+  @Test
   public void testGenericMethodInvocationJava8() throws Throwable {
     ConcreteInterface proxy = AdvancedProxy.createProxy(new InvocationHandler() {
       @Override

@@ -169,6 +169,16 @@ public class GroovyHighlighting50Test extends LightGroovyTestCase implements Hig
                        """);
   }
 
+  public void testAnnotatedLoop() {
+    highlightingTest("""
+                       import groovy.transform.<error descr="Cannot resolve symbol 'Parallel'">Parallel</error>
+                       var items = [1, 2, 3]
+                       <error descr="Loop annotations are available in Groovy 6.0 or later">@<error descr="Cannot resolve symbol 'Parallel'">Parallel</error></error>
+                       <error descr="Loop annotations are available in Groovy 6.0 or later">@Deprecated</error>
+                       for (item in items) { println(item) }
+                       """);
+  }
+
   public void testSimpleVar() {
     myFixture.enableInspections(new GroovyVariableCanBeFinalInspection());
     highlightingTest("""

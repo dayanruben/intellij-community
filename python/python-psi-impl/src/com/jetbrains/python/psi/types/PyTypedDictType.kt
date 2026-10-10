@@ -1,4 +1,4 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.psi.types
 
 import com.intellij.psi.util.PsiTreeUtil
@@ -6,9 +6,9 @@ import com.jetbrains.python.PyNames
 import com.jetbrains.python.codeInsight.typing.PyTypingTypeProvider
 import com.jetbrains.python.codeInsight.typing.isProtocol
 import com.jetbrains.python.psi.PyCallExpression
-import com.jetbrains.python.psi.PyCallSiteOwner
 import com.jetbrains.python.psi.PyClass
 import com.jetbrains.python.psi.PyDictLiteralExpression
+import com.jetbrains.python.psi.PyElement
 import com.jetbrains.python.psi.PyExpression
 import com.jetbrains.python.psi.PyKeyValueExpression
 import com.jetbrains.python.psi.PyKeywordArgument
@@ -72,7 +72,7 @@ class PyTypedDictType private constructor(
     return field.type
   }
 
-  override fun getCallType(context: TypeEvalContext, callSite: PyCallSiteOwner): PyType? {
+  override fun getCallType(context: TypeEvalContext, callSite: PyElement): PyType? {
     return if (isDefinition) toInstance() else PyAnyType.unknown
   }
 

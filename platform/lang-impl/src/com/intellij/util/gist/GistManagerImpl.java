@@ -199,11 +199,19 @@ public final class GistManagerImpl extends GistManager {
   static int getGistStamp(@NotNull VirtualFile file) {
     AtomicInteger invalidationCount = file.getUserData(GIST_INVALIDATION_COUNT_KEY);
     int reindexCount = ((GistManagerImpl)getInstance()).getReindexCount();
+    //modCount is a timestamp, with at best 'ms'-granularity: sometimes >1 change may happen in a 1ms;
+    //modStamp is a sequential modification #, but only about file content;
+    // so both should be used, together:
     long fileModificationCount = file.getModificationCount();
+    long fileModificationStamp = file.getModificationStamp();
+
     //mix the bits in all 4 components so that there is little chance change in one counter
     //  'compensate' change in another, and the resulting stamp happens to be the same:
     return mixBits(
-      mixBits(Long.hashCode(fileModificationCount), reindexCount),
+      mixBits(
+        Long.hashCode(fileModificationCount),
+        mixBits(Long.hashCode(fileModificationStamp), reindexCount)
+      ),
       mixBits(invalidationCount != null ? invalidationCount.get() : 0, INTERNAL_VERSION)
     );
   }

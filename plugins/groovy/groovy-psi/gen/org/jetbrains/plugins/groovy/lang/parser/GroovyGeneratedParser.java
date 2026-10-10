@@ -212,6 +212,21 @@ public class GroovyGeneratedParser implements PsiParser, LightPsiParser {
   }
 
   /* ********************************************************** */
+  // for_header mb_nl loop_body
+  static boolean after_for(PsiBuilder b, int l) {
+    if (!recursion_guard_(b, l, "after_for")) return false;
+    if (!nextTokenIs(b, T_LPAREN)) return false;
+    boolean r, p;
+    Marker m = enter_section_(b, l, _NONE_);
+    r = for_header(b, l + 1);
+    p = r; // pin = 1
+    r = r && report_error_(b, mb_nl(b, l + 1));
+    r = p && loop_body(b, l + 1) && r;
+    exit_section_(b, l, m, r, p, null);
+    return r || p;
+  }
+
+  /* ********************************************************** */
   // if_header mb_nl branch [mb_separators else_branch]
   static boolean after_if_keyword(PsiBuilder b, int l) {
     if (!recursion_guard_(b, l, "after_if_keyword")) return false;
@@ -261,7 +276,7 @@ public class GroovyGeneratedParser implements PsiParser, LightPsiParser {
   }
 
   /* ********************************************************** */
-  // while_header mb_nl while_body
+  // while_header mb_nl loop_body
   static boolean after_while(PsiBuilder b, int l) {
     if (!recursion_guard_(b, l, "after_while")) return false;
     if (!nextTokenIs(b, T_LPAREN)) return false;
@@ -270,7 +285,7 @@ public class GroovyGeneratedParser implements PsiParser, LightPsiParser {
     r = while_header(b, l + 1);
     p = r; // pin = 1
     r = r && report_error_(b, mb_nl(b, l + 1));
-    r = p && while_body(b, l + 1) && r;
+    r = p && loop_body(b, l + 1) && r;
     exit_section_(b, l, m, r, p, null);
     return r || p;
   }
@@ -3205,27 +3220,47 @@ public class GroovyGeneratedParser implements PsiParser, LightPsiParser {
   }
 
   /* ********************************************************** */
-  // 'do' mb_nl branch mb_nl 'while' '(' <<insideParentheses expression>> (mb_nl ')')
+  // [non_empty_annotation_list mb_nl] 'do' mb_nl branch mb_nl 'while' '(' <<insideParentheses expression>> (mb_nl ')')
   public static boolean do_while_statement(PsiBuilder b, int l) {
     if (!recursion_guard_(b, l, "do_while_statement")) return false;
-    if (!nextTokenIs(b, KW_DO)) return false;
+    if (!nextTokenIsFast(b, T_AT) &&
+        !nextTokenIs(b, "<do while statement>", KW_DO)) return false;
     boolean r, p;
-    Marker m = enter_section_(b, l, _NONE_, DO_WHILE_STATEMENT, null);
-    r = consumeToken(b, KW_DO);
-    p = r; // pin = 1
+    Marker m = enter_section_(b, l, _NONE_, DO_WHILE_STATEMENT, "<do while statement>");
+    r = do_while_statement_0(b, l + 1);
+    r = r && consumeToken(b, KW_DO);
+    p = r; // pin = 2
     r = r && report_error_(b, mb_nl(b, l + 1));
     r = p && report_error_(b, branch(b, l + 1)) && r;
     r = p && report_error_(b, mb_nl(b, l + 1)) && r;
     r = p && report_error_(b, consumeTokens(b, -1, KW_WHILE, T_LPAREN)) && r;
     r = p && report_error_(b, insideParentheses(b, l + 1, expression_parser_)) && r;
-    r = p && do_while_statement_7(b, l + 1) && r;
+    r = p && do_while_statement_8(b, l + 1) && r;
     exit_section_(b, l, m, r, p, null);
     return r || p;
   }
 
+  // [non_empty_annotation_list mb_nl]
+  private static boolean do_while_statement_0(PsiBuilder b, int l) {
+    if (!recursion_guard_(b, l, "do_while_statement_0")) return false;
+    do_while_statement_0_0(b, l + 1);
+    return true;
+  }
+
+  // non_empty_annotation_list mb_nl
+  private static boolean do_while_statement_0_0(PsiBuilder b, int l) {
+    if (!recursion_guard_(b, l, "do_while_statement_0_0")) return false;
+    boolean r;
+    Marker m = enter_section_(b);
+    r = non_empty_annotation_list(b, l + 1);
+    r = r && mb_nl(b, l + 1);
+    exit_section_(b, m, null, r);
+    return r;
+  }
+
   // mb_nl ')'
-  private static boolean do_while_statement_7(PsiBuilder b, int l) {
-    if (!recursion_guard_(b, l, "do_while_statement_7")) return false;
+  private static boolean do_while_statement_8(PsiBuilder b, int l) {
+    if (!recursion_guard_(b, l, "do_while_statement_8")) return false;
     boolean r;
     Marker m = enter_section_(b);
     r = mb_nl(b, l + 1);
@@ -4106,53 +4141,24 @@ public class GroovyGeneratedParser implements PsiParser, LightPsiParser {
   }
 
   /* ********************************************************** */
-  // &<<extendedStatement>> | followed_by_semi | statement
-  static boolean for_body(PsiBuilder b, int l) {
-    if (!recursion_guard_(b, l, "for_body")) return false;
-    boolean r;
-    Marker m = enter_section_(b, l, _NONE_, null, "<loop body>");
-    r = for_body_0(b, l + 1);
-    if (!r) r = followed_by_semi(b, l + 1);
-    if (!r) r = statement(b, l + 1);
-    exit_section_(b, l, m, r, false, null);
-    return r;
-  }
-
-  // &<<extendedStatement>>
-  private static boolean for_body_0(PsiBuilder b, int l) {
-    if (!recursion_guard_(b, l, "for_body_0")) return false;
-    boolean r;
-    Marker m = enter_section_(b, l, _AND_);
-    r = extendedStatement(b, l + 1);
-    exit_section_(b, l, m, r, false, null);
-    return r;
-  }
-
-  /* ********************************************************** */
-  // for_in_clause | traditional_for_clause
+  // for_in_clause | for_in_clause2 | traditional_for_clause
   static boolean for_clause(PsiBuilder b, int l) {
     if (!recursion_guard_(b, l, "for_clause")) return false;
     boolean r;
     r = for_in_clause(b, l + 1);
+    if (!r) r = for_in_clause2(b, l + 1);
     if (!r) r = traditional_for_clause(b, l + 1);
     return r;
   }
 
   /* ********************************************************** */
-  // for_variable_declaration | expression | clear_variants_and_fail
+  // for_variable_declaration | expression
   static boolean for_clause_initialization(PsiBuilder b, int l) {
     if (!recursion_guard_(b, l, "for_clause_initialization")) return false;
     boolean r;
     r = for_variable_declaration(b, l + 1);
     if (!r) r = expression(b, l + 1, -1);
-    if (!r) r = clear_variants_and_fail(b, l + 1);
     return r;
-  }
-
-  /* ********************************************************** */
-  // expression_list
-  static boolean for_clause_update(PsiBuilder b, int l) {
-    return expression_list(b, l + 1);
   }
 
   /* ********************************************************** */
@@ -4173,66 +4179,70 @@ public class GroovyGeneratedParser implements PsiParser, LightPsiParser {
   }
 
   /* ********************************************************** */
-  // (two_for_in_parameters | single_for_in_parameter) (':' | 'in') mb_nl expression
+  // single_for_in_parameter (':' | 'in') mb_nl expression
   public static boolean for_in_clause(PsiBuilder b, int l) {
     if (!recursion_guard_(b, l, "for_in_clause")) return false;
     boolean r, p;
     Marker m = enter_section_(b, l, _NONE_, FOR_IN_CLAUSE, "<for in clause>");
-    r = for_in_clause_0(b, l + 1);
-    p = r; // pin = 1
-    r = r && report_error_(b, for_in_clause_1(b, l + 1));
-    r = p && report_error_(b, mb_nl(b, l + 1)) && r;
+    r = single_for_in_parameter(b, l + 1);
+    r = r && for_in_clause_1(b, l + 1);
+    p = r; // pin = 2
+    r = r && report_error_(b, mb_nl(b, l + 1));
     r = p && expression(b, l + 1, -1) && r;
     exit_section_(b, l, m, r, p, null);
     return r || p;
-  }
-
-  // two_for_in_parameters | single_for_in_parameter
-  private static boolean for_in_clause_0(PsiBuilder b, int l) {
-    if (!recursion_guard_(b, l, "for_in_clause_0")) return false;
-    boolean r;
-    r = two_for_in_parameters(b, l + 1);
-    if (!r) r = single_for_in_parameter(b, l + 1);
-    return r;
   }
 
   // ':' | 'in'
   private static boolean for_in_clause_1(PsiBuilder b, int l) {
     if (!recursion_guard_(b, l, "for_in_clause_1")) return false;
     boolean r;
-    r = consumeTokenFast(b, T_COLON);
-    if (!r) r = consumeTokenFast(b, KW_IN);
+    r = consumeToken(b, T_COLON);
+    if (!r) r = consumeToken(b, KW_IN);
     return r;
   }
 
   /* ********************************************************** */
-  // (modifier_list mb_nl mb_type_element) (weak_keyword | IDENTIFIER) mb_nl !('=' | ';') | clear_variants_and_fail
+  // two_for_in_parameters (':' | 'in') mb_nl expression
+  public static boolean for_in_clause2(PsiBuilder b, int l) {
+    if (!recursion_guard_(b, l, "for_in_clause2")) return false;
+    boolean r, p;
+    Marker m = enter_section_(b, l, _NONE_, FOR_IN_CLAUSE, "<for in clause 2>");
+    r = two_for_in_parameters(b, l + 1);
+    p = r; // pin = 1
+    r = r && report_error_(b, for_in_clause2_1(b, l + 1));
+    r = p && report_error_(b, mb_nl(b, l + 1)) && r;
+    r = p && expression(b, l + 1, -1) && r;
+    exit_section_(b, l, m, r, p, null);
+    return r || p;
+  }
+
+  // ':' | 'in'
+  private static boolean for_in_clause2_1(PsiBuilder b, int l) {
+    if (!recursion_guard_(b, l, "for_in_clause2_1")) return false;
+    boolean r;
+    r = consumeToken(b, T_COLON);
+    if (!r) r = consumeToken(b, KW_IN);
+    return r;
+  }
+
+  /* ********************************************************** */
+  // (modifier_list mb_nl mb_type_element) (weak_keyword | IDENTIFIER) mb_nl !('=' | ';')
   public static boolean for_in_parameter(PsiBuilder b, int l) {
     if (!recursion_guard_(b, l, "for_in_parameter")) return false;
     boolean r;
     Marker m = enter_section_(b, l, _NONE_, PARAMETER, "<for in parameter>");
     r = for_in_parameter_0(b, l + 1);
-    if (!r) r = clear_variants_and_fail(b, l + 1);
+    r = r && for_in_parameter_1(b, l + 1);
+    r = r && mb_nl(b, l + 1);
+    r = r && for_in_parameter_3(b, l + 1);
     exit_section_(b, l, m, r, false, null);
     return r;
   }
 
-  // (modifier_list mb_nl mb_type_element) (weak_keyword | IDENTIFIER) mb_nl !('=' | ';')
+  // modifier_list mb_nl mb_type_element
   private static boolean for_in_parameter_0(PsiBuilder b, int l) {
     if (!recursion_guard_(b, l, "for_in_parameter_0")) return false;
-    boolean r;
-    Marker m = enter_section_(b);
-    r = for_in_parameter_0_0(b, l + 1);
-    r = r && for_in_parameter_0_1(b, l + 1);
-    r = r && mb_nl(b, l + 1);
-    r = r && for_in_parameter_0_3(b, l + 1);
-    exit_section_(b, m, null, r);
-    return r;
-  }
-
-  // modifier_list mb_nl mb_type_element
-  private static boolean for_in_parameter_0_0(PsiBuilder b, int l) {
-    if (!recursion_guard_(b, l, "for_in_parameter_0_0")) return false;
     boolean r;
     Marker m = enter_section_(b);
     r = modifier_list(b, l + 1);
@@ -4243,8 +4253,8 @@ public class GroovyGeneratedParser implements PsiParser, LightPsiParser {
   }
 
   // weak_keyword | IDENTIFIER
-  private static boolean for_in_parameter_0_1(PsiBuilder b, int l) {
-    if (!recursion_guard_(b, l, "for_in_parameter_0_1")) return false;
+  private static boolean for_in_parameter_1(PsiBuilder b, int l) {
+    if (!recursion_guard_(b, l, "for_in_parameter_1")) return false;
     boolean r;
     r = weak_keyword(b, l + 1);
     if (!r) r = consumeToken(b, IDENTIFIER);
@@ -4252,18 +4262,18 @@ public class GroovyGeneratedParser implements PsiParser, LightPsiParser {
   }
 
   // !('=' | ';')
-  private static boolean for_in_parameter_0_3(PsiBuilder b, int l) {
-    if (!recursion_guard_(b, l, "for_in_parameter_0_3")) return false;
+  private static boolean for_in_parameter_3(PsiBuilder b, int l) {
+    if (!recursion_guard_(b, l, "for_in_parameter_3")) return false;
     boolean r;
     Marker m = enter_section_(b, l, _NOT_);
-    r = !for_in_parameter_0_3_0(b, l + 1);
+    r = !for_in_parameter_3_0(b, l + 1);
     exit_section_(b, l, m, r, false, null);
     return r;
   }
 
   // '=' | ';'
-  private static boolean for_in_parameter_0_3_0(PsiBuilder b, int l) {
-    if (!recursion_guard_(b, l, "for_in_parameter_0_3_0")) return false;
+  private static boolean for_in_parameter_3_0(PsiBuilder b, int l) {
+    if (!recursion_guard_(b, l, "for_in_parameter_3_0")) return false;
     boolean r;
     r = consumeToken(b, T_ASSIGN);
     if (!r) r = consumeToken(b, T_SEMI);
@@ -4271,30 +4281,37 @@ public class GroovyGeneratedParser implements PsiParser, LightPsiParser {
   }
 
   /* ********************************************************** */
-  // 'for' (for_header mb_nl for_body)
+  // [non_empty_annotation_list mb_nl] 'for' after_for
   public static boolean for_statement(PsiBuilder b, int l) {
     if (!recursion_guard_(b, l, "for_statement")) return false;
-    if (!nextTokenIs(b, KW_FOR)) return false;
+    if (!nextTokenIsFast(b, T_AT) &&
+        !nextTokenIs(b, "<for statement>", KW_FOR)) return false;
     boolean r, p;
-    Marker m = enter_section_(b, l, _NONE_, FOR_STATEMENT, null);
-    r = consumeToken(b, KW_FOR);
-    p = r; // pin = 1
-    r = r && for_statement_1(b, l + 1);
+    Marker m = enter_section_(b, l, _NONE_, FOR_STATEMENT, "<for statement>");
+    r = for_statement_0(b, l + 1);
+    r = r && consumeToken(b, KW_FOR);
+    p = r; // pin = 2
+    r = r && after_for(b, l + 1);
     exit_section_(b, l, m, r, p, null);
     return r || p;
   }
 
-  // for_header mb_nl for_body
-  private static boolean for_statement_1(PsiBuilder b, int l) {
-    if (!recursion_guard_(b, l, "for_statement_1")) return false;
-    boolean r, p;
-    Marker m = enter_section_(b, l, _NONE_);
-    r = for_header(b, l + 1);
-    p = r; // pin = 1
-    r = r && report_error_(b, mb_nl(b, l + 1));
-    r = p && for_body(b, l + 1) && r;
-    exit_section_(b, l, m, r, p, null);
-    return r || p;
+  // [non_empty_annotation_list mb_nl]
+  private static boolean for_statement_0(PsiBuilder b, int l) {
+    if (!recursion_guard_(b, l, "for_statement_0")) return false;
+    for_statement_0_0(b, l + 1);
+    return true;
+  }
+
+  // non_empty_annotation_list mb_nl
+  private static boolean for_statement_0_0(PsiBuilder b, int l) {
+    if (!recursion_guard_(b, l, "for_statement_0_0")) return false;
+    boolean r;
+    Marker m = enter_section_(b);
+    r = non_empty_annotation_list(b, l + 1);
+    r = r && mb_nl(b, l + 1);
+    exit_section_(b, m, null, r);
+    return r;
   }
 
   /* ********************************************************** */
@@ -4813,6 +4830,16 @@ public class GroovyGeneratedParser implements PsiParser, LightPsiParser {
   // <<parseTailLeftFlat block_declaration_start variable_declaration_tail>>
   static boolean local_variable_declaration(PsiBuilder b, int l) {
     return parseTailLeftFlat(b, l + 1, GroovyGeneratedParser::block_declaration_start, GroovyGeneratedParser::variable_declaration_tail);
+  }
+
+  /* ********************************************************** */
+  // followed_by_semi | branch
+  static boolean loop_body(PsiBuilder b, int l) {
+    if (!recursion_guard_(b, l, "loop_body")) return false;
+    boolean r;
+    r = followed_by_semi(b, l + 1);
+    if (!r) r = branch(b, l + 1);
+    return r;
   }
 
   /* ********************************************************** */
@@ -7597,44 +7624,43 @@ public class GroovyGeneratedParser implements PsiParser, LightPsiParser {
   }
 
   /* ********************************************************** */
-  // empty for_clause_initialization? mb_nl ';' mb_nl expression? mb_nl ';' mb_nl for_clause_update?
+  // for_clause_initialization? mb_nl ';' mb_nl expression? mb_nl ';' mb_nl expression_list?
   public static boolean traditional_for_clause(PsiBuilder b, int l) {
     if (!recursion_guard_(b, l, "traditional_for_clause")) return false;
     boolean r, p;
     Marker m = enter_section_(b, l, _NONE_, TRADITIONAL_FOR_CLAUSE, "<traditional for clause>");
-    r = empty(b, l + 1);
+    r = traditional_for_clause_0(b, l + 1);
     p = r; // pin = 1
-    r = r && report_error_(b, traditional_for_clause_1(b, l + 1));
+    r = r && report_error_(b, mb_nl(b, l + 1));
+    r = p && report_error_(b, consumeToken(b, T_SEMI)) && r;
+    r = p && report_error_(b, mb_nl(b, l + 1)) && r;
+    r = p && report_error_(b, traditional_for_clause_4(b, l + 1)) && r;
     r = p && report_error_(b, mb_nl(b, l + 1)) && r;
     r = p && report_error_(b, consumeToken(b, T_SEMI)) && r;
     r = p && report_error_(b, mb_nl(b, l + 1)) && r;
-    r = p && report_error_(b, traditional_for_clause_5(b, l + 1)) && r;
-    r = p && report_error_(b, mb_nl(b, l + 1)) && r;
-    r = p && report_error_(b, consumeToken(b, T_SEMI)) && r;
-    r = p && report_error_(b, mb_nl(b, l + 1)) && r;
-    r = p && traditional_for_clause_9(b, l + 1) && r;
+    r = p && traditional_for_clause_8(b, l + 1) && r;
     exit_section_(b, l, m, r, p, null);
     return r || p;
   }
 
   // for_clause_initialization?
-  private static boolean traditional_for_clause_1(PsiBuilder b, int l) {
-    if (!recursion_guard_(b, l, "traditional_for_clause_1")) return false;
+  private static boolean traditional_for_clause_0(PsiBuilder b, int l) {
+    if (!recursion_guard_(b, l, "traditional_for_clause_0")) return false;
     for_clause_initialization(b, l + 1);
     return true;
   }
 
   // expression?
-  private static boolean traditional_for_clause_5(PsiBuilder b, int l) {
-    if (!recursion_guard_(b, l, "traditional_for_clause_5")) return false;
+  private static boolean traditional_for_clause_4(PsiBuilder b, int l) {
+    if (!recursion_guard_(b, l, "traditional_for_clause_4")) return false;
     expression(b, l + 1, -1);
     return true;
   }
 
-  // for_clause_update?
-  private static boolean traditional_for_clause_9(PsiBuilder b, int l) {
-    if (!recursion_guard_(b, l, "traditional_for_clause_9")) return false;
-    for_clause_update(b, l + 1);
+  // expression_list?
+  private static boolean traditional_for_clause_8(PsiBuilder b, int l) {
+    if (!recursion_guard_(b, l, "traditional_for_clause_8")) return false;
+    expression_list(b, l + 1);
     return true;
   }
 
@@ -8464,16 +8490,6 @@ public class GroovyGeneratedParser implements PsiParser, LightPsiParser {
   }
 
   /* ********************************************************** */
-  // followed_by_semi | branch
-  static boolean while_body(PsiBuilder b, int l) {
-    if (!recursion_guard_(b, l, "while_body")) return false;
-    boolean r;
-    r = followed_by_semi(b, l + 1);
-    if (!r) r = branch(b, l + 1);
-    return r;
-  }
-
-  /* ********************************************************** */
   // '(' mb_nl <<insideParentheses expression>> mb_nl ')'
   static boolean while_header(PsiBuilder b, int l) {
     if (!recursion_guard_(b, l, "while_header")) return false;
@@ -8491,17 +8507,37 @@ public class GroovyGeneratedParser implements PsiParser, LightPsiParser {
   }
 
   /* ********************************************************** */
-  // 'while' after_while
+  // [non_empty_annotation_list mb_nl] 'while' after_while
   public static boolean while_statement(PsiBuilder b, int l) {
     if (!recursion_guard_(b, l, "while_statement")) return false;
-    if (!nextTokenIs(b, KW_WHILE)) return false;
+    if (!nextTokenIsFast(b, T_AT) &&
+        !nextTokenIs(b, "<while statement>", KW_WHILE)) return false;
     boolean r, p;
-    Marker m = enter_section_(b, l, _NONE_, WHILE_STATEMENT, null);
-    r = consumeToken(b, KW_WHILE);
-    p = r; // pin = 1
+    Marker m = enter_section_(b, l, _NONE_, WHILE_STATEMENT, "<while statement>");
+    r = while_statement_0(b, l + 1);
+    r = r && consumeToken(b, KW_WHILE);
+    p = r; // pin = 2
     r = r && after_while(b, l + 1);
     exit_section_(b, l, m, r, p, null);
     return r || p;
+  }
+
+  // [non_empty_annotation_list mb_nl]
+  private static boolean while_statement_0(PsiBuilder b, int l) {
+    if (!recursion_guard_(b, l, "while_statement_0")) return false;
+    while_statement_0_0(b, l + 1);
+    return true;
+  }
+
+  // non_empty_annotation_list mb_nl
+  private static boolean while_statement_0_0(PsiBuilder b, int l) {
+    if (!recursion_guard_(b, l, "while_statement_0_0")) return false;
+    boolean r;
+    Marker m = enter_section_(b);
+    r = non_empty_annotation_list(b, l + 1);
+    r = r && mb_nl(b, l + 1);
+    exit_section_(b, m, null, r);
+    return r;
   }
 
   /* ********************************************************** */

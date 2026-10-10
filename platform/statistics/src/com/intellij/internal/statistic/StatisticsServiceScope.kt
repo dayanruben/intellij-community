@@ -5,20 +5,22 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.plus
 import org.jetbrains.annotations.ApiStatus
 
 @ApiStatus.Internal
-interface StatisticsServiceScope {
-  companion object {
-    fun getScope(project: Project): CoroutineScope = project.service<StatisticsServiceProjectScope>().scope
-    fun getScope(): CoroutineScope = service<StatisticsServiceApplicationScope>().scope
-  }
+object StatisticsServiceScope {
+  fun getScope(project: Project): CoroutineScope = project.service<StatisticsServiceProjectScope>().scope
+  fun getScope(): CoroutineScope = service<StatisticsServiceApplicationScope>().scope
 }
 
-@ApiStatus.Internal
 @Service(Service.Level.APP)
-class StatisticsServiceApplicationScope(val scope: CoroutineScope)
+internal class StatisticsServiceApplicationScope(providedScope: CoroutineScope) {
+  val scope: CoroutineScope = providedScope + Dispatchers.IO
+}
 
-@ApiStatus.Internal
 @Service(Service.Level.PROJECT)
-class StatisticsServiceProjectScope(val scope: CoroutineScope)
+internal class StatisticsServiceProjectScope(providedScope: CoroutineScope) {
+  val scope: CoroutineScope = providedScope + Dispatchers.IO
+}

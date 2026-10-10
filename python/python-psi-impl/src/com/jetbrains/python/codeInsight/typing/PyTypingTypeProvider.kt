@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.codeInsight.typing
 
 import com.dynatrace.hash4j.hashing.HashValue128
@@ -51,11 +51,11 @@ import com.jetbrains.python.psi.PyAssignmentStatement
 import com.jetbrains.python.psi.PyBinaryExpression
 import com.jetbrains.python.psi.PyCallExpression
 import com.jetbrains.python.psi.PyCallSiteExpression
-import com.jetbrains.python.psi.PyCallSiteOwner
 import com.jetbrains.python.psi.PyCallable
 import com.jetbrains.python.psi.PyClass
 import com.jetbrains.python.psi.PyDecoratable
 import com.jetbrains.python.psi.PyDoubleStarExpression
+import com.jetbrains.python.psi.PyElement
 import com.jetbrains.python.psi.PyEllipsisLiteralExpression
 import com.jetbrains.python.psi.PyExpression
 import com.jetbrains.python.psi.PyExpressionCodeFragment
@@ -255,7 +255,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
     return null
   }
 
-  override fun getCallType(function: PyFunction, callSite: PyCallSiteOwner, context: Context): Ref<PyType?>? {
+  override fun getCallType(function: PyFunction, callSite: PyElement, context: Context): Ref<PyType?>? {
     val functionQName = function.qualifiedName
 
     if (CAST == functionQName || CAST_EXT == functionQName) {

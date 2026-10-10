@@ -16,6 +16,7 @@
 package com.intellij.util.xml;
 
 import com.intellij.openapi.command.WriteCommandAction;
+import com.intellij.openapi.module.Module;
 import com.intellij.psi.CommonClassNames;
 import com.intellij.psi.PsiArrayType;
 import com.intellij.psi.PsiClass;
@@ -24,302 +25,377 @@ import com.intellij.psi.PsiType;
 import com.intellij.psi.PsiTypes;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.xml.XmlTag;
+import com.intellij.testFramework.junit5.TestApplication;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.xml.events.DomEvent;
-import com.intellij.util.xml.impl.DomTestCase;
+import com.intellij.util.xml.impl.DomTestFixture;
 import com.intellij.util.xml.ui.DomUIFactory;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 
-public class DomSimpleValuesTest extends DomTestCase {
+import static com.intellij.testFramework.EdtTestUtil.runInEdtAndWait;
+import static com.intellij.util.xml.impl.DomTestFixtures.domModuleFixture;
+import static com.intellij.util.xml.impl.DomTestFixtures.domTestFixture;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
+
+@TestApplication
+public class DomSimpleValuesTest {
+  private static final TestFixture<Module> moduleFixture = domModuleFixture();
+  private final TestFixture<DomTestFixture> domFixture = domTestFixture(moduleFixture);
 
   private MyElement createElement(final String xml) throws IncorrectOperationException {
-    return createElement(xml, MyElement.class);
+    return domFixture.get().createElement(xml, MyElement.class);
   }
 
+  @Test
   public void testGetValue() {
-    final String text = "<a>foo</a>";
-    assertEquals("foo", createElement(text).getTagValue());
-    assertEquals("foo", createElement(text).getValue());
-  }
-
-  public void testSetValue() {
-    final MyElement element = createElement("<a/>");
-    assertEquals("", element.getValue());
-    element.setValue(239);
-    assertEquals("239", element.getValue());
-    assertEquals("239", element.getXmlTag().getValue().getText());
-    myCallRegistry.putExpected(new DomEvent(element, false));
-
-    myCallRegistry.assertResultsAndClear();
-  }
-
-  public void testDefineAndSet() {
-    final MyElement element = getDomManager().getFileElement(createXmlFile(""), MyElement.class, "root").getRootElement();
-    myCallRegistry.clear();
-    assertNull(element.getXmlTag());
-    element.setValue(42);
-    assertNotNull(element.getXmlTag());
-    assertEquals("42", element.getXmlTag().getValue().getText());
-    final DomElement element1 = element;
-    myCallRegistry.putExpected(new DomEvent(element1, true));
-    myCallRegistry.putExpected(new DomEvent(element, false));
-
-    element.setValue((Integer)null);
-    assertNull(element.getXmlTag());
-    assertEquals(null, element.getValue());
-
-    myCallRegistry.putExpected(new DomEvent(element, false));
-    myCallRegistry.assertResultsAndClear();
-  }
-
-
-  public void testSimpleConverters() {
-    assertEquals(239, createElement("<a>239</a>").getInt());
-    assertEquals(true, createElement("<a>true</a>").getBoolean());
-    assertEquals("true", createElement("<a>true</a>").getBuffer().toString());
-
-    assertEquals((short)239, createElement("<a>239</a>").getShort());
-    assertEquals(new Long("239"), createElement("<a>239</a>").getLong());
-    assertEquals(new Float("239.42"), createElement("<a>239.42</a>").getFloat());
-    assertEquals(new BigDecimal("239.42"), createElement("<a>239.42</a>").getBigDecimal());
-
-    final MyElement bigDecimalValue = createElement("<a>239.42</a>");
-    bigDecimalValue.setValue(new BigDecimal("111.234"));
-    assertEquals("111.234", bigDecimalValue.getValue());
-
-    try {
-      createElement("<a>true</a>").getInt();
-      fail();
-    }
-    catch (NullPointerException e) {
-    }
-    try {
-      createElement("<a>42</a>").getBoolean();
-      fail();
-    }
-    catch (NullPointerException e) {
-    }
-  }
-
-  public void testComment() {
-    assertEquals(239, createElement("<a>" +
-                                    "  <!-- some comment-->" +
-                                    "  239" +
-                                    "  <!-- some another comment-->" +
-                                    "</a>").getInt());
-  }
-
-  public void testPsiClassConverter() {
-    final String className = Object.class.getName();
-    final PsiClass objectClass = getJavaFacade().findClass(className, GlobalSearchScope.allScope(getProject()));
-    assertEquals(objectClass, createElement("<a>" + className + "</a>").getPsiClass());
-
-    assertNull(createElement("<a>abcdef</a>").getPsiClass());
-  }
-
-  public void testEnums() {
-    final MyElement element = createElement("<a/>", MyElement.class);
-    assertNull(element.getEnum());
-
-    element.setEnum(DomTestCase.MyEnum.BAR);
-    assertEquals(DomTestCase.MyEnum.BAR, element.getEnum());
-    assertEquals(DomTestCase.MyEnum.BAR.getValue(), element.getXmlTag().getValue().getText());
-
-    element.setEnum(null);
-    assertNull(element.getEnum());
-    assertNull(element.getXmlTag());
-
-    element.setValue(239);
-    assertNull(element.getEnum());
-  }
-
-  public void testAttributeValues() {
-    final MyElement element = createElement("<a attra=\"foo\"/>");
-    final GenericAttributeValue<String> attributeValue = element.getAttributeValue();
-    assertEquals("attra", attributeValue.getXmlElementName());
-    assertEquals("foo", attributeValue.getValue());
-
-    final GenericAttributeValue<Integer> attr = element.getAttr();
-    attr.setValue(239);
-    assertEquals(239, (int)attr.getValue());
-    assertEquals("239", element.getXmlTag().getAttributeValue("attr"));
-    final DomElement element1 = attr;
-    myCallRegistry.putExpected(new DomEvent(element1, true));
-    myCallRegistry.assertResultsAndClear();
-
-    attr.setValue(42);
-    myCallRegistry.putExpected(new DomEvent(attr, false));
-    myCallRegistry.assertResultsAndClear();
-
-    attr.setValue(null);
-    assertNull(attr.getValue());
-    assertNull(element.getXmlTag().getAttributeValue("attr"));
-    assertNull(element.getXmlTag().getAttribute("attr", ""));
-    myCallRegistry.putExpected(new DomEvent(attr, false));
-    myCallRegistry.assertResultsAndClear();
-
-    assertEquals("some-attribute", element.getSomeAttribute().getXmlElementName());
-
-    assertNull(createElement("<a attra\"attr\"/>").getAttributeValue().getStringValue());
-    assertNull(createElement("<a attra\"\"/>").getAttributeValue().getStringValue());
-    assertNull(createElement("<a attra\"/>").getAttributeValue().getStringValue());
-  }
-
-  public void testGenericValue() {
-    final MyElement element = createElement("<a><generic-child>239</generic-child></a>");
-    final GenericDomValue<Integer> integerChild = element.getGenericChild();
-    assertEquals(239, (int)integerChild.getValue());
-    assertEquals("239", integerChild.getStringValue());
-    integerChild.setValue(42);
-    assertEquals(42, (int)integerChild.getValue());
-    assertEquals("42", integerChild.getStringValue());
-  }
-
-  public void testAnnotatedGenericValue() {
-    final MyElement element = createElement("<a><buffer>239</buffer></a>");
-    element.getGenericChild().getValue();
-    final GenericDomValue<StringBuffer> genericChild2 = element.getGenericChild2();
-    assertEquals("239", genericChild2.getValue().toString());
-  }
-
-  public void testSpecialCharacters() {
-    final MyElement element = createElement("");
-    element.setValue("<");
-    assertEquals("<", element.getValue());
-    assertEquals("<![CDATA[<]]>", element.getXmlTag().getValue().getText());
-
-    element.getAttributeValue().setValue("<");
-    assertEquals("<", element.getAttributeValue().getValue());
-    assertEquals("\"&lt;\"", element.getXmlTag().getAttribute("attra", null).getValueElement().getText());
-  }
-
-  public void testIndicators() {
-    final MyElement element = createElement("<a><indicator/></a>");
-    final GenericDomValue<Boolean> indicator = element.getIndicator();
-    assertTrue(indicator.getValue());
-
-    indicator.setValue(false);
-    assertFalse(indicator.getValue());
-    assertNull(indicator.getStringValue());
-    assertNull(indicator.getXmlTag());
-    assertEquals(0, element.getXmlTag().getSubTags().length);
-    putExpected(new DomEvent(indicator, false));
-    assertResultsAndClear();
-
-    indicator.setValue(true);
-    assertTrue(indicator.getValue());
-    assertEquals("", indicator.getStringValue());
-    assertSame(indicator.getXmlTag(), element.getXmlTag().getSubTags()[0]);
-    final DomElement element1 = indicator;
-    putExpected(new DomEvent(element1, true));
-    assertResultsAndClear();
-
-    final XmlTag tag = element.getXmlTag();
-    WriteCommandAction.runWriteCommandAction(getProject(), () -> {
-      tag.add(createTag("<indicator/>"));
-      tag.add(createTag("<indicator/>"));
+    runInEdtAndWait(() -> {
+      final String text = "<a>foo</a>";
+      assertEquals("foo", createElement(text).getTagValue());
+      assertEquals("foo", createElement(text).getValue());
     });
-
-    assertTrue(element.isValid());
-    assertTrue(element.getIndicator().getValue());
-    element.getIndicator().setValue(false);
-    assertFalse(element.getIndicator().getValue());
-    assertEquals(0, element.getXmlTag().findSubTags("indicator").length);
   }
 
+  @Test
+  public void testSetValue() {
+    runInEdtAndWait(() -> {
+      final MyElement element = createElement("<a/>");
+      assertEquals("", element.getValue());
+      element.setValue(239);
+      assertEquals("239", element.getValue());
+      assertEquals("239", element.getXmlTag().getValue().getText());
+      domFixture.get().getCallRegistry().putExpected(new DomEvent(element, false));
+
+      domFixture.get().getCallRegistry().assertResultsAndClear();
+    });
+  }
+
+  @Test
+  public void testDefineAndSet() {
+    runInEdtAndWait(() -> {
+      final MyElement element = domFixture.get().getDomManager().getFileElement(domFixture.get().createXmlFile(""), MyElement.class, "root").getRootElement();
+      domFixture.get().getCallRegistry().clear();
+      assertNull(element.getXmlTag());
+      element.setValue(42);
+      assertNotNull(element.getXmlTag());
+      assertEquals("42", element.getXmlTag().getValue().getText());
+      final DomElement element1 = element;
+      domFixture.get().getCallRegistry().putExpected(new DomEvent(element1, true));
+      domFixture.get().getCallRegistry().putExpected(new DomEvent(element, false));
+
+      element.setValue((Integer)null);
+      assertNull(element.getXmlTag());
+      assertEquals(null, element.getValue());
+
+      domFixture.get().getCallRegistry().putExpected(new DomEvent(element, false));
+      domFixture.get().getCallRegistry().assertResultsAndClear();
+    });
+  }
+
+
+  @Test
+  public void testSimpleConverters() {
+    runInEdtAndWait(() -> {
+      assertEquals(239, createElement("<a>239</a>").getInt());
+      assertEquals(true, createElement("<a>true</a>").getBoolean());
+      assertEquals("true", createElement("<a>true</a>").getBuffer().toString());
+
+      assertEquals((short)239, createElement("<a>239</a>").getShort());
+      assertEquals(new Long("239"), createElement("<a>239</a>").getLong());
+      assertEquals(new Float("239.42"), createElement("<a>239.42</a>").getFloat());
+      assertEquals(new BigDecimal("239.42"), createElement("<a>239.42</a>").getBigDecimal());
+
+      final MyElement bigDecimalValue = createElement("<a>239.42</a>");
+      bigDecimalValue.setValue(new BigDecimal("111.234"));
+      assertEquals("111.234", bigDecimalValue.getValue());
+
+      try {
+        createElement("<a>true</a>").getInt();
+        fail();
+      }
+      catch (NullPointerException e) {
+      }
+      try {
+        createElement("<a>42</a>").getBoolean();
+        fail();
+      }
+      catch (NullPointerException e) {
+      }
+    });
+  }
+
+  @Test
+  public void testComment() {
+    runInEdtAndWait(() -> {
+      assertEquals(239, createElement("<a>" +
+                                      "  <!-- some comment-->" +
+                                      "  239" +
+                                      "  <!-- some another comment-->" +
+                                      "</a>").getInt());
+    });
+  }
+
+  @Test
+  public void testPsiClassConverter() {
+    runInEdtAndWait(() -> {
+      final String className = Object.class.getName();
+      final PsiClass objectClass = domFixture.get().getJavaFacade().findClass(className, GlobalSearchScope.allScope(domFixture.get().getProject()));
+      assertEquals(objectClass, createElement("<a>" + className + "</a>").getPsiClass());
+
+      assertNull(createElement("<a>abcdef</a>").getPsiClass());
+    });
+  }
+
+  @Test
+  public void testEnums() {
+    runInEdtAndWait(() -> {
+      final MyElement element = domFixture.get().createElement("<a/>", MyElement.class);
+      assertNull(element.getEnum());
+
+      element.setEnum(MyEnum.BAR);
+      assertEquals(MyEnum.BAR, element.getEnum());
+      assertEquals(MyEnum.BAR.getValue(), element.getXmlTag().getValue().getText());
+
+      element.setEnum(null);
+      assertNull(element.getEnum());
+      assertNull(element.getXmlTag());
+
+      element.setValue(239);
+      assertNull(element.getEnum());
+    });
+  }
+
+  @Test
+  public void testAttributeValues() {
+    runInEdtAndWait(() -> {
+      final MyElement element = createElement("<a attra=\"foo\"/>");
+      final GenericAttributeValue<String> attributeValue = element.getAttributeValue();
+      assertEquals("attra", attributeValue.getXmlElementName());
+      assertEquals("foo", attributeValue.getValue());
+
+      final GenericAttributeValue<Integer> attr = element.getAttr();
+      attr.setValue(239);
+      assertEquals(239, (int)attr.getValue());
+      assertEquals("239", element.getXmlTag().getAttributeValue("attr"));
+      final DomElement element1 = attr;
+      domFixture.get().getCallRegistry().putExpected(new DomEvent(element1, true));
+      domFixture.get().getCallRegistry().assertResultsAndClear();
+
+      attr.setValue(42);
+      domFixture.get().getCallRegistry().putExpected(new DomEvent(attr, false));
+      domFixture.get().getCallRegistry().assertResultsAndClear();
+
+      attr.setValue(null);
+      assertNull(attr.getValue());
+      assertNull(element.getXmlTag().getAttributeValue("attr"));
+      assertNull(element.getXmlTag().getAttribute("attr", ""));
+      domFixture.get().getCallRegistry().putExpected(new DomEvent(attr, false));
+      domFixture.get().getCallRegistry().assertResultsAndClear();
+
+      assertEquals("some-attribute", element.getSomeAttribute().getXmlElementName());
+
+      assertNull(createElement("<a attra\"attr\"/>").getAttributeValue().getStringValue());
+      assertNull(createElement("<a attra\"\"/>").getAttributeValue().getStringValue());
+      assertNull(createElement("<a attra\"/>").getAttributeValue().getStringValue());
+    });
+  }
+
+  @Test
+  public void testGenericValue() {
+    runInEdtAndWait(() -> {
+      final MyElement element = createElement("<a><generic-child>239</generic-child></a>");
+      final GenericDomValue<Integer> integerChild = element.getGenericChild();
+      assertEquals(239, (int)integerChild.getValue());
+      assertEquals("239", integerChild.getStringValue());
+      integerChild.setValue(42);
+      assertEquals(42, (int)integerChild.getValue());
+      assertEquals("42", integerChild.getStringValue());
+    });
+  }
+
+  @Test
+  public void testAnnotatedGenericValue() {
+    runInEdtAndWait(() -> {
+      final MyElement element = createElement("<a><buffer>239</buffer></a>");
+      element.getGenericChild().getValue();
+      final GenericDomValue<StringBuffer> genericChild2 = element.getGenericChild2();
+      assertEquals("239", genericChild2.getValue().toString());
+    });
+  }
+
+  @Test
+  public void testSpecialCharacters() {
+    runInEdtAndWait(() -> {
+      final MyElement element = createElement("");
+      element.setValue("<");
+      assertEquals("<", element.getValue());
+      assertEquals("<![CDATA[<]]>", element.getXmlTag().getValue().getText());
+
+      element.getAttributeValue().setValue("<");
+      assertEquals("<", element.getAttributeValue().getValue());
+      assertEquals("\"&lt;\"", element.getXmlTag().getAttribute("attra", null).getValueElement().getText());
+    });
+  }
+
+  @Test
+  public void testIndicators() {
+    runInEdtAndWait(() -> {
+      final MyElement element = createElement("<a><indicator/></a>");
+      final GenericDomValue<Boolean> indicator = element.getIndicator();
+      assertTrue(indicator.getValue());
+
+      indicator.setValue(false);
+      assertFalse(indicator.getValue());
+      assertNull(indicator.getStringValue());
+      assertNull(indicator.getXmlTag());
+      assertEquals(0, element.getXmlTag().getSubTags().length);
+      domFixture.get().putExpected(new DomEvent(indicator, false));
+      domFixture.get().assertResultsAndClear();
+
+      indicator.setValue(true);
+      assertTrue(indicator.getValue());
+      assertEquals("", indicator.getStringValue());
+      assertSame(indicator.getXmlTag(), element.getXmlTag().getSubTags()[0]);
+      final DomElement element1 = indicator;
+      domFixture.get().putExpected(new DomEvent(element1, true));
+      domFixture.get().assertResultsAndClear();
+
+      final XmlTag tag = element.getXmlTag();
+      WriteCommandAction.runWriteCommandAction(domFixture.get().getProject(), () -> {
+        tag.add(domFixture.get().createTag("<indicator/>"));
+        tag.add(domFixture.get().createTag("<indicator/>"));
+      });
+
+      assertTrue(element.isValid());
+      assertTrue(element.getIndicator().getValue());
+      element.getIndicator().setValue(false);
+      assertFalse(element.getIndicator().getValue());
+      assertEquals(0, element.getXmlTag().findSubTags("indicator").length);
+    });
+  }
+
+  @Test
   public void testConcreteGenericValue() throws Throwable {
-    final ConcreteGeneric generic = createElement("", ConcreteGeneric.class);
-    generic.setValue("abc");
-    assertEquals("abc", generic.getValue());
+    runInEdtAndWait(() -> {
+      final ConcreteGeneric generic = domFixture.get().createElement("", ConcreteGeneric.class);
+      generic.setValue("abc");
+      assertEquals("abc", generic.getValue());
 
-    DomUIFactory.SET_VALUE_METHOD.invoke(generic, "def");
-    assertEquals("def", DomUIFactory.GET_VALUE_METHOD.invoke(generic));
+      DomUIFactory.SET_VALUE_METHOD.invoke(generic, "def");
+      assertEquals("def", DomUIFactory.GET_VALUE_METHOD.invoke(generic));
+    });
   }
 
+  @Test
   public void testConcreteGenericValueWithMethods() throws Throwable {
-    final ConcreteGenericWithMethods generic = createElement("", ConcreteGenericWithMethods.class);
-    generic.setValue("abc");
-    assertEquals("abc", generic.getValue());
+    runInEdtAndWait(() -> {
+      final ConcreteGenericWithMethods generic = domFixture.get().createElement("", ConcreteGenericWithMethods.class);
+      generic.setValue("abc");
+      assertEquals("abc", generic.getValue());
 
-    DomUIFactory.SET_VALUE_METHOD.invoke(generic, "def");
-    assertEquals("def", DomUIFactory.GET_VALUE_METHOD.invoke(generic));
+      DomUIFactory.SET_VALUE_METHOD.invoke(generic, "def");
+      assertEquals("def", DomUIFactory.GET_VALUE_METHOD.invoke(generic));
+    });
   }
 
+  @Test
   public void testNameValueInPresentation() {
-    final MyElement element = createElement("");
-    element.getAttr().setValue(23942);
-    assertEquals("23942", element.getPresentation().getElementName());
+    runInEdtAndWait(() -> {
+      final MyElement element = createElement("");
+      element.getAttr().setValue(23942);
+      assertEquals("23942", element.getPresentation().getElementName());
+    });
   }
 
+  @Test
   public void testResolveToDomElement() {
-    final RootInterface element = createElement("", RootInterface.class);
-    final MyElement child1 = element.addChild();
-    child1.getAttr().setValue(555);
-    final MyElement child2 = element.addChild();
-    child2.getAttr().setValue(777);
+    runInEdtAndWait(() -> {
+      final RootInterface element = domFixture.get().createElement("", RootInterface.class);
+      final MyElement child1 = element.addChild();
+      child1.getAttr().setValue(555);
+      final MyElement child2 = element.addChild();
+      child2.getAttr().setValue(777);
 
-    final GenericDomValue<MyElement> resolve = child2.getResolve();
-    resolve.setStringValue("777");
-    assertEquals(child2, resolve.getValue());
+      final GenericDomValue<MyElement> resolve = child2.getResolve();
+      resolve.setStringValue("777");
+      assertEquals(child2, resolve.getValue());
 
-    resolve.setValue(child1);
-    assertEquals("555", resolve.getStringValue());
-    assertEquals(child1, resolve.getValue());
+      resolve.setValue(child1);
+      assertEquals("555", resolve.getStringValue());
+      assertEquals(child1, resolve.getValue());
 
-    resolve.setStringValue("239");
-    assertNull(resolve.getValue());
+      resolve.setStringValue("239");
+      assertNull(resolve.getValue());
 
-    final GenericDomValue<MyElement> resolve2 = child2.getResolve2();
-    resolve2.setStringValue("777");
-    assertEquals(child2, resolve2.getValue());
+      final GenericDomValue<MyElement> resolve2 = child2.getResolve2();
+      resolve2.setStringValue("777");
+      assertEquals(child2, resolve2.getValue());
+    });
   }
 
+  @Test
   public void testPlainPsiTypeConverter() {
-    assertNull(createElement("").getPsiType());
-    assertSame(PsiTypes.intType(), createElement("<a>int</a>").getPsiType());
-    final PsiType psiType = createElement("<a>java.lang.String</a>").getPsiType();
-    assertEquals(CommonClassNames.JAVA_LANG_STRING, assertInstanceOf(psiType, PsiClassType.class).getCanonicalText());
+    runInEdtAndWait(() -> {
+      assertNull(createElement("").getPsiType());
+      assertSame(PsiTypes.intType(), createElement("<a>int</a>").getPsiType());
+      final PsiType psiType = createElement("<a>java.lang.String</a>").getPsiType();
+      assertEquals(CommonClassNames.JAVA_LANG_STRING, assertInstanceOf(PsiClassType.class, psiType).getCanonicalText());
 
-    final PsiType arrayType = createElement("<a>int[]</a>").getPsiType();
-    assertTrue(arrayType instanceof PsiArrayType);
-    assertSame(PsiTypes.intType(), ((PsiArrayType) arrayType).getComponentType());
+      final PsiType arrayType = createElement("<a>int[]</a>").getPsiType();
+      assertTrue(arrayType instanceof PsiArrayType);
+      assertSame(PsiTypes.intType(), ((PsiArrayType) arrayType).getComponentType());
+    });
   }
 
+  @Test
   public void testJvmPsiTypeConverter() {
-    assertNull(createElement("").getJvmPsiType());
-    assertNotNull(createElement("<a>int</a>").getJvmPsiType());
-    final PsiClassType string = PsiType.getJavaLangString(getPsiManager(), GlobalSearchScope.allScope(getProject()));
-    final PsiType psiType = createElement("<a>java.lang.String</a>").getJvmPsiType();
-    assertEquals(CommonClassNames.JAVA_LANG_STRING, assertInstanceOf(psiType, PsiClassType.class).getCanonicalText());
+    runInEdtAndWait(() -> {
+      assertNull(createElement("").getJvmPsiType());
+      assertNotNull(createElement("<a>int</a>").getJvmPsiType());
+      final PsiClassType string = PsiType.getJavaLangString(domFixture.get().getPsiManager(), GlobalSearchScope.allScope(domFixture.get().getProject()));
+      final PsiType psiType = createElement("<a>java.lang.String</a>").getJvmPsiType();
+      assertEquals(CommonClassNames.JAVA_LANG_STRING, assertInstanceOf(PsiClassType.class, psiType).getCanonicalText());
 
-    final PsiArrayType intArray = assertInstanceOf(createElement("<a>[I</a>").getJvmPsiType(), PsiArrayType.class);
-    final PsiArrayType stringArray = assertInstanceOf(createElement("<a>[Ljava.lang.String;</a>").getJvmPsiType(), PsiArrayType.class);
-    assertSame(PsiTypes.intType(), intArray.getComponentType());
-    assertEquals(CommonClassNames.JAVA_LANG_STRING, assertInstanceOf(stringArray.getComponentType(), PsiClassType.class).getCanonicalText());
+      final PsiArrayType intArray = assertInstanceOf(PsiArrayType.class, createElement("<a>[I</a>").getJvmPsiType());
+      final PsiArrayType stringArray = assertInstanceOf(PsiArrayType.class, createElement("<a>[Ljava.lang.String;</a>").getJvmPsiType());
+      assertSame(PsiTypes.intType(), intArray.getComponentType());
+      assertEquals(CommonClassNames.JAVA_LANG_STRING, assertInstanceOf(PsiClassType.class, stringArray.getComponentType()).getCanonicalText());
 
-    assertJvmPsiTypeToString(intArray, "[I");
-    assertJvmPsiTypeToString(stringArray, "[Ljava.lang.String;");
-    assertJvmPsiTypeToString(string, "java.lang.String");
+      assertJvmPsiTypeToString(intArray, "[I");
+      assertJvmPsiTypeToString(stringArray, "[Ljava.lang.String;");
+      assertJvmPsiTypeToString(string, "java.lang.String");
+    });
   }
 
+  @Test
   public void testValueCaching() {
-    final GenericDomValue<String> element = createElement("<a><cached-value/></a>", MyElement.class).getCachedValue();
-    assertEquals(0, ((MyConverter) element.getConverter()).fromStringCalls);
-    assertEquals("", element.getValue());
-    assertEquals(1, ((MyConverter) element.getConverter()).fromStringCalls);
-    assertEquals("", element.getValue());
-    assertEquals(1, ((MyConverter) element.getConverter()).fromStringCalls);
-    element.setValue("1");
-    assertEquals(1, ((MyConverter) element.getConverter()).fromStringCalls);
-    assertEquals("1", element.getValue());
-    assertEquals(2, ((MyConverter) element.getConverter()).fromStringCalls);
+    runInEdtAndWait(() -> {
+      final GenericDomValue<String> element = domFixture.get().createElement("<a><cached-value/></a>", MyElement.class).getCachedValue();
+      assertEquals(0, ((MyConverter) element.getConverter()).fromStringCalls);
+      assertEquals("", element.getValue());
+      assertEquals(1, ((MyConverter) element.getConverter()).fromStringCalls);
+      assertEquals("", element.getValue());
+      assertEquals(1, ((MyConverter) element.getConverter()).fromStringCalls);
+      element.setValue("1");
+      assertEquals(1, ((MyConverter) element.getConverter()).fromStringCalls);
+      assertEquals("1", element.getValue());
+      assertEquals(2, ((MyConverter) element.getConverter()).fromStringCalls);
+    });
   }
 
 
@@ -329,31 +405,59 @@ public class DomSimpleValuesTest extends DomTestCase {
     assertEquals(expected, element.getValue());
   }
 
+  @Test
   public void testJavaStyledElement() throws IncorrectOperationException {
-    JavaStyledElement element = createElement("<tag javaStyledAttribute=\"666\"></tag>", JavaStyledElement.class);
-    assertEquals(element.getJavaStyledAttribute().getXmlElementName(), "javaStyledAttribute");
+    runInEdtAndWait(() -> {
+      JavaStyledElement element = domFixture.get().createElement("<tag javaStyledAttribute=\"666\"></tag>", JavaStyledElement.class);
+      assertEquals(element.getJavaStyledAttribute().getXmlElementName(), "javaStyledAttribute");
+    });
   }
 
+  @Test
   public void testGenericValueListConverter() {
-    final MyElement element = createElement("<a><string-buffer>abc</string-buffer></a>");
-    assertEquals("abc", element.getStringBuffers().get(0).getValue().toString());
+    runInEdtAndWait(() -> {
+      final MyElement element = createElement("<a><string-buffer>abc</string-buffer></a>");
+      assertEquals("abc", element.getStringBuffers().get(0).getValue().toString());
+    });
   }
 
+  @Test
   public void testConvertAnnotationOnType() {
-    final MyElement element =
-      createElement("<a>" + "<my-generic-value>abc</my-generic-value>" + "<my-foo-generic-value>abc</my-foo-generic-value>");
-    assertEquals("bar", element.getMyGenericValue().getValue());
-    assertEquals("foo", element.getMyFooGenericValue().getValue());
+    runInEdtAndWait(() -> {
+      final MyElement element =
+        createElement("<a>" + "<my-generic-value>abc</my-generic-value>" + "<my-foo-generic-value>abc</my-foo-generic-value>");
+      assertEquals("bar", element.getMyGenericValue().getValue());
+      assertEquals("foo", element.getMyFooGenericValue().getValue());
+    });
   }
   
+  @Test
   public void testEntities() {
-    final MyElement element = createElement("""
-                                              <!DOCTYPE a SYSTEM "aaa"
-                                              [<!ENTITY idgenerator    "identity">]>
-                                              <a attra="a&lt;b" some-attribute="&idgenerator;">&xxx;+&idgenerator;+&amp;</a>""");
-    assertEquals("a<b", element.getAttributeValue().getValue());
-    assertEquals("identity", element.getSomeAttribute().getValue());
-//    assertEquals("&xxx;+identity+&", element.getValue());
+    runInEdtAndWait(() -> {
+      final MyElement element = createElement("""
+                                                <!DOCTYPE a SYSTEM "aaa"
+                                                [<!ENTITY idgenerator    "identity">]>
+                                                <a attra="a&lt;b" some-attribute="&idgenerator;">&xxx;+&idgenerator;+&amp;</a>""");
+      assertEquals("a<b", element.getAttributeValue().getValue());
+      assertEquals("identity", element.getSomeAttribute().getValue());
+  //    assertEquals("&xxx;+identity+&", element.getValue());
+    });
+  }
+
+  public enum MyEnum implements NamedEnum {
+    FOO("foo"),
+    BAR("bar");
+
+    private final String myName;
+
+    MyEnum(final String name) {
+      myName = name;
+    }
+
+    @Override
+    public String getValue() {
+      return myName;
+    }
   }
 
   public interface RootInterface extends DomElement {
@@ -395,10 +499,10 @@ public class DomSimpleValuesTest extends DomTestCase {
     void setJvmPsiType(PsiType psiType);
 
     @TagValue()
-    DomTestCase.MyEnum getEnum();
+    MyEnum getEnum();
 
     @TagValue
-    void setEnum(DomTestCase.MyEnum value);
+    void setEnum(MyEnum value);
 
     @TagValue()
     @Convert(StringBufferConverter.class)
@@ -470,17 +574,20 @@ public class DomSimpleValuesTest extends DomTestCase {
     void setValue(String s);
   }
 
+  @Test
   public void testFuhrer() {
-    final FieldGroup group = createElement("""
-                                             <field-group>
-                                             <group-name>myGroup</load-group-name>
-                                             <field-name>myField1</field-name>
-                                             <field-name>myField2</field-name>
-                                             </field-group>""",
-                                           FieldGroup.class);
-    assertEquals(2, group.getFieldNames().size());
-    assertEquals("myField1", group.getFieldNames().get(0).getValue().getName().getValue());
-    assertEquals(null, group.getFieldNames().get(1).getValue());
+    runInEdtAndWait(() -> {
+      final FieldGroup group = domFixture.get().createElement("""
+                                               <field-group>
+                                               <group-name>myGroup</load-group-name>
+                                               <field-name>myField1</field-name>
+                                               <field-name>myField2</field-name>
+                                               </field-group>""",
+                                             FieldGroup.class);
+      assertEquals(2, group.getFieldNames().size());
+      assertEquals("myField1", group.getFieldNames().get(0).getValue().getName().getValue());
+      assertEquals(null, group.getFieldNames().get(1).getValue());
+    });
   }
 
   public interface JavaeeModelElement {

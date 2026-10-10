@@ -1,9 +1,12 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.xml.stubs;
 
+import com.intellij.ide.impl.OpenProjectTask;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.extensions.DefaultPluginDescriptor;
 import com.intellij.openapi.extensions.PluginId;
+import com.intellij.openapi.module.Module;
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.impl.PsiManagerEx;
@@ -14,6 +17,11 @@ import com.intellij.psi.stubs.StubTreeLoader;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.psi.xml.XmlTag;
 import com.intellij.testFramework.ServiceContainerUtil;
+import com.intellij.testFramework.TestDataFile;
+import com.intellij.testFramework.TestDataPath;
+import com.intellij.testFramework.fixtures.CodeInsightTestFixture;
+import com.intellij.testFramework.junit5.TestApplication;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ref.GCWatcher;
 import com.intellij.util.xml.DomFileElement;
@@ -26,14 +34,44 @@ import com.intellij.util.xml.stubs.model.Bar;
 import com.intellij.util.xml.stubs.model.Custom;
 import com.intellij.util.xml.stubs.model.Foo;
 import org.jetbrains.annotations.NotNull;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
+import java.nio.file.Path;
 import java.util.List;
 
-public class DomStubBuilderTest extends DomStubTest {
-  public void testDomLoading() {
-    getRootStub("foo.xml");
+import static com.intellij.platform.testFramework.junit5.codeInsight.fixture.CodeInsightFixtureKt.codeInsightFixture;
+import static com.intellij.testFramework.EdtTestUtil.runInEdtAndWait;
+import static com.intellij.testFramework.junit5.fixture.FixturesKt.moduleFixture;
+import static com.intellij.testFramework.junit5.fixture.FixturesKt.projectFixture;
+import static com.intellij.testFramework.junit5.fixture.FixturesKt.tempPathFixture;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+@TestApplication
+@TestDataPath("$PROJECT_ROOT/community/xml/dom-tests/testData/stubs")
+public class DomStubBuilderTest {
+  @SuppressWarnings("deprecation")
+  private static final TestFixture<Project> projectFixture = projectFixture(tempPathFixture(), OpenProjectTask.build(), true);
+
+  private final TestFixture<Path> pathFixture = tempPathFixture();
+  @SuppressWarnings("unused")
+  private final TestFixture<Module> moduleFixture = moduleFixture(projectFixture, pathFixture, true);
+  private final TestFixture<CodeInsightTestFixture> codeInsightFixture = codeInsightFixture(projectFixture, pathFixture);
+
+  @BeforeEach
+  void setUp() {
+    DomStubTestUtil.registerFooFileDescription(projectFixture.get(), codeInsightFixture.get().getTestRootDisposable());
   }
 
+  @Test
+  public void testDomLoading() {
+    runInEdtAndWait(() -> getRootStub("foo.xml"));
+  }
+
+  @Test
   public void testFoo() {
     doBuilderTest("foo.xml", """
       File:foo
@@ -48,19 +86,25 @@ public class DomStubBuilderTest extends DomStubTest {
       """);
   }
 
+  @Test
   public void testFooNoStubbedValueWhenNestedTags() {
-    final ElementStub rootStub = getRootStub("foo.xml");
-    assertEquals("", rootStub.getValue());
+    runInEdtAndWait(() -> {
+      final ElementStub rootStub = getRootStub("foo.xml");
+      assertEquals("", rootStub.getValue());
 
-    final Stub fooStub = assertOneElement(rootStub.getChildrenStubs());
-    final ElementStub fooElementStub = assertInstanceOf(fooStub, ElementStub.class);
-    assertEquals("", fooElementStub.getValue());
+      final List<? extends Stub> rootChildren = rootStub.getChildrenStubs();
+      assertEquals(1, rootChildren.size());
+      final Stub fooStub = rootChildren.getFirst();
+      final ElementStub fooElementStub = assertInstanceOf(ElementStub.class, fooStub);
+      assertEquals("", fooElementStub.getValue());
 
-    final Stub idStub = ContainerUtil.getFirstItem(fooStub.getChildrenStubs());
-    final ElementStub idElementStub = assertInstanceOf(idStub, ElementStub.class);
-    assertEquals("foo", idElementStub.getValue());
+      final Stub idStub = ContainerUtil.getFirstItem(fooStub.getChildrenStubs());
+      final ElementStub idElementStub = assertInstanceOf(ElementStub.class, idStub);
+      assertEquals("foo", idElementStub.getValue());
+    });
   }
 
+  @Test
   public void testIncompleteAttribute() {
     doBuilderTest("incompleteAttribute.xml", """
       File:foo
@@ -70,11 +114,12 @@ public class DomStubBuilderTest extends DomStubTest {
       """);
   }
 
+  @Test
   public void testDomExtension() {
     DomExtenderEP ep = new DomExtenderEP(Bar.class.getName(), new DefaultPluginDescriptor(PluginId.getId("testDomExtension"), getClass().getClassLoader()));
     ep.domClassName = Bar.class.getName();
     ep.extenderClassName = TestExtender.class.getName();
-    ServiceContainerUtil.registerExtension(ApplicationManager.getApplication(), DomExtenderEP.EP_NAME, ep, myFixture.getTestRootDisposable());
+    ServiceContainerUtil.registerExtension(ApplicationManager.getApplication(), DomExtenderEP.EP_NAME, ep, codeInsightFixture.get().getTestRootDisposable());
 
     doBuilderTest("extender.xml", """
       File:foo
@@ -85,29 +130,36 @@ public class DomStubBuilderTest extends DomStubTest {
       """);
   }
 
+  @Test
   public void testNullTag() {
-    VirtualFile virtualFile = myFixture.copyFileToProject("nullTag.xml");
-    assertNotNull(virtualFile);
-    PsiFile psiFile = ((PsiManagerEx)getPsiManager()).getFileManager().findFile(virtualFile);
+    runInEdtAndWait(() -> {
+      Project project = projectFixture.get();
+      VirtualFile virtualFile = codeInsightFixture.get().copyFileToProject("nullTag.xml");
+      assertNotNull(virtualFile);
+      PsiFile psiFile = PsiManagerEx.getInstanceEx(project).getFileManager().findFile(virtualFile);
 
-    StubTreeLoader loader = StubTreeLoader.getInstance();
-    VirtualFile file = psiFile.getVirtualFile();
-    assertTrue(loader.canHaveStub(file));
-    ObjectStubTree stubTree = loader.readFromVFile(getProject(), file);
-    assertNotNull(stubTree);
+      StubTreeLoader loader = StubTreeLoader.getInstance();
+      VirtualFile file = psiFile.getVirtualFile();
+      assertTrue(loader.canHaveStub(file));
+      ObjectStubTree stubTree = loader.readFromVFile(project, file);
+      assertNotNull(stubTree);
+    });
   }
 
+  @Test
   public void testInclusionOnStubs() {
-    doInclusionTest(true);
+    runInEdtAndWait(() -> doInclusionTest(true));
   }
 
+  @Test
   public void testInclusionOnAST() {
-    doInclusionTest(false);
+    runInEdtAndWait(() -> doInclusionTest(false));
   }
 
   private void doInclusionTest(boolean onStubs) {
-    myFixture.copyFileToProject("include.xml");
-    doBuilderTest("inclusion.xml", """
+    CodeInsightTestFixture fixture = codeInsightFixture.get();
+    fixture.copyFileToProject("include.xml");
+    DomStubTestUtil.doBuilderTest("inclusion.xml", """
       File:foo
         Element:foo
           XInclude:href=include.xml xpointer=xpointer(/foo/*)
@@ -116,15 +168,15 @@ public class DomStubBuilderTest extends DomStubTest {
             Attribute:int:666
           Element:bar
             XInclude:href=include.xml xpointer=xpointer(/foo/bar-2/*)
-      """);
+      """, fixture);
 
-    PsiFile file = myFixture.getFile();
+    PsiFile file = fixture.getFile();
     if (onStubs) {
       GCWatcher.tracking(file.getNode()).ensureCollected();
     }
     assertEquals(!onStubs, ((PsiFileImpl) file).isContentsLoaded());
 
-    DomManager domManager = DomManager.getDomManager(getProject());
+    DomManager domManager = DomManager.getDomManager(fixture.getProject());
     DomFileElement<Foo> element = domManager.getFileElement((XmlFile)file, Foo.class);
     assert element != null;
     List<Bar> bars = element.getRootElement().getBars();
@@ -135,13 +187,23 @@ public class DomStubBuilderTest extends DomStubTest {
     assertEquals(!onStubs, ((PsiFileImpl) file).isContentsLoaded());
 
     Bar lastBar = bars.get(2);
-    assertEquals("included2", assertOneElement(lastBar.getBars()).getString().getStringValue());
+    List<Bar> lastBarChildren = lastBar.getBars();
+    assertEquals(1, lastBarChildren.size());
+    assertEquals("included2", lastBarChildren.getFirst().getString().getStringValue());
 
     XmlTag[] barTags = ((XmlFile)file).getRootTag().findSubTags("bar");
-    assertSize(3, barTags);
+    assertEquals(3, barTags.length);
     for (int i = 1; i < barTags.length; i++) {
-      assertEquals(String.valueOf(i), bars.get(i), domManager.getDomElement(barTags[i]));
+      assertEquals(bars.get(i), domManager.getDomElement(barTags[i]), String.valueOf(i));
     }
+  }
+
+  private ElementStub getRootStub(@TestDataFile String filePath) {
+    return DomStubTestUtil.getRootStub(filePath, codeInsightFixture.get());
+  }
+
+  private void doBuilderTest(@TestDataFile String filePath, String stubText) {
+    runInEdtAndWait(() -> DomStubTestUtil.doBuilderTest(filePath, stubText, codeInsightFixture.get()));
   }
 
   public static class TestExtender extends DomExtender<Bar> {

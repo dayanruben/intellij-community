@@ -8,7 +8,6 @@ import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.QualifiedName;
 import com.intellij.util.ObjectUtils;
-import com.intellij.util.containers.ContainerUtil;
 import com.jetbrains.python.PyNames;
 import com.jetbrains.python.PyTokenTypes;
 import com.jetbrains.python.ast.impl.PyPsiUtilsCore;
@@ -17,8 +16,6 @@ import com.jetbrains.python.psi.PyElementType;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-
-import java.util.List;
 
 
 @ApiStatus.Experimental
@@ -105,17 +102,6 @@ public interface PyAstBinaryExpression extends PyAstQualifiedExpression, PyAstCa
   default ASTNode getNameElement() {
     final PsiElement op = getPsiOperator();
     return op != null ? op.getNode() : null;
-  }
-
-  @Override
-  default @Nullable PyAstExpression getReceiver(@Nullable PyAstCallable resolvedCallee) {
-    return isRightOperator(resolvedCallee) ? getRightExpression() : getChainedComparisonAwareLeftExpression(this);
-  }
-
-  @Override
-  default @NotNull List<@NotNull PyAstExpression> getArguments(@Nullable PyAstCallable resolvedCallee) {
-    PyAstExpression operand = isRightOperator(resolvedCallee) ? getChainedComparisonAwareLeftExpression(this) : getRightExpression();
-    return ContainerUtil.createMaybeSingletonList(operand);
   }
 
   @ApiStatus.Internal

@@ -11,6 +11,8 @@ import org.jetbrains.plugins.groovy.codeInspection.bugs.GrRemoveModifierFix;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyElementVisitor;
 import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.modifiers.GrModifier;
 import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.modifiers.GrModifierList;
+import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.modifiers.annotation.GrAnnotation;
+import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrLoopStatement;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrVariableDeclaration;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrMethod;
 import org.jetbrains.plugins.groovy.lang.psi.api.toplevel.imports.GrImportStatement;
@@ -37,6 +39,13 @@ final class GroovyAnnotatorPre60 extends GroovyElementVisitor {
           .withFix(QuickfixUtil.fixToIntention(modifier, new GrRemoveModifierFix(GrModifier.VAL)))
           .create();
       }
+    }
+  }
+
+  @Override
+  public void visitAnnotation(@NotNull GrAnnotation annotation) {
+    if (annotation.getOwner() instanceof GrLoopStatement) {
+      myHolder.newAnnotation(HighlightSeverity.ERROR, GroovyBundle.message("unsupported.annotation.on.loop")).range(annotation).create();
     }
   }
 

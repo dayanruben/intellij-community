@@ -1,3 +1,4 @@
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.psi.types
 
 import com.intellij.openapi.util.RecursionManager
@@ -7,8 +8,8 @@ import com.intellij.psi.PsiElement
 import com.jetbrains.python.psi.PyArgumentList
 import com.jetbrains.python.psi.PyCallExpression
 import com.jetbrains.python.psi.PyCallSiteExpression
-import com.jetbrains.python.psi.PyCallSiteOwner
 import com.jetbrains.python.psi.PyDecoratorList
+import com.jetbrains.python.psi.PyElement
 import com.jetbrains.python.psi.PyExpression
 import com.jetbrains.python.psi.PyKeywordArgument
 import com.jetbrains.python.psi.PyListLiteralExpression
@@ -43,7 +44,7 @@ object PyTypeInferenceCspFactory {
 
   @JvmStatic
   fun unifyReceiver(argsMapping: PyCallExpression.PyArgumentsMapping, context: TypeEvalContext): GenericSubstitutions {
-    val callSite = argsMapping.callSiteOwner
+    val callSite = argsMapping.callSite
     val callSiteExpression = callSite as? PyExpression
     val callableType = argsMapping.callableType
     val si = if (callSiteExpression == null) null else SubstitutionsIdentifier(callSiteExpression, callableType)
@@ -53,7 +54,7 @@ object PyTypeInferenceCspFactory {
 
   @JvmStatic
   fun unifyGenericCall(
-    callSite: PyCallSiteOwner?,
+    callSite: PyElement?,
     callableType: PyCallableType?,
     mappedParameters: Map<PyCallableArgument, PyCallableParameter>,
     context: TypeEvalContext,

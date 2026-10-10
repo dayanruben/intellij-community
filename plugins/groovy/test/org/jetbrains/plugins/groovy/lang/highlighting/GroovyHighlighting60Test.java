@@ -100,6 +100,16 @@ public class GroovyHighlighting60Test extends LightGroovyTestCase implements Hig
                        """);
   }
 
+  public void testAnnotatedLoop() {
+    highlightingTest("""
+                       import groovy.transform.Parallel
+                       var items = [1, 2, 3]
+                       @Parallel
+                       @<error descr="'@Deprecated' annotation not allowed on loop">Deprecated</error>
+                       for (item in items) { println(item) }
+                       """);
+  }
+
   public void testWeakKeywordImportAlias() {
     highlightingTest("""
                        import java.lang.String as trait

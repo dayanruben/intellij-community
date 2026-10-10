@@ -2,7 +2,6 @@
 package com.jetbrains.python.sdk.pipenv
 
 import com.intellij.python.community.impl.pipenv.PipEnvPyTool
-import com.intellij.python.pytools.common.FusId
 import com.intellij.python.community.impl.pipenv.common.icons.PythonCommunityImplPipenvCommonIcons
 import com.jetbrains.python.PyInternalExecApi
 import com.jetbrains.python.sdk.flavors.CPythonSdkFlavor
@@ -16,7 +15,7 @@ import javax.swing.Icon
 internal object PyPipEnvSdkFlavor : CPythonSdkFlavor<PyFlavorData.Empty>() {
   override fun getIcon(): Icon = PythonCommunityImplPipenvCommonIcons.Pipenv
   override fun getFlavorDataClass(): Class<PyFlavorData.Empty> = PyFlavorData.Empty::class.java
-  override fun getManager(): FusId = PipEnvPyTool.getInstance().fusId
+  override fun getManagerId(): String = PipEnvPyTool.getInstance().fusId.value
 
   override fun isValidSdkPath(pythonBinaryPath: Path): Boolean = false
 }

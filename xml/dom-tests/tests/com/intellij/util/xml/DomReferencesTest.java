@@ -15,6 +15,7 @@
  */
 package com.intellij.util.xml;
 
+import com.intellij.openapi.module.Module;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiElement;
@@ -25,8 +26,12 @@ import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.xml.XmlAttributeValue;
 import com.intellij.psi.xml.XmlTag;
 import com.intellij.psi.xml.XmlTagValue;
+import com.intellij.testFramework.junit5.TestApplication;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
+import com.intellij.util.xml.impl.DomTestFixture;
 import com.intellij.util.xml.impl.GenericDomValueReference;
 import org.jetbrains.annotations.NotNull;
+import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.Collection;
@@ -34,129 +39,202 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 
-public class DomReferencesTest extends DomHardCoreTestCase {
+import static com.intellij.testFramework.EdtTestUtil.runInEdtAndWait;
+import static com.intellij.util.xml.DomReferenceTestUtil.assertReference;
+import static com.intellij.util.xml.DomReferenceTestUtil.assertVariants;
+import static com.intellij.util.xml.DomReferenceTestUtil.getReference;
+import static com.intellij.util.xml.impl.DomTestFixtures.domModuleFixture;
+import static com.intellij.util.xml.impl.DomTestFixtures.domTestFixture;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+@TestApplication
+public class DomReferencesTest {
+  private static final TestFixture<Module> moduleFixture = domModuleFixture();
+  private final TestFixture<DomTestFixture> domFixture = domTestFixture(moduleFixture);
+
+  @Test
   public void testMetaData() {
-    final MyElement element = createElement("");
-    element.getName().setValue("A");
-    final XmlTag tag = element.getXmlTag();
-    final DomMetaData metaData = assertInstanceOf(tag.getMetaData(), DomMetaData.class);
-    assertEquals(tag, metaData.getDeclaration());
-    assertOrderedEquals(metaData.getDependencies(), DomUtil.getFileElement(element), tag);
-    assertEquals("A", metaData.getName());
-    assertEquals("A", metaData.getName(null));
+    runInEdtAndWait(() -> {
+      final MyElement element = createElement("");
+      element.getName().setValue("A");
+      final XmlTag tag = element.getXmlTag();
+      final DomMetaData metaData = assertInstanceOf(DomMetaData.class, tag.getMetaData());
+      assertEquals(tag, metaData.getDeclaration());
+      assertArrayEquals(new Object[]{DomUtil.getFileElement(element), tag}, metaData.getDependencies());
+      assertEquals("A", metaData.getName());
+      assertEquals("A", metaData.getName(null));
 
-    metaData.setName("B");
-    assertEquals("B", element.getName().getValue());
-  }
-
-  public void testNameReference() {
-    final MyElement element = createElement("<a><name>abc</name></a>");
-    final DomTarget target = DomTarget.getTarget(element);
-    assertNotNull(target);
-    final XmlTag tag = element.getName().getXmlTag();
-    assertNull(tag.getContainingFile().findReferenceAt(tag.getValue().getTextRange().getStartOffset()));
-  }
-
-  public void testProcessingInstruction() {
-    createElement("<a><?xml version=\"1.0\"?></a>").getXmlTag().accept(new PsiRecursiveElementVisitor() {
-      @Override public void visitElement(@NotNull PsiElement element) {
-        super.visitElement(element);
-        for (final PsiReference reference : element.getReferences()) {
-          assertFalse(reference instanceof GenericDomValueReference);
-        }
-      }
+      metaData.setName("B");
+      assertEquals("B", element.getName().getValue());
     });
   }
 
+  @Test
+  public void testNameReference() {
+    runInEdtAndWait(() -> {
+      final MyElement element = createElement("<a><name>abc</name></a>");
+      final DomTarget target = DomTarget.getTarget(element);
+      assertNotNull(target);
+      final XmlTag tag = element.getName().getXmlTag();
+      assertNull(tag.getContainingFile().findReferenceAt(tag.getValue().getTextRange().getStartOffset()));
+    });
+  }
+
+  @Test
+  public void testProcessingInstruction() {
+    runInEdtAndWait(() -> {
+      createElement("<a><?xml version=\"1.0\"?></a>").getXmlTag().accept(new PsiRecursiveElementVisitor() {
+        @Override public void visitElement(@NotNull PsiElement element) {
+          super.visitElement(element);
+          for (final PsiReference reference : element.getReferences()) {
+            assertFalse(reference instanceof GenericDomValueReference);
+          }
+        }
+      });
+    });
+  }
+
+  @Test
   public void testBooleanReference() {
-    final MyElement element = createElement("<a><boolean>true</boolean></a>");
-    assertVariants(assertReference(element.getBoolean()), "false", "true");
+    runInEdtAndWait(() -> {
+      final MyElement element = createElement("<a><boolean>true</boolean></a>");
+      assertVariants(assertReference(element.getBoolean()), "false", "true");
+    });
   }
 
+  @Test
   public void testBooleanAttributeReference() {
-    final MyElement element = createElement("<a boolean-attribute=\"true\"/>");
-    final PsiReference reference = getReference(element.getBooleanAttribute());
-    assertVariants(reference, "false", "true");
+    runInEdtAndWait(() -> {
+      final MyElement element = createElement("<a boolean-attribute=\"true\"/>");
+      final PsiReference reference = getReference(element.getBooleanAttribute());
+      assertVariants(reference, "false", "true");
 
-    final XmlAttributeValue xmlAttributeValue = element.getBooleanAttribute().getXmlAttributeValue();
-    final PsiElement psiElement = reference.getElement();
-    assertEquals(xmlAttributeValue, psiElement);
+      final XmlAttributeValue xmlAttributeValue = element.getBooleanAttribute().getXmlAttributeValue();
+      final PsiElement psiElement = reference.getElement();
+      assertEquals(xmlAttributeValue, psiElement);
 
-    assertEquals(new TextRange(0, "true".length()).shiftRight(1), reference.getRangeInElement());
+      assertEquals(new TextRange(0, "true".length()).shiftRight(1), reference.getRangeInElement());
+    });
   }
 
+  @Test
   public void testEnumReference() {
-    assertVariants(assertReference(createElement("<a><enum>239</enum></a>").getEnum(), null), "A", "B", "C");
-    assertVariants(assertReference(createElement("<a><enum>A</enum></a>").getEnum()), "A", "B", "C");
+    runInEdtAndWait(() -> {
+      assertVariants(assertReference(createElement("<a><enum>239</enum></a>").getEnum(), null), "A", "B", "C");
+      assertVariants(assertReference(createElement("<a><enum>A</enum></a>").getEnum()), "A", "B", "C");
+    });
   }
 
+  @Test
   public void testPsiClass() {
-    final MyElement element = createElement("<a><psi-class>java.lang.String</psi-class></a>");
-    assertReference(element.getPsiClass(), PsiType.getJavaLangString(getPsiManager(), GlobalSearchScope.allScope(getProject())).resolve(),
-                    element.getPsiClass().getXmlTag().getValue().getTextRange().getEndOffset() - 1);
+    runInEdtAndWait(() -> {
+      final MyElement element = createElement("<a><psi-class>java.lang.String</psi-class></a>");
+      assertReference(element.getPsiClass(), getJavaLangString(),
+                      element.getPsiClass().getXmlTag().getValue().getTextRange().getEndOffset() - 1);
+    });
   }
 
+  @Test
   public void testPsiType() {
-    final MyElement element = createElement("<a><psi-type>java.lang.String</psi-type></a>");
-    assertReference(element.getPsiType(), PsiType.getJavaLangString(getPsiManager(), GlobalSearchScope.allScope(getProject())).resolve());
+    runInEdtAndWait(() -> {
+      final MyElement element = createElement("<a><psi-type>java.lang.String</psi-type></a>");
+      assertReference(element.getPsiType(), getJavaLangString());
+    });
   }
 
+  @Test
   public void testIndentedPsiType() {
-    final MyElement element = createElement("<a><psi-type>  java.lang.Strin   </psi-type></a>");
-    final PsiReference psiReference = assertReference(element.getPsiType(), null);
-    assertEquals(new TextRange(22, 22 + "Strin".length()), psiReference.getRangeInElement());
+    runInEdtAndWait(() -> {
+      final MyElement element = createElement("<a><psi-type>  java.lang.Strin   </psi-type></a>");
+      final PsiReference psiReference = assertReference(element.getPsiType(), null);
+      assertEquals(new TextRange(22, 22 + "Strin".length()), psiReference.getRangeInElement());
+    });
   }
 
+  @Test
   public void testPsiPrimitiveType() {
-    final MyElement element = createElement("<a><psi-type>int</psi-type></a>");
-    assertReference(element.getPsiType());
+    runInEdtAndWait(() -> {
+      final MyElement element = createElement("<a><psi-type>int</psi-type></a>");
+      assertReference(element.getPsiType());
+    });
   }
-  
+
+  @Test
   public void testPsiPrimitiveTypeArray() {
-    final MyElement element = createElement("<a><psi-type>int[]</psi-type></a>");
-    final GenericDomValue value = element.getPsiType();
-    final XmlTagValue tagValue = value.getXmlTag().getValue();
-    final int i = tagValue.getText().indexOf(value.getStringValue());
-    assertReference(value, value.getXmlTag(), tagValue.getTextRange().getStartOffset() + i + "int".length());
+    runInEdtAndWait(() -> {
+      final MyElement element = createElement("<a><psi-type>int[]</psi-type></a>");
+      final GenericDomValue value = element.getPsiType();
+      final XmlTagValue tagValue = value.getXmlTag().getValue();
+      final int i = tagValue.getText().indexOf(value.getStringValue());
+      assertReference(value, value.getXmlTag(), tagValue.getTextRange().getStartOffset() + i + "int".length());
+    });
   }
 
+  @Test
   public void testPsiUnknownType() {
-    final MyElement element = createElement("<a><psi-type>#$^%*$</psi-type></a>");
-    assertReference(element.getPsiType(), null);
+    runInEdtAndWait(() -> {
+      final MyElement element = createElement("<a><psi-type>#$^%*$</psi-type></a>");
+      assertReference(element.getPsiType(), null);
+    });
   }
 
+  @Test
   public void testPsiArrayType() {
-    final MyElement element = createElement("<a><psi-type>java.lang.String[]</psi-type></a>");
-    final XmlTag tag = element.getPsiType().getXmlTag();
-    final TextRange valueRange = tag.getValue().getTextRange();
-    final PsiReference reference = tag.getContainingFile().findReferenceAt(valueRange.getStartOffset() + "java.lang.".length());
-    assertNotNull(reference);
-    assertEquals(PsiType.getJavaLangString(getPsiManager(), GlobalSearchScope.allScope(getProject())).resolve(), reference.resolve());
-    assertEquals("<psi-type>java.lang.".length(), reference.getRangeInElement().getStartOffset());
-    assertEquals("String".length(), reference.getRangeInElement().getLength());
+    runInEdtAndWait(() -> {
+      final MyElement element = createElement("<a><psi-type>java.lang.String[]</psi-type></a>");
+      final XmlTag tag = element.getPsiType().getXmlTag();
+      final TextRange valueRange = tag.getValue().getTextRange();
+      final PsiReference reference = tag.getContainingFile().findReferenceAt(valueRange.getStartOffset() + "java.lang.".length());
+      assertNotNull(reference);
+      assertEquals(getJavaLangString(), reference.resolve());
+      assertEquals("<psi-type>java.lang.".length(), reference.getRangeInElement().getStartOffset());
+      assertEquals("String".length(), reference.getRangeInElement().getLength());
+    });
   }
 
+  @Test
   public void testJvmArrayType() {
-    final MyElement element = createElement("<a><jvm-psi-type>[Ljava.lang.String;</jvm-psi-type></a>");
-    final XmlTag tag = element.getJvmPsiType().getXmlTag();
-    final TextRange valueRange = tag.getValue().getTextRange();
-    final PsiReference reference = tag.getContainingFile().findReferenceAt(valueRange.getEndOffset() - 1);
-    assertNotNull(reference);
-    assertEquals(PsiType.getJavaLangString(getPsiManager(), GlobalSearchScope.allScope(getProject())).resolve(), reference.resolve());
-    assertEquals("<jvm-psi-type>[Ljava.lang.".length(), reference.getRangeInElement().getStartOffset());
-    assertEquals("String".length(), reference.getRangeInElement().getLength());
+    runInEdtAndWait(() -> {
+      final MyElement element = createElement("<a><jvm-psi-type>[Ljava.lang.String;</jvm-psi-type></a>");
+      final XmlTag tag = element.getJvmPsiType().getXmlTag();
+      final TextRange valueRange = tag.getValue().getTextRange();
+      final PsiReference reference = tag.getContainingFile().findReferenceAt(valueRange.getEndOffset() - 1);
+      assertNotNull(reference);
+      assertEquals(getJavaLangString(), reference.resolve());
+      assertEquals("<jvm-psi-type>[Ljava.lang.".length(), reference.getRangeInElement().getStartOffset());
+      assertEquals("String".length(), reference.getRangeInElement().getLength());
+    });
   }
 
+  @Test
   public void testCustomResolving() {
-    final MyElement element = createElement("<a><string-buffer>239</string-buffer></a>");
-    assertVariants(assertReference(element.getStringBuffer()), "239", "42", "foo", "zzz");
+    runInEdtAndWait(() -> {
+      final MyElement element = createElement("<a><string-buffer>239</string-buffer></a>");
+      assertVariants(assertReference(element.getStringBuffer()), "239", "42", "foo", "zzz");
+    });
   }
 
+  @Test
   public void testAdditionalValues() {
-    final MyElement element = createElement("<a><string-buffer>zzz</string-buffer></a>");
-    final XmlTag tag = element.getStringBuffer().getXmlTag();
-    assertTrue(tag.getContainingFile().findReferenceAt(tag.getValue().getTextRange().getStartOffset()).isSoft());
+    runInEdtAndWait(() -> {
+      final MyElement element = createElement("<a><string-buffer>zzz</string-buffer></a>");
+      final XmlTag tag = element.getStringBuffer().getXmlTag();
+      assertTrue(tag.getContainingFile().findReferenceAt(tag.getValue().getTextRange().getStartOffset()).isSoft());
+    });
+  }
+
+  private MyElement createElement(String xml) {
+    return domFixture.get().createElement(xml, MyElement.class);
+  }
+
+  private PsiClass getJavaLangString() {
+    return PsiType.getJavaLangString(domFixture.get().getPsiManager(), GlobalSearchScope.allScope(domFixture.get().getProject())).resolve();
   }
 
   public interface MyElement extends DomElement {

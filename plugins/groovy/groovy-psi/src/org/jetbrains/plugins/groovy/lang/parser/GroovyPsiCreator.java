@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.groovy.lang.parser;
 
 import com.intellij.extapi.psi.ASTWrapperPsiElement;
@@ -11,10 +11,8 @@ import org.jetbrains.plugins.groovy.lang.lexer.GroovyElementType;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrPatternVariableImpl;
 import org.jetbrains.plugins.groovy.lang.psi.impl.GrArrayInitializerImpl;
 import org.jetbrains.plugins.groovy.lang.psi.impl.GrAttributeExpressionImpl;
-import org.jetbrains.plugins.groovy.lang.psi.impl.GrDoWhileStatementImpl;
 import org.jetbrains.plugins.groovy.lang.psi.impl.GrExpressionLambdaBodyImpl;
 import org.jetbrains.plugins.groovy.lang.psi.impl.GrExpressionListImpl;
-import org.jetbrains.plugins.groovy.lang.psi.impl.GrImportAliasImpl;
 import org.jetbrains.plugins.groovy.lang.psi.impl.GrInExpressionImpl;
 import org.jetbrains.plugins.groovy.lang.psi.impl.GrLambdaExpressionImpl;
 import org.jetbrains.plugins.groovy.lang.psi.impl.GrMethodReferenceExpressionImpl;
@@ -32,6 +30,7 @@ import org.jetbrains.plugins.groovy.lang.psi.impl.statements.GrBlockStatementImp
 import org.jetbrains.plugins.groovy.lang.psi.impl.statements.GrCatchClauseImpl;
 import org.jetbrains.plugins.groovy.lang.psi.impl.statements.GrClassInitializerImpl;
 import org.jetbrains.plugins.groovy.lang.psi.impl.statements.GrConstructorInvocationImpl;
+import org.jetbrains.plugins.groovy.lang.psi.impl.statements.GrDoWhileStatementImpl;
 import org.jetbrains.plugins.groovy.lang.psi.impl.statements.GrFieldImpl;
 import org.jetbrains.plugins.groovy.lang.psi.impl.statements.GrFinallyClauseImpl;
 import org.jetbrains.plugins.groovy.lang.psi.impl.statements.GrForStatementImpl;
@@ -108,6 +107,7 @@ import org.jetbrains.plugins.groovy.lang.psi.impl.statements.typedef.enumConstan
 import org.jetbrains.plugins.groovy.lang.psi.impl.statements.typedef.members.GrAnnotationMethodImpl;
 import org.jetbrains.plugins.groovy.lang.psi.impl.statements.typedef.members.GrConstructorImpl;
 import org.jetbrains.plugins.groovy.lang.psi.impl.statements.typedef.members.GrMethodImpl;
+import org.jetbrains.plugins.groovy.lang.psi.impl.toplevel.imports.GrImportAliasImpl;
 import org.jetbrains.plugins.groovy.lang.psi.impl.toplevel.imports.GrImportStatementImpl;
 import org.jetbrains.plugins.groovy.lang.psi.impl.toplevel.packaging.GrPackageDefinitionImpl;
 import org.jetbrains.plugins.groovy.lang.psi.impl.types.GrArrayTypeElementImpl;

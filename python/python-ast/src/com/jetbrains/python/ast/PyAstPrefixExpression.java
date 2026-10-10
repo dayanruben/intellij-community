@@ -13,22 +13,9 @@ import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Collections;
-import java.util.List;
-
 
 @ApiStatus.Experimental
 public interface PyAstPrefixExpression extends PyAstQualifiedExpression, PyAstReferenceOwner, PyAstCallSiteExpression {
-  @Override
-  default @Nullable PyAstExpression getReceiver(@Nullable PyAstCallable resolvedCallee) {
-    return getOperand();
-  }
-
-  @Override
-  default @NotNull List<@NotNull PyAstExpression> getArguments(@Nullable PyAstCallable resolvedCallee) {
-    return Collections.emptyList();
-  }
-
   default @Nullable PyAstExpression getOperand() {
     return childToPsi(PythonDialectsTokenSetProvider.getInstance().getExpressionTokens(), 0);
   }

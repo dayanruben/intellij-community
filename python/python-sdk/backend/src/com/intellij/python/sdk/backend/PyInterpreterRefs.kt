@@ -31,7 +31,7 @@ fun FusId.tool(): PyTool? = PyTool.findByPackageName(value)
 
 /**
  * The ref of [sdk], or `null` when [sdk] is not a Python SDK, or has no home path or target configuration. The
- * flavor of [sdk] names its manager and its env ref, see [PythonSdkFlavor.getManager]. A flavor no tool manages, such
+ * flavor of [sdk] names its manager and its env ref, see [PythonSdkFlavor.getManagerId]. A flavor no tool manages, such
  * as a system interpreter or a plain venv, has the `pip` manager.
  */
 @ApiStatus.Internal
@@ -68,15 +68,18 @@ fun projectDirOf(data: PythonSdkAdditionalData): Path? =
   data.associatedModulePath?.takeIf { it.isNotBlank() }?.toNioPathOrNull()
   ?: data.workingDirectory.takeIf { data.hasValidWorkingDirectory() }
 
+/** The [FusId] value of [PIP_MANAGER], for Java, which cannot use the value class. */
+@ApiStatus.Internal
+const val PIP_MANAGER_ID: String = "pip"
+
 /** The manager of an environment no tool manages, such as a system interpreter or a plain venv. */
 @ApiStatus.Internal
-val PIP_MANAGER: FusId = FusId("pip")
+val PIP_MANAGER: FusId = FusId(PIP_MANAGER_ID)
 
-/** [PIP_MANAGER] for Java, which can use a [FusId] only in its boxed form. */
-@ApiStatus.Internal
-@OptIn(ExperimentalStdlibApi::class)
-@JvmExposeBoxed("getPipManager")
-fun pipManager(): FusId = PIP_MANAGER
+/** The tool that manages the environments of this flavor, see [PythonSdkFlavor.getManagerId]. */
+@get:ApiStatus.Internal
+val PythonSdkFlavor<*>.manager: FusId
+  get() = FusId(managerId)
 
 /**
  * The ref of this interpreter. An SDK without a ref is not an interpreter of any

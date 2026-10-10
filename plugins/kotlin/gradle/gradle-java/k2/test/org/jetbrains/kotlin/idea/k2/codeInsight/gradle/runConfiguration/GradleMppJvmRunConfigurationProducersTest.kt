@@ -25,6 +25,9 @@ class GradleMppJvmRunConfigurationProducersTest4 : GradleTestRunConfigurationPro
 
     private lateinit var projectData: ProjectData
 
+    override val isWarningsAllowed: Boolean
+        get() = true
+
     override fun setUp() {
         super.setUp()
         projectData = generateAndImportMppProject()
@@ -139,7 +142,6 @@ class GradleMppJvmRunConfigurationProducersTest4 : GradleTestRunConfigurationPro
                                 }
                             }
                         }
-                        withJava()
                         testRuns["test"].executionTask.configure {
                             useJUnitPlatform()
                         }

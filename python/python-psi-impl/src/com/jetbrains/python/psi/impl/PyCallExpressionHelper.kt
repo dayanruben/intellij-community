@@ -1,4 +1,4 @@
-// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:JvmName("PyCallExpressionHelper")
 
 package com.jetbrains.python.psi.impl
@@ -26,10 +26,10 @@ import com.jetbrains.python.psi.PyAugAssignmentStatement
 import com.jetbrains.python.psi.PyBinaryExpression
 import com.jetbrains.python.psi.PyCallExpression
 import com.jetbrains.python.psi.PyCallExpression.PyArgumentsMapping
-import com.jetbrains.python.psi.PyCallSiteOwner
 import com.jetbrains.python.psi.PyCallable
 import com.jetbrains.python.psi.PyClass
 import com.jetbrains.python.psi.PyDocStringOwner
+import com.jetbrains.python.psi.PyElement
 import com.jetbrains.python.psi.PyExpression
 import com.jetbrains.python.psi.PyFile
 import com.jetbrains.python.psi.PyFunction
@@ -558,7 +558,7 @@ object PyCallExpressionHelper {
     return getCallType(multiResolveOperator(expression, resolveContext), expression, context)
   }
 
-  private fun getCallType(operators: List<ResolvedOperator>, callSite: PyCallSiteOwner, context: TypeEvalContext): PyType? {
+  private fun getCallType(operators: List<ResolvedOperator>, callSite: PyElement, context: TypeEvalContext): PyType? {
     return operators
       .map { doGetCallType(it.method, callSite, it.arguments.map(::PyCallableArgument), context).type }
       .let(PyUnionType::unionOrUnknown)
@@ -681,7 +681,7 @@ object PyCallExpressionHelper {
 
   private fun doGetCallType(
     type: PyType?,
-    callSite: PyCallSiteOwner?,
+    callSite: PyElement?,
     arguments: List<PyCallableArgument>,
     context: TypeEvalContext,
   ): CallType {
@@ -716,7 +716,7 @@ object PyCallExpressionHelper {
 
   private fun resolveOverloadsCallType(
     types: List<PyCallableType>,
-    callSite: PyCallSiteOwner?,
+    callSite: PyElement?,
     arguments: List<PyCallableArgument>,
     context: TypeEvalContext,
   ): CallType {
@@ -824,13 +824,13 @@ object PyCallExpressionHelper {
   }
 
   @JvmStatic
-  fun mapArguments(expression: PyCallSiteOwner, callableType: PyCallableType, context: TypeEvalContext): PyArgumentsMapping {
-    return mapArguments(expression, expression.getArguments(callableType.callable), callableType, context)
+  fun mapArguments(call: PyCallExpression, callableType: PyCallableType, context: TypeEvalContext): PyArgumentsMapping {
+    return mapArguments(call, call.arguments.asList(), callableType, context)
   }
 
   @JvmStatic
   fun mapArguments(
-    expression: PyCallSiteOwner,
+    callSite: PyElement,
     arguments: List<PyExpression>,
     callableType: PyCallableType,
     context: TypeEvalContext,
@@ -839,11 +839,11 @@ object PyCallExpressionHelper {
     val parameters = callableType.getParameters(context)
         ?.let { unpackParameters(it, wrappedArguments, context) }
 
-    if (parameters == null) return PyArgumentsMapping.empty(expression, arguments)
+    if (parameters == null) return PyArgumentsMapping.empty(callSite, arguments)
 
     val mappingResults = analyzeArguments(wrappedArguments, parameters, context)
 
-    return PyArgumentsMapping(expression,
+    return PyArgumentsMapping(callSite,
                               arguments,
                               callableType,
                               mappingResults.mappedParameters.mapKeys { (argument, _) -> argument.expression!! },
@@ -856,18 +856,19 @@ object PyCallExpressionHelper {
   }
 
   @JvmStatic
-  fun mapArguments(expression: PyCallSiteOwner, resolveContext: PyResolveContext): List<PyArgumentsMapping> {
-    val callableTypes = when (expression) {
-      is PyCallExpression -> expression.multiResolveCallee(resolveContext)
-      is PyClass -> expression.resolveInitSubclassCallee(resolveContext)
-      is PyQualifiedExpression -> return multiResolveOperator(expression, resolveContext).flatMap { operator ->
-        PyTypeUtil.getCallableItems(operator.method).map {
-          mapArguments(expression, operator.arguments, it, resolveContext.typeEvalContext)
+  fun mapArguments(callSite: PyElement, resolveContext: PyResolveContext): List<PyArgumentsMapping> {
+    val context = resolveContext.typeEvalContext
+    return when (callSite) {
+      is PyCallExpression -> callSite.multiResolveCallee(resolveContext)
+        .map { mapArguments(callSite, it, context) }
+      is PyClass -> callSite.resolveInitSubclassCallee(resolveContext)
+        .map { mapArguments(callSite, callSite.arguments, it, context) }
+      is PyQualifiedExpression -> multiResolveOperator(callSite, resolveContext)
+        .flatMap { operator ->
+          PyTypeUtil.getCallableItems(operator.method).map { mapArguments(callSite, operator.arguments, it, context) }
         }
-      }
       else -> emptyList()
     }
-    return callableTypes.map { mapArguments(expression, it, resolveContext.typeEvalContext) }
   }
 
   /**
@@ -1610,7 +1611,7 @@ object PyCallExpressionHelper {
 
     val overloadTypes = callExpression.multiResolveCallee(PyResolveContext.defaultContext(context))
       .filter { it.callable in overloads }
-    return selectMatchingOverloads(overloadTypes, callExpression.getArguments(function).map { PyCallableArgument(it) }, context)
+    return selectMatchingOverloads(overloadTypes, callExpression.getArguments().map { PyCallableArgument(it) }, context)
       .singleOrNull()?.callable as? PyFunction
   }
 

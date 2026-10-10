@@ -45,7 +45,7 @@ Groovy script
         Modifiers
           <empty list>
         PsiElement(identifier)('j')
-      PsiErrorElement:')' unexpected
+      PsiErrorElement:':' or in expected, got ')'
         <empty list>
     PsiElement())(')')
     PsiWhiteSpace(' ')

@@ -620,7 +620,8 @@ open class ActionManagerImpl protected constructor(private val coroutineScope: C
                              currentThreadContext().fold<CoroutineContext>(EmptyCoroutineContext) { acc, elem ->
                                acc + (elem as? ExternalIntelliJContextElement ?: EmptyCoroutineContext)
                              } +
-                             ActionContextElement.create(actionId, event.place, event.inputEvent, component)
+                             ActionContextElement.create(actionId, event.place, event.inputEvent, component) +
+                             actionLockContextElement()
       // todo: remove `ThreadScopeCheckpoint` from here once we migrate all usages to `AnActionEvent#coroutineScope`
       val coroutineContext2 = coroutineContext + ThreadScopeCheckpoint(coroutineContext) // permit `currentThreadCoroutineScope` inside
       val providedScope =
@@ -665,6 +666,12 @@ open class ActionManagerImpl protected constructor(private val coroutineScope: C
       is AnActionResult.Ignored -> Unit
     }
     return result
+  }
+
+  private fun actionLockContextElement(): CoroutineContext {
+    val threadingSupport = ApplicationManager.getApplication().threadingSupport
+    val lockContextElement = threadingSupport.getLockContextElement()
+    return if (threadingSupport.isParallelizedReadAction(lockContextElement)) EmptyCoroutineContext else lockContextElement
   }
 
   // inlining here to reduce the number of service stacktraces

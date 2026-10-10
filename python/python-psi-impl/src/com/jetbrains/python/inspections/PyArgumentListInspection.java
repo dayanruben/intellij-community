@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.inspections;
 
 import com.google.common.collect.Lists;
@@ -120,7 +120,7 @@ public final class PyArgumentListInspection extends PyInspection {
     public void visitPyClass(@NotNull PyClass node) {
       // A class definition implicitly calls `__init_subclass__` of its base classes with the
       // class-definition keyword arguments (e.g. `z="a"` in `class B(A, z="a")`).
-      if (node.getArguments(null).isEmpty()) return;
+      if (node.getArguments().isEmpty()) return;
       final PyArgumentList argumentList = node.getSuperClassExpressionList();
       if (argumentList == null) return;
       final List<PyCallExpression.PyArgumentsMapping> mappings = PyCallExpressionHelper.mapArguments(node, getResolveContext());

@@ -1,11 +1,11 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.util.indexing.impl.storage;
 
-import com.intellij.concurrency.ConcurrentCollectionFactory;
 import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.IntRef;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.util.SystemProperties;
 import com.intellij.util.ThrowableRunnable;
@@ -44,7 +44,6 @@ import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.intellij.concurrency.ConcurrentCollectionFactory.createConcurrentIntObjectMap;
 
@@ -60,9 +59,10 @@ public final class KeyHashLog<Key> implements Closeable {
   private final @NotNull Path myBaseStorageFile;
   private final @Nullable StorageLockContext myStorageLockContext;
   private final @NotNull AppendableObjectStorage<int[]> myKeyHashToVirtualFileMapping;
-  private final @NotNull ConcurrentIntObjectMap<Boolean> myInvalidatedSessionIds = createConcurrentIntObjectMap();
 
-  private volatile int myLastScannedId;
+  private final @NotNull ConcurrentIntObjectMap<Boolean> myInvalidatedSessionIds = createConcurrentIntObjectMap();
+  /// `myKeyHashToVirtualFileMapping.getCurrentLength()` at the last moment the file was scanned;
+  private volatile int myScannedUpToOffsetExclusive;
 
   public KeyHashLog(@NotNull KeyDescriptor<Key> descriptor, @NotNull Path baseStorageFile) throws IOException {
     this(descriptor, baseStorageFile, null);
@@ -97,7 +97,7 @@ public final class KeyHashLog<Key> implements Closeable {
                                                               storageLockContext,
                                                               /*pageSize: */ IOUtil.MiB,
                                                               /*valuesAreAligned: */ true,
-                                                              IntPairInArrayKeyDescriptor.INSTANCE);
+                                                              IntPairAsArrayExternalizer.INSTANCE);
   }
 
   public void addKeyHashToVirtualFileMapping(Key key, int inputId) throws StorageException {
@@ -110,19 +110,22 @@ public final class KeyHashLog<Key> implements Closeable {
 
   public @NotNull IntSet getSuitableKeyHashes(@NotNull IdFilter filter, @NotNull Project project) throws StorageException {
     IdFilter.FilterScopeType filteringScopeType = filter.getFilteringScopeType();
-    IntSet hashMaskSet = null;
+
     long l = System.currentTimeMillis();
 
-    @NotNull Path sessionProjectCacheFile = getSavedProjectFileValueIds(myLastScannedId,
-                                                                        filteringScopeType == IdFilter.FilterScopeType.OTHER
-                                                                        ? IdFilter.FilterScopeType.PROJECT_AND_LIBRARIES
-                                                                        : filteringScopeType,
-                                                                        project);
-    int id = myKeyHashToVirtualFileMapping.getCurrentLength();
+    @NotNull Path sessionProjectCacheFile = getSavedProjectFileValueIds(
+      myScannedUpToOffsetExclusive,
+      filteringScopeType == IdFilter.FilterScopeType.OTHER ? IdFilter.FilterScopeType.PROJECT_AND_LIBRARIES : filteringScopeType,
+      project
+    );
+    int currentFileLength = myKeyHashToVirtualFileMapping.getCurrentLength();
 
-    final boolean useCachedHashIds = ENABLE_CACHED_HASH_IDS;
-    if (useCachedHashIds && id == myLastScannedId && filter.getFilteringScopeType() == IdFilter.FilterScopeType.PROJECT_AND_LIBRARIES) {
-      if (myInvalidatedSessionIds.remove(id) == null) {
+    boolean shouldCacheResult = (filteringScopeType == IdFilter.FilterScopeType.PROJECT_AND_LIBRARIES);
+    IntSet hashMaskSet = null;
+    if (ENABLE_CACHED_HASH_IDS
+        && currentFileLength == myScannedUpToOffsetExclusive
+        && shouldCacheResult) {
+      if (myInvalidatedSessionIds.remove(currentFileLength) == null) {
         try {
           hashMaskSet = loadProjectHashes(sessionProjectCacheFile);
         }
@@ -132,13 +135,11 @@ public final class KeyHashLog<Key> implements Closeable {
     }
 
     if (hashMaskSet == null) {
-      if (useCachedHashIds && myLastScannedId != 0) {
+      if (ENABLE_CACHED_HASH_IDS && myScannedUpToOffsetExclusive != 0) {
         try {
           FileUtil.delete(sessionProjectCacheFile);
         }
-        catch (NoSuchFileException ignored) {
-
-        }
+        catch (NoSuchFileException ignored) { }
         catch (IOException e) {
           LOG.error(e);
         }
@@ -146,8 +147,8 @@ public final class KeyHashLog<Key> implements Closeable {
 
       hashMaskSet = getSuitableKeyHashes(filter);
 
-      if (useCachedHashIds && filteringScopeType != IdFilter.FilterScopeType.OTHER) {
-        saveHashedIds(hashMaskSet, id, filteringScopeType, project);
+      if (ENABLE_CACHED_HASH_IDS && shouldCacheResult) {
+        saveHashedIds(hashMaskSet, currentFileLength, sessionProjectCacheFile);
       }
     }
 
@@ -161,7 +162,10 @@ public final class KeyHashLog<Key> implements Closeable {
   private void appendKeyHashToVirtualFileMappingToLog(Key key, int inputId) throws StorageException {
     if (inputId == 0) return;
     try {
-      withLock(() -> myKeyHashToVirtualFileMapping.append(new int[]{myKeyDescriptor.getHashCode(key), inputId}), false);
+      withLock(
+        () -> myKeyHashToVirtualFileMapping.append(new int[]{myKeyDescriptor.getHashCode(key), inputId}),
+        /* read: */ false
+      );
     }
     catch (IOException e) {
       throw new StorageException(e);
@@ -170,39 +174,39 @@ public final class KeyHashLog<Key> implements Closeable {
   }
 
   public @NotNull IntSet getSuitableKeyHashes(@NotNull IdFilter idFilter) throws StorageException {
+    ProgressManager.checkCanceled();
     try {
-      doForce();
-
       Int2ObjectMap<IntSet> hash2inputIds = new Int2ObjectOpenHashMap<>(1000);
-      AtomicInteger uselessRecords = new AtomicInteger();
+      IntRef uselessRecords = new IntRef(0);
 
-      withLock(() -> {
-        ProgressManager.checkCanceled();
+      myKeyHashToVirtualFileMapping.processAll((offset, key) -> {
+        int keyHash = key[0];
+        int inputId = key[1];
 
-        myKeyHashToVirtualFileMapping.processAll((offset, key) -> {
-          ProgressManager.checkCanceled();
-          int inputId = key[1];
-          int absInputId = Math.abs(inputId);
-          if (!idFilter.containsFileId(absInputId)) return true;
-          int keyHash = key[0];
-          if (inputId > 0) {
-            if (!hash2inputIds.computeIfAbsent(keyHash, __ -> new IntOpenHashSet(4)).add(inputId)) {
-              uselessRecords.incrementAndGet();
+        //Throttle the check (probability of any 5-bit pattern in a good hash is ~1/32)
+        if ((keyHash & 0b11111) == 0) ProgressManager.checkCanceled();
+
+        int absInputId = Math.abs(inputId);
+        if (!idFilter.containsFileId(absInputId)) return true;
+
+
+        if (inputId > 0) {
+          if (!hash2inputIds.computeIfAbsent(keyHash, __ -> new IntOpenHashSet(4)).add(inputId)) {
+            uselessRecords.inc();
+          }
+        }
+        else {
+          IntSet inputIds = hash2inputIds.get(keyHash);
+          if (inputIds != null) {
+            inputIds.remove(absInputId);
+            if (inputIds.isEmpty()) {
+              hash2inputIds.remove(keyHash);
             }
           }
-          else {
-            IntSet inputIds = hash2inputIds.get(keyHash);
-            if (inputIds != null) {
-              inputIds.remove(absInputId);
-              if (inputIds.isEmpty()) {
-                hash2inputIds.remove(keyHash);
-              }
-            }
-            uselessRecords.incrementAndGet();
-          }
-          return true;
-        });
-      }, true);
+          uselessRecords.inc();
+        }
+        return true;
+      });
 
       if (uselessRecords.get() >= hash2inputIds.size()) {
         setRequiresCompaction();
@@ -222,7 +226,7 @@ public final class KeyHashLog<Key> implements Closeable {
   }
 
   private void doForce() throws IOException {
-    withLock(() -> myKeyHashToVirtualFileMapping.force(), false);
+    withLock(() -> myKeyHashToVirtualFileMapping.force(), /*read: */ false);
   }
 
   @Override
@@ -311,11 +315,11 @@ public final class KeyHashLog<Key> implements Closeable {
 
   private static @NotNull IntSet loadProjectHashes(@NotNull Path fileWithCaches) throws IOException {
     try (DataInputStream inputStream = new DataInputStream(new BufferedInputStream(Files.newInputStream(fileWithCaches)))) {
-      int capacity = DataInputOutputUtil.readINT(inputStream);
-      IntSet hashMaskSet = new IntOpenHashSet(capacity);
-      while (capacity > 0) {
+      int hashesCount = DataInputOutputUtil.readINT(inputStream);
+      IntSet hashMaskSet = new IntOpenHashSet(hashesCount);
+      while (hashesCount > 0) {
         hashMaskSet.add(DataInputOutputUtil.readINT(inputStream));
-        --capacity;
+        --hashesCount;
       }
       return hashMaskSet;
     }
@@ -323,13 +327,9 @@ public final class KeyHashLog<Key> implements Closeable {
 
   private void saveHashedIds(@NotNull IntSet hashMaskSet,
                              int largestId,
-                             @NotNull IdFilter.FilterScopeType scopeType,
-                             @NotNull Project project) {
-    @NotNull Path newFileWithCaches = getSavedProjectFileValueIds(largestId, scopeType, project);
-
+                             @NotNull Path fileToStoreCache) {
     boolean savedSuccessfully = true;
-    try (com.intellij.util.io.DataOutputStream stream = new DataOutputStream(
-      new BufferedOutputStream(Files.newOutputStream(newFileWithCaches)))) {
+    try (DataOutputStream stream = new DataOutputStream(new BufferedOutputStream(Files.newOutputStream(fileToStoreCache)))) {
       DataInputOutputUtil.writeINT(stream, hashMaskSet.size());
       IntIterator iterator = hashMaskSet.iterator();
       while (iterator.hasNext()) {
@@ -340,7 +340,7 @@ public final class KeyHashLog<Key> implements Closeable {
       savedSuccessfully = false;
     }
     if (savedSuccessfully) {
-      myLastScannedId = largestId;
+      myScannedUpToOffsetExclusive = largestId;
     }
   }
 
@@ -371,10 +371,10 @@ public final class KeyHashLog<Key> implements Closeable {
   }
 
   private void invalidateKeyHashToVirtualFileMappingCache() {
-    int lastScannedId = myLastScannedId;
+    int lastScannedId = myScannedUpToOffsetExclusive;
     if (lastScannedId != 0) { // we have write lock
       myInvalidatedSessionIds.putIfAbsent(lastScannedId, Boolean.TRUE);
-      myLastScannedId = 0;
+      myScannedUpToOffsetExclusive = 0;
     }
   }
 
@@ -428,8 +428,8 @@ public final class KeyHashLog<Key> implements Closeable {
     return myBaseStorageFile.resolveSibling(myBaseStorageFile.getFileName() + ".project");
   }
 
-  private static final class IntPairInArrayKeyDescriptor implements DataExternalizer<int[]> {
-    private static final IntPairInArrayKeyDescriptor INSTANCE = new IntPairInArrayKeyDescriptor();
+  private static final class IntPairAsArrayExternalizer implements DataExternalizer<int[]> {
+    private static final IntPairAsArrayExternalizer INSTANCE = new IntPairAsArrayExternalizer();
 
     @Override
     public void save(@NotNull DataOutput out, int[] value) throws IOException {
@@ -437,9 +437,16 @@ public final class KeyHashLog<Key> implements Closeable {
       DataInputOutputUtil.writeINT(out, value[1]);
     }
 
+    /// This externalizer is used _only_ privately in this class => we can be sure returned array doesn't leak
+    /// from this class, and thread-local caching is ok:
+    private static final ThreadLocal<int[]> PAIR = ThreadLocal.withInitial(() -> new int[2]);
+
     @Override
     public int[] read(@NotNull DataInput in) throws IOException {
-      return new int[]{DataInputOutputUtil.readINT(in), DataInputOutputUtil.readINT(in)};
+      int[] result = PAIR.get();
+      result[0] = DataInputOutputUtil.readINT(in);
+      result[1] = DataInputOutputUtil.readINT(in);
+      return result;
     }
   }
 

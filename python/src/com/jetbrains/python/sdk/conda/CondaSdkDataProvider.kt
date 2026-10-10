@@ -23,11 +23,10 @@ internal class CondaSdkDataProvider : PySdkDataProvider {
     pythonBinary: P,
     fileSystem: FileSystem<P>,
   ): PythonSdkAdditionalData {
-    // The env ref is the name of a named env, or the path of an unnamed one. A conda env name has no path separator.
+    // The env ref is the name of a named env, or the path of an unnamed one.
     val home = fileSystem.resolvePythonHome(pythonBinary)
     val envPath = home.toStringForExecution()
-    val isPath = envRef.value.any { it == '/' || it == '\\' }
-    val identity = if (isPath) PyCondaEnvIdentity.UnnamedEnv(envPath, isBase = isCondaRoot(fileSystem, home))
+    val identity = if (isCondaPathEnvRef(envRef)) PyCondaEnvIdentity.UnnamedEnv(envPath, isBase = isCondaRoot(fileSystem, home))
     else PyCondaEnvIdentity.NamedEnv(envRef.value, envPath)
     // conda is resolved again when it runs, so a path that does not resolve here is not stored.
     val condaPath = fileSystem.resolveExecutable(CondaPyTool.getInstance())?.toStringForExecution().orEmpty()

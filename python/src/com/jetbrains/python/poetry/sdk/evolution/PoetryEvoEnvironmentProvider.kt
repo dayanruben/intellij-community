@@ -133,20 +133,20 @@ internal class PoetryEvoEnvironmentProvider : PyEvoEnvironmentProvider {
 
   /** The interpreter of the env at [envRef]: the project's `.venv`, or the cache env of that Python version, on any machine. */
   override suspend fun <P : PathHolder> pythonBinaryOf(pyProject: PyProject, envRef: PyEnvRef, fileSystem: FileSystem<P>): PyResult<P> {
-    val envRoot = poetryEnvRootOf(fileSystem, pyProject.baseDir, envRef.value) ?: return envNotFound(envRef)
+    val envRoot = poetryEnvRootOf(fileSystem, pyProject.baseDir, envRef.value).getOr { return it } ?: return envNotFound(envRef)
     return withContext(Dispatchers.IO) { fileSystem.resolvePythonBinary(envRoot) }?.let { PyResult.success(it) } ?: envNotFound(envRef)
   }
 
   override suspend fun envDirectory(pyProject: PyProject, envRef: PyEnvRef, fileSystem: FileSystemWithEel): Path? =
-    poetryEnvRootOf(fileSystem, pyProject.baseDir, envRef.value)?.path
+    poetryEnvRootOf(fileSystem, pyProject.baseDir, envRef.value).getOrNull()?.path
 
   /**
    * The cache environments of the project, as full env-root paths. It forces `virtualenvs.in-project=false`, as the v2
    * dialog does, so poetry lists the cache envs even when an in-project `.venv` exists. Otherwise it reports only
-   * `.venv`.
+   * `.venv`. When poetry fails, the node shows no cache environments, and its rows still offer to create them.
    */
   private suspend fun cacheEnvRoots(context: EvoToolContext): List<Path> =
-    context.cached(ENVS_KEY) { poetryCacheEnvRoots(context.fileSystem, context.workspace.baseDir).map { it.path } }
+    context.cached(ENVS_KEY) { poetryCacheEnvRoots(context.fileSystem, context.workspace.baseDir).getOrNull()?.map { it.path }.orEmpty() }
 
   override suspend fun createInterpreter(context: EvoToolContext, ref: PyInterpreterRef): PyResult<PythonInterpreter> {
     // Not there yet, so poetry creates it, as hatch creates a declared environment.

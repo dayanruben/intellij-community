@@ -117,6 +117,7 @@ public class StatementsParsingTest extends GroovyParsingTestCase {
   public void testFor$for20() { doTest(); }
   public void testFor$for21() { doTest(); }
   public void testFor$for22() { doTest(); }
+  public void testFor$for23() { doTest(); }
   public void testFor$idenfierAfterLParen() { doTest(); }
   public void testFor$keywordOnly() { doTest(); }
   public void testFor$lParen() { doTest(); }

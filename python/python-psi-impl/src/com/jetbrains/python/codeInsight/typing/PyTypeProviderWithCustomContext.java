@@ -1,11 +1,12 @@
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.codeInsight.typing;
 
 import com.intellij.openapi.util.Ref;
 import com.intellij.psi.PsiElement;
 import com.jetbrains.python.psi.PyCallSiteExpression;
-import com.jetbrains.python.psi.PyCallSiteOwner;
 import com.jetbrains.python.psi.PyCallable;
 import com.jetbrains.python.psi.PyClass;
+import com.jetbrains.python.psi.PyElement;
 import com.jetbrains.python.psi.PyExpression;
 import com.jetbrains.python.psi.PyFunction;
 import com.jetbrains.python.psi.PyNamedParameter;
@@ -80,7 +81,7 @@ public abstract class PyTypeProviderWithCustomContext<Context> extends PyTypePro
     });
   }
 
-  public Ref<PyType> getCallType(@NotNull PyFunction function, @NotNull PyCallSiteOwner site, @NotNull Context context) {
+  public Ref<PyType> getCallType(@NotNull PyFunction function, @NotNull PyElement site, @NotNull Context context) {
     return null;
   }
 

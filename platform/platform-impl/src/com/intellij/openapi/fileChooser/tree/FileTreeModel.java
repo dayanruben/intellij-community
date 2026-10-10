@@ -15,7 +15,7 @@ import com.intellij.openapi.vfs.StandardFileSystems;
 import com.intellij.openapi.vfs.VFileProperty;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileManager;
-import com.intellij.openapi.vfs.newvfs.BulkFileListener;
+import com.intellij.openapi.vfs.newvfs.BulkFileListenerBackgroundable;
 import com.intellij.openapi.vfs.newvfs.events.VFileCopyEvent;
 import com.intellij.openapi.vfs.newvfs.events.VFileCreateEvent;
 import com.intellij.openapi.vfs.newvfs.events.VFileDeleteEvent;
@@ -71,12 +71,13 @@ public final class FileTreeModel extends AbstractTreeModel implements InvokerSup
     if (refresher != null) Disposer.register(this, refresher);
     invoker = useReadAction ? Invoker.forBackgroundThreadWithReadAction(this) : Invoker.forBackgroundThreadWithoutReadAction(this);
     state = new State(descriptor, refresher, sortDirectories, sortArchives, this);
-    ApplicationManager.getApplication().getMessageBus().connect(this).subscribe(VirtualFileManager.VFS_CHANGES, new BulkFileListener() {
-      @Override
-      public void after(@NotNull List<? extends @NotNull VFileEvent> events) {
-        invoker.invoke(() -> process(events));
-      }
-    });
+    ApplicationManager.getApplication().getMessageBus().connect(this)
+      .subscribe(VirtualFileManager.VFS_CHANGES_BG, new BulkFileListenerBackgroundable() {
+        @Override
+        public void after(@NotNull List<? extends @NotNull VFileEvent> events) {
+          invoker.invoke(() -> process(events));
+        }
+      });
   }
 
   public void invalidate() {
@@ -108,8 +109,8 @@ public final class FileTreeModel extends AbstractTreeModel implements InvokerSup
       if (roots == null) roots = state.getRoots();
       if (0 <= index && index < roots.size()) return roots.get(index);
     }
-    else if (object instanceof Node) {
-      Entry<Node> entry = getEntry((Node)object, true);
+    else if (object instanceof Node node) {
+      Entry<Node> entry = getEntry(node, true);
       if (entry != null) {
         Node child = entry.getChild(index);
         child.ensureInitialized();
@@ -125,8 +126,8 @@ public final class FileTreeModel extends AbstractTreeModel implements InvokerSup
       if (roots == null) roots = state.getRoots();
       return roots.size();
     }
-    else if (object instanceof Node) {
-      Entry<Node> entry = getEntry((Node)object, true);
+    else if (object instanceof Node node) {
+      Entry<Node> entry = getEntry(node, true);
       if (entry != null) return entry.getChildCount();
     }
     return 0;
@@ -134,8 +135,8 @@ public final class FileTreeModel extends AbstractTreeModel implements InvokerSup
 
   @Override
   public boolean isLeaf(Object object) {
-    if (object instanceof Node) {
-      Entry<Node> entry = getEntry((Node)object, false);
+    if (object instanceof Node node) {
+      Entry<Node> entry = getEntry(node, false);
       if (entry != null) return entry.isLeaf();
     }
     return false;
@@ -149,9 +150,9 @@ public final class FileTreeModel extends AbstractTreeModel implements InvokerSup
         if (child == roots.get(i)) return i;
       }
     }
-    else if (object instanceof Node && child instanceof Node) {
-      Entry<Node> entry = getEntry((Node)object, true);
-      if (entry != null) return entry.getIndexOf((Node)child);
+    else if (object instanceof Node node1 && child instanceof Node node) {
+      Entry<Node> entry = getEntry(node1, true);
+      if (entry != null) return entry.getIndexOf(node);
     }
     return -1;
   }

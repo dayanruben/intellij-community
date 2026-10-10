@@ -1,34 +1,62 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.idea.devkit.codeInsight;
 
+import com.intellij.ide.impl.OpenProjectTask;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
+import com.intellij.openapi.module.Module;
+import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.SyntaxTraverser;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.psi.xml.XmlTag;
+import com.intellij.testFramework.TestDataFile;
 import com.intellij.testFramework.TestDataPath;
+import com.intellij.testFramework.fixtures.CodeInsightTestFixture;
+import com.intellij.testFramework.junit5.TestApplication;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
+import com.intellij.util.xml.DomElement;
 import com.intellij.util.xml.DomFileElement;
 import com.intellij.util.xml.DomManager;
 import com.intellij.util.xml.DomTarget;
 import com.intellij.util.xml.impl.DomInvocationHandler;
 import com.intellij.util.xml.impl.DomManagerImpl;
-import com.intellij.util.xml.stubs.DomStubTest;
+import com.intellij.util.xml.stubs.DomStubTestUtil;
 import com.intellij.util.xml.stubs.index.DomElementClassIndex;
 import com.intellij.xml.util.IncludedXmlTag;
-import org.jetbrains.idea.devkit.DevkitJavaTestsUtil;
 import org.jetbrains.idea.devkit.dom.Action;
 import org.jetbrains.idea.devkit.dom.Actions;
 import org.jetbrains.idea.devkit.dom.IdeaPlugin;
 import org.jetbrains.idea.devkit.dom.ProductDescriptor;
+import org.junit.jupiter.api.Test;
 
+import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
-@TestDataPath("$CONTENT_ROOT/testData/pluginXmlDomStubs")
-public class PluginXmlDomStubsTest extends DomStubTest {
+import static com.intellij.platform.testFramework.junit5.codeInsight.fixture.CodeInsightFixtureKt.codeInsightFixture;
+import static com.intellij.testFramework.EdtTestUtil.runInEdtAndWait;
+import static com.intellij.testFramework.junit5.fixture.FixturesKt.moduleFixture;
+import static com.intellij.testFramework.junit5.fixture.FixturesKt.projectFixture;
+import static com.intellij.testFramework.junit5.fixture.FixturesKt.tempPathFixture;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
+@TestApplication
+@TestDataPath("$PROJECT_ROOT/community/plugins/devkit/devkit-java-tests/testData/pluginXmlDomStubs")
+public class PluginXmlDomStubsTest {
+  @SuppressWarnings("deprecation")
+  private static final TestFixture<Project> projectFixture = projectFixture(tempPathFixture(), OpenProjectTask.build(), true);
+
+  private final TestFixture<Path> pathFixture = tempPathFixture();
+  @SuppressWarnings("unused")
+  private final TestFixture<Module> moduleFixture = moduleFixture(projectFixture, pathFixture, true);
+  private final TestFixture<CodeInsightTestFixture> codeInsightFixture = codeInsightFixture(projectFixture, pathFixture);
+
+  @Test
   public void testStubs() {
     doBuilderTest("pluginXmlStubs.xml",
                   """
@@ -108,60 +136,76 @@ public class PluginXmlDomStubsTest extends DomStubTest {
                     """);
   }
 
+  @Test
   public void testXInclude() {
-    prepareFile("pluginWithXInclude-extensionPoints.xml");
-    prepareFile("pluginWithXInclude-main.xml");
-    prepareFile("pluginWithXInclude.xml");
-    myFixture.testHighlighting("pluginWithXInclude.xml");
+    runInEdtAndWait(() -> {
+      prepareFile("pluginWithXInclude-extensionPoints.xml");
+      prepareFile("pluginWithXInclude-main.xml");
+      prepareFile("pluginWithXInclude.xml");
+      codeInsightFixture.get().testHighlighting("pluginWithXInclude.xml");
+    });
   }
 
+  @Test
   public void testIncludedActions() {
-    prepareFile("XIncludeWithActions.xml");
-    DomFileElement<IdeaPlugin> element = prepare("XIncludeWithActions-main.xml", IdeaPlugin.class);
+    runInEdtAndWait(() -> {
+      prepareFile("XIncludeWithActions.xml");
+      DomFileElement<IdeaPlugin> element = prepare("XIncludeWithActions-main.xml", IdeaPlugin.class);
 
-    XmlTag[] tags = element.getRootTag().getSubTags();
-    assertEquals(2, tags.length);
-    XmlTag included = tags[0];
-    assertTrue(included instanceof IncludedXmlTag);
-    assertEquals("actions", included.getName());
+      XmlTag[] tags = element.getRootTag().getSubTags();
+      assertEquals(2, tags.length);
+      XmlTag included = assertInstanceOf(IncludedXmlTag.class, tags[0]);
+      assertEquals("actions", included.getName());
 
-    List<? extends Actions> actions = element.getRootElement().getActions();
-    assertEquals(2, actions.size());
+      List<? extends Actions> actions = element.getRootElement().getActions();
+      assertEquals(2, actions.size());
 
-    assertNotNull(actions.get(1).getXmlTag());
-    Action action = actions.get(1).getGroups().get(0).getActions().get(0);
-    DomInvocationHandler handler = DomManagerImpl.getDomInvocationHandler(action.getId());
-    assertNotNull(handler.getStub());
+      assertNotNull(actions.get(1).getXmlTag());
+      Action action = actions.get(1).getGroups().get(0).getActions().get(0);
+      DomInvocationHandler handler = DomManagerImpl.getDomInvocationHandler(action.getId());
+      assertNotNull(handler.getStub());
 
-    assertNotNull(DomTarget.getTarget(action));
+      assertNotNull(DomTarget.getTarget(action));
+    });
   }
 
+  @Test
   public void testStubIndexingThreadDoesNotLeaveExtensionsEmptyForEveryone() throws Exception {
-    XmlFile file = prepareFile("pluginXmlStubs.xml");
-    myFixture.configureFromExistingVirtualFile(file.getVirtualFile());
+    runInEdtAndWait(() -> {
+      CodeInsightTestFixture fixture = codeInsightFixture.get();
+      XmlFile file = prepareFile("pluginXmlStubs.xml");
+      fixture.configureFromExistingVirtualFile(file.getVirtualFile());
 
-    DomManager manager = DomManager.getDomManager(getProject());
+      DomManager manager = DomManager.getDomManager(fixture.getProject());
 
-    for (int i = 0; i < 10; i++) {
-      myFixture.type(' ');
-      PsiDocumentManager.getInstance(getProject()).commitAllDocuments();
+      for (int i = 0; i < 10; i++) {
+        fixture.type(' ');
+        PsiDocumentManager.getInstance(fixture.getProject()).commitAllDocuments();
 
-      Future<?> future = ApplicationManager.getApplication().executeOnPooledThread(() -> ReadAction.run(() -> {
-        for (XmlTag tag : SyntaxTraverser.psiTraverser(file).filter(XmlTag.class)) {
-          assertNotNull(tag.getText(), manager.getDomElement(tag));
-        }
-      }));
+        Future<?> future = ApplicationManager.getApplication().executeOnPooledThread(() -> ReadAction.run(() -> {
+          for (XmlTag tag : SyntaxTraverser.psiTraverser(file).filter(XmlTag.class)) {
+            assertNotNull(manager.getDomElement(tag), tag.getText());
+          }
+        }));
 
-      // index the file
-      DomFileElement<IdeaPlugin> ideaPlugin = manager.getFileElement(file, IdeaPlugin.class);
-      assertFalse(DomElementClassIndex.getInstance().hasStubElementsOfType(ideaPlugin, ProductDescriptor.class));
+        // index the file
+        DomFileElement<IdeaPlugin> ideaPlugin = manager.getFileElement(file, IdeaPlugin.class);
+        assertFalse(DomElementClassIndex.getInstance().hasStubElementsOfType(ideaPlugin, ProductDescriptor.class));
 
-      future.get(20, TimeUnit.SECONDS);
-    }
+        future.get(20, TimeUnit.SECONDS);
+      }
+    });
   }
 
-  @Override
-  protected String getBasePath() {
-    return DevkitJavaTestsUtil.TESTDATA_PATH + "pluginXmlDomStubs";
+  private void doBuilderTest(@TestDataFile String filePath, String stubText) {
+    runInEdtAndWait(() -> DomStubTestUtil.doBuilderTest(filePath, stubText, codeInsightFixture.get()));
+  }
+
+  private <T extends DomElement> DomFileElement<T> prepare(@TestDataFile String path, Class<T> domClass) {
+    return DomStubTestUtil.prepare(path, domClass, codeInsightFixture.get());
+  }
+
+  private XmlFile prepareFile(@TestDataFile String path) {
+    return DomStubTestUtil.prepareFile(path, codeInsightFixture.get());
   }
 }

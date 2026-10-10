@@ -6,32 +6,20 @@ import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiMethod
 import com.intellij.psi.search.GlobalSearchScope
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.javaInterop.asPsiClass
 import org.jetbrains.kotlin.analysis.api.javaInterop.asPsiMethods
-import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisFromWriteAction
-import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisOnEdt
-import org.jetbrains.kotlin.analysis.api.permissions.allowAnalysisFromWriteAction
-import org.jetbrains.kotlin.analysis.api.permissions.allowAnalysisOnEdt
-import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaFunctionSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaPropertySymbol
-import org.jetbrains.kotlin.analysis.api.symbols.classSymbol
 import org.jetbrains.kotlin.asJava.KotlinAsJavaSupport
 import org.jetbrains.kotlin.asJava.classes.KtFakeLightClass
 import org.jetbrains.kotlin.builtins.jvm.JavaToKotlinClassMap
 import org.jetbrains.kotlin.psi.KtClassOrObject
 
-@OptIn(KaAllowAnalysisOnEdt::class, KaAllowAnalysisFromWriteAction::class)
 fun KtClassOrObject.toLightClassWithBuiltinMapping(): PsiClass? {
-    // FIXME: KTIJ-40145
-    allowAnalysisOnEdt {
-        allowAnalysisFromWriteAction {
-            analyze(this) {
-                classSymbol?.asPsiClass()?.let { return it }
-            }
-        }
-    }
+    // Don't replace with `analyze(this) { classSymbol?.asPsiClass() }`: it views the class from the declaration's own module
+    // and returns `null` for non-JVM (e.g., common) ones, so inheritor searches fall back to slow fake light classes (KTIJ-40299).
+    // `KotlinAsJavaSupport.getLightClass` uses a dependent JVM module as context instead.
+    KotlinAsJavaSupport.getInstance(project).getLightClass(this)?.let { return it }
 
     val fqName = fqName ?: return null
     val javaClassFqName = JavaToKotlinClassMap.mapKotlinToJava(fqName.toUnsafe())?.asSingleFqName() ?: return null

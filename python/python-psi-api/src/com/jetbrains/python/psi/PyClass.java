@@ -30,7 +30,7 @@ import java.util.Map;
 public interface PyClass
   extends PyAstClass, PsiNameIdentifierOwner, PyCompoundStatement, PyDocStringOwner, StubBasedPsiElement<PyClassStub>,
           ScopeOwner, PyDecoratable, PyTypedElement, PyQualifiedNameOwner, PyStatementListContainer, PyWithAncestors,
-          PyTypeParameterListOwner, PyDeprecatable, PyCallSiteOwner {
+          PyTypeParameterListOwner, PyDeprecatable {
   PyClass[] EMPTY_ARRAY = new PyClass[0];
   ArrayFactory<PyClass> ARRAY_FACTORY = count -> count == 0 ? EMPTY_ARRAY : new PyClass[count];
 
@@ -42,11 +42,8 @@ public interface PyClass
   /**
    * A class definition is an implicit call site for {@code __init_subclass__} of its base classes:
    * the keyword arguments in the base classes list (other than {@code metaclass}) are passed to it.
-   *
-   * @see PyCallSiteOwner
    */
-  @Override
-  default @NotNull List<@NotNull PyExpression> getArguments(@Nullable PyCallable resolvedCallee) {
+  default @NotNull List<@NotNull PyExpression> getArguments() {
     final PyArgumentList argumentList = getSuperClassExpressionList();
     if (argumentList == null) {
       return List.of();

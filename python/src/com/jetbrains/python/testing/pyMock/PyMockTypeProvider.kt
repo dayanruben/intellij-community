@@ -5,8 +5,8 @@ import com.intellij.openapi.util.Ref
 import com.intellij.psi.PsiElement
 import com.jetbrains.python.psi.AccessDirection
 import com.jetbrains.python.psi.PyCallExpression
-import com.jetbrains.python.psi.PyCallSiteOwner
 import com.jetbrains.python.psi.PyDecorator
+import com.jetbrains.python.psi.PyElement
 import com.jetbrains.python.psi.PyExpression
 import com.jetbrains.python.psi.PyFunction
 import com.jetbrains.python.psi.PyKeywordArgument
@@ -124,7 +124,7 @@ private class MockConstructorType(
   private val mockType: PyClassType,
   parameters: List<PyCallableParameter>?,
 ) : PyCallableTypeImpl(parameters, mockType) {
-  override fun getCallType(context: TypeEvalContext, callSite: PyCallSiteOwner?, arguments: List<PyCallableArgument>): PyType {
+  override fun getCallType(context: TypeEvalContext, callSite: PyElement?, arguments: List<PyCallableArgument>): PyType {
     val call = callSite as? PyCallExpression ?: return mockType
     val (specType, kind) = getSpecType(call, context) ?: return mockType
     return PyMockWithSpecType(mockType, specType, kind)

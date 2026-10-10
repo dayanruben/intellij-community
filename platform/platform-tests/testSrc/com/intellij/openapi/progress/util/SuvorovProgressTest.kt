@@ -1,12 +1,15 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.progress.util
 
+import com.intellij.concurrency.resetThreadContext
 import com.intellij.ide.IdeEventQueue
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.application.ThreadingSupport
 import com.intellij.openapi.application.UiWithModelAccess
 import com.intellij.openapi.application.WriteIntentReadAction
 import com.intellij.openapi.application.backgroundWriteAction
+import com.intellij.openapi.application.impl.InternalThreading
 import com.intellij.openapi.application.impl.concurrencyTest
 import com.intellij.openapi.application.installSuvorovProgress
 import com.intellij.openapi.application.readAction
@@ -21,6 +24,7 @@ import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.junit5.TestDisposable
 import com.intellij.util.application
 import com.intellij.util.concurrency.TransferredWriteActionService
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -37,6 +41,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import javax.swing.JPanel
 import kotlin.test.assertEquals
+import kotlin.time.Duration.Companion.milliseconds
 
 @TestApplication
 class SuvorovProgressTest {
@@ -192,6 +197,45 @@ class SuvorovProgressTest {
     withContext(Dispatchers.EDT) {
       assertThat(SuvorovProgress.isOnStack()).isFalse
     }
+  }
+
+  // IJPL-253814: the progress must not drop a transferred write action that its event stealer took just before the progress finished
+  @Test
+  @RegistryKey("ide.suvorov.progress.showing.delay.ms", "0")
+  @RegistryKey("ide.suvorov.progress.kind", "[None|Bar*|Overlay|NiceOverlay]")
+  fun `transferred write action stolen at the end of bar progress is executed`(): Unit = timeoutRunBlocking(context = Dispatchers.Default) {
+    Assumptions.assumeTrue { installSuvorovProgress }
+    repeat(500) {
+      val progressMayFinish = CompletableDeferred<Unit>()
+      val transferredActionExecuted = AtomicBoolean()
+      val postingJob = launch {
+        // a stolen event means that the progress loop is running
+        while (IdeEventQueue.getInstance().doPostEvent(transferredWriteActionEvent {}, true)) {
+          delay(1.milliseconds)
+        }
+        progressMayFinish.complete(Unit)
+        IdeEventQueue.getInstance().doPostEvent(transferredWriteActionEvent { transferredActionExecuted.set(true) }, true)
+      }
+      withContext(Dispatchers.EDT) {
+        SuvorovProgress.dispatchEventsUntilComputationCompletes(progressMayFinish)
+      }
+      postingJob.join()
+      // only the AWT queue may run the event now; a lost event stays in the eternal stealer
+      withContext(Dispatchers.EDT) {}
+      val executed = transferredActionExecuted.get()
+      withContext(Dispatchers.EDT) {
+        SuvorovProgress.dispatchImportantEvents()
+      }
+      assertThat(executed).isTrue
+    }
+  }
+
+  private fun transferredWriteActionEvent(action: () -> Unit): InternalThreading.TransferredWriteActionEvent = resetThreadContext {
+    InternalThreading.TransferredWriteActionEvent(object : ThreadingSupport.RunnableWithTransferredWriteAction() {
+      override fun run() {
+        action()
+      }
+    })
   }
 
   @Test

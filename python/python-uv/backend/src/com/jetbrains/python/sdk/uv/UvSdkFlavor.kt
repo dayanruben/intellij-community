@@ -1,7 +1,6 @@
 package com.jetbrains.python.sdk.uv
 
 import com.intellij.python.uv.backend.UvPyTool
-import com.intellij.python.pytools.common.FusId
 import com.intellij.python.uv.common.icons.PythonUvCommonIcons
 import com.jetbrains.python.PyInternalExecApi
 import com.jetbrains.python.sdk.PythonSdkAdditionalData
@@ -15,7 +14,7 @@ import javax.swing.Icon
 object UvSdkFlavor : CPythonSdkFlavor<UvSdkFlavorData>() {
   override fun getIcon(): Icon = PythonUvCommonIcons.UV
   override fun getFlavorDataClass(): Class<UvSdkFlavorData> = UvSdkFlavorData::class.java
-  override fun getManager(): FusId = UvPyTool.getInstance().fusId
+  override fun getManagerId(): String = UvPyTool.getInstance().fusId.value
 
   override fun migrateAdditionalData(
     additionalData: PythonSdkAdditionalData,

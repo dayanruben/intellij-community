@@ -10,7 +10,7 @@ import com.intellij.openapi.roots.ModuleRootEvent;
 import com.intellij.openapi.roots.ModuleRootListener;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.openapi.vfs.newvfs.BulkFileListener;
+import com.intellij.openapi.vfs.newvfs.BulkFileListenerBackgroundable;
 import com.intellij.openapi.vfs.newvfs.events.VFileCopyEvent;
 import com.intellij.openapi.vfs.newvfs.events.VFileCreateEvent;
 import com.intellij.openapi.vfs.newvfs.events.VFileDeleteEvent;
@@ -38,7 +38,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
-import static com.intellij.openapi.vfs.VirtualFileManager.VFS_CHANGES;
+import static com.intellij.openapi.vfs.VirtualFileManager.VFS_CHANGES_BG;
 import static com.intellij.psi.util.PsiUtilCore.getVirtualFile;
 import static com.intellij.ui.tree.project.ProjectViewUpdateCauseUtilKt.guessProjectViewUpdateCauseByCaller;
 
@@ -74,7 +74,7 @@ public abstract class ProjectFileNodeUpdater {
       (presentableLibraryName, oldRoots, newRoots, libraryNameForDebug) ->
         updateFromRoot(ProjectViewUpdateCause.ROOTS_LIBRARY)
     );
-    connection.subscribe(VFS_CHANGES, new BulkFileListener() {
+    connection.subscribe(VFS_CHANGES_BG, new BulkFileListenerBackgroundable() {
       @Override
       public void after(@NotNull List<? extends @NotNull VFileEvent> events) {
         for (VFileEvent event : events) {

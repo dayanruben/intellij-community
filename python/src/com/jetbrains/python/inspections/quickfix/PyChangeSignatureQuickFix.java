@@ -20,7 +20,6 @@ import com.intellij.xml.util.XmlStringUtil;
 import com.jetbrains.python.PyBundle;
 import com.jetbrains.python.psi.PyCallExpression;
 import com.jetbrains.python.psi.PyCallExpression.PyArgumentsMapping;
-import com.jetbrains.python.psi.PyCallSiteOwner;
 import com.jetbrains.python.psi.PyElement;
 import com.jetbrains.python.psi.PyExpression;
 import com.jetbrains.python.psi.PyFunction;
@@ -64,7 +63,7 @@ public final class PyChangeSignatureQuickFix extends LocalQuickFixOnPsiElement {
     final PyFunction function = as(mapping.getCallableType().getCallable(), PyFunction.class);
     assert function != null;
     Supplier<List<Pair<Integer, PyParameterInfo>>> extraParamsSupplier = () -> {
-      final var callSiteExpression = mapping.getCallSiteOwner();
+      final var callSiteExpression = mapping.getCallSite();
       int positionalParamAnchor = -1;
       final PyParameter[] parameters = function.getParameterList().getParameters();
       for (PyParameter parameter : parameters) {
@@ -93,7 +92,7 @@ public final class PyChangeSignatureQuickFix extends LocalQuickFixOnPsiElement {
       }
       return newParameters;
     };
-    return new PyChangeSignatureQuickFix(function, extraParamsSupplier, mapping.getCallSiteOwner());
+    return new PyChangeSignatureQuickFix(function, extraParamsSupplier, mapping.getCallSite());
   }
 
   public static @NotNull PyChangeSignatureQuickFix forMismatchingMethods(@NotNull PyFunction function, @NotNull PyFunction complementary) {
@@ -113,7 +112,7 @@ public final class PyChangeSignatureQuickFix extends LocalQuickFixOnPsiElement {
   }
 
   private final @NotNull Supplier<List<Pair<Integer, PyParameterInfo>>> myExtraParametersSupplier;
-  private final @Nullable SmartPsiElementPointer<PyCallSiteOwner> myOriginalCallSiteExpression;
+  private final @Nullable SmartPsiElementPointer<PyElement> myOriginalCallSiteExpression;
 
 
   /**
@@ -122,7 +121,7 @@ public final class PyChangeSignatureQuickFix extends LocalQuickFixOnPsiElement {
    */
   private PyChangeSignatureQuickFix(@NotNull PyFunction function,
                                     @NotNull Supplier<List<Pair<Integer, PyParameterInfo>>> extraParametersSupplier,
-                                    @Nullable PyCallSiteOwner expression) {
+                                    @Nullable PyElement expression) {
     super(function);
     myExtraParametersSupplier = () -> ContainerUtil.sorted(extraParametersSupplier.get(), Comparator.comparingInt(p -> p.getFirst()));
     if (expression != null) {

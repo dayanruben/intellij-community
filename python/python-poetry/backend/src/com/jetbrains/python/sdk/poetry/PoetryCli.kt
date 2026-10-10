@@ -42,6 +42,11 @@ fun <P : PathHolder> poetryMetadataUploadConfig(projectPath: Path, fileSystem: F
 /**
  * Runs poetry with [args] in [projectPath] on the machine of [fileSystem]. [inProjectEnv] sets
  * `virtualenvs.in-project` for this run only.
+ *
+ * It also sets `virtualenvs.use-poetry-python`, unless [baseEnv] sets it. Without it, poetry looks for the current
+ * environment with the first `python` on `PATH`, even when a command names the Python to use. The IDE has another
+ * `PATH` than a terminal, so that `python` can be missing or a stub, such as the Microsoft Store alias on Windows,
+ * and the command then fails. The Python of poetry itself always runs.
  */
 @ApiStatus.Internal
 suspend fun <P : PathHolder> runPoetry(
@@ -56,6 +61,7 @@ suspend fun <P : PathHolder> runPoetry(
 ): PyResult<String> {
   val env = baseEnv.toMutableMap().apply {
     if (inProjectEnv != null) put("POETRY_VIRTUALENVS_IN_PROJECT", inProjectEnv.toString())
+    putIfAbsent("POETRY_VIRTUALENVS_USE_POETRY_PYTHON", "true")
   }
   return fileSystem.runTool(
     executable = PoetryPyTool.getInstance(),
@@ -71,18 +77,19 @@ suspend fun <P : PathHolder> runPoetry(
 /**
  * The cache environments of the project in [projectPath] on the machine of [fileSystem], as env-root paths, as
  * `poetry env list --full-path` reports them. It forces `virtualenvs.in-project=false`, as the v2 dialog does, so poetry
- * lists the cache envs even when an in-project `.venv` exists. Otherwise it reports only `.venv`.
+ * lists the cache envs even when an in-project `.venv` exists. Otherwise it reports only `.venv`. When poetry fails,
+ * the poetry error is the result.
  */
 @ApiStatus.Internal
-suspend fun <P : PathHolder> poetryCacheEnvRoots(fileSystem: FileSystem<P>, projectPath: Path): List<P> {
+suspend fun <P : PathHolder> poetryCacheEnvRoots(fileSystem: FileSystem<P>, projectPath: Path): PyResult<List<P>> {
   val uploadConfig = withContext(Dispatchers.IO) { poetryMetadataUploadConfig(projectPath, fileSystem) }
-  val output = runPoetry(fileSystem, projectPath, "env", "list", "--full-path", inProjectEnv = false, uploadConfig = uploadConfig).getOrNull()
-               ?: return emptyList()
-  return output.lineSequence()
+  val output = runPoetry(fileSystem, projectPath, "env", "list", "--full-path", inProjectEnv = false, uploadConfig = uploadConfig)
+    .getOr { return it }
+  return PyResult.success(output.lineSequence()
     .map { it.removeSuffix("(Activated)").trim() }
     .filter { it.isNotBlank() }
     .mapNotNull { fileSystem.parsePath(it).getOrNull() }
-    .toList()
+    .toList())
 }
 
 /** The cache env among these env roots whose folder name ends with Python [version], or `null` when poetry has none. */
@@ -92,10 +99,11 @@ fun <P : PathHolder> List<P>.poetryCacheEnvFor(version: String): P? =
 
 /**
  * The root of the poetry environment that [envRef] names for the project in [projectPath], on the machine of
- * [fileSystem], or `null` when there is none: the project's `.venv` for [POETRY_IN_PROJECT_ENV_REF], else the cache
- * environment of that Python version, see [poetryEnvRefOf].
+ * [fileSystem]: the project's `.venv` for [POETRY_IN_PROJECT_ENV_REF], else the cache environment of that Python
+ * version, see [poetryEnvRefOf]. The value is `null` when poetry has no such environment, and a failure when poetry
+ * cannot list its environments.
  */
 @ApiStatus.Internal
-suspend fun <P : PathHolder> poetryEnvRootOf(fileSystem: FileSystem<P>, projectPath: Path, envRef: String): P? =
-  if (envRef == POETRY_IN_PROJECT_ENV_REF) fileSystem.resolveInWorkingDir(projectPath, VirtualEnvReader.DEFAULT_VIRTUALENV_DIRNAME)
-  else poetryCacheEnvRoots(fileSystem, projectPath).poetryCacheEnvFor(envRef)
+suspend fun <P : PathHolder> poetryEnvRootOf(fileSystem: FileSystem<P>, projectPath: Path, envRef: String): PyResult<P?> =
+  if (envRef == POETRY_IN_PROJECT_ENV_REF) PyResult.success(fileSystem.resolveInWorkingDir(projectPath, VirtualEnvReader.DEFAULT_VIRTUALENV_DIRNAME))
+  else poetryCacheEnvRoots(fileSystem, projectPath).mapSuccess { it.poetryCacheEnvFor(envRef) }

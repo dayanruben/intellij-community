@@ -3,7 +3,6 @@ package com.jetbrains.python.sdk.flavors;
 
 import com.intellij.python.sdk.backend.PyInterpreterRefsKt;
 import com.jetbrains.python.sdk.add.v2.PathHolder;
-import com.intellij.python.pytools.common.FusId;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.intellij.execution.configurations.GeneralCommandLine;
@@ -88,13 +87,17 @@ public abstract class PythonSdkFlavor<D extends PyFlavorData> {
   }
 
   /**
-   * The tool that manages the environments of this flavor, which names them in a
-   * {@link com.intellij.python.sdk.common.PyInterpreterRef}. The default is {@code pip}, for a flavor no tool
-   * manages, such as a system interpreter or a plain venv.
+   * The {@link com.intellij.python.pytools.common.FusId} value of the tool that manages the environments of this
+   * flavor, which names them in a {@link com.intellij.python.sdk.common.PyInterpreterRef}. The default is
+   * {@code pip}, for a flavor no tool manages, such as a system interpreter or a plain venv. Read it with
+   * {@code PythonSdkFlavor.manager}.
+   * <p>
+   * It is a string here, because Java cannot return the value class. A Kotlin override that returns the value class
+   * does not override this method on the JVM, so the flavor then gets the default.
    */
   @ApiStatus.Internal
-  public @NotNull FusId getManager() {
-    return PyInterpreterRefsKt.getPipManager();
+  public @NotNull String getManagerId() {
+    return PyInterpreterRefsKt.PIP_MANAGER_ID;
   }
 
   /**

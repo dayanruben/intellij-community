@@ -3,12 +3,10 @@ package com.intellij.idea;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
-import com.intellij.diagnostic.DefaultIdeaErrorLogger;
 import com.intellij.diagnostic.LoadingState;
 import com.intellij.diagnostic.logs.LoggerConfigFromSystemProperties;
 import com.intellij.featureStatistics.fusCollectors.LifecycleUsageTriggerCollector;
 import com.intellij.ide.plugins.PluginManagerCore;
-import com.intellij.ide.plugins.PluginUtil;
 import com.intellij.ide.plugins.PluginUtils;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ex.ApplicationManagerEx;
@@ -119,18 +117,12 @@ public final class IdeaLogger extends JulLogger {
     try {
       var app = ApplicationManager.getApplication();
       if (app != null && !app.isUnitTestMode() && !app.isDisposed()) {
-        var pluginUtil = PluginUtil.getInstance();
-        if (pluginUtil != null) {
-          var pluginId = pluginUtil.findPluginId(realCause);
-          var kind = DefaultIdeaErrorLogger.getOOMErrorKind(realCause);
-          LifecycleUsageTriggerCollector.onError(pluginId, realCause, unhandledExceptionKind, kind);
-          if (pluginId != null) {
-            var sinkService = UnhandledReportSinkService.getInstance();
-            if (sinkService != null) { // might be null in CLI utils
-              sinkService.report(new PluginExceptionReportData(pluginId, realCause));
-            }
+        LifecycleUsageTriggerCollector.onErrorAsync(realCause, unhandledExceptionKind, pluginId -> {
+          var sinkService = UnhandledReportSinkService.getInstance();
+          if (sinkService != null) { // might be null in CLI utils
+            sinkService.report(new PluginExceptionReportData(pluginId, realCause));
           }
-        }
+        });
       }
     }
     catch (Exception _) {
