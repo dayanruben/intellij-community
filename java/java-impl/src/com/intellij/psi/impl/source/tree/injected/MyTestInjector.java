@@ -140,7 +140,6 @@ public class MyTestInjector {
     final Language js = Language.findLanguageByID("JavaScript");
     final Language html = Language.findLanguageByID("HTML");
     if (ql == null || js == null) return;
-    final Language ecma4 = Language.findLanguageByID("ECMA Script Level 4");
 
     InjectedLanguageManager.getInstance(psiManager.getProject()).registerMultiHostInjector(new MultiHostInjector() {
       @Override
@@ -204,10 +203,6 @@ public class MyTestInjector {
         }
         if ("htmlInject".equals(tag.getLocalName())) {
           inject(host, placesToInject, html);
-          return;
-        }
-        if (ecma4 != null && "ecma4".equals(tag.getLocalName())) {
-          inject(host, placesToInject, ecma4);
           return;
         }
         if ("jsprefix".equals(tag.getLocalName())) {
