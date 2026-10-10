@@ -184,7 +184,7 @@ class K2KotlinInjectionTest: KotlinInjectionTestBase() {
 
             myFixture.performEditorAction(IdeActions.ACTION_EDITOR_BACKSPACE)
             PsiDocumentManager.getInstance(project).commitAllDocuments()
-            assertNotNull(myInjectionFixture.injectedElement)
+            assertNull(myInjectionFixture.injectedElement)
 
             myFixture.type('a')
             PsiDocumentManager.getInstance(project).commitAllDocuments()
