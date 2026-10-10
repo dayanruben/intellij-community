@@ -53,7 +53,7 @@ import kotlin.time.Duration.Companion.milliseconds
 //   A settled move has no motion left. It skips the loop:
 //   caretMoved() |> state.updateAndGet { retarget } |> advanceNow(tick) |> advanceStep(prefetching = false)
 //                                                                       |> propagateStep() |> repaintCarets()
-internal class EditorCaretMutator(
+internal class EditorCaretMutator internal constructor(
   private val editor: EditorImpl,
 ) : Disposable {
   private val coroutineScope: CoroutineScope = editor.coroutineScope

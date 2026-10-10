@@ -11,7 +11,7 @@ import javax.swing.border.Border
 
 @ApiStatus.Experimental
 @ApiStatus.Internal
-class EditorState : ObservableState() {
+class EditorState internal constructor() : ObservableState() {
   @Suppress("ConstPropertyName")
   companion object {
     // for compatibility with Java

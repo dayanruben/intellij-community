@@ -76,8 +76,7 @@ public final class ScrollingModelImpl implements ScrollingModelEx {
 
   private final ChangeListener viewportChangeListener = new MyChangeListener();
 
-  @ApiStatus.Internal
-  public ScrollingModelImpl(EditorImpl editor) {
+  ScrollingModelImpl(EditorImpl editor) {
     this(new DefaultEditorSupplier(editor));
   }
 

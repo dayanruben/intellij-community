@@ -2726,7 +2726,6 @@ f:com.intellij.openapi.editor.ex.util.EditorUtil
 - s:yToLogicalLineNoCustomRenderers(com.intellij.openapi.editor.Editor,I):I
 - s:yToLogicalLineRange(com.intellij.openapi.editor.Editor,I):com.intellij.openapi.editor.impl.Interval
 f:com.intellij.openapi.editor.impl.CaretModelImpl
-- <init>(com.intellij.openapi.editor.impl.EditorImpl):V
 - addCaret(com.intellij.openapi.editor.LogicalPosition,Z):com.intellij.openapi.editor.Caret
 - addCaret(com.intellij.openapi.editor.VisualPosition,Z):com.intellij.openapi.editor.Caret
 - addCaretActionListener(com.intellij.openapi.editor.CaretActionListener,com.intellij.openapi.Disposable):V

@@ -37,8 +37,7 @@ public final class SelectionModelImpl implements SelectionModel {
   private TextAttributes myActiveSelection;
   private TextAttributes myInactiveSelection;
 
-  @ApiStatus.Internal
-  public SelectionModelImpl(EditorImpl editor) {
+  SelectionModelImpl(@NotNull EditorImpl editor) {
     myEditor = editor;
   }
 

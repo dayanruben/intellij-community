@@ -69,7 +69,7 @@ public final class CaretModelImpl implements CaretModel, PrioritizedDocumentList
   private boolean documentInUpdate;
   private TextAttributes textAttributes;
 
-  public CaretModelImpl(@NotNull EditorImpl editor) {
+  CaretModelImpl(@NotNull EditorImpl editor) {
     this.editor = editor;
     this.document = editor.getElfDocument();
     this.caretListeners = EventDispatcher.create(CaretListener.class);

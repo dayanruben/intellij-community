@@ -19,8 +19,7 @@ public final class IndentsModelImpl implements IndentsModel {
   private List<IndentGuideDescriptor> myIndents = new ArrayList<>();
   private final @NotNull EditorImpl myEditor;
 
-  @ApiStatus.Internal
-  public IndentsModelImpl(@NotNull EditorImpl editor) {
+  IndentsModelImpl(@NotNull EditorImpl editor) {
     myEditor = editor;
   }
 

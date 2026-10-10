@@ -56,8 +56,7 @@ public final class FocusModeModel implements Disposable {
   private final @Nullable RangeMarkerTree<RangeMarkerEx> myFocusMarkerTree;
   private volatile @Nullable SnapshotFocusRegionStorage mySnapshotFocusRegionStorage;
 
-  @ApiStatus.Internal
-  public FocusModeModel(@NotNull EditorImpl editor) {
+  FocusModeModel(@NotNull EditorImpl editor) {
     myEditor = editor;
     myFocusMarkerTree = RangeMarkers.Holder.USE_PMARKER_IMPLEMENTATION ? null : new RangeMarkerTree<>(editor.getElfDocument());
 
