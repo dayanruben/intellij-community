@@ -10,6 +10,7 @@ import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiWhiteSpace
 import com.intellij.psi.TokenType
 import com.intellij.psi.util.elementType
+import com.intellij.util.containers.addIfNotNull
 import org.jetbrains.kotlin.idea.KotlinLanguage
 import org.jetbrains.kotlin.kdoc.lexer.KDocTokens
 import org.jetbrains.kotlin.kdoc.psi.impl.KDocSection
@@ -141,7 +142,7 @@ internal class K2KDocCodeBlockLanguageInjector : MultiHostInjector, DumbAware {
     }
 
     private fun MutableList<PsiElement>.toTextRanges(fencedBlock: Boolean): List<TextRange> =
-        buildList {
+        buildList<TextRange> {
             trim(fencedBlock)
 
             val indent = indent() ?: return@buildList
@@ -169,6 +170,26 @@ internal class K2KDocCodeBlockLanguageInjector : MultiHostInjector, DumbAware {
                     }
                 }
             }
+        }.mergeAdjacentTextRanges()
+
+    private fun List<TextRange>.mergeAdjacentTextRanges(): List<TextRange> =
+        buildList {
+            var current: TextRange? = null
+
+            for (range in this@mergeAdjacentTextRanges) {
+                if (current == null) {
+                    current = range
+                    continue
+                }
+                if (current.endOffset == range.startOffset) {
+                    current = TextRange(current.startOffset, range.endOffset)
+                } else {
+                    add(current)
+                    current = range
+                }
+            }
+
+            addIfNotNull(current)
         }
 
     private fun MutableList<PsiElement>.trim(fencedBlock: Boolean) {

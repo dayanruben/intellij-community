@@ -15,6 +15,7 @@ import org.jetbrains.kotlin.analysis.api.expressions.expectedType
 import org.jetbrains.kotlin.analysis.api.expressions.expressionType
 import org.jetbrains.kotlin.analysis.api.impl.base.components.KaBaseIllegalPsiException
 import org.jetbrains.kotlin.analysis.api.projectStructure.KaDanglingFileResolutionMode
+import org.jetbrains.kotlin.analysis.api.projectStructure.copyOrigin
 import org.jetbrains.kotlin.analysis.api.renderer.render
 import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.session.analyzeCopy
@@ -533,6 +534,10 @@ private class ParallelCompletionRunner : K2CompletionRunner {
         completionContext: K2CompletionContext<P>,
         sections: List<K2CompletionSection<P>>,
     ): K2CompletionRunnerResult {
+        if (completionContext.parameters.completionFile.copyOrigin == null) {
+            return SequentialCompletionRunner().runCompletion(completionContext, sections)
+        }
+
         // Each section gets its own sink which is then later collected by the main thread in the same order as the sections
         val sectionsWithSinks = sections.map { it to K2AccumulatingLookupElementSink() }
         // This is the queue of all remaining sections ordered by their priority.
