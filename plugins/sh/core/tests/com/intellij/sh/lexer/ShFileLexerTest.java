@@ -3,67 +3,67 @@ package com.intellij.sh.lexer;
 
 import com.intellij.lexer.Lexer;
 import com.intellij.openapi.application.PluginPathManager;
-import com.intellij.testFramework.LexerTestCase;
+import com.intellij.platform.testFramework.junit5.codeInsight.fixture.LexerTestFixture;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
+import com.intellij.testFramework.junit5.fixture.TestFixtures;
 import org.jetbrains.annotations.NotNull;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInfo;
 
 import java.util.ArrayList;
 import java.util.List;
 
-public class ShFileLexerTest extends LexerTestCase {
-  @Override
-  protected @NotNull Lexer createLexer() {
-    return new ShLexer();
+import static com.intellij.platform.testFramework.junit5.codeInsight.fixture.LexerTestFixtureKt.lexerFixture;
+
+@TestFixtures
+public class ShFileLexerTest {
+  private final TestFixture<LexerTestFixture> lexer =
+    lexerFixture(PluginPathManager.getPluginHomePath("sh") + "/core/testData/lexer", () -> new ShLexer());
+  private String testName;
+
+  @Test public void testFirst() { doFileTest("sh"); }
+  @Test public void testHello() { doFileTest("sh"); }
+  @Test public void testExprs() { doFileTest("sh"); }
+  @Test public void testCase() { doFileTest("sh"); }
+  @Test public void testFor() { doFileTest("sh"); }
+  @Test public void testIf() { doFileTest("sh"); }
+  @Test public void testHeredoc() { doFileTest("sh"); }
+  @Test public void testTrap() { doFileTest("sh"); }
+  @Test public void testTrap2() { doFileTest("sh"); }
+  @Test public void testLet() { doFileTest("sh"); }
+  @Test public void testParams() { doFileTest("sh"); }
+  @Test public void testSelect() { doFileTest("sh"); }
+  @Test public void testBinaryData() { doFileTest("sh"); }
+  @Test public void testParamExpansionSub() { doFileTest("sh"); }
+  @Test public void testRegex1() { doFileTest("sh"); }
+  @Test public void testRegex2() { doFileTest("sh"); }
+  @Test public void testStrings() { doFileTest("sh"); }
+  @Test public void testParamExpansionEscape() { doFileTest("sh"); } // IDEA-219928
+  @Test public void testProcessSubstitution() { doFileTest("sh"); } // IDEA-220072
+  @Test public void testTest() { doFileTest("sh"); } // IDEA-244312
+  @Test public void testShouldBeFixed() { doFileTest("sh"); }
+  @Test public void testIdea263122() { doFileTest("sh"); } // IDEA-263122
+  @Test public void testIdea244342() { doFileTest("sh"); } // IDEA-244342
+  @Test public void testIdea280499() { doFileTest("sh"); } // IDEA-280499
+  @Test public void testIdea289121() { doFileTest("sh"); } // IDEA-289121
+  @Test public void testIdea275872() { doFileTest("sh"); } // IDEA-275872
+  @Test public void testIdea278953() { doFileTest("sh"); } // IDEA-278953
+
+  @BeforeEach
+  void setUp(TestInfo testInfo) {
+    testName = testInfo.getTestMethod().orElseThrow().getName();
   }
 
-  @Override
-  protected @NotNull String getDirPath() {
-    return PluginPathManager.getPluginHomePath("sh") + "/core/testData/lexer";
-  }
-
-  @NotNull
-  @Override
-  protected String getPathToTestDataFile(@NotNull String extension) {
-    return getDirPath() + "/" + getTestName(true) + extension;
-  }
-
-  public void testFirst()                { doFileTest("sh"); }
-  public void testHello()                { doFileTest("sh"); }
-  public void testExprs()                { doFileTest("sh"); }
-  public void testCase()                 { doFileTest("sh"); }
-  public void testFor()                  { doFileTest("sh"); }
-  public void testIf()                   { doFileTest("sh"); }
-  public void testHeredoc()              { doFileTest("sh"); }
-  public void testTrap()                 { doFileTest("sh"); }
-  public void testTrap2()                { doFileTest("sh"); }
-  public void testLet()                  { doFileTest("sh"); }
-  public void testParams()               { doFileTest("sh"); }
-  public void testSelect()               { doFileTest("sh"); }
-  public void testBinaryData()           { doFileTest("sh"); }
-  public void testParamExpansionSub()    { doFileTest("sh"); }
-  public void testRegex1()               { doFileTest("sh"); }
-  public void testRegex2()               { doFileTest("sh"); }
-  public void testStrings()              { doFileTest("sh"); }
-  public void testParamExpansionEscape() { doFileTest("sh"); } // IDEA-219928
-  public void testProcessSubstitution()  { doFileTest("sh"); } // IDEA-220072
-  public void testTest()                 { doFileTest("sh"); } // IDEA-244312
-  public void testShouldBeFixed()        { doFileTest("sh"); }
-  public void testIdea263122()           { doFileTest("sh"); } // IDEA-263122
-  public void testIdea244342()           { doFileTest("sh"); } // IDEA-244342
-  public void testIdea280499()           { doFileTest("sh"); } // IDEA-280499
-  public void testIdea289121()           { doFileTest("sh"); } // IDEA-289121
-  public void testIdea275872()           { doFileTest("sh"); } // IDEA-275872
-  public void testIdea278953()           { doFileTest("sh"); } // IDEA-278953
-
-  @Override
-  protected void doFileTest(@NotNull String fileExt) {
-    super.doFileTest(fileExt);
-    String text = loadTestDataFile("." + fileExt);
-    checkCorrectRestart(text);
+  private void doFileTest(@NotNull String fileExt) {
+    LexerTestFixture fixture = lexer.get();
+    String text = fixture.loadTestDataFile("." + fileExt);
+    fixture.doTest(text);
     collectZeroStateStatistics(text);
   }
 
   private void collectZeroStateStatistics(String text) {
-    Lexer lexer = createLexer();
+    Lexer lexer = this.lexer.get().createLexer();
     lexer.start(text);
 
     List<Integer> segments = new ArrayList<>();
@@ -97,7 +97,7 @@ public class ShFileLexerTest extends LexerTestCase {
     double maxSize = segments.stream().mapToInt(Integer::intValue).max().orElse(0);
 
     if (segments.size() > 0) {
-      System.out.println("Average segment size in test " + getName() + ": " + averageSize);
+      System.out.println("Average segment size in test " + testName + ": " + averageSize);
       System.out.println("Segments count: " + segments.size());
       System.out.println("Max rows in segment: " + maxSize);
       System.out.println();

@@ -25,6 +25,7 @@ use crate::video::Recording;
 use crate::{Diagnostics, Options, lock};
 
 pub(crate) const GOLDEN_ACKS: &str = "lane-transcript.acks.ndjson";
+pub(crate) const GOLDEN_ALLURE_RESULT: &str = "example.allure-result.json";
 pub(crate) const GOLDEN_TOKEN: &str = "golden-transcript-token";
 pub(crate) const GOLDEN_HOST: &str = "air-linux-1";
 pub(crate) const GOLDEN_VIDEO_REASON: &str = "fixture";
@@ -54,7 +55,7 @@ pub(crate) fn record_testdata(name: &str) -> PathBuf {
 // The screens of the fake IDE, one fixture picture and one fixture tree each.
 const SCREEN_EDITOR: &str = "editor";
 const SCREEN_SESSIONS: &str = "sessions";
-const SCREEN_DIALOG: &str = "dialog";
+pub(crate) const SCREEN_DIALOG: &str = "dialog";
 const SCREEN_RENAMED: &str = "renamed";
 
 /// What the fake IDE shows when the snapshot with this ordinal is taken: the editor before the setup, the sessions
@@ -174,7 +175,7 @@ impl FakeIde {
         self.server.url().to_owned()
     }
 
-    fn show(&self, screen: &'static str, inputs: Vec<Input>) {
+    pub(crate) fn show(&self, screen: &'static str, inputs: Vec<Input>) {
         let mut state = lock(&self.state);
         state.screen = screen;
         state.pending.extend(inputs);

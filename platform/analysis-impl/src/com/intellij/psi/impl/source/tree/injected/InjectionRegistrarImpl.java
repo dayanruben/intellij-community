@@ -534,9 +534,11 @@ public final class InjectionRegistrarImpl implements MultiHostRegistrar {
                                                    @NotNull PsiFile hostPsiFile,
                                                    @NotNull PsiDocumentManager documentManager) {
     List<DocumentWindow> injected = InjectedLanguageUtilBase.getCachedInjectedDocuments(hostPsiFile);
+    Segment[] newHostRanges = newDocumentWindow.getHostRanges();
 
     for (int i = injected.size() - 1; i >= 0; i--) {
       DocumentWindowImpl oldDocument = (DocumentWindowImpl)injected.get(i);
+      if (!mayOverlap(oldDocument, newHostRanges)) continue;
       PsiFileImpl oldFile = (PsiFileImpl)documentManager.getCachedPsiFile(oldDocument);
       if (oldFile == null ||
           !oldFile.isValid() ||
@@ -572,6 +574,24 @@ public final class InjectionRegistrarImpl implements MultiHostRegistrar {
     injected.add(newDocumentWindow);
 
     return newInjectedPsi;
+  }
+
+  /**
+   * Whether a shred of {@code oldDocument} has the same host range as, or intersects, one of {@code newHostRanges}, as
+   * {@link DocumentWindowImpl#areRangesEqual} and {@link #intersect} need. True for a shred without a host range: the window is invalid.
+   */
+  private static boolean mayOverlap(@NotNull DocumentWindowImpl oldDocument, Segment @NotNull [] newHostRanges) {
+    for (PsiLanguageInjectionHost.Shred shred : oldDocument.getShreds()) {
+      Segment oldRange = shred.getHostRangeMarker();
+      if (oldRange == null) return true;
+      for (Segment newRange : newHostRanges) {
+        if (TextRange.areSegmentsEqual(oldRange, newRange) ||
+            Math.max(oldRange.getStartOffset(), newRange.getStartOffset()) < Math.min(oldRange.getEndOffset(), newRange.getEndOffset())) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   private static void mergePsi(@NotNull PsiFile oldFile,

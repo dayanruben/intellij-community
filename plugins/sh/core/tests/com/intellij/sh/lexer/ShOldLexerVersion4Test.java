@@ -1,42 +1,37 @@
 // Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.sh.lexer;
 
-import com.intellij.lexer.Lexer;
 import com.intellij.openapi.application.PluginPathManager;
-import com.intellij.testFramework.LexerTestCase;
-import org.jetbrains.annotations.NotNull;
+import com.intellij.platform.testFramework.junit5.codeInsight.fixture.LexerTestFixture;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
+import com.intellij.testFramework.junit5.fixture.TestFixtures;
+import org.junit.jupiter.api.Test;
 
-public class ShOldLexerVersion4Test extends LexerTestCase {
-  @Override
-  protected @NotNull Lexer createLexer() {
-    return new ShLexer();
-  }
+import static com.intellij.platform.testFramework.junit5.codeInsight.fixture.LexerTestFixtureKt.lexerFixture;
 
-  @Override
-  protected @NotNull String getDirPath() {
-    return PluginPathManager.getPluginHomePath("sh") + "/core/testData/oldLexer/v4";
-  }
+@TestFixtures
+public class ShOldLexerVersion4Test {
+  private final TestFixture<LexerTestFixture> lexer =
+    lexerFixture(PluginPathManager.getPluginHomePath("sh") + "/core/testData/oldLexer/v4", () -> new ShLexer());
 
-  @NotNull
-  @Override
-  protected String getPathToTestDataFile(@NotNull String extension) {
-    return getDirPath() + "/" + getTestName(true) + extension;
-  }
-
+  @Test
   public void testCasePattern() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testIssue469() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testV4Lexing() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testIssue243() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 }
 

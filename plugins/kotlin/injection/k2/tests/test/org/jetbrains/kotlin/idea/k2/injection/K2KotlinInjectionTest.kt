@@ -1,9 +1,16 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.idea.k2.injection
 
+import com.intellij.codeInsight.completion.CodeCompletionHandlerBase
+import com.intellij.codeInsight.completion.CompletionType
+import com.intellij.codeInsight.lookup.LookupManager
 import com.intellij.lang.Language
+import com.intellij.openapi.actionSystem.IdeActions
+import com.intellij.psi.PsiDocumentManager
 import com.intellij.testFramework.LightProjectDescriptor
 import com.intellij.testFramework.common.runAll
+import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisOnEdt
+import org.jetbrains.kotlin.analysis.api.permissions.allowAnalysisOnEdt
 import org.jetbrains.kotlin.idea.KotlinLanguage
 import org.jetbrains.kotlin.idea.base.injection.KotlinInjectionTestBase
 import org.jetbrains.kotlin.idea.test.KotlinWithJdkAndRuntimeLightProjectDescriptor
@@ -154,6 +161,38 @@ class K2KotlinInjectionTest: KotlinInjectionTestBase() {
             """,
             KotlinLanguage.INSTANCE
         )
+    }
+
+    @OptIn(KaAllowAnalysisOnEdt::class)
+    fun testCompletionAfterEditingKDocCodeBlock() {
+        allowAnalysisOnEdt {
+            myFixture.configureByText(
+                "a.kt",
+                """
+                /**
+                 * ```
+                 * <caret>
+                 * ```
+                 */
+                fun usage() {}
+                """.trimIndent()
+            )
+
+            myFixture.type('a')
+            CodeCompletionHandlerBase(CompletionType.BASIC).invokeCompletion(project, editor, 1)
+            LookupManager.getActiveLookup(editor)!!.hideLookup(true)
+
+            myFixture.performEditorAction(IdeActions.ACTION_EDITOR_BACKSPACE)
+            PsiDocumentManager.getInstance(project).commitAllDocuments()
+            assertNull(myInjectionFixture.injectedElement)
+
+            myFixture.type('a')
+            PsiDocumentManager.getInstance(project).commitAllDocuments()
+            assertNotNull(myInjectionFixture.injectedElement)
+
+            CodeCompletionHandlerBase(CompletionType.BASIC).invokeCompletion(project, editor, 1)
+            assertNotNull(LookupManager.getActiveLookup(editor))
+        }
     }
 
     private fun assertKDocInjectionPresent(text: String, language: Language) {

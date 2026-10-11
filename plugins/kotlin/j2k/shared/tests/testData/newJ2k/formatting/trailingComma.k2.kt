@@ -11,7 +11,7 @@ internal object J {
         val j = intArrayOf(1, 2)
 
         // weird case with empty array: comma is removed (this syntax is invalid in Kotlin)
-        val k = arrayOf<IntArray?>(intArrayOf(), intArrayOf())
+        val k = arrayOf<IntArray>(intArrayOf(), intArrayOf())
     }
 }
 

@@ -69,6 +69,11 @@ jvm_library(
         "//platform/forms_rt:java-guiForms-rt",
         "//libraries/kotlinx/serialization/core",
         "//libraries/kotlinx/serialization/json",
+        "//plugins/groovy-scripting",
+        "//java/manifest",
+        "//java/structuralsearch-java:structuralSearch",
+        "//xml/emmet",
+        "//xml/xml-structure-view-impl:structureView-impl",
     ],
 )
 
@@ -120,6 +125,11 @@ jvm_library(
         "//platform/platform-util-io:ide-util-io_test_lib",
         "//platform/ide-core:ide-core_test_lib",
         "//platform/progress/shared:ide-progress_test_lib",
+        "//plugins/groovy-scripting:groovy-scripting_test_lib",
+        "//java/manifest:manifest_test_lib",
+        "//java/structuralsearch-java:structuralSearch_test_lib",
+        "//xml/emmet:emmet_test_lib",
+        "//xml/xml-structure-view-impl:structureView-impl_test_lib",
     ],
     deps = [
         # do not sort,

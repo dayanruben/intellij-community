@@ -26,6 +26,7 @@ use crate::daemon::leased::Workers;
 use crate::daemon::run::{RunArgs, RunCommandArgs, RunPlan};
 use crate::daemon::state::HostState;
 use crate::daemon::verdict::{iteration_verdict, lanes_verdict};
+use crate::lane::ide::{IdeRetention, gc_guest_ides, gc_note};
 use crate::lane::secrets::{RunSecrets, clear_run_secrets};
 use avl_base::RefusalExt;
 
@@ -663,9 +664,15 @@ impl Host {
                     // any other holder refuses `run_active`. No gate first: the backend resolves its executable
                     // when it builds a guest line, for this verb and `daemon log` alike.
                     let retired = self.retire_unrecorded_daemon(ctx, &current.worker, "stop the daemon").await?;
-                    // A run that died before its own removal leaves its secret files; no daemon is left to read them.
                     let channel = self.channel(&current.worker);
-                    clear_run_secrets(&self.guest(ctx, channel.as_ref())).await?;
+                    let guest = self.guest(ctx, channel.as_ref());
+                    // A lane IDE is a run of its own, so it outlives the daemon run, and no daemon is left to quit it.
+                    let ides = gc_guest_ides(&guest, IdeRetention::StopAll).await?;
+                    if let Some(note) = gc_note(&ides) {
+                        self.reporter.note(note, Some(&Scope::worker(&current.worker)));
+                    }
+                    // A run that died before its own removal leaves its secret files; no daemon is left to read them.
+                    clear_run_secrets(&guest).await?;
                     let stopped = retired.or(state.map(|state| state.run_id));
                     Ok(Outcome {
                         text: if stopped.is_some() { "stopped" } else { "no daemon to stop" }.to_owned(),

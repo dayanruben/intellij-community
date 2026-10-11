@@ -16,6 +16,8 @@
 //!   next start reads it to tell a safe resume from a resume against a changed device declaration.
 //! - `worker/parallels.rs`: the Parallels lifecycle, `prlctl` against a VM the operator made. Unix only.
 //! - `worker/docker.rs`: the Docker lifecycle, the image and the container of each slot.
+//! - `worker/container_linux.rs`: the container-linux lifecycle, the one container the skill's script starts for this
+//!   checkout.
 //! - `worker/pool.rs`: the `pool` commands. `pool init` and `pool recycle` take the locks and check the leases,
 //!   then ask the lifecycle. `pool gc` locks each slot inside the backend. `pool start` and `pool stop` take their
 //!   lock in `worker/lifecycle.rs`.
@@ -41,6 +43,8 @@ use avl_wire::verb::AgentVerb;
 use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 
+use crate::worker::channel::ControlPortChannel;
+use crate::worker::container_linux::ContainerLinux;
 use crate::worker::docker::Docker;
 use crate::worker::hypervisor::Machine;
 #[cfg(unix)]
@@ -49,7 +53,9 @@ use crate::worker::pin::PinnedTools;
 #[cfg(unix)]
 use crate::worker::tart::Tart;
 
+mod container_linux;
 mod docker;
+mod idle_stop;
 mod lifecycle;
 #[cfg(unix)]
 mod parallels;
@@ -62,6 +68,11 @@ mod tart;
 #[cfg(unix)]
 mod tests;
 
+#[cfg(test)]
+pub(crate) use idle_stop::IdleStopRequest;
+#[cfg(all(test, unix))]
+pub(crate) use idle_stop::IdleStopVerdict;
+pub(crate) use idle_stop::{read_idle_stop_record, remove_idle_stop_record};
 pub(crate) use lifecycle::lease_authorizes;
 pub(crate) use lifecycle::{HeldLeases, HeldLeasesGuard};
 pub(crate) use lifecycle::{StartState, StopState, Timings};
@@ -149,8 +160,9 @@ pub(crate) struct Dependencies {
     pub runner: Runner,
     pub reporter: Reporter,
     pub locks: Arc<LockManager>,
-    /// `None` is the operating case: the hypervisor-backed channel. `Some` is only ever a test's fake guest (see
-    /// [`ChannelFactory`]); a test that wants the real channel over a fake hypervisor passes `None` on purpose.
+    /// `None` is the operating case: the hypervisor-backed channel, or the control-port channel of a container-linux pool.
+    /// `Some` is only ever a test's fake guest (see [`ChannelFactory`]); a test that wants the real channel over a
+    /// fake hypervisor passes `None` on purpose.
     pub channel: Option<ChannelFactory>,
     /// How the guest agent's and the pinned Tart's host files are located.
     ///
@@ -180,6 +192,8 @@ pub(crate) struct Manager {
     timings: Timings,
     /// The leases this invocation holds while it runs one body per leased worker ([`Manager::hold_leases`]).
     held: Arc<HeldLeases>,
+    /// How a lease release starts the detached process of an idle stop ([`idle_stop::spawn_detached_idle_stop`]).
+    idle_stop: idle_stop::IdleStopSpawner,
 }
 
 impl Manager {
@@ -204,7 +218,8 @@ impl Manager {
         // channel's `docker exec` and every layer that spawns through this runner reach the same engine with the same
         // CLI.
         let docker_host = settings.runs_lima_engine().then(|| crate::worker::lima::docker_host(&settings));
-        let docker_config = (settings.backend == Backend::Docker && settings.docker.is_none())
+        // The Apple `container` engine runs no Docker CLI, so it gets neither.
+        let docker_config = (settings.backend == Backend::Docker && settings.docker.is_none() && !settings.runs_container_engine())
             .then(|| settings.docker_config_dir().to_string_lossy().into_owned());
         let overrides: Vec<(&str, &str)> = [
             docker_host.as_deref().map(|value| ("DOCKER_HOST", value)),
@@ -234,8 +249,13 @@ impl Manager {
                 pinned,
                 Arc::clone(&held),
             )),
+            Backend::ContainerLinux => {
+                Machine::ContainerLinux(ContainerLinux::new(Arc::clone(&settings), runner.clone(), reporter.clone()))
+            }
             #[cfg(windows)]
-            Backend::Tart | Backend::Parallels => unreachable!("Config::load refuses the {} backend on Windows", settings.backend),
+            Backend::Tart | Backend::Parallels => {
+                unreachable!("Config::load refuses the {} backend on Windows", settings.backend)
+            }
         };
         Self {
             settings,
@@ -248,6 +268,7 @@ impl Manager {
             bazel,
             build_boot: build_guest_boot,
             timings,
+            idle_stop: Arc::new(idle_stop::spawn_detached_idle_stop),
         }
     }
 
@@ -288,7 +309,7 @@ impl Manager {
     pub(crate) fn tart(&self) -> Option<&Tart> {
         match self.machine.as_ref() {
             Machine::Tart(tart) => Some(tart),
-            Machine::Parallels(_) | Machine::Docker(_) => None,
+            Machine::Parallels(_) | Machine::Docker(_) | Machine::ContainerLinux(_) => None,
         }
     }
 
@@ -393,17 +414,20 @@ impl Manager {
 
     // --- the guest channel -----------------------------------------------------------------------------------
 
-    /// The exec channel into one worker.
+    /// The exec channel into one worker: the hypervisor exec, or the control port of the testing-ui container.
     pub(crate) fn channel(&self, worker: &str) -> Arc<dyn Channel> {
-        match &self.channel {
-            Some(factory) => factory(worker),
-            None => Arc::new(HypervisorChannel {
-                machine: Arc::clone(&self.machine),
-                runner: self.runner.clone(),
-                settings: Arc::clone(&self.settings),
-                worker: worker.to_owned(),
-            }),
+        if let Some(factory) = &self.channel {
+            return factory(worker);
         }
+        if let Machine::ContainerLinux(_) = self.machine.as_ref() {
+            return Arc::new(ControlPortChannel::new(Arc::clone(&self.settings), worker));
+        }
+        Arc::new(HypervisorChannel {
+            machine: Arc::clone(&self.machine),
+            runner: self.runner.clone(),
+            settings: Arc::clone(&self.settings),
+            worker: worker.to_owned(),
+        })
     }
 
     fn guest<'a>(&'a self, ctx: &'a Ctx, channel: &'a dyn Channel) -> Guest<'a> {

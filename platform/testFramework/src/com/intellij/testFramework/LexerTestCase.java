@@ -22,6 +22,11 @@ import java.util.Objects;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
+/**
+ * @deprecated Use the JUnit 5 {@code lexerFixture} from {@code intellij.platform.testFramework.junit5.codeInsight}.
+ * Use the {@code LexerTestFixture.printTokens} and {@code LexerTestFixture.printSingleToken} functions in place of the static functions here.
+ */
+@Deprecated
 public abstract class LexerTestCase extends UsefulTestCase {
   protected void doTest(@NotNull String text) {
     doTest(text, null);

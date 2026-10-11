@@ -20,12 +20,22 @@ load("//platform/build-scripts/bazel-rules:dev_plugin.bzl", "dev_plugin")
 dev_dist_plugin_descriptor(
     content_modules = [
         "intellij.idea.customization.backend",
+        "intellij.idea.customization.base",
+        "intellij.platform.ide.nonModalWelcomeScreen",
+        "intellij.platform.ide.nonModalWelcomeScreen.backend",
+        "intellij.platform.ide.nonModalWelcomeScreen.frontend",
     ],
     descriptor = "//idea/customization/plugin:resources/META-INF/plugin.xml",
     main_module = "intellij.idea.customization.plugin",
+    mode_refused_content_modules = {
+        "frontend": ["intellij.platform.ide.nonModalWelcomeScreen.backend"],
+    },
     refused_content_modules = [
         "intellij.idea.customization.ultimate",
         "intellij.idea.ultimate.customizationTrial",
+        "intellij.platform.trialPromotion.common",
+        "intellij.platform.trialPromotion.idesWithFreeTier",
+        "intellij.platform.trialPromotion.idesWithFreeTier.jcef",
     ],
 )
 
@@ -33,16 +43,21 @@ dev_plugin(
     name = "intellij.idea.customization.plugin_dev_plugin",
     content_module_jars = [
         "//idea/customization/backend:backend_content_module_jar",
+        "//idea/customization/base:base_content_module_jar",
+        "//platform/non-modal-welcome-screen/backend:backend_content_module_jar",
+        "//platform/non-modal-welcome-screen/frontend:frontend_content_module_jar",
     ],
     descriptor = "//build/dev-dist-descriptors/intellij.idea.customization.plugin:intellij.idea.customization.plugin_dev_descriptor",
     jars = {
         "lib/idea-customization-plugin.jar": [
             "intellij.idea.customization.plugin",
+            "intellij.platform.ide.nonModalWelcomeScreen",
         ],
     },
     main_module = "intellij.idea.customization.plugin",
     modules = {
         "//idea/customization/plugin": "intellij.idea.customization.plugin",
+        "//platform/non-modal-welcome-screen": "intellij.platform.ide.nonModalWelcomeScreen",
     },
     plugin_directory = "plugins/idea-customization-plugin",
 )

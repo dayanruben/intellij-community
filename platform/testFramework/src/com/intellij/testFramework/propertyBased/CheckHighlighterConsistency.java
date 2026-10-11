@@ -1,12 +1,14 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.testFramework.propertyBased;
 
+import com.intellij.lang.TokenWrapper;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.ex.util.LexerEditorHighlighter;
 import com.intellij.openapi.editor.highlighter.HighlighterIterator;
 import com.intellij.openapi.fileEditor.FileEditorManager;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiFile;
-import com.intellij.testFramework.LexerTestCase;
+import com.intellij.psi.tree.IElementType;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.jetCheck.Generator;
 import org.junit.Assert;
@@ -57,10 +59,17 @@ public class CheckHighlighterConsistency extends ActionOnFile {
     HighlighterIterator iterator = highlighter.createIterator(0);
     while (!iterator.atEnd()) {
       tokens.append(iterator.getStart()).append(" ")
-        .append(LexerTestCase.printSingleToken(text, iterator.getTokenType(), iterator.getStart(), iterator.getEnd()));
+        .append(printSingleToken(text, iterator.getTokenType(), iterator.getStart(), iterator.getEnd()));
       iterator.advance();
     }
     return tokens.toString();
+  }
+
+  private static @NotNull String printSingleToken(@NotNull CharSequence text, @NotNull IElementType tokenType, int start, int end) {
+    String tokenText = tokenType instanceof TokenWrapper wrapper
+                       ? wrapper.getText()
+                       : StringUtil.replace(text.subSequence(start, end).toString(), "\n", "\\n");
+    return tokenType + " ('" + tokenText + "')\n";
   }
 
   public static final @NotNull Function<PsiFile, Generator<? extends MadTestingAction>> randomEditsWithHighlighterChecks = file -> {

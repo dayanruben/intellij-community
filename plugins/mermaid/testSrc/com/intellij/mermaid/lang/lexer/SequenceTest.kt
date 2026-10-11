@@ -1,9 +1,13 @@
 package com.intellij.mermaid.lang.lexer
 
-class SequenceTest : MermaidLexerTestCase() {
-  override val diagramName: String
-    get() = "sequence"
+import com.intellij.testFramework.junit5.fixture.TestFixtures
+import org.junit.jupiter.api.Test
 
+@TestFixtures
+class SequenceTest {
+  private val lexer by mermaidLexerFixture("sequence")
+
+  @Test
   fun `test simple sequence`() {
     val content = """
     sequenceDiagram
@@ -11,9 +15,10 @@ class SequenceTest : MermaidLexerTestCase() {
       actor J as John
       A B --> J: Hello John, how are you? ; J -->> A B : Great! # And you? J -->> A B
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
+  @Test
   fun `test sequence with activations`() {
     val content = """
     sequenceDiagram
@@ -22,18 +27,20 @@ class SequenceTest : MermaidLexerTestCase() {
       John-->>Alice: Great!
       deactivate John
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
+  @Test
   fun `test sequence with short activations`() {
     val content = """
     sequenceDiagram
       Alice->>+John: Hello John, how are you?
       John-->>-Alice: Great!
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
+  @Test
   fun `test sequence with notes`() {
     val content = """
     sequenceDiagram
@@ -42,9 +49,10 @@ class SequenceTest : MermaidLexerTestCase() {
       Alice->John: Hello John, how are you?
       Note over Alice,John: A typical interaction
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
+  @Test
   fun `test sequence with comments`() {
     val content = """
     sequenceDiagram %% this is a comment
@@ -53,18 +61,20 @@ class SequenceTest : MermaidLexerTestCase() {
       %% this is a comment
       John-->>Alice: Great!
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
+  @Test
   fun `test sequence with json formatted link`() {
     val content = """
     sequenceDiagram
       participant Alice
       links Alice: {"Dashboard": "https://dashboard.contoso.com/alice", "Wiki": "https://wiki.contoso.com/alice"}
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
+  @Test
   fun `test sequence with loop`() {
     val content = """
     sequenceDiagram
@@ -73,9 +83,10 @@ class SequenceTest : MermaidLexerTestCase() {
           participant Bob; John-->Alice: Great!; Alice -> Bob: WOWO
       end
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
+  @Test
   fun `test autonumber`() {
     val content = """
     sequenceDiagram
@@ -84,9 +95,10 @@ class SequenceTest : MermaidLexerTestCase() {
       autonumber 5 2
       autonumber off
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
+  @Test
   fun `test critical region`() {
     val content = """
     sequenceDiagram
@@ -98,9 +110,10 @@ class SequenceTest : MermaidLexerTestCase() {
         Service-->Service: Log different error
       end
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
+  @Test
   fun `test break`() {
     val content = """
     sequenceDiagram
@@ -111,9 +124,10 @@ class SequenceTest : MermaidLexerTestCase() {
       end
       API-->BillingService: Start billing process
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
+  @Test
   fun `test actors names with dash`() {
     val content = """
     sequenceDiagram
@@ -121,9 +135,10 @@ class SequenceTest : MermaidLexerTestCase() {
       actor J-J as JohnJunior
       A -->> J-J
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
+  @Test
   fun `test box`() {
     val content = """
     sequenceDiagram
@@ -140,9 +155,10 @@ class SequenceTest : MermaidLexerTestCase() {
       A->>B: Hello Bob, how is Charly ?
       B->>C: Hello Charly, how are you?
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
+  @Test
   fun `test par_over`() {
     val content = """
     sequenceDiagram
@@ -163,9 +179,10 @@ class SequenceTest : MermaidLexerTestCase() {
         Note left of Bob: Alice/Bob Note
       end
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
+  @Test
   fun `test different signals and spacing`() {
     val content = """
     sequenceDiagram
@@ -189,9 +206,10 @@ class SequenceTest : MermaidLexerTestCase() {
       Bob--) Alice: I am good thanks!
       Bob --) Alice: I am good thanks!
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
+  @Test
   fun `test directives`() {
     val content = """
     %%{init: { "theme": "forest"}}%%
@@ -202,15 +220,16 @@ class SequenceTest : MermaidLexerTestCase() {
       John-->>Alice: Great!
       Alice-)John: See you later!
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
+  @Test
   fun `test entity codes`() {
     val content = """
     sequenceDiagram
       A->>B: I #9829; you!
       B->>A: I #9829; you #infin; times more!
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 }

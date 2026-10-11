@@ -7,7 +7,7 @@ import com.intellij.internal.statistic.eventLog.events.EventFields
 import com.intellij.internal.statistic.service.fus.collectors.CounterUsagesCollector
 
 internal object WelcomeScreenTabUsageCollector : CounterUsagesCollector() {
-  private val GROUP = EventLogGroup("welcome.screen.tab", 4)
+  private val GROUP = EventLogGroup("welcome.screen.tab", 5)
 
   private val welcomeTabIsEnabled: BooleanEventField = EventFields.Boolean("isEnabled")
   private val WELCOME_SCREEN_TAB_VISIBILITY_CHANGED = GROUP.registerEvent("welcome.screen.tab.visibility.changed", welcomeTabIsEnabled)

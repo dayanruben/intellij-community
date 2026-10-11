@@ -125,6 +125,8 @@ jvm_library(
         "//libraries/assertj-core",
         "//platform/core-ui",
         "//libraries/fastutil",
+        "//platform/todo/plugin",
+        "//platform/structure-view-impl/plugin",
     ],
 )
 
@@ -152,6 +154,8 @@ jvm_library(
         "//platform/vcs/plugin:plugin_test_lib",
         "//platform/ide-core-impl:ide-core-impl_test_lib",
         "//platform/ide-core:ide-core_test_lib",
+        "//platform/todo/plugin:plugin_test_lib",
+        "//platform/structure-view-impl/plugin:plugin_test_lib",
     ],
     deps = [
         # do not sort,

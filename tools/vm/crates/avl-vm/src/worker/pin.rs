@@ -1,6 +1,6 @@
 //! The pinned tools: the one resolver of their host paths, and one parser of their versions for the version gate of
-//! Tart and for the pin tests of every tool that `tart.MODULE.bazel`, `docker.MODULE.bazel` and `lima.MODULE.bazel`
-//! declare.
+//! Tart and for the pin tests of every tool that `tart.MODULE.bazel`, `docker.MODULE.bazel`, `lima.MODULE.bazel` and
+//! `container.MODULE.bazel` declare.
 
 use std::fmt;
 use std::path::PathBuf;
@@ -8,7 +8,7 @@ use std::sync::Arc;
 #[cfg(any(unix, test))]
 use std::sync::LazyLock;
 
-use avl_base::config::{TART_LABEL, docker_buildx_label, docker_cli_label, limactl_label};
+use avl_base::config::{CONTAINER_LABEL, TART_LABEL, docker_buildx_label, docker_cli_label, limactl_label};
 use avl_base::{Backend, Config, Refusal, RefusalExt};
 use avl_host_sys::guest::{BazelHost, ensure_host_paths, external_files};
 use avl_host_sys::{Ctx, Runner};
@@ -33,6 +33,9 @@ pub(crate) enum PinnedTool {
     DockerBuildx,
     /// The `limactl` of `lima.MODULE.bazel`, which a Docker pool on the Lima engine runs.
     Limactl,
+    /// The Apple `container` CLI of `container.MODULE.bazel`, which a Docker pool on the Apple `container` engine runs
+    /// unless `CONTAINER_BIN` names another.
+    Container,
 }
 
 impl PinnedTool {
@@ -43,17 +46,24 @@ impl PinnedTool {
             Self::DockerCli => docker_cli_label(settings.guest_arch),
             Self::DockerBuildx => docker_buildx_label(settings.guest_arch),
             Self::Limactl => limactl_label(settings.guest_arch),
+            Self::Container => CONTAINER_LABEL.to_owned(),
         }
     }
 
-    /// The tools a pool of `settings` runs from their pins. A tool that `TART_BIN` or `DOCKER_BIN` names is the
-    /// operator's, and so is the plugin of a CLI that `DOCKER_BIN` names.
+    /// The tools a pool of `settings` runs from their pins. A tool that `TART_BIN`, `DOCKER_BIN` or `CONTAINER_BIN`
+    /// names is the operator's, and so is the plugin of a CLI that `DOCKER_BIN` names. A pool on the Apple `container`
+    /// engine runs no Docker CLI.
     pub(crate) fn of_pool(settings: &Config) -> Vec<Self> {
         let mut tools = Vec::new();
         match settings.backend {
             Backend::Tart if settings.tart.is_none() => tools.push(Self::Tart),
+            Backend::Docker if settings.runs_container_engine() => {
+                if settings.container.is_none() {
+                    tools.push(Self::Container);
+                }
+            }
             Backend::Docker if settings.docker.is_none() => tools.extend([Self::DockerCli, Self::DockerBuildx]),
-            Backend::Tart | Backend::Docker | Backend::Parallels => {}
+            Backend::Tart | Backend::Docker | Backend::Parallels | Backend::ContainerLinux => {}
         }
         if settings.runs_lima_engine() {
             tools.push(Self::Limactl);
@@ -69,11 +79,12 @@ impl fmt::Display for PinnedTool {
             Self::DockerCli => "the pinned Docker CLI",
             Self::DockerBuildx => "the pinned docker-buildx plugin",
             Self::Limactl => "the pinned limactl",
+            Self::Container => "the pinned Apple container CLI",
         })
     }
 }
 
-/// The host paths of the pinned tools of one pool: one resolver for the Tart, Docker and Lima backends.
+/// The host paths of the pinned tools of one pool: one resolver for Tart, Docker, Lima and Apple `container`.
 ///
 /// The first request resolves every tool of [`PinnedTool::of_pool`] and the one it asks for, with one `cquery` and one
 /// `info output_base` ([`external_files`]). A later request asks Bazel nothing. So the first command of a Docker pool

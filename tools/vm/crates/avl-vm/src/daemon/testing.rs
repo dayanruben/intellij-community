@@ -141,6 +141,15 @@ impl Drop for FakeDaemon {
 impl FakeDaemon {
     /// Starts the double of one worker's daemon on an ephemeral loopback port. Needs a tokio runtime.
     pub(crate) async fn start(worker: &str) -> Arc<Self> {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("the loopback accepts a listener");
+        Self::start_on(worker, listener)
+    }
+
+    /// The double on a listener the suite bound itself: the container-linux fixture names its port in the settings
+    /// before the double exists.
+    pub(crate) fn start_on(worker: &str, listener: tokio::net::TcpListener) -> Arc<Self> {
         let token = "fixture-token".to_owned();
         let script = Arc::new(Mutex::new(DaemonScript {
             requests: Vec::new(),
@@ -170,9 +179,6 @@ impl FakeDaemon {
             results_xml: Vec::new(),
             results_queue: VecDeque::new(),
         }));
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("the loopback accepts a listener");
         let address = listener.local_addr().expect("a bound listener has an address");
         let app = axum::Router::new().fallback(serve).with_state(Served {
             token: token.clone(),
@@ -240,6 +246,7 @@ impl FakeDaemon {
             launch_digest: launch_digest.to_owned(),
             last_product_digest: String::new(),
             last_mount_digest: String::new(),
+            last_plugins_digest: String::new(),
         }
     }
 
@@ -468,7 +475,7 @@ pub(crate) fn failing_run(iteration_id: &str) -> (Vec<String>, String) {
 // --- the runtime-descriptor fixture ------------------------------------------------------------------------------
 
 /// The runfiles every fixture descriptor declares, with their contents.
-pub(crate) const FIXTURE_RUNFILES: [(&str, &str); 8] = [
+pub(crate) const FIXTURE_RUNFILES: [(&str, &str); 11] = [
     ("_main/hot/a.jar", "hot-a"),
     ("_main/stable/one.jar", "stable-one"),
     ("_main/stable/two.jar", "stable-two"),
@@ -477,6 +484,9 @@ pub(crate) const FIXTURE_RUNFILES: [(&str, &str); 8] = [
     ("_main/dist/fingerprint.txt", "fingerprint"),
     ("_main/jbr/jbr.tar.gz", "jbr-archive"),
     ("_main/jbr/manifest.json", "jbr-manifest"),
+    ("_main/ide/ide.jvm-flags.txt", "-ea\n"),
+    ("_main/ide/project.zip", "ide-project"),
+    ("_main/plugins/bridge/lib/bridge.jar", "bridge-plugin"),
 ];
 
 /// The fixture's runtime descriptor, built for an arm64 Linux guest.
@@ -514,21 +524,42 @@ pub(crate) fn fixture_descriptor_for(jbr_platform: &str) -> Value {
             "platform": jbr_platform,
             "preloadedOnly": false,
         },
+        "ide": {
+            "flagsFile": file("_main/ide/ide.jvm-flags.txt"),
+            "plugins": [{"destination": "bridge/lib/bridge.jar", "file": file("_main/plugins/bridge/lib/bridge.jar")}],
+            "projectArchive": file("_main/ide/project.zip"),
+            "projectRoot": "Project",
+        },
         "data": [file("_main/data/project.zip")],
     })
 }
 
+/// The fixture runfile that is a source file of the checkout, as a lock file of the descriptor `data` is.
+pub(crate) const FIXTURE_SOURCE_RUNFILE: &str = "_main/data/project.zip";
+
 /// Materializes the descriptor for `jbr_platform` and its runfiles tree in `directory`, answering the descriptor path.
-pub(crate) fn write_runtime_fixture(directory: &Path, jbr_platform: &str) -> PathBuf {
+/// [`FIXTURE_SOURCE_RUNFILE`] is a file of `checkout`, and the tree links to it, as Bazel links a source runfile.
+pub(crate) fn write_runtime_fixture(directory: &Path, checkout: &Path, jbr_platform: &str) -> PathBuf {
     let descriptor_path = directory.join("ui_daemon.runtime.json");
     let root = avl_wire::runtime::runfiles_root(&descriptor_path);
+    let mut manifest = String::new();
     for (logical_path, content) in FIXTURE_RUNFILES {
         let target = root.join(logical_path);
         if let Some(parent) = target.parent() {
             std::fs::create_dir_all(parent).expect("the runfiles tree is created");
         }
-        std::fs::write(&target, content).expect("a runfile is written");
+        if logical_path == FIXTURE_SOURCE_RUNFILE {
+            let source = checkout.join(logical_path.trim_start_matches("_main/"));
+            std::fs::create_dir_all(source.parent().expect("a source has a directory")).expect("the source directory is created");
+            std::fs::write(&source, content).expect("a source runfile is written");
+            std::os::unix::fs::symlink(&source, &target).expect("the tree links the source runfile");
+        } else {
+            std::fs::write(&target, content).expect("a runfile is written");
+        }
+        manifest.push_str(&format!("{logical_path} {}\n", target.display()));
     }
+    // Bazel writes the MANIFEST into the tree too, and the guest builds its own tree from it.
+    std::fs::write(root.join("MANIFEST"), manifest).expect("the MANIFEST is written");
     std::fs::write(&descriptor_path, fixture_descriptor_for(jbr_platform).to_string()).expect("the descriptor is written");
     descriptor_path
 }
@@ -645,6 +676,8 @@ impl GuestPorts {
 /// in assertions are literals.
 pub(crate) struct DaemonFixture {
     pool: HostPool,
+    /// The directory of the descriptor and its runfiles tree, outside the checkout.
+    _bazel_out: tempfile::TempDir,
     pub(crate) manager: Arc<Manager>,
     pub(crate) runner: Runner,
     /// The interrupt service of the runner and the host; [`Interrupts::deliver`] interrupts without a signal.
@@ -714,6 +747,16 @@ impl DaemonFixture {
         Self::build(Backend::Tart, GuestOs::Macos, extra, true).await
     }
 
+    /// The fixture over the testing-ui container: the fake `container.cmd` answers the backend, and every guest
+    /// command goes through the production control-port channel to the pool's fake control port, which answers from
+    /// the scripted guest. The container is started, so the port and the bearer are there, and the daemon double
+    /// listens at the host port `start` publishes, which the production channel dials. The fake `container.cmd` is
+    /// a POSIX shell script, so the fixture is Unix only.
+    #[cfg(unix)]
+    pub(crate) async fn over_container_linux(extra: &[(&str, &str)]) -> Self {
+        Self::build(Backend::ContainerLinux, GuestOs::Linux, extra, false).await
+    }
+
     async fn build(backend: Backend, guest_os: GuestOs, extra: &[(&str, &str)], over_hypervisor: bool) -> Self {
         avl_affected::bridge::install_fixture();
         let mut builder = HostPool::builder(backend, guest_os, MINIMUM_VERSION).with_git();
@@ -733,15 +776,35 @@ impl DaemonFixture {
         {
             builder = builder.env(name, value);
         }
+        let container_linux = backend == Backend::ContainerLinux;
+        // The daemon double listens at the host port `start` publishes, and the fixture names the same number as the
+        // guest port, so the channel's one mapping holds with no relay in between.
+        let published = if container_linux {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+                .await
+                .expect("the loopback accepts a listener");
+            let port = listener.local_addr().expect("a bound listener has an address").port().to_string();
+            builder = builder.env("AIR_VM_DAEMON_HOST_PORT", &port).env("AIR_VM_DAEMON_PORT", &port);
+            Some(listener)
+        } else {
+            None
+        };
         let pool = builder.build();
         if over_hypervisor {
             pool.fake.exec_once();
+        }
+        if container_linux {
+            pool.start_container_linux_container();
         }
         let settings = Arc::clone(&pool.settings);
         let verbs = Verbs::new(&settings.vm_agent);
         let ports = GuestPorts::default();
         let guests = (!over_hypervisor).then(|| {
-            let guests = FakeGuests::new();
+            let guests = if container_linux {
+                Arc::clone(pool.control_port().guests())
+            } else {
+                FakeGuests::new()
+            };
             let verbs = Arc::clone(&verbs);
             guests.answer(move |argv, options| verbs.route(argv, options));
             guests.on_connect(ports.handler());
@@ -759,7 +822,12 @@ impl DaemonFixture {
                 locks: Arc::new(LockManager::new(runner.clone())),
                 runner: runner.clone(),
                 reporter,
-                channel: guests.as_ref().map(FakeGuests::factory),
+                // A container-linux pool is reached through the production channel, which the manager builds itself.
+                channel: if container_linux {
+                    None
+                } else {
+                    guests.as_ref().map(FakeGuests::factory)
+                },
                 bazel: over_hypervisor
                     .then(|| Arc::new(PinnedBazel::tart(pool.fake.executable())) as Arc<dyn avl_host_sys::guest::BazelHost>),
                 build_guest_boot: builds_nothing(),
@@ -768,10 +836,10 @@ impl DaemonFixture {
             Timings::fast(),
         ));
         manager.prepare_runtime_dirs().expect("the runtime directories are created");
-        let out = pool.root().join("out");
-        std::fs::create_dir_all(&out).expect("the output directory is created");
+        // The Bazel outputs lie outside the checkout, as on a real host, so only the source runfile is staged.
+        let bazel_out = tempfile::tempdir().expect("a directory for the Bazel outputs");
         let platform = crate::lane::env::guest_jbr_platform(settings.guest_os, settings.guest_arch);
-        let bazel = Arc::new(FakeBazel::new(write_runtime_fixture(&out, platform)));
+        let bazel = Arc::new(FakeBazel::new(write_runtime_fixture(bazel_out.path(), pool.root(), platform)));
         // Advances only when a poll sleeps, so a poll loop's suite never waits out a real budget.
         let clock = Arc::new(FakeClock::at("2026-08-23T12:00:00Z"));
         let stdin = Arc::new(ScriptedStdin::default());
@@ -786,10 +854,14 @@ impl DaemonFixture {
             .with_stdin(Arc::clone(&stdin) as Arc<dyn crate::lane::secrets::SecretStdin>),
         );
         let worker = settings.workers[0].clone();
-        let daemon = FakeDaemon::start(&worker).await;
+        let daemon = match published {
+            Some(listener) => FakeDaemon::start_on(&worker, listener),
+            None => FakeDaemon::start(&worker).await,
+        };
         ports.listen(daemon.port(), daemon.server_side());
         let fixture = Self {
             pool,
+            _bazel_out: bazel_out,
             manager,
             runner,
             interrupts,
@@ -862,6 +934,8 @@ impl DaemonFixture {
         let generation = format!("/vm/data/daemon-runtime/generations/{}", prep.runtime_digest);
         self.on("df", answer_text(PLENTIFUL_DF));
         self.on("active", handler(|_, _| Ok(active_reply(None))));
+        // A worker with no lane IDE: the gc of a start stops and keeps nothing.
+        self.on("ide-gc", answer_text(r#"{"stopped":[],"kept":[],"removed":[]}"#));
         for (verb, phase) in [("start", "running"), ("status", "running"), ("cancel", "finished")] {
             self.on(
                 verb,
@@ -878,6 +952,21 @@ impl DaemonFixture {
         };
         let staged = serde_json::to_string(&result).expect("a stage result encodes");
         self.on("stage", answer_text(staged));
+        // The runfiles-tree double names the root the guest would build: the digest of the request it was sent.
+        self.on(
+            "runfiles-tree",
+            handler(|_, options| {
+                let stdin = options.stdin.as_deref().unwrap_or_default();
+                let (line, _) = avl_wire::runfiles::split_request_stdin(stdin);
+                let request: avl_wire::runfiles::RunfilesTreeRequest =
+                    serde_json::from_slice(line).expect("a runfiles-tree request decodes");
+                let root = format!("{}/{}", request.destination, avl_wire::runfiles::tree_digest(&request));
+                Ok(agent_reply(
+                    "runfiles-tree",
+                    &json!({"root": root, "digest": "d", "entries": 1, "reused": true}),
+                ))
+            }),
+        );
         // The launch-prep double does what the guest does: it decodes the request and renders the @-file from the
         // classpath the stage above reported. A double that echoed the requested digest back would agree with the
         // controller no matter what either half actually rendered, which is the one thing this reply proves.
@@ -956,6 +1045,7 @@ impl DaemonFixture {
         state.runtime_digest = prep.runtime_digest.clone();
         state.last_product_digest = prep.product_digest.clone();
         state.last_mount_digest = prep.mount_digest.clone();
+        state.last_plugins_digest = prep.plugins_digest.clone();
         state.write(&self.settings, &self.worker).expect("the daemon state is written");
         state
     }

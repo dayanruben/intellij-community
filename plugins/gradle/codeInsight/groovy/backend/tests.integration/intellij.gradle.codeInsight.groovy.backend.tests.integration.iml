@@ -30,6 +30,10 @@
     <orderEntry type="module" module-name="intellij.gradle.java.toml" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.gradle.java.groovy" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.toml" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.gradle.codeInsight.toml.backend" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.gradle.java.groovy.toml" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.android.gradle.dsl.toml" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.gradle.analysis" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.toml.core" scope="RUNTIME" />
   </component>
 </module>

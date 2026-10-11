@@ -136,6 +136,8 @@ jvm_library(
         "//aether-dependency-resolver/plugin:plugin_test_lib",
         "//xml/plugin",
         "//xml/plugin:plugin_test_lib",
+        "//idea/customization/plugin",
+        "//idea/customization/plugin:plugin_test_lib",
     ],
 )
 ### auto-generated section `build intellij.java.ide.customization.backend.tests` end

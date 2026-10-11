@@ -37,7 +37,8 @@ const CHUNK: usize = 64 * 1024;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Transfer {
     /// The bytes unchanged, through the agent's `read-file`, which names them in a [`FileReceipt`] on stderr. The Tart
-    /// and Docker exec channels carry bytes unchanged, which ADR 0182 and ADR 0183 measured.
+    /// and Docker exec channels carry bytes unchanged, which ADR 0182 and ADR 0183 measured. The container-linux exec is the
+    /// runtime's exec through the skill's script.
     Raw,
     /// The guest's `/usr/bin/base64 -i`, decoded here. No measurement proved the `prlctl exec` channel byte-clean, so
     /// Parallels keeps the text encoding.
@@ -47,7 +48,7 @@ pub(crate) enum Transfer {
 impl Transfer {
     pub(crate) const fn of(backend: Backend) -> Self {
         match backend {
-            Backend::Tart | Backend::Docker => Self::Raw,
+            Backend::Tart | Backend::Docker | Backend::ContainerLinux => Self::Raw,
             Backend::Parallels => Self::Base64,
         }
     }

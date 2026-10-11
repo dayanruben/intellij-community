@@ -107,6 +107,7 @@
     <orderEntry type="module" module-name="intellij.platform.wsl.impl" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.util.jdom" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.testFramework.junit5" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.testFramework.junit5.codeInsight" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.objenesis" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.testFramework.impl" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.jackson3.databind" scope="TEST" />

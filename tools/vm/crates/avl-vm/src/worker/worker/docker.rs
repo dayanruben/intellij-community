@@ -1,6 +1,7 @@
 //! The Docker lifecycle: the image, the container of a slot and its reconcile, the boot and the stop. It also
 //! holds `pool init`, `pool gc`, the unmaking of a slot that `pool recycle` runs, and the stop and the delete of the
-//! Lima engine that `pool stop` and `pool recycle all` run.
+//! Lima engine that `pool stop` and `pool recycle all` run. On the Apple `container` engine `pool recycle all`
+//! deletes the builder VM, and `pool stop` stops the containers only.
 
 use std::collections::BTreeMap;
 
@@ -83,6 +84,8 @@ impl Manager {
         worker: &str,
         authorized: Option<&Lease>,
     ) -> Result<StartState, Refusal> {
+        // A start keeps the worker running, so the idle stop of the last release finds no record.
+        super::remove_idle_stop_record(&self.settings, worker)?;
         docker.require_available_for(ctx, authorized).await?;
         ensure_host_paths(ctx, &self.runner, &self.settings).await?;
         (self.build_boot)(ctx.clone()).await?;
@@ -91,7 +94,7 @@ impl Manager {
         let already_running = match docker.state(ctx, worker).await? {
             ContainerState::Running => true,
             ContainerState::Other(word) => return Err(container_unusable(worker, &word)),
-            ContainerState::Absent | ContainerState::Created | ContainerState::Exited(_) => false,
+            ContainerState::Absent | ContainerState::Created | ContainerState::Exited(_) | ContainerState::Stopped => false,
         };
         if !already_running {
             docker.start(ctx, worker).await?;
@@ -115,6 +118,18 @@ impl Manager {
                         "container_exited",
                         Exit::FAILURE,
                         format!("the container {worker} exited with {code} while starting:\n{tail}"),
+                    ));
+                }
+                // The Apple engine keeps no exit code in `inspect`. Its boot log has it, in the `vminitd` line
+                // `status: <n> managed process exit`, so the refusal quotes both logs. Both are read here, before
+                // anything starts the container again, because a start clears them.
+                ContainerState::Stopped => {
+                    let tail = docker.log_tail(ctx, worker).await;
+                    let boot = docker.boot_log_tail(ctx, worker).await;
+                    return Err(Refusal::new(
+                        "container_exited",
+                        Exit::FAILURE,
+                        format!("the container {worker} stopped while starting:\n{tail}\nthe boot log of the container:\n{boot}"),
                     ));
                 }
                 ContainerState::Other(word) => return Err(container_unusable(worker, &word)),
@@ -220,7 +235,7 @@ impl Manager {
         match &state {
             ContainerState::Absent => {}
             ContainerState::Other(word) => return Err(container_unusable(worker, word)),
-            ContainerState::Created | ContainerState::Exited(_) | ContainerState::Running => {
+            ContainerState::Created | ContainerState::Exited(_) | ContainerState::Stopped | ContainerState::Running => {
                 if docker.container_is_current(ctx, worker).await? {
                     return Ok(false);
                 }
@@ -268,7 +283,7 @@ impl Manager {
             ContainerState::Running => {}
             // A paused container is not stopped, and `AlreadyStopped` would say it is.
             ContainerState::Other(word) => return Err(container_unusable(worker, &word)),
-            ContainerState::Absent | ContainerState::Created | ContainerState::Exited(_) => {
+            ContainerState::Absent | ContainerState::Created | ContainerState::Exited(_) | ContainerState::Stopped => {
                 return Ok(StopState::AlreadyStopped);
             }
         }
@@ -324,6 +339,30 @@ impl Manager {
             engine.delete(ctx).await
         })
         .await
+    }
+
+    /// Deletes the builder VM of the Apple `container` engine before `pool recycle all`, under the pool-wide image lock,
+    /// so no build of another start runs in it. The next build makes it again. The containers of the pool go with the
+    /// recycle of each slot, and the server stays: a `system stop` would stop every container of the login session.
+    pub(super) async fn delete_docker_builder(&self, ctx: &Ctx, docker: &Docker) -> Result<(), Refusal> {
+        self.prepare_runtime_dirs()?;
+        let _held = self
+            .locks
+            .acquire_queued(
+                ctx,
+                &self.settings.docker_image_lock_path(),
+                "docker-image",
+                self.timings.docker_image_wait,
+                "docker_image_busy",
+                &format!(
+                    "another start held the Docker image lock {} for longer than {} s; its build log is {}",
+                    self.settings.docker_image_lock_path().display(),
+                    self.timings.docker_image_wait.as_secs(),
+                    self.settings.docker_build_log_path().display()
+                ),
+            )
+            .await?;
+        docker.delete_builder(ctx).await
     }
 
     // --- pool init and pool gc -------------------------------------------------------------------------------
@@ -387,6 +426,7 @@ impl Manager {
         if !docker.reach_engine(ctx).await? {
             let word = match docker.engine() {
                 Some(engine) => format!("engine-{}", engine.state(ctx).await?.as_str().to_lowercase()),
+                None if docker.apple().is_some() => "engine-stopped".to_owned(),
                 None => "engine-unreachable".to_owned(),
             };
             let kept: BTreeMap<String, String> = self.settings.workers.iter().map(|worker| (worker.clone(), word.clone())).collect();
@@ -409,7 +449,7 @@ impl Manager {
                     match &state {
                         ContainerState::Absent => Ok("absent".to_owned()),
                         ContainerState::Running => Ok("running".to_owned()),
-                        ContainerState::Created | ContainerState::Exited(_) => {
+                        ContainerState::Created | ContainerState::Exited(_) | ContainerState::Stopped => {
                             docker.remove_stopped(ctx, worker).await?;
                             Ok("removed".to_owned())
                         }

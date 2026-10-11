@@ -35,8 +35,11 @@ import com.intellij.psi.PsiManager
 import com.intellij.util.application
 import com.intellij.util.concurrency.ThreadingAssertions
 import com.intellij.util.io.URLUtil
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import org.jetbrains.kotlin.analysis.api.platform.modification.publishGlobalModuleStateModificationEvent
 import org.jetbrains.kotlin.analysis.api.platform.modification.publishGlobalScriptModuleStateModificationEvent
 import org.jetbrains.kotlin.idea.KotlinFileType
@@ -57,6 +60,8 @@ import org.jetbrains.kotlin.idea.core.script.definition.moduleSupplier
 import org.jetbrains.kotlin.idea.core.script.ScriptDependenciesModificationTracker
 import org.jetbrains.kotlin.idea.core.script.awaitExternalSystemInitialization
 import org.jetbrains.kotlin.idea.core.script.scriptingDebugLog
+import org.jetbrains.kotlin.idea.core.script.scriptingErrorLog
+import org.jetbrains.kotlin.idea.core.script.scriptingWarnLog
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.scripting.definitions.ScriptDefinition
 import org.jetbrains.kotlin.scripting.definitions.findScriptDefinition
@@ -177,18 +182,20 @@ class KotlinScriptService(val project: Project, val coroutineScope: CoroutineSco
 
             rootConfiguration to importedConfigurations
         } catch (e: Throwable) {
+            scriptingWarnLog("Script processing failed", e)
             when (e) {
+                is CancellationException -> currentCoroutineContext().ensureActive()
                 is CircularScriptException -> notificationGroup.createNotification(
                     KotlinBaseScriptingBundle.message("circular.script.import"),
                     e.message,
                     NotificationType.ERROR,
-                )
+                ).notify(project)
                 else -> notificationGroup.createNotification(
-                    KotlinBaseScriptingBundle.message("script.processing.failed"),
+                    KotlinBaseScriptingBundle.message("script.configuration.loading.failed", virtualFile.name),
                     e.message ?: KotlinBaseScriptingBundle.message("script.configuration.failed.unknown", virtualFile.name),
                     NotificationType.ERROR,
-                )
-            }.notify(project)
+                ).notify(project)
+            }
             return
         }
 

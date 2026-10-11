@@ -577,13 +577,11 @@ pub mod attr {
     pub const VIDEO_INDEX: &str = "air.video.index";
     pub const VIDEO_REASON: &str = "air.video.reason";
 
-    // [super::event::DRIVER_STEP]. Nested steps are flattened in pre-order: the id counts from 1 in that order, and
-    // the parent is the enclosing step's id, 0 at the top.
-    pub const DRIVER_STEP_NAME: &str = "air.driver.step.name";
-    pub const DRIVER_STEP_STATUS: &str = "air.driver.step.status";
-    pub const DRIVER_STEP_DURATION_MS: &str = "air.driver.step.duration_ms";
-    pub const DRIVER_STEP_ID: &str = "air.driver.step.id";
-    pub const DRIVER_STEP_PARENT: &str = "air.driver.step.parent";
+    // [super::event::ATTACHMENT].
+    pub const ATTACHMENT_NAME: &str = "air.attachment.name";
+    pub const ATTACHMENT_MIME: &str = "air.attachment.mime";
+    /// The bundle path of the file, [crate::bundle::attach_path].
+    pub const ATTACHMENT_FILE: &str = "air.attachment.file";
 
     // [super::event::EXCEPTION], from the semantic conventions.
     pub const EXCEPTION_TYPE: &str = "exception.type";
@@ -592,7 +590,8 @@ pub mod attr {
 
     // [super::event::TRACE_ERROR].
     /// What failed: `x11`, `ide-paint`, `bridge.facts`, `bridge.tree`, `bridge.spans`, `video` (the video encoder or
-    /// the screen recording), `webp` (a still the encoder could not write), `idea.log` or `protocol`.
+    /// the screen recording), `webp` (a still the encoder could not write), `idea.log`, `attach` (an attachment the recorder could not move into the
+    /// bundle) or `protocol`.
     pub const TRACE_ERROR_SOURCE: &str = "air.trace.error.source";
     pub const TRACE_ERROR_MESSAGE: &str = "air.trace.error.message";
 }
@@ -610,10 +609,8 @@ pub mod event {
     pub const BRIDGE_CALL: &str = "air.bridge.call";
     /// Written when the video starts, at its first frame's time, or when it cannot start.
     pub const VIDEO: &str = "air.video";
-    /// One Allure step of the Driver, timed at its start and correlated with the innermost span that contains that
-    /// start. The steps arrive only at the scenario's end, when every span's interval is known, so the recorder can
-    /// make that choice once instead of every reader making it.
-    pub const DRIVER_STEP: &str = "air.driver.step";
+    /// One file the lane attached to a span: its title, its media type and its bundle path.
+    pub const ATTACHMENT: &str = "air.attachment";
     /// A span's failure, spelled with the semantic conventions' event name and attributes.
     pub const EXCEPTION: &str = "exception";
     /// Evidence that could not be collected: a capture, a bridge route, the encoder, the log slice, or a lane

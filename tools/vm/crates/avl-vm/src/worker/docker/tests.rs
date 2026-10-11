@@ -296,9 +296,10 @@ async fn a_version_without_an_answer_is_refused_and_not_unsupported() {
 
 // --- the shares and the create argv --------------------------------------------------------------------------
 
-/// The shares land at the guest paths the parity script probes, read-only, one `--mount` pair each.
+/// The one share lands at the guest path the parity script probes, read-only, as one `--mount` pair. No share holds
+/// the checkout.
 #[test]
-fn the_shares_are_read_only_bind_mounts_at_the_parity_paths() {
+fn the_share_is_a_read_only_bind_mount_at_the_parity_path() {
     let fixture = Fixture::docker();
     let settings = &fixture.settings;
     let declared = shares(settings).unwrap();
@@ -307,11 +308,6 @@ fn the_shares_are_read_only_bind_mounts_at_the_parity_paths() {
     assert_eq!(
         arguments,
         [
-            "--mount".to_owned(),
-            format!(
-                "type=bind,source={root},target=/mnt/AirVmShares/{},readonly",
-                settings.repo_share_name
-            ),
             "--mount".to_owned(),
             format!(
                 "type=bind,source={root},target=/mnt/AirVmShares/{},readonly",
@@ -439,6 +435,23 @@ async fn a_create_records_its_argv_and_a_damaged_record_is_none() {
     backend.remove(&ctx(), worker).await.unwrap();
     assert!(!path.exists());
     assert!(!fixture.fake.saw_call_containing("volume rm"));
+}
+
+/// The create argv names no checkout, so a second checkout of the host declares the same container: the record of
+/// the first one is current for it, and its start recreates nothing.
+#[cfg(unix)]
+#[test]
+fn a_second_checkout_declares_the_same_container() {
+    let argv_from = |checkout: &str| {
+        let fixture = Fixture::docker_builder().unresolved_host_paths().build();
+        fixture.settings.set_host_paths(checkout, "/Users/air/_bazel").unwrap();
+        let argv = docker(&fixture).create_argv("air-docker-1").unwrap();
+        assert!(!argv.iter().any(|word| word.contains(checkout)), "{argv:?}");
+        argv
+    };
+    let first = argv_from("/Users/air/idea");
+    let second = argv_from("/Users/air/idea-2");
+    assert_eq!(first.get(1..), second.get(1..));
 }
 
 // --- the image -----------------------------------------------------------------------------------------------
@@ -626,6 +639,8 @@ async fn an_image_is_built_once_from_a_fresh_context() {
     );
     let builds = || fixture.fake.calls().into_iter().filter(|call| call.starts_with("build ")).count();
     assert_eq!(builds(), 1);
+    // Only the Apple `container` engine has a builder VM to stop.
+    assert!(!fixture.fake.saw_call_containing("builder stop"), "{:#?}", fixture.fake.calls());
     let digest = tag.rsplit(':').next().unwrap();
     let context = fixture.settings.runtime_root.join("docker-context").join(digest);
     assert_eq!(std::fs::read_to_string(context.join("Dockerfile")).unwrap(), DOCKERFILE);

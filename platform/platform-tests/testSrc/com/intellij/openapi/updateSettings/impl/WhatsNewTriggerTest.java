@@ -1,9 +1,16 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.updateSettings.impl;
 
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationInfo;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.util.BuildNumber;
+import com.intellij.platform.ide.customization.ExternalProductResourceUrls;
+import com.intellij.testFramework.ServiceContainerUtil;
 import com.intellij.testFramework.junit5.TestApplication;
+import com.intellij.testFramework.junit5.TestDisposable;
+import com.intellij.util.Url;
+import com.intellij.util.Urls;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -17,7 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @TestApplication
 public class WhatsNewTriggerTest {
-  @BeforeEach void setUp(@TempDir Path tempDir) throws Exception {
+  @BeforeEach void setUp(@TempDir Path tempDir, @TestDisposable Disposable disposable) throws Exception {
     var tempUpdateData = tempDir.resolve("updates.xml");
     Files.writeString(
       tempUpdateData,
@@ -30,12 +37,17 @@ public class WhatsNewTriggerTest {
       "    </channel>\n" +
       "  </product>\n" +
       "</products>");
-    System.setProperty("idea.updates.url", tempUpdateData.toUri().toURL().toExternalForm());
+    var updateMetadataUrl = Urls.newFromEncoded(tempUpdateData.toUri().toURL().toExternalForm());
+    var urls = new ExternalProductResourceUrls() {
+      @Override public Url getUpdateMetadataUrl() {
+        return updateMetadataUrl;
+      }
+    };
+    ServiceContainerUtil.replaceService(ApplicationManager.getApplication(), ExternalProductResourceUrls.class, urls, disposable);
   }
 
   @AfterEach void tearDown() {
     UpdateSettings.getInstance().setWhatsNewShownFor(0);
-    System.clearProperty("idea.updates.url");
   }
 
   @Test void newReleaseInstallation() {

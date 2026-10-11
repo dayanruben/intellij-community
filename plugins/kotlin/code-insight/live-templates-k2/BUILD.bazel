@@ -140,7 +140,15 @@ jvm_library(
     ),
     module_name = "intellij.kotlin.codeInsight.liveTemplates.tests",
     visibility = ["//visibility:public"],
-    runtime_deps = ["//plugins/kotlin:kotlin-plugin-community-main"],
+    runtime_deps = [
+        # do not sort,
+        "//plugins/kotlin:kotlin-plugin-community-main",
+        "//xml/plugin",
+        "//platform/structure-view-impl/plugin",
+        "//aether-dependency-resolver/plugin",
+        "//platform/structuralsearch/plugin",
+        "//platform/testRunner/plugin",
+    ],
 )
 
 jvm_library(
@@ -164,6 +172,11 @@ jvm_library(
         # do not sort,
         ":kotlin-codeInsight-liveTemplates-tests",
         "//plugins/kotlin:kotlin-plugin-community-main_test_lib",
+        "//xml/plugin:plugin_test_lib",
+        "//platform/structure-view-impl/plugin:plugin_test_lib",
+        "//aether-dependency-resolver/plugin:plugin_test_lib",
+        "//platform/structuralsearch/plugin:plugin_test_lib",
+        "//platform/testRunner/plugin:plugin_test_lib",
     ],
     deps = [
         # do not sort,

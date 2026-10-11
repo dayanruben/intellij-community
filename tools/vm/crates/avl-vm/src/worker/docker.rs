@@ -11,7 +11,8 @@
 //!   only installs the agent and runs `validate-guest` ([`validate_argv`]). Before a build, the controller pulls the
 //!   tag from `AIR_VM_DOCKER_REGISTRY` (ADR 0184): the tag names the same bytes wherever the image was built, and the
 //!   image's `org.opencontainers.image.revision` label carries the tag digest, so a pulled image that does not say
-//!   the digest is dropped and built instead.
+//!   the digest is dropped and built instead. The Apple `container` engine pulls the tag from the file mirror
+//!   `AIR_VM_IMAGE_MIRROR` instead, as an OCI archive (ADR 0222), and checks the same label.
 //! - **the container** is made by `docker create` with the shares as read-only bind mounts and `WorkerData` in a
 //!   named volume. The shares are arguments of the create, as they are arguments of `tart run` on Tart, so a
 //!   share-set change makes the container again. The create arguments are recorded ([`CreateRecord`]), and a record
@@ -34,13 +35,25 @@
 //! guest looked up in the second before the rename keeps a dead node, so `open` fails with ENOENT and `stat` answers
 //! the old size. The dead node clears by itself in under a second, in the VM and in the container.
 //!
-//! So on both engines the share refresh is a short settle, not a remount (see `Manager::refresh_shares`).
+//! Measured on 2026-10-09 on Apple `container` 1.5.0 (one VM per container, virtiofs, kernel 6.18): the same dead
+//! node, which expired in under 60 ms.
+//!
+//! So on every engine the share refresh is a short settle, not a remount (see `Manager::refresh_shares`).
+//!
+//! # Two dialects
+//!
+//! On the Apple `container` engine ([`AppleContainer`]) the backend runs the Apple CLI, which has the shape of the
+//! Docker CLI with other spellings ([`Dialect`]): `stop -t`, `delete`, `volume delete`, `logs -n`, `image pull`,
+//! `image tag`, `image delete`, and an `inspect` that answers JSON only. Each command of this module renders its argv
+//! and parses its answer in the dialect of the engine. The lifecycle above it stays one.
 
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use avl_base::config::{docker_buildx_label, docker_cli_label};
+use avl_base::config::{CONTAINER_LABEL, Secret, docker_buildx_label, docker_cli_label};
+use avl_base::fs::private_temporary;
 use avl_base::{Config, Exit, GuestArch, OrRefuse, Refusal, Reporter, SCHEMA_VERSION, Scope};
 use avl_host_sys::fs::real_path;
 use avl_host_sys::guest::share_mount_path;
@@ -51,6 +64,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 use tokio::sync::OnceCell;
 
+use crate::worker::container::{AppleContainer, BUILDER_MEMORY, container_missing, is_not_found};
 use crate::worker::hypervisor::unsupported;
 use crate::worker::lima::Lima;
 use crate::worker::pin::{PinnedTool, PinnedTools};
@@ -89,8 +103,12 @@ const DOCKER_BUILD_TIMEOUT: Duration = Duration::from_hours(1);
 const DOCKER_PULL_TIMEOUT: Duration = Duration::from_mins(30);
 
 /// The timeout of the publish. It builds the image for each published platform, the other one under emulation, and
-/// pushes them.
+/// pushes them. The upload of the image archive to the file mirror has the same timeout.
 const DOCKER_PUBLISH_TIMEOUT: Duration = Duration::from_hours(2);
+
+/// The timeout of the Apple `image load` and `image save` of the image archive, about 265 MB. The save took 2 s on
+/// 2026-10-09.
+const IMAGE_ARCHIVE_TIMEOUT: Duration = Duration::from_mins(10);
 
 #[cfg(test)]
 #[cfg(unix)]
@@ -206,7 +224,11 @@ pub(crate) enum ContainerState {
     Running,
     /// Stopped, with the exit code of its entrypoint: 0 after a `docker stop`, 1 when `air-display` gave up.
     Exited(i32),
-    /// Every other word of the engine (`paused`, `restarting`, `removing`, `dead`), kept as the engine said it.
+    /// Not running, without an exit code: the Apple `container` word for a container that was created and never
+    /// started, and for one that exited. The Docker dialect never gives it.
+    Stopped,
+    /// Every other word of the engine (`paused`, `restarting`, `removing`, `dead`, and Apple's `stopping` and
+    /// `unknown`), kept as the engine said it.
     Other(String),
 }
 
@@ -228,6 +250,26 @@ impl ContainerState {
         })
     }
 
+    /// `container inspect <name>` of the Apple dialect, parsed: `[0].status.state` of the JSON array. An empty array
+    /// is no container. An answer that is no such array, or a state that is not a lowercase word, gives `None`.
+    pub(crate) fn parse_apple(answer: &str) -> Option<Self> {
+        let parsed: serde_json::Value = serde_json::from_str(answer.trim()).ok()?;
+        let entries = parsed.as_array()?;
+        let Some(first) = entries.first() else {
+            return Some(Self::Absent);
+        };
+        let status = first.get("status")?;
+        let word = status.get("state").unwrap_or(status).as_str()?;
+        if word.is_empty() || !word.bytes().all(|byte| byte.is_ascii_lowercase()) {
+            return None;
+        }
+        Some(match word {
+            "running" => Self::Running,
+            "stopped" => Self::Stopped,
+            _ => Self::Other(word.to_owned()),
+        })
+    }
+
     /// The word `status` prints for the state.
     pub(crate) fn as_str(&self) -> &str {
         match self {
@@ -235,9 +277,44 @@ impl ContainerState {
             Self::Created => "created",
             Self::Running => "running",
             Self::Exited(_) => "exited",
+            Self::Stopped => "stopped",
             Self::Other(word) => word,
         }
     }
+}
+
+/// The id of a container in the answer of the Apple `container inspect <name>`: `[0].id`, which is the name the
+/// create gave it.
+pub(crate) fn apple_container_id(answer: &str) -> Option<String> {
+    let parsed: serde_json::Value = serde_json::from_str(answer.trim()).ok()?;
+    let id = parsed.as_array()?.first()?.get("id")?.as_str()?;
+    (!id.is_empty()).then(|| id.to_owned())
+}
+
+/// The revision label in the answer of the Apple `container image inspect <reference>`: the first
+/// `[0].variants[].config.config.Labels` that holds [`REVISION_LABEL`], or the empty string, as an image without
+/// the label answers in the Docker dialect.
+pub(crate) fn apple_image_revision(answer: &str) -> String {
+    let parsed: serde_json::Value = serde_json::from_str(answer.trim()).unwrap_or_default();
+    parsed
+        .as_array()
+        .and_then(|images| images.first())
+        .and_then(|image| image.get("variants"))
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .find_map(|variant| variant.pointer("/config/config/Labels")?.get(REVISION_LABEL)?.as_str())
+        .unwrap_or_default()
+        .to_owned()
+}
+
+/// The CLI dialect of the engine of a Docker pool.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Dialect {
+    /// The Docker CLI, on the Lima engine and on an external engine.
+    Docker,
+    /// The Apple `container` CLI.
+    AppleContainer,
 }
 
 /// The `docker create` argv a worker's container was made with, and the id the engine gave that container:
@@ -286,7 +363,8 @@ pub(crate) struct ImageRecord {
 /// The runner the manager hands over already carries `DOCKER_HOST` when the engine is the controller's Lima VM, and
 /// `DOCKER_CONFIG` with the pinned CLI, on every engine. So every `docker` command of the backend and of the guest
 /// channel reaches that engine, and the pinned CLI has the pinned `docker-buildx` plugin
-/// ([`Docker::install_cli_plugins`]).
+/// ([`Docker::install_cli_plugins`]). On the Apple `container` engine the executable is the Apple CLI, and neither
+/// variable applies.
 pub(crate) struct Docker {
     settings: Arc<Config>,
     runner: Runner,
@@ -294,11 +372,14 @@ pub(crate) struct Docker {
     /// Resolves the pinned CLI and its plugin when [`Config::docker`] is `None`, with the other pinned tools of the
     /// pool.
     pinned: Arc<PinnedTools>,
-    /// The executable every Docker command runs: [`Config::docker`], or the pinned CLI once the gate resolved it.
+    /// The executable every Docker command runs: [`Config::docker`], or the pinned CLI once the gate resolved it. On
+    /// the Apple `container` engine it is the real path of [`Config::container`] or of the pinned Apple CLI.
     executable: OnceCell<PathBuf>,
     /// The Lima VM that is the engine, when [`Config::runs_lima_engine`]. `None` for the engine of the host
     /// environment.
     engine: Option<Lima>,
+    /// The Apple `container` engine, when [`Config::runs_container_engine`].
+    apple: Option<AppleContainer>,
     /// Set once the pinned `docker-buildx` plugin is named in [`Config::docker_config_dir`].
     cli_plugins: OnceCell<()>,
 }
@@ -313,6 +394,9 @@ impl Docker {
         held: Arc<HeldLeases>,
     ) -> Self {
         let executable = OnceCell::new_with(settings.docker.clone());
+        let apple = settings
+            .runs_container_engine()
+            .then(|| AppleContainer::new(Arc::clone(&settings), runner.clone(), reporter.clone(), Arc::clone(&locks)));
         let engine = settings
             .runs_lima_engine()
             .then(|| Lima::new(Arc::clone(&settings), &runner, reporter.clone(), locks, Arc::clone(&pinned), held));
@@ -323,13 +407,28 @@ impl Docker {
             pinned,
             executable,
             engine,
+            apple,
             cli_plugins: OnceCell::new(),
         }
     }
 
-    /// The controller's Lima engine, or `None` for the engine of the host environment.
+    /// The controller's Lima engine, or `None` for the engine of the host environment and for Apple `container`.
     pub(crate) const fn engine(&self) -> Option<&Lima> {
         self.engine.as_ref()
+    }
+
+    /// The Apple `container` engine, or `None` on the other engines.
+    pub(crate) const fn apple(&self) -> Option<&AppleContainer> {
+        self.apple.as_ref()
+    }
+
+    /// The dialect of every command of this backend.
+    pub(crate) const fn dialect(&self) -> Dialect {
+        if self.apple.is_some() {
+            Dialect::AppleContainer
+        } else {
+            Dialect::Docker
+        }
     }
 
     /// The `docker` executable as the head of a host argv, or the empty string before the gate resolved the pinned
@@ -353,7 +452,16 @@ impl Docker {
 
     /// Writes the pinned CLI's real path into the executable cell when [`Config::docker`] named none: the Tart shape
     /// (`Tart::resolve_executable`). The first resolution in a checkout fetches the archive, about 19 MB.
+    ///
+    /// On the Apple `container` engine the cell holds the real path of the Apple CLI, from `CONTAINER_BIN` or from the
+    /// pin, because the CLI finds its plugins and its server from that path. The nameserver is derived with it, so
+    /// every argv that names it has it ([`AppleContainer::resolve_nameserver`]).
     async fn resolve_executable(&self, ctx: &Ctx) -> Result<&Path, Refusal> {
+        if let Some(apple) = &self.apple {
+            let program = self.resolve_apple_executable(ctx).await?;
+            apple.resolve_nameserver(ctx).await?;
+            return Ok(program);
+        }
         self.executable
             .get_or_try_init(|| async {
                 let label = docker_cli_label(self.settings.guest_arch);
@@ -366,6 +474,30 @@ impl Docker {
                     docker_missing(format!(
                         "the pinned Docker CLI is not on disk at {}: {error}. Fetch it with `./bazel.cmd cquery {label}`.",
                         resolved.display()
+                    ))
+                })
+            })
+            .await
+            .map(PathBuf::as_path)
+    }
+
+    async fn resolve_apple_executable(&self, ctx: &Ctx) -> Result<&Path, Refusal> {
+        self.executable
+            .get_or_try_init(|| async {
+                let resolved = match &self.settings.container {
+                    Some(named) => named.clone(),
+                    None => self.pinned.path(ctx, PinnedTool::Container).await?.ok_or_else(|| {
+                        container_missing(format!(
+                            "CONTAINER_BIN names no Apple container CLI and this command has no Bazel to resolve \
+                             {CONTAINER_LABEL}"
+                        ))
+                    })?,
+                };
+                real_path(&resolved).map_err(|error| {
+                    container_missing(format!(
+                        "the Apple container CLI is not on disk at {}: {error}; {}",
+                        resolved.display(),
+                        crate::worker::container::install_remedy(&self.settings)
                     ))
                 })
             })
@@ -401,8 +533,18 @@ impl Docker {
     /// again after a template change ([`Lima::ensure_running`]). A missing binary and an engine that does not answer are
     /// both `docker_missing` at [`Exit::UNAVAILABLE`], which is what a caller retries against: OrbStack that is not
     /// started yet is the common case.
+    ///
+    /// On the Apple `container` engine the gate is [`AppleContainer::ensure_running`]: the server of the login session,
+    /// started when it is down, and refused when it belongs to another install of another major version. A host that
+    /// cannot run the engine is refused before the CLI is resolved ([`AppleContainer::require_supported_host`]).
     pub(crate) async fn require_available_for(&self, ctx: &Ctx, authorized: Option<&Lease>) -> Result<(), Refusal> {
-        self.resolve_executable(ctx).await?;
+        if let Some(apple) = &self.apple {
+            apple.require_supported_host()?;
+        }
+        let program = self.resolve_executable(ctx).await?;
+        if let Some(apple) = &self.apple {
+            return apple.ensure_running(ctx, program).await;
+        }
         self.install_cli_plugins(ctx).await?;
         if let Some(engine) = &self.engine {
             engine.ensure_running(ctx, authorized).await?;
@@ -486,7 +628,13 @@ impl Docker {
     ///
     /// The Lima engine answers from `limactl list`, and when it runs the CLI is resolved, so the host commands that
     /// follow have their head. The engine of the host environment passes the whole gate.
+    ///
+    /// The Apple `container` engine answers from `system status`, and a server that is down is not started.
     pub(crate) async fn reach_engine(&self, ctx: &Ctx) -> Result<bool, Refusal> {
+        if let Some(apple) = &self.apple {
+            let program = self.resolve_executable(ctx).await?;
+            return apple.is_running(ctx, program).await;
+        }
         let Some(engine) = &self.engine else {
             self.require_available(ctx, "").await?;
             return Ok(true);
@@ -497,6 +645,19 @@ impl Docker {
         self.resolve_executable(ctx).await?;
         self.install_cli_plugins(ctx).await?;
         Ok(true)
+    }
+
+    /// Stops and deletes the builder VM of the Apple `container` engine, when its server runs: the part of `pool
+    /// recycle all` that this engine has. A server that is down is not started, and the other engines do nothing.
+    pub(crate) async fn delete_builder(&self, ctx: &Ctx) -> Result<(), Refusal> {
+        let Some(apple) = &self.apple else {
+            return Ok(());
+        };
+        if !self.reach_engine(ctx).await? {
+            return Ok(());
+        }
+        let program = self.resolve_executable(ctx).await?;
+        apple.delete_builder(ctx, program).await
     }
 
     /// Whether the worker's container is down, asked through [`Docker::reach_engine`] and never with a change to the
@@ -570,6 +731,9 @@ impl Docker {
     /// `tart_missing` does. A Linux or a Windows host has no pinned CLI and no Lima engine, so there the remedy is an
     /// installation.
     fn install_remedy(&self) -> String {
+        if self.apple.is_some() {
+            return crate::worker::container::install_remedy(&self.settings);
+        }
         if self.settings.docker.is_none() {
             let label = docker_cli_label(self.settings.guest_arch);
             return format!(
@@ -589,11 +753,19 @@ impl Docker {
     }
 
     /// The full id of the worker's container, or `None` when the engine has no container of that name.
+    ///
+    /// The Apple dialect reads `[0].id` of the JSON, which is the name the create gave the container.
     pub(crate) async fn container_id(&self, ctx: &Ctx, worker: &str) -> Result<Option<String>, Refusal> {
-        Ok(self
-            .inspect(ctx, worker, "{{.Id}}")
-            .await?
-            .map(|captured| captured.stdout.trim().to_owned()))
+        const FORMAT: &str = "{{.Id}}";
+        let Some(captured) = self.inspect(ctx, worker, FORMAT).await? else {
+            return Ok(None);
+        };
+        match self.dialect() {
+            Dialect::Docker => Ok(Some(captured.stdout.trim().to_owned())),
+            Dialect::AppleContainer => apple_container_id(&captured.stdout)
+                .map(Some)
+                .ok_or_else(|| probe_unanswered(&self.inspect_argv(worker, FORMAT), &captured, ProbeOutput::Quoted)),
+        }
     }
 
     /// What the engine says about the worker's container: [`ContainerState::Absent`] when the engine has no container
@@ -607,8 +779,11 @@ impl Docker {
         let Some(captured) = self.inspect(ctx, worker, FORMAT).await? else {
             return Ok(ContainerState::Absent);
         };
-        ContainerState::parse(&captured.stdout)
-            .ok_or_else(|| probe_unanswered(&self.inspect_argv(worker, FORMAT), &captured, ProbeOutput::Quoted))
+        let parsed = match self.dialect() {
+            Dialect::Docker => ContainerState::parse(&captured.stdout),
+            Dialect::AppleContainer => ContainerState::parse_apple(&captured.stdout),
+        };
+        parsed.ok_or_else(|| probe_unanswered(&self.inspect_argv(worker, FORMAT), &captured, ProbeOutput::Quoted))
     }
 
     /// `docker inspect --type container --format <format>` of the worker's container: the capture of an answer, or
@@ -628,8 +803,13 @@ impl Docker {
         }
     }
 
+    /// The Apple dialect has no `--type` and no `--format`: `container inspect` names containers only, and answers
+    /// JSON, which the caller parses.
     fn inspect_argv(&self, worker: &str, format: &str) -> Vec<String> {
-        self.command(&["inspect", "--type", "container", "--format", format, worker])
+        match self.dialect() {
+            Dialect::Docker => self.command(&["inspect", "--type", "container", "--format", format, worker]),
+            Dialect::AppleContainer => self.command(&["inspect", worker]),
+        }
     }
 
     // --- the image ---------------------------------------------------------------------------------------
@@ -647,11 +827,41 @@ impl Docker {
 
     /// `docker build` of the image tag for the engine's own platform, with the pinned base, the package list and
     /// the tag digest as build arguments.
+    ///
+    /// The Apple dialect builds in the builder VM, and a build without `-c`, `-m` and `--dns` makes that VM again with
+    /// 2 CPUs, 2 GiB and no nameserver. So every build names all three ([`Docker::apple_builder_arguments`]), and
+    /// `--progress plain`, because a quiet build hung twice on 2026-10-09.
     pub(crate) fn build_argv(&self, tag: &str, context: &Path) -> Vec<String> {
-        let mut argv = self.command(&["build", "--tag", tag]);
+        let mut argv = match self.dialect() {
+            Dialect::Docker => self.command(&["build", "--tag", tag]),
+            Dialect::AppleContainer => {
+                let mut argv = self.command(&["build"]);
+                argv.extend(self.apple_builder_arguments());
+                argv.extend(["-t".to_owned(), tag.to_owned()]);
+                argv
+            }
+        };
         argv.extend(self.build_arguments(tag));
         argv.push(context.to_string_lossy().into_owned());
         argv
+    }
+
+    /// The builder arguments of every Apple build: the plain progress, the CPUs of a worker, [`BUILDER_MEMORY`] and the
+    /// nameserver.
+    fn apple_builder_arguments(&self) -> Vec<String> {
+        let nameserver = self.apple.as_ref().map_or("", AppleContainer::nameserver);
+        [
+            "--progress",
+            "plain",
+            "-c",
+            &self.settings.vm_cpu.to_string(),
+            "-m",
+            BUILDER_MEMORY,
+            "--dns",
+            nameserver,
+        ]
+        .map(str::to_owned)
+        .to_vec()
     }
 
     /// `docker buildx build --push` of the registry reference for every platform of [`PUBLISHED_PLATFORMS`], from
@@ -659,12 +869,16 @@ impl Docker {
     /// platform with the local build, and builds the other platform under the engine's emulation. No provenance
     /// attestation: it adds an `unknown/unknown` manifest per platform to the index, which older clients list as a
     /// platform, and the tag digest is the provenance this controller reads.
+    ///
+    /// The Docker dialect only: the Apple dialect publishes the image archive to the file mirror
+    /// ([`Docker::save_argv`], [`Docker::upload_argv`]).
     pub(crate) fn publish_argv(&self, tag: &str, remote: &str, context: &Path) -> Vec<String> {
+        let platforms = PUBLISHED_PLATFORMS.join(",");
         let mut argv = self.command(&[
             "buildx",
             "build",
             "--platform",
-            &PUBLISHED_PLATFORMS.join(","),
+            &platforms,
             "--provenance=false",
             "--push",
             "--tag",
@@ -696,20 +910,120 @@ impl Docker {
             .map(|registry| format!("{registry}/{}:{}", self.settings.docker_image, tag_digest(tag)))
     }
 
-    /// `docker pull` of a registry reference.
+    /// `docker pull` of a registry reference. The Docker dialect only: the Apple dialect pulls from the file mirror.
     pub(crate) fn pull_argv(&self, remote: &str) -> Vec<String> {
         self.command(&["pull", remote])
     }
 
-    /// `docker image inspect` that prints the revision label of an image, and nothing else.
-    pub(crate) fn revision_argv(&self, reference: &str) -> Vec<String> {
+    /// The URL of the image archive of the tag on the file mirror, or `None` when the mirror is off:
+    /// `<mirror>/<repository>/<digest>-linux-<arch>.tar`. The Apple dialect pulls it and publishes it.
+    pub(crate) fn mirror_url(&self, tag: &str) -> Option<String> {
+        self.settings
+            .image_mirror
+            .as_ref()
+            .map(|mirror| format!("{mirror}/{}/{}", self.settings.docker_image, self.archive_name(tag)))
+    }
+
+    /// The file name of the image archive of the tag, the last part of [`Docker::mirror_url`].
+    fn archive_name(&self, tag: &str) -> String {
+        format!("{}-linux-{}.tar", tag_digest(tag), self.settings.guest_arch.oci_arch())
+    }
+
+    /// The directory of one image digest under the runtime root: the build context, and the image archive of a pull.
+    fn digest_directory(&self, tag: &str) -> PathBuf {
+        self.settings.runtime_root.join("docker-context").join(tag_digest(tag))
+    }
+
+    /// The download of the image archive with the host `curl`. `--fail` makes an HTTP error an exit of `curl`, and the
+    /// error text goes to the pull log.
+    pub(crate) fn download_argv(&self, url: &str, archive: &Path) -> Vec<String> {
+        let archive = archive.to_string_lossy();
+        [
+            self.settings.host_curl.as_str(),
+            "--fail",
+            "--silent",
+            "--show-error",
+            "--location",
+            "--output",
+            &archive,
+            url,
+        ]
+        .map(str::to_owned)
+        .to_vec()
+    }
+
+    /// `image load` of a downloaded image archive. The image gets the reference name it was saved under, the tag.
+    pub(crate) fn load_argv(&self, archive: &Path) -> Vec<String> {
+        self.command(&["image", "load", "-i", &archive.to_string_lossy()])
+    }
+
+    /// `image save` of the tag for the platform of the host, into an OCI archive.
+    pub(crate) fn save_argv(&self, tag: &str, archive: &Path) -> Vec<String> {
         self.command(&[
             "image",
-            "inspect",
-            "--format",
-            &format!("{{{{index .Config.Labels {REVISION_LABEL:?}}}}}"),
-            reference,
+            "save",
+            "--platform",
+            &format!("linux/{}", self.settings.guest_arch.oci_arch()),
+            "-o",
+            &archive.to_string_lossy(),
+            tag,
         ])
+    }
+
+    /// The upload of the image archive with the host `curl`, an HTTP PUT. The authorization header is in a private
+    /// file, so the token is never in an argv.
+    pub(crate) fn upload_argv(&self, archive: &Path, header: &Path, url: &str) -> Vec<String> {
+        let archive = archive.to_string_lossy();
+        let header = format!("@{}", header.display());
+        [
+            self.settings.host_curl.as_str(),
+            "--fail",
+            "--silent",
+            "--show-error",
+            "--upload-file",
+            &archive,
+            "--header",
+            &header,
+            url,
+        ]
+        .map(str::to_owned)
+        .to_vec()
+    }
+
+    /// The token of an upload to the file mirror. A publish on the Apple `container` engine without it is refused
+    /// `image_mirror_token_missing`, before the build.
+    fn mirror_token(&self) -> Result<&Secret, Refusal> {
+        self.settings.image_mirror_token.as_ref().ok_or_else(|| {
+            Refusal::new(
+                "image_mirror_token_missing",
+                Exit::USAGE,
+                "AIR_VM_DOCKER_PUSH asks for a publish, and the Apple container engine uploads the image archive to \
+                 AIR_VM_IMAGE_MIRROR with the bearer token AIR_VM_IMAGE_MIRROR_TOKEN, which is not set",
+            )
+        })
+    }
+
+    /// `docker image inspect` that prints the revision label of an image, and nothing else. The Apple dialect answers
+    /// the whole JSON, and [`Docker::revision_of`] reads the label from it.
+    pub(crate) fn revision_argv(&self, reference: &str) -> Vec<String> {
+        match self.dialect() {
+            Dialect::Docker => self.command(&[
+                "image",
+                "inspect",
+                "--format",
+                &format!("{{{{index .Config.Labels {REVISION_LABEL:?}}}}}"),
+                reference,
+            ]),
+            Dialect::AppleContainer => self.command(&["image", "inspect", reference]),
+        }
+    }
+
+    /// The revision label in the answer of [`Docker::revision_argv`].
+    fn revision_of(&self, answer: &str) -> String {
+        match self.dialect() {
+            Dialect::Docker => answer.trim().to_owned(),
+            Dialect::AppleContainer => apple_image_revision(answer),
+        }
     }
 
     /// The record of where the pool's image came from, or `None` for every kind of wrong: absent, unparseable,
@@ -759,15 +1073,21 @@ impl Docker {
     /// With `AIR_VM_DOCKER_PUSH` the operator wants the registry to hold what this checkout builds, so the
     /// controller builds whether or not the engine has the tag, never pulls, and publishes the tag for every
     /// platform of [`PUBLISHED_PLATFORMS`] after the build.
+    ///
+    /// The Apple dialect pulls the image archive from the file mirror, and publishes the archive of the platform of
+    /// the host there. Its publish needs the mirror token, and a missing token is refused before the build. After a
+    /// build and its publish it stops the builder VM ([`AppleContainer::stop_builder`]). A stop that fails is a note,
+    /// because the image is ready.
     pub(crate) async fn ensure_image(&self, ctx: &Ctx) -> Result<String, Refusal> {
         let tag = self.image_tag();
+        if self.settings.docker_push && self.dialect() == Dialect::AppleContainer {
+            self.mirror_token()?;
+        }
         if !self.settings.docker_push {
             if self.image_present(ctx, &tag).await? {
                 return Ok(tag);
             }
-            if let Some(remote) = self.remote_reference(&tag)
-                && self.pull(ctx, &tag, &remote).await?
-            {
+            if self.pull(ctx, &tag).await? {
                 self.write_image_record(&tag, ImageSource::Pulled)?;
                 return Ok(tag);
             }
@@ -795,12 +1115,31 @@ impl Docker {
                 other => other.into(),
             })?;
         self.write_image_record(&tag, ImageSource::Built)?;
-        if self.settings.docker_push
-            && let Some(remote) = self.remote_reference(&tag)
-        {
-            self.publish(ctx, &tag, &remote, &context).await?;
+        if self.settings.docker_push {
+            self.publish(ctx, &tag, &context).await?;
+        }
+        if let Some(apple) = &self.apple {
+            let program = self.resolve_executable(ctx).await?;
+            if let Err(refusal) = apple.stop_builder(ctx, program).await {
+                self.note(None, format!("cannot stop the builder after the build: {}", refusal.message));
+            }
         }
         Ok(tag)
+    }
+
+    /// Pulls the tag in the dialect of the engine: from the registry in the Docker dialect, from the file mirror in
+    /// the Apple one. Answers whether the engine now has the tag. A source that is off pulls nothing.
+    async fn pull(&self, ctx: &Ctx, tag: &str) -> Result<bool, Refusal> {
+        match self.dialect() {
+            Dialect::Docker => match self.remote_reference(tag) {
+                Some(remote) => self.pull_from_registry(ctx, tag, &remote).await,
+                None => Ok(false),
+            },
+            Dialect::AppleContainer => match self.mirror_url(tag) {
+                Some(url) => self.pull_from_mirror(ctx, tag, &url).await,
+                None => Ok(false),
+            },
+        }
     }
 
     /// Pulls `remote`, checks its revision label against the tag digest, and tags it with the local name. Answers
@@ -809,7 +1148,7 @@ impl Docker {
     /// `false` is a pull that failed, or an image that does not say the digest, and both leave a note: the failed
     /// pull names its log, and the mismatch (`docker_image_mismatch`) names both digests and is removed from the
     /// engine, so no later `image inspect` finds it. A refusal is a host problem, a missing CLI or an interrupt.
-    async fn pull(&self, ctx: &Ctx, tag: &str, remote: &str) -> Result<bool, Refusal> {
+    async fn pull_from_registry(&self, ctx: &Ctx, tag: &str, remote: &str) -> Result<bool, Refusal> {
         let log = self.settings.docker_pull_log_path();
         remove_if_present(&log)?;
         self.note(None, format!("pulling the Docker image {remote} (log: {})", log.display()));
@@ -828,31 +1167,115 @@ impl Docker {
             }
             Err(other) => return Err(other.into()),
         }
-        let revision = self
-            .runner
-            .checked(ctx, &self.revision_argv(remote), &SpawnOptions::within(DOCKER_QUERY_TIMEOUT))
-            .await?;
-        let digest = tag_digest(tag);
-        if revision.stdout.trim() != digest {
-            self.note(
-                None,
-                format!(
-                    "docker_image_mismatch: the pulled image {remote} says revision {:?} and the tag digest is \
-                     {digest}; removing it and building the image instead",
-                    revision.stdout.trim()
-                ),
-            );
-            self.checked(ctx, &["image", "rm", remote], DOCKER_REMOVE_TIMEOUT).await?;
+        if !self.revision_matches(ctx, tag, remote, remote).await? {
             return Ok(false);
         }
         self.checked(ctx, &["tag", remote, tag], DOCKER_QUERY_TIMEOUT).await?;
         Ok(true)
     }
 
+    /// Downloads the image archive of the tag from `url` with the host `curl`, loads it with `image load`, and checks
+    /// the revision label of the loaded tag against the tag digest. Answers whether the engine now has the tag.
+    ///
+    /// The archive goes into the directory of the digest under the runtime root, and is removed after a load. A
+    /// download that fails is a note and a build, as a failed registry pull is. A tag that nobody published yet is
+    /// the ordinary case: the mirror answers 404. The pull log keeps what `curl` said. A load that fails, an archive
+    /// that holds no image of the tag, and a label that is not the digest are a note and a build too.
+    async fn pull_from_mirror(&self, ctx: &Ctx, tag: &str, url: &str) -> Result<bool, Refusal> {
+        let log = self.settings.docker_pull_log_path();
+        remove_if_present(&log)?;
+        let directory = self.digest_directory(tag);
+        std::fs::create_dir_all(&directory).or_refuse("state_write_failed", Exit::FAILURE, || {
+            format!("cannot create the image directory {}", directory.display())
+        })?;
+        let archive = directory.join(self.archive_name(tag));
+        remove_if_present(&archive)?;
+        self.note(None, format!("downloading the Docker image archive {url} (log: {})", log.display()));
+        match self
+            .runner
+            .checked_to_file(ctx, &self.download_argv(url, &archive), &log, &log_options(DOCKER_PULL_TIMEOUT))
+            .await
+        {
+            Ok(_) => {}
+            Err(ProcError::Exited { refusal, .. }) => {
+                self.note(
+                    None,
+                    format!("{}; building the image instead; the pull log is {}", refusal.message, log.display()),
+                );
+                return Ok(false);
+            }
+            Err(other) => return Err(other.into()),
+        }
+        let loaded = self
+            .runner
+            .checked(ctx, &self.load_argv(&archive), &SpawnOptions::within(IMAGE_ARCHIVE_TIMEOUT))
+            .await;
+        remove_if_present(&archive)?;
+        match loaded {
+            Ok(_) => {}
+            Err(ProcError::Exited { refusal, .. }) => {
+                self.note(None, format!("{}; building the image instead", refusal.message));
+                return Ok(false);
+            }
+            Err(other) => return Err(other.into()),
+        }
+        if !self.image_present(ctx, tag).await? {
+            self.note(
+                None,
+                format!("docker_image_mismatch: the archive {url} loaded no image {tag}; building the image instead"),
+            );
+            return Ok(false);
+        }
+        self.revision_matches(ctx, tag, tag, &format!("{tag} from {url}")).await
+    }
+
+    /// Whether the revision label of `reference` is the digest of the tag. An image whose label is another one leaves
+    /// the note `docker_image_mismatch`, which names both digests, and is removed from the engine, so no later
+    /// `image inspect` finds it. `source` names the image in the note.
+    async fn revision_matches(&self, ctx: &Ctx, tag: &str, reference: &str, source: &str) -> Result<bool, Refusal> {
+        let revision = self
+            .runner
+            .checked(ctx, &self.revision_argv(reference), &SpawnOptions::within(DOCKER_QUERY_TIMEOUT))
+            .await?;
+        let digest = tag_digest(tag);
+        let said = self.revision_of(&revision.stdout);
+        if said == digest {
+            return Ok(true);
+        }
+        self.note(
+            None,
+            format!(
+                "docker_image_mismatch: the pulled image {source} says revision {said:?} and the tag digest is \
+                 {digest}; removing it and building the image instead"
+            ),
+        );
+        let remove = match self.dialect() {
+            Dialect::Docker => ["image", "rm", reference],
+            Dialect::AppleContainer => ["image", "delete", reference],
+        };
+        self.checked(ctx, &remove, DOCKER_REMOVE_TIMEOUT).await?;
+        Ok(false)
+    }
+
+    /// Publishes the tag in the dialect of the engine: to the registry in the Docker dialect, to the file mirror in the
+    /// Apple one. A source that is off publishes nothing; the settings refuse a push to a source that is off.
+    async fn publish(&self, ctx: &Ctx, tag: &str, context: &Path) -> Result<(), Refusal> {
+        match self.dialect() {
+            Dialect::Docker => match self.remote_reference(tag) {
+                Some(remote) => self.publish_to_registry(ctx, tag, &remote, context).await,
+                None => Ok(()),
+            },
+            Dialect::AppleContainer => match self.mirror_url(tag) {
+                Some(url) => self.publish_to_mirror(ctx, tag, &url, context).await,
+                None => Ok(()),
+            },
+        }
+    }
+
     /// Builds the tag for every published platform and pushes the index as `remote`. A failure is
     /// `docker_push_failed`: the operator asked for the publish, so a publish that did not happen is not a build
     /// that succeeded.
-    async fn publish(&self, ctx: &Ctx, tag: &str, remote: &str, context: &Path) -> Result<(), Refusal> {
+    async fn publish_to_registry(&self, ctx: &Ctx, tag: &str, remote: &str, context: &Path) -> Result<(), Refusal> {
         let log = self.settings.docker_push_log_path();
         remove_if_present(&log)?;
         self.note(
@@ -872,21 +1295,64 @@ impl Docker {
                 &log_options(DOCKER_PUBLISH_TIMEOUT),
             )
             .await
-            .map_err(|error| match error {
-                ProcError::Exited { refusal, .. } => Refusal::new(
-                    "docker_push_failed",
-                    refusal.exit,
-                    format!("{}; the push log is {}", refusal.message, log.display()),
-                ),
-                other => other.into(),
-            })
+            .map_err(|error| push_failed(error, &log))
             .map(drop)
+    }
+
+    /// Saves the tag for the platform of the host into an OCI archive in the build context, and uploads it to `url`
+    /// with an HTTP PUT. The archive is removed after the upload. A failure is `docker_push_failed`.
+    ///
+    /// The engine saves one platform, so a host publishes its own platform only. The authorization header is in a
+    /// private file beside the archive, removed after the upload, so the token is never in an argv.
+    async fn publish_to_mirror(&self, ctx: &Ctx, tag: &str, url: &str, context: &Path) -> Result<(), Refusal> {
+        let token = self.mirror_token()?;
+        let log = self.settings.docker_push_log_path();
+        remove_if_present(&log)?;
+        let archive = context.join(self.archive_name(tag));
+        remove_if_present(&archive)?;
+        self.note(
+            None,
+            format!(
+                "publishing the Docker image {tag} to {url} for linux/{} only, the platform of this host (log: {})",
+                self.settings.guest_arch.oci_arch(),
+                log.display()
+            ),
+        );
+        self.runner
+            .checked(ctx, &self.save_argv(tag, &archive), &SpawnOptions::within(IMAGE_ARCHIVE_TIMEOUT))
+            .await
+            .map_err(|error| push_failed(error, &log))?;
+        let uploaded = self.upload(ctx, &archive, url, token, &log).await;
+        let removed = remove_if_present(&archive);
+        uploaded.and(removed)
+    }
+
+    /// The HTTP PUT of the archive to `url`, with `Authorization: Bearer <token>` read by `curl` from a private file.
+    async fn upload(&self, ctx: &Ctx, archive: &Path, url: &str, token: &Secret, log: &Path) -> Result<(), Refusal> {
+        let directory = archive.parent().unwrap_or_else(|| Path::new("."));
+        let failed = || format!("cannot write the authorization header file in {}", directory.display());
+        let mut header = private_temporary(directory, "mirror-authorization").or_refuse("state_write_failed", Exit::FAILURE, failed)?;
+        writeln!(header, "Authorization: Bearer {}", token.expose())
+            .and_then(|()| header.flush())
+            .or_refuse("state_write_failed", Exit::FAILURE, failed)?;
+        let uploaded = self
+            .runner
+            .checked_to_file(
+                ctx,
+                &self.upload_argv(archive, header.path(), url),
+                log,
+                &log_options(DOCKER_PUBLISH_TIMEOUT),
+            )
+            .await;
+        // The drop removes the header file.
+        drop(header);
+        uploaded.map_err(|error| push_failed(error, log)).map(drop)
     }
 
     /// Writes the Dockerfile and the entrypoint into a fresh build context under the runtime root, one directory per
     /// image digest. Fresh, so a context left by an interrupted build cannot add a file the digest does not cover.
     fn write_build_context(&self, tag: &str) -> Result<PathBuf, Refusal> {
-        let context = self.settings.runtime_root.join("docker-context").join(tag_digest(tag));
+        let context = self.digest_directory(tag);
         let failed = || format!("cannot write the Docker build context {}", context.display());
         match std::fs::remove_dir_all(&context) {
             Ok(()) => {}
@@ -951,20 +1417,28 @@ impl Docker {
     /// already gives more, and other engines do not. No `--memory`: one container shares the engine VM, and a limit
     /// here would be a second memory budget nothing measures yet. The display is passed so the entrypoint starts
     /// the X server on the display the IDE is told to use.
+    ///
+    /// The Apple dialect has no `--hostname`, because the hostname is the container name. Each container is a VM of its
+    /// own, so it takes `-m` ([`Config::vm_memory_mib`]) and `-c` ([`Config::vm_cpu`]), and `--dns` with the
+    /// nameserver of [`AppleContainer::nameserver`].
     pub(crate) fn create_argv(&self, worker: &str) -> Result<Vec<String>, Refusal> {
         let settings = &self.settings;
-        let mut argv = self.command(&[
-            "create",
-            "--name",
-            worker,
-            "--hostname",
-            worker,
-            "--init",
-            "--shm-size",
-            "2g",
-            "--ulimit",
-            "nofile=65536:65536",
-        ]);
+        let mut argv = match &self.apple {
+            None => self.command(&["create", "--name", worker, "--hostname", worker, "--init"]),
+            Some(apple) => self.command(&[
+                "create",
+                "--name",
+                worker,
+                "--init",
+                "-m",
+                &format!("{}M", settings.vm_memory_mib),
+                "-c",
+                &settings.vm_cpu.to_string(),
+                "--dns",
+                apple.nameserver(),
+            ]),
+        };
+        argv.extend(["--shm-size", "2g", "--ulimit", "nofile=65536:65536"].map(str::to_owned));
         argv.extend(Self::share_arguments(&shares(settings)?, settings)?);
         argv.extend([
             "--mount".to_owned(),
@@ -1050,14 +1524,28 @@ impl Docker {
         self.checked(ctx, &["start", worker], DOCKER_START_TIMEOUT).await
     }
 
-    /// `docker stop --time 10`: a SIGTERM to the entrypoint, then a SIGKILL after ten seconds.
+    /// `docker stop --time 10`: a SIGTERM to the entrypoint, then a SIGKILL after ten seconds. `stop -t 10` in the
+    /// Apple dialect.
     pub(crate) async fn stop(&self, ctx: &Ctx, worker: &str) -> Result<(), Refusal> {
-        self.checked(ctx, &["stop", "--time", "10", worker], DOCKER_STOP_TIMEOUT).await
+        let time = match self.dialect() {
+            Dialect::Docker => "--time",
+            Dialect::AppleContainer => "-t",
+        };
+        self.checked(ctx, &["stop", time, "10", worker], DOCKER_STOP_TIMEOUT).await
+    }
+
+    /// The verb that removes a container: `rm` in the Docker dialect, `delete` in the Apple one.
+    const fn remove_verb(&self) -> &'static str {
+        match self.dialect() {
+            Dialect::Docker => "rm",
+            Dialect::AppleContainer => "delete",
+        }
     }
 
     /// Removes the worker's container, running or not, and its create record. The volume stays.
     pub(crate) async fn remove(&self, ctx: &Ctx, worker: &str) -> Result<(), Refusal> {
-        self.checked(ctx, &["rm", "--force", worker], DOCKER_REMOVE_TIMEOUT).await?;
+        self.checked(ctx, &[self.remove_verb(), "--force", worker], DOCKER_REMOVE_TIMEOUT)
+            .await?;
         remove_if_present(&self.settings.docker_create_record_path(worker))
     }
 
@@ -1067,20 +1555,33 @@ impl Docker {
     /// check, after the caller's own: a container that a start brought up after the caller read its state is not
     /// killed.
     pub(crate) async fn remove_stopped(&self, ctx: &Ctx, worker: &str) -> Result<(), Refusal> {
-        self.checked(ctx, &["rm", worker], DOCKER_REMOVE_TIMEOUT).await?;
+        self.checked(ctx, &[self.remove_verb(), worker], DOCKER_REMOVE_TIMEOUT).await?;
         remove_if_present(&self.settings.docker_create_record_path(worker))
     }
 
     /// Removes the worker's volume, which is everything the worker had staged. A missing volume is no error.
+    ///
+    /// The Apple `volume delete` has no `--force` and exits 1 for a missing volume, as for any other failure. So the
+    /// Apple dialect asks `volume inspect` first, and a volume it does not find is done.
     pub(crate) async fn remove_volume(&self, ctx: &Ctx, worker: &str) -> Result<(), Refusal> {
         let volume = Self::volume_name(worker);
+        let argv = match self.dialect() {
+            Dialect::Docker => self.command(&["volume", "rm", "--force", &volume]),
+            Dialect::AppleContainer => {
+                let inspect = self.command(&["volume", "inspect", &volume]);
+                let inspected = self
+                    .runner
+                    .capture(ctx, &inspect, &SpawnOptions::within(DOCKER_QUERY_TIMEOUT))
+                    .await?;
+                if inspected.exit_code != 0 && is_not_found(&inspected) {
+                    return Ok(());
+                }
+                self.command(&["volume", "delete", &volume])
+            }
+        };
         let captured = self
             .runner
-            .capture(
-                ctx,
-                &self.command(&["volume", "rm", "--force", &volume]),
-                &SpawnOptions::within(DOCKER_VOLUME_REMOVE_TIMEOUT),
-            )
+            .capture(ctx, &argv, &SpawnOptions::within(DOCKER_VOLUME_REMOVE_TIMEOUT))
             .await?;
         if captured.exit_code == 0 {
             return Ok(());
@@ -1088,12 +1589,7 @@ impl Docker {
         Err(Refusal::new(
             "subprocess_failed",
             Exit::FAILURE,
-            format!(
-                "{} volume rm {volume} exited with {}: {}",
-                self.program(),
-                captured.exit_code,
-                captured.stderr.trim()
-            ),
+            format!("{} exited with {}: {}", argv.join(" "), captured.exit_code, captured.stderr.trim()),
         ))
     }
 
@@ -1105,13 +1601,30 @@ impl Docker {
     /// pid 1 and its children write: `docker-init`, `air-display`, Xvfb and fluxbox. The engine never sends the output
     /// of a `docker exec` there, so the IDE, the daemon and every guest step stay out of it. The whole tail is quoted,
     /// and not only the `air-display:` lines, because the Xvfb error is the line that says why the display failed.
+    ///
+    /// The Apple dialect is `logs -n 40`. Its log holds only the current run: a `start` clears it, so a caller reads
+    /// the tail before any restart.
     pub(crate) async fn log_tail(&self, ctx: &Ctx, worker: &str) -> String {
+        let argv = match self.dialect() {
+            Dialect::Docker => self.command(&["logs", "--tail", "40", worker]),
+            Dialect::AppleContainer => self.command(&["logs", "-n", "40", worker]),
+        };
+        self.quoted_log(ctx, &argv).await
+    }
+
+    /// The last lines of the boot log of an Apple container, `logs --boot -n 40`: the kernel and `vminitd`, whose
+    /// line `status: <n> managed process exit` is the only exit code the engine keeps. Empty in the Docker dialect,
+    /// whose `inspect` says the exit code.
+    pub(crate) async fn boot_log_tail(&self, ctx: &Ctx, worker: &str) -> String {
+        match self.dialect() {
+            Dialect::Docker => String::new(),
+            Dialect::AppleContainer => self.quoted_log(ctx, &self.command(&["logs", "--boot", "-n", "40", worker])).await,
+        }
+    }
+
+    async fn quoted_log(&self, ctx: &Ctx, argv: &[String]) -> String {
         self.runner
-            .capture(
-                ctx,
-                &self.command(&["logs", "--tail", "40", worker]),
-                &SpawnOptions::within(DOCKER_QUERY_TIMEOUT),
-            )
+            .capture(ctx, argv, &SpawnOptions::within(DOCKER_QUERY_TIMEOUT))
             .await
             .map(|captured| format!("{}{}", captured.stdout, captured.stderr).trim().to_owned())
             .unwrap_or_default()
@@ -1126,6 +1639,12 @@ impl Docker {
 
     /// What a refusal of `docker version` tells the operator to do: look at the Lima engine, or start the engine.
     fn engine_remedy(&self) -> String {
+        if self.apple.is_some() {
+            return format!(
+                "the Apple container server does not answer; its start log is {}",
+                self.settings.container_system_log_path().display()
+            );
+        }
         match &self.engine {
             Some(engine) => format!(
                 "the Lima engine does not answer at {}; its log is {}",
@@ -1193,6 +1712,18 @@ pub(crate) fn container_unusable(worker: &str, word: &str) -> Refusal {
              `docker unpause {worker}` resumes a paused one, and `pool recycle {worker}` makes any of them again"
         ),
     )
+}
+
+/// The refusal of a publish step that failed: `docker_push_failed`, which names the push log, for a step that exited.
+fn push_failed(error: ProcError, log: &Path) -> Refusal {
+    match error {
+        ProcError::Exited { refusal, .. } => Refusal::new(
+            "docker_push_failed",
+            refusal.exit,
+            format!("{}; the push log is {}", refusal.message, log.display()),
+        ),
+        other => other.into(),
+    }
 }
 
 fn docker_missing(message: String) -> Refusal {

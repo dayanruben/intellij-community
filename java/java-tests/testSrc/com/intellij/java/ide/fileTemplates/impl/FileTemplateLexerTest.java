@@ -16,33 +16,30 @@
 package com.intellij.java.ide.fileTemplates.impl;
 
 import com.intellij.ide.fileTemplates.impl.FileTemplateConfigurable;
-import com.intellij.lexer.Lexer;
-import com.intellij.testFramework.LexerTestCase;
-import org.jetbrains.annotations.NotNull;
+import com.intellij.platform.testFramework.junit5.codeInsight.fixture.LexerTestFixture;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
+import com.intellij.testFramework.junit5.fixture.TestFixtures;
+import org.junit.jupiter.api.Test;
 
-public class FileTemplateLexerTest extends LexerTestCase {
+import static com.intellij.platform.testFramework.junit5.codeInsight.fixture.LexerTestFixtureKt.lexerFixture;
 
+@TestFixtures
+public class FileTemplateLexerTest {
+  private final TestFixture<LexerTestFixture> lexer = lexerFixture("", () -> FileTemplateConfigurable.createDefaultLexer());
+
+  @Test
   public void testEscapes() {
-    doTest("\\#include foo $bar", """
+    lexer.get().doTest("\\#include foo $bar", """
       ESCAPE ('\\#')
       TEXT ('include foo ')
       MACRO ('$bar')""");
   }
 
+  @Test
   public void testLiveTemplates() {
-    doTest("#[[$FOO$]]#", """
+    lexer.get().doTest("#[[$FOO$]]#", """
       ESCAPE ('#[[')
       MACRO ('$FOO$')
       ESCAPE (']]#')""");
-  }
-
-  @Override
-  protected @NotNull Lexer createLexer() {
-    return FileTemplateConfigurable.createDefaultLexer();
-  }
-
-  @Override
-  protected @NotNull String getDirPath() {
-    return null;
   }
 }

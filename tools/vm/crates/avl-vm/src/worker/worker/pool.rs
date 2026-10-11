@@ -4,6 +4,7 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
+use std::path::PathBuf;
 use std::str::FromStr;
 
 use avl_base::{Exit, Outcome, Refusal};
@@ -12,6 +13,7 @@ use avl_host_sys::guest::ensure_host_paths;
 use serde_json::{Value, json};
 
 use super::{Manager, read_lease};
+use crate::lane::ide::{IdeRetention, gc_guest_ides, gc_note};
 use avl_base::RefusalExt;
 
 /// One `pool` invocation.
@@ -28,6 +30,11 @@ pub(crate) enum PoolCommand {
     /// Rebuilds workers from scratch. The target is never defaulted, where `start` and `stop` default it to the
     /// whole pool: this one deletes clones, so recycling every worker on the host is something an operator types.
     Recycle(PoolTarget),
+    /// The detached process of the idle stop that a lease release started ([`Manager::pool_idle_stop`]).
+    IdleStop {
+        worker: String,
+        nonce: String,
+    },
 }
 
 /// Which workers of the pool a command is about.
@@ -85,6 +92,7 @@ impl Manager {
             PoolCommand::Recycle(target) => self.pool_recycle(ctx, &target).await,
             PoolCommand::Start(target) => self.pool_start_or_stop(ctx, Switch::Start, &target).await,
             PoolCommand::Stop(target) => self.pool_start_or_stop(ctx, Switch::Stop, &target).await,
+            PoolCommand::IdleStop { worker, nonce } => self.pool_idle_stop(ctx, &worker, &nonce).await,
         }
     }
 
@@ -151,6 +159,19 @@ impl Manager {
     /// rule: a `flock` binds to the inode, so unlinking the file this operation holds lets a contender lock a fresh
     /// one at the same path, and both would believe they hold the worker.
     pub(super) fn clear_worker_state(&self, worker: &str) -> Result<(), Refusal> {
+        self.remove_worker_state_except(worker, &[])
+    }
+
+    /// Forgets what the host recorded about a guest that is gone, for a worker that stays: a container-linux
+    /// container the script made again has a fresh disk, so the agent, the stage and the daemon records of the
+    /// previous one describe nothing. The lease is the caller's, and `reports` holds what earlier runs pulled out.
+    pub(super) fn forget_guest(&self, worker: &str) -> Result<(), Refusal> {
+        let settings = &self.settings;
+        self.remove_worker_state_except(worker, &[settings.lease_path(worker), settings.worker_dir(worker).join("reports")])
+    }
+
+    /// Removes a worker's host state but the lifecycle lock file and `kept`.
+    fn remove_worker_state_except(&self, worker: &str, kept: &[PathBuf]) -> Result<(), Refusal> {
         let directory = self.settings.worker_dir(worker);
         let entries = match std::fs::read_dir(&directory) {
             Ok(entries) => entries,
@@ -163,7 +184,7 @@ impl Manager {
         for entry in entries {
             let entry = entry.map_err(|error| state_write_failed(format!("cannot read {}: {error}", directory.display())))?;
             let path = entry.path();
-            if path == lock {
+            if path == lock || kept.contains(&path) {
                 continue;
             }
             let removed = match entry.file_type() {
@@ -258,8 +279,37 @@ impl Manager {
     /// Tart stops the machine before the delete, so a stop that timed out also leaves the slot as it was.
     async fn recycle_one_worker(&self, ctx: &Ctx, worker: &str) -> Result<(), Refusal> {
         self.require_unleased(worker, "recycle", None)?;
+        self.stop_lane_ides(ctx, worker).await;
         self.unmake_worker(ctx, worker).await?;
         self.start_without_lifecycle_lock(ctx, worker).await.map(drop)
+    }
+
+    /// Stops the lane IDEs of a running worker before the recycle unmakes its slot, through the guest agent's
+    /// `ide-gc`. The gc sends each IDE a TERM and gives it the grace of a cancel to shut down, which the unmake does
+    /// not do.
+    ///
+    /// It is best effort, because a recycle repairs a worker whose guest may not answer, and the unmake ends every
+    /// process of the slot. A worker that is stopped, or whose state cannot be read, gets no guest call. A refusal of
+    /// the gc is a note.
+    async fn stop_lane_ides(&self, ctx: &Ctx, worker: &str) {
+        if !matches!(self.stopped_for_release(ctx, worker).await, Ok(false)) {
+            return;
+        }
+        let channel = self.channel(worker);
+        match gc_guest_ides(&self.guest(ctx, channel.as_ref()), IdeRetention::StopAll).await {
+            Ok(ides) => {
+                if let Some(note) = gc_note(&ides) {
+                    self.note(worker, format!("{note} before the recycle"));
+                }
+            }
+            Err(refusal) => self.note(
+                worker,
+                format!(
+                    "the lane IDEs of {worker} were not stopped before the recycle ({}); the unmake ends them",
+                    refusal.code
+                ),
+            ),
+        }
     }
 }
 

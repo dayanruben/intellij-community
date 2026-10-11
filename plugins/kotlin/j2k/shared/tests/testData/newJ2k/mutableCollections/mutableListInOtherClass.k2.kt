@@ -1,5 +1,5 @@
 class Owner {
-    var list: MutableList<String?> = ArrayList<String?>()
+    var list: MutableList<String> = ArrayList<String>()
 }
 
 class Updater {

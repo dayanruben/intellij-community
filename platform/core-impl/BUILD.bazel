@@ -126,6 +126,12 @@ jvm_library(
     ),
     module_name = "intellij.platform.core.impl.tests",
     visibility = ["//visibility:public"],
+    runtime_deps = [
+        # do not sort,
+        "//community-resources:customization",
+        "//platform/settings-local",
+        "//platform/testFramework",
+    ],
 )
 
 jvm_library(
@@ -144,7 +150,13 @@ jvm_library(
         "//platform/core-impl:core-impl_test_lib",
     ],
     visibility = ["//visibility:public"],
-    runtime_deps = [":core-impl-tests"],
+    runtime_deps = [
+        # do not sort,
+        ":core-impl-tests",
+        "//community-resources:customization_test_lib",
+        "//platform/settings-local:settings-local_test_lib",
+        "//platform/testFramework:testFramework_test_lib",
+    ],
     deps = [
         # do not sort,
         "@lib//:kotlin-stdlib",

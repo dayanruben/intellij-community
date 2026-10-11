@@ -138,11 +138,7 @@ dev_dist_product_descriptor(
         "intellij.ide.startup.importSettings",
         "intellij.libraries.sqlite",
         "intellij.platform.customization.min",
-        "intellij.idea.customization.base",
         "intellij.idea.community.ide.customization",
-        "intellij.platform.ide.nonModalWelcomeScreen",
-        "intellij.platform.ide.nonModalWelcomeScreen.frontend",
-        "intellij.platform.ide.nonModalWelcomeScreen.backend",
     ],
     descriptors = {
         "//platform/analysis-api:resources/META-INF/Analysis.analyzer.xml": "META-INF/Analysis.analyzer.xml",

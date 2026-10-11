@@ -41,6 +41,9 @@
     </orderEntry>
     <orderEntry type="module" module-name="intellij.libraries.grpc" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.grpc.netty.shaded" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.idea.community.customization" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.platform.settings.local" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.platform.testFramework" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.execution.process.mediator.client" scope="TEST" />
   </component>
   <component name="TestModuleProperties" production-module="intellij.execution.process.mediator.client" />

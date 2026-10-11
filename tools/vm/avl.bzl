@@ -39,6 +39,7 @@ _CROSS_MODULE_CRATES = {
     "refusal": "//tools/bt/crates/refusal",
     "distpath": "//build/dev-dist-tools/crates/distpath",
     "fscopy": "//build/dev-dist-tools/crates/fscopy",
+    "dev-launch": "//build/dev-dist-tools/crates/dev-launch",
 }
 
 # The closure of a shipped binary is the closure for x86_64 Linux, where the guest agent and the recorder run. Each host

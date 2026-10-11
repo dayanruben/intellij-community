@@ -19,6 +19,13 @@
     <orderEntry type="library" scope="TEST" name="kotlinc.kotlin-compiler-tests" level="project" />
     <orderEntry type="module" module-name="intellij.kotlin.base.plugin" scope="TEST" />
     <orderEntry type="module" module-name="intellij.kotlin.gradle.codeInsight.groovy" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.xml.plugin" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.platform.structureView.plugin" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.java.aetherDependencyResolver.plugin" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.platform.structuralSearch.plugin" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.platform.testRunner.plugin" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.groovy" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.groovy.scripting" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.libraries.junit4" scope="TEST" />
   </component>
 </module>

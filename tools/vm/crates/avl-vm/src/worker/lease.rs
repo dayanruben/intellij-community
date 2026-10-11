@@ -47,7 +47,7 @@ pub(crate) use receipt::LeaseReceipt;
 #[cfg(test)]
 pub(crate) use receipt::{RECEIPT_KIND, write_lease_receipt};
 pub(crate) use receipt::{receipt_backend, receipt_for_path, remove_lease_receipts, required_receipt};
-pub(crate) use set::{HeldWorker, ReleaseResult, acquire_workers, disposition, release_workers, require_one_guest_os};
+pub(crate) use set::{HeldWorker, ReleaseResult, SlotReason, acquire_workers, disposition, release_workers, require_one_guest_os};
 
 /// How long one `lease acquire` waits for another one to finish before giving up.
 ///
@@ -63,7 +63,8 @@ pub(crate) const MAX_HOLDER_LENGTH: usize = 128;
 
 // --- the request ---------------------------------------------------------------------------------------------
 
-/// What one acquisition asks for: a holder, how many workers, and whether fewer will do.
+/// What one acquisition asks for: a holder, how many workers, whether fewer will do, and the launch digest of the
+/// build that asks, which makes a slot whose daemon serves that build the first choice.
 ///
 /// The count is *at most* N. A shardable lane and the flake harness both spread trials over whatever the pool can
 /// give them, and a run that silently waits for a busy worker is worse than a narrower one; a measurement run is the
@@ -74,6 +75,7 @@ pub(crate) struct AcquireRequest {
     holder: String,
     count: u8,
     exact: bool,
+    launch_digest: Option<String>,
 }
 
 impl AcquireRequest {
@@ -106,7 +108,24 @@ impl AcquireRequest {
                 holder.len()
             )));
         }
-        Ok(Self { holder, count, exact })
+        Ok(Self {
+            holder,
+            count,
+            exact,
+            launch_digest: None,
+        })
+    }
+
+    /// The request for a caller that built first: a running slot whose daemon record names `launch_digest` is the
+    /// first choice ([`SlotReason::WarmDaemon`]).
+    #[must_use]
+    pub(crate) fn for_build(mut self, launch_digest: impl Into<String>) -> Self {
+        self.launch_digest = Some(launch_digest.into());
+        self
+    }
+
+    pub(crate) fn launch_digest(&self) -> Option<&str> {
+        self.launch_digest.as_deref()
     }
 
     pub(crate) fn holder(&self) -> &str {
@@ -247,6 +266,7 @@ struct SingleLeaseData<'a> {
     acquired_at: &'a str,
     lease_file: String,
     recovered: bool,
+    slot_reason: SlotReason,
     requested: u8,
     acquired: usize,
     leases: Vec<AcquiredLeaseData<'a>>,
@@ -272,6 +292,7 @@ struct AcquiredLeaseData<'a> {
     acquired_at: &'a str,
     lease_file: String,
     recovered: bool,
+    slot_reason: SlotReason,
 }
 
 /// `lease acquire`: take at most the requested count of workers, atomically, and render the two reply shapes that
@@ -287,6 +308,7 @@ pub(crate) async fn command_lease_acquire(ctx: &Ctx, manager: &Manager, request:
             acquired_at: &item.lease.acquired_at,
             lease_file: item.receipt.display().to_string(),
             recovered: item.recovered,
+            slot_reason: item.slot_reason,
         })
         .collect();
     let encode = |data: serde_json::Result<serde_json::Value>| {
@@ -301,11 +323,12 @@ pub(crate) async fn command_lease_acquire(ctx: &Ctx, manager: &Manager, request:
             .first()
             .ok_or_else(|| Refusal::internal("an acquisition that succeeded answered no worker"))?;
         let text = format!(
-            "worker={}\nholder={}\nlease_file={}\nrecovered={}",
+            "worker={}\nholder={}\nlease_file={}\nrecovered={}\nslot_reason={}",
             first.lease.worker,
             first.lease.holder,
             first.receipt.display(),
-            first.recovered
+            first.recovered,
+            first.slot_reason.as_str()
         );
         let data = encode(serde_json::to_value(SingleLeaseData {
             backend: settings.backend,
@@ -315,6 +338,7 @@ pub(crate) async fn command_lease_acquire(ctx: &Ctx, manager: &Manager, request:
             acquired_at: &first.lease.acquired_at,
             lease_file: first.receipt.display().to_string(),
             recovered: first.recovered,
+            slot_reason: first.slot_reason,
             requested: request.count,
             acquired: leases.len(),
             leases,
@@ -324,8 +348,12 @@ pub(crate) async fn command_lease_acquire(ctx: &Ctx, manager: &Manager, request:
     let mut rendered = vec![format!("requested={}", request.count), format!("acquired={}", leases.len())];
     rendered.extend(leases.iter().map(|item| {
         format!(
-            "worker={} holder={} lease_file={} recovered={}",
-            item.worker, item.holder, item.lease_file, item.recovered
+            "worker={} holder={} lease_file={} recovered={} slot_reason={}",
+            item.worker,
+            item.holder,
+            item.lease_file,
+            item.recovered,
+            item.slot_reason.as_str()
         )
     }));
     let data = encode(serde_json::to_value(ShardedLeaseData {
@@ -433,8 +461,8 @@ async fn release_one_lease(ctx: &Ctx, manager: &Manager, lease: &Lease, probe: &
     // A stopped Tart worker is released without touching the guest. Release exists to prove no run is still active,
     // and a worker with no run process cannot be running one; the guest holds no checkout, and its writable state is
     // meant to survive for the next lease. Requiring a start here is how a lease outlived its holder on a worker
-    // that had crashed, leaving a slot that could be neither used nor freed. A stopped Docker container is the same
-    // case: nothing runs in a container that does not run.
+    // that had crashed, leaving a slot that could be neither used nor freed. A stopped Docker or testing-ui container
+    // is the same case: nothing runs in a container that does not run.
     if manager.stopped_for_release(ctx, worker).await? {
         manager.reporter().note(
             format!("{worker} is not running; releasing its lease without starting it"),
@@ -485,12 +513,26 @@ async fn release_one_lease(ctx: &Ctx, manager: &Manager, lease: &Lease, probe: &
     // can start; the slot's remaining job is a controller that crashed and left a run behind, so the probe answers
     // "executing" for everything it cannot prove idle.
     guest.reject_executing_run(probe, "release the lease").await?;
+    // The warm daemon survives the release, and its lane IDEs do not: the next holder gets no IDE of this one's runs.
+    // The daemon launches a new IDE on its next run.
+    let ides = crate::lane::ide::gc_guest_ides(&guest, crate::lane::ide::IdeRetention::StopAll).await?;
+    if let Some(note) = crate::lane::ide::gc_note(&ides) {
+        manager.reporter().note(format!("{note} on {worker}"), Some(&Scope::worker(worker)));
+    }
     // The next holder gets no file of this one's runs: a run removes its own, unless its controller died first.
     crate::lane::secrets::clear_run_secrets(&guest).await?;
     remove_lease(settings, lease)?;
+    // On the Apple `container` engine the idle worker stops after a grace period, because its VM keeps its memory
+    // while it runs. The warm daemon lives until then.
+    let Some(idle_stop_at) = manager.schedule_idle_stop(ctx, worker).await? else {
+        return Ok(Outcome {
+            data: json!({ "worker": worker, "released": true }),
+            text: format!("released={worker}"),
+        });
+    };
     Ok(Outcome {
-        data: json!({ "worker": worker, "released": true }),
-        text: format!("released={worker}"),
+        data: json!({ "worker": worker, "released": true, "idleStopAt": idle_stop_at }),
+        text: format!("released={worker}\nidle_stop_at={idle_stop_at}"),
     })
 }
 

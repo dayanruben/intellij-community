@@ -124,6 +124,14 @@ jvm_library(
     ),
     module_name = "intellij.java.featuresTrainer.tests",
     visibility = ["//visibility:public"],
+    runtime_deps = [
+        # do not sort,
+        "//platform/recentFiles/plugin",
+        "//platform/structure-view-impl/plugin",
+        "//java/plugin",
+        "//aether-dependency-resolver/plugin",
+        "//java/java-backend:backend",
+    ],
 )
 
 jvm_library(
@@ -147,6 +155,11 @@ jvm_library(
         ":featuresTrainer-tests",
         "//platform/ide-core-impl:ide-core-impl_test_lib",
         "//platform/platform-impl:ide-impl_test_lib",
+        "//platform/recentFiles/plugin:plugin_test_lib",
+        "//platform/structure-view-impl/plugin:plugin_test_lib",
+        "//java/plugin:plugin_test_lib",
+        "//aether-dependency-resolver/plugin:plugin_test_lib",
+        "//java/java-backend:backend_test_lib",
     ],
     deps = [
         # do not sort,

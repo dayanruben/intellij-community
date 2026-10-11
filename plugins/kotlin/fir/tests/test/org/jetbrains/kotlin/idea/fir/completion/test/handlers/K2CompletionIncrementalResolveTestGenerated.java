@@ -62,6 +62,11 @@ public abstract class K2CompletionIncrementalResolveTestGenerated extends Abstra
                 runTest("../../completion/testData/incrementalResolve/basic/functionWithExpressionBody_implicitType.kt");
             }
 
+            @TestMetadata("KDocCodeBlock_afterBackspace.kt")
+            public void testKDocCodeBlock_afterBackspace() throws Exception {
+                runTest("../../completion/testData/incrementalResolve/basic/KDocCodeBlock_afterBackspace.kt");
+            }
+
             @TestMetadata("localAnonymousFunctionWithExpressionBody.kt")
             public void testLocalAnonymousFunctionWithExpressionBody() throws Exception {
                 runTest("../../completion/testData/incrementalResolve/basic/localAnonymousFunctionWithExpressionBody.kt");

@@ -128,6 +128,10 @@
     <orderEntry type="module" module-name="intellij.libraries.junit6.params" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.vcs.plugin" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.libraries.mockk" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.recentFiles.plugin" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.java.plugin" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.java.aetherDependencyResolver.plugin" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.java.backend" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.libraries.mockk.jvm" scope="TEST" />
   </component>
   <component name="TestModuleProperties" production-module="intellij.vcs.git.backend" />

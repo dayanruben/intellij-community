@@ -81,31 +81,27 @@ fn answer_running_linux_pool(fixture: &Fixture) {
     }
 }
 
-/// Leaves behind the receipt of a worker this pool last provisioned from another working copy of the repository -
-/// the state a pool shared between two checkouts is in until the next run re-provisions it. Restamped from a real
-/// receipt rather than hand-built, so the schema stays the writer's.
-fn provisioned_for_another_checkout(fixture: &Fixture, worker: &str, host_repo: &str) {
+/// Leaves behind the receipt of a worker this pool last provisioned for another Bazel output root - the state a pool
+/// is in after the output root moved, until the next run re-provisions it. Restamped from a real receipt rather than
+/// hand-built, so the schema stays the writer's.
+fn provisioned_for_another_bazel_root(fixture: &Fixture, worker: &str, bazel_root: &str) {
     write_init_receipt(&fixture.settings, worker).expect("the init receipt is written");
     let path = init_receipt_path(&fixture.settings, worker);
     let mut receipt: InitReceipt =
         serde_json::from_slice(&std::fs::read(&path).expect("the receipt is readable")).expect("the receipt decodes");
-    receipt.host_repo = host_repo.to_owned();
+    receipt.host_bazel_user_root = bazel_root.to_owned();
     let mut encoded = serde_json::to_vec(&receipt).expect("the receipt encodes");
     encoded.push(b'\n');
     std::fs::write(&path, encoded).expect("the receipt is restamped");
 }
 
-/// [`PARALLELS_INFO_JSON`] with the two read-only shares the controller declares already in place, which is what
+/// [`PARALLELS_INFO_JSON`] with the one read-only share the controller declares already in place, which is what
 /// `sharesConfigured` - and so the parity probe behind it - waits for.
 fn parallels_info_with_shares(fixture: &Fixture) -> String {
     let settings = &fixture.settings;
     let path = |path: &std::path::Path| path.to_string_lossy().into_owned();
     let mut shared = serde_json::Map::new();
     shared.insert("enabled".to_owned(), json!(true));
-    shared.insert(
-        settings.repo_share_name.clone(),
-        json!({ "enabled": true, "path": path(settings.host_repo().expect("resolved")), "mode": "ro" }),
-    );
     shared.insert(
         settings.bazel_share_name.clone(),
         json!({ "enabled": true, "path": path(settings.host_bazel_user_root().expect("resolved")), "mode": "ro" }),
@@ -259,8 +255,8 @@ async fn tri_state_facts_are_null_never_false() {
 
 // --- the parity refusal ----------------------------------------------------------------------------------------
 
-/// `guest_init_stale` is the normal state of a pool shared between two checkouts, and the next run re-provisions
-/// the worker for the one that asked. Keeping only `parityReady` made a self-repairing worker indistinguishable from
+/// `guest_init_stale` is the state of a pool whose Bazel output root moved, and the next run re-provisions the worker
+/// for the root that asked. Keeping only `parityReady` made a self-repairing worker indistinguishable from
 /// a layout that needs looking at.
 #[tokio::test]
 async fn a_parity_refusal_keeps_its_code() {
@@ -269,7 +265,7 @@ async fn a_parity_refusal_keeps_its_code() {
         Answer::ListJson,
         tart_list(&[("air-macos-1", 80.0, true, "running"), ("air-macos-2", 80.0, true, "running")]),
     );
-    provisioned_for_another_checkout(&fixture, "air-macos-1", "/another/checkout");
+    provisioned_for_another_bazel_root(&fixture, "air-macos-1", "/another/bazel");
     write_init_receipt(&fixture.settings, "air-macos-2").expect("the init receipt is written");
     answer_running_macos_pool(&fixture);
     let outcome = status(&fixture).await;
@@ -427,8 +423,8 @@ async fn ssh_host_key_uniqueness_is_decided_over_the_whole_pool() {
 // --- the parallels row -----------------------------------------------------------------------------------------
 
 /// The Parallels path needs none of the guards the Tart path was missing - Parallels is refused with anything but a
-/// macOS guest - but it discarded the parity refusal in the same way, and a worker provisioned from another checkout
-/// of this repository is exactly as stale there.
+/// macOS guest - but it discarded the parity refusal in the same way, and a worker provisioned for another Bazel
+/// output root is exactly as stale there.
 #[tokio::test]
 async fn the_parallels_row_keeps_its_parity_refusal() {
     let (fixture, _) = parallels_fixture();
@@ -447,7 +443,7 @@ async fn the_parallels_row_keeps_its_parity_refusal() {
     assert_eq!((&row["parityReady"], &row["parityError"]), (&json!(true), &Value::Null), "{row}");
     assert_eq!(outcome.data["backend"], json!("parallels"));
 
-    provisioned_for_another_checkout(&fixture, "macOS", "/another/checkout");
+    provisioned_for_another_bazel_root(&fixture, "macOS", "/another/bazel");
     let outcome = status(&fixture).await;
     let row = parallels_row(&outcome);
     assert_eq!(
@@ -562,7 +558,9 @@ async fn a_leased_worker_is_reported_without_its_holder() {
 // --- the docker row --------------------------------------------------------------------------------------------
 
 /// The verbs that change a container, a volume or an image. `status` is a report, so the fake must record none.
-const DOCKER_MUTATING_VERBS: [&str; 9] = ["create", "start", "stop", "rm", "build", "volume", "pull", "push", "tag"];
+const DOCKER_MUTATING_VERBS: [&str; 11] = [
+    "create", "start", "stop", "rm", "delete", "build", "builder", "volume", "pull", "push", "tag",
+];
 
 /// Every argv the fake engine received, checked against [`DOCKER_MUTATING_VERBS`] by its verb.
 fn assert_docker_status_wrote_nothing(fixture: &Fixture) {
@@ -673,6 +671,8 @@ async fn an_absent_docker_worker_reports_every_key() {
             "backend": "docker",
             "engine": "host",
             "engineStatus": null,
+            "poolSize": 1,
+            "poolRule": "AIR_VM_MAX_WORKERS",
             "workers": [{
                 "worker": "air-docker-1",
                 "exists": false,
@@ -687,6 +687,7 @@ async fn an_absent_docker_worker_reports_every_key() {
                 "parityReady": null,
                 "parityError": null,
                 "lease": null,
+                "idleStopAt": null,
             }],
             "hostRepo": host_repo,
             "hostBazelUserRoot": host_repo,
@@ -695,7 +696,7 @@ async fn an_absent_docker_worker_reports_every_key() {
     );
     assert_eq!(
         outcome.text,
-        "pool: engine=host\n\
+        "pool: engine=host pool=1 (AIR_VM_MAX_WORKERS)\n\
          air-docker-1: absent lease=free image=missing declaration=n/a parity=n/a"
     );
     assert!(
@@ -735,7 +736,7 @@ async fn a_running_docker_worker_with_a_current_declaration_is_ready() {
     );
     assert_eq!(
         outcome.text,
-        "pool: engine=host\n\
+        "pool: engine=host pool=1 (AIR_VM_MAX_WORKERS)\n\
          air-docker-1: running lease=free image=local declaration=current parity=ready"
     );
     // A Linux guest in a container is asked no macOS question either.
@@ -794,7 +795,7 @@ async fn an_exited_docker_worker_keeps_its_exit_code() {
     assert_eq!(row["declarationCurrent"], json!(true), "{row}");
     assert_eq!(
         outcome.text,
-        "pool: engine=host\n\
+        "pool: engine=host pool=1 (AIR_VM_MAX_WORKERS)\n\
          air-docker-1: exited(1) lease=free image=local declaration=current parity=n/a"
     );
     assert!(
@@ -865,10 +866,71 @@ async fn a_docker_status_states_a_host_path_refusal_once() {
     );
     assert_eq!(
         outcome.text,
-        "pool: engine=host host_paths=not-ready(host_repo_required)\n\
+        "pool: engine=host pool=1 (AIR_VM_MAX_WORKERS) host_paths=not-ready(host_repo_required)\n\
          air-docker-1: running lease=free image=missing declaration=n/a parity=n/a"
     );
     assert_docker_status_wrote_nothing(&fixture);
+}
+
+// --- the Apple container engine -------------------------------------------------------------------------------
+
+/// A server that is down is `stopped`, and `status` does not start it: every row is `unknown`.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_docker_status_on_a_stopped_container_server_starts_nothing() {
+    let fixture = Fixture::docker_container();
+    let outcome = status(&fixture).await;
+    assert_eq!(
+        (&outcome.data["engine"], &outcome.data["engineStatus"]),
+        (&json!("container"), &json!("stopped"))
+    );
+    assert_eq!(docker_row(&outcome)["state"], json!("unknown"));
+    assert!(
+        outcome
+            .text
+            .starts_with("pool: engine=container engine_status=stopped pool=1 (AIR_VM_MAX_WORKERS)\n"),
+        "{}",
+        outcome.text
+    );
+    let calls = fixture.fake.calls();
+    assert!(!calls.iter().any(|call| call.starts_with("system start")), "{calls:#?}");
+    assert_docker_status_wrote_nothing(&fixture);
+}
+
+/// A server that runs is `running`, and the rows ask it in the Apple dialect.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_docker_status_on_a_running_container_server_asks_it() {
+    let fixture = Fixture::docker_container();
+    fixture
+        .fake
+        .answer(Answer::ContainerSystem, r#"{"status":"running","paths":{"installRoot":"/x/"}}"#);
+    let outcome = status(&fixture).await;
+    assert_eq!(outcome.data["engineStatus"], json!("running"));
+    assert_eq!(docker_row(&outcome)["state"], json!("absent"));
+    let calls = fixture.fake.calls();
+    assert!(calls.iter().any(|call| call.starts_with("inspect ")), "{calls:#?}");
+    assert!(!calls.iter().any(|call| call.starts_with("system start")), "{calls:#?}");
+    assert_docker_status_wrote_nothing(&fixture);
+}
+
+/// A worker whose idle stop waits names its deadline, in the row and in the line.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_docker_status_names_the_idle_stop_deadline() {
+    let fixture = Fixture::docker_container();
+    let worker = fixture.settings.workers[0].clone();
+    let deadline = "2026-10-10T12:00:00.000Z";
+    std::fs::write(
+        fixture.settings.idle_stop_record_path(&worker),
+        format!(
+            r#"{{"schemaVersion":{SCHEMA_VERSION},"worker":"{worker}","releasedAt":"2026-10-10T11:00:00.000Z","deadline":"{deadline}","nonce":"n-1"}}"#
+        ),
+    )
+    .unwrap();
+    let outcome = status(&fixture).await;
+    assert_eq!(docker_row(&outcome)["idleStopAt"], json!(deadline));
+    assert!(outcome.text.ends_with(&format!(" idle_stop={deadline}")), "{}", outcome.text);
 }
 
 // --- the Lima engine -------------------------------------------------------------------------------------------
@@ -892,7 +954,7 @@ async fn a_docker_status_on_an_absent_lima_engine_starts_nothing() {
     );
     assert_eq!(
         outcome.text,
-        "pool: engine=lima engine_status=Absent\n\
+        "pool: engine=lima engine_status=Absent pool=1 (AIR_VM_MAX_WORKERS)\n\
          air-docker-1: unknown lease=free image=unknown declaration=n/a parity=n/a"
     );
     assert!(fixture.fake.calls().is_empty(), "{:?}", fixture.fake.calls());
@@ -911,7 +973,9 @@ async fn a_docker_status_on_a_running_lima_engine_asks_it() {
     assert_eq!(outcome.data["engineStatus"], json!("Running"));
     assert_eq!(docker_row(&outcome)["state"], json!("absent"));
     assert!(
-        outcome.text.starts_with("pool: engine=lima engine_status=Running\n"),
+        outcome
+            .text
+            .starts_with("pool: engine=lima engine_status=Running pool=1 (AIR_VM_MAX_WORKERS)\n"),
         "{}",
         outcome.text
     );

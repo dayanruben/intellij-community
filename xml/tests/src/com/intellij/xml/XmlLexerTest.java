@@ -1,59 +1,67 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.xml;
 
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.platform.syntax.lexer.Lexer;
 import com.intellij.platform.syntax.util.lexer.FilterLexer;
+import com.intellij.platform.testFramework.junit5.codeInsight.fixture.SyntaxLexerTestFixture;
 import com.intellij.testFramework.ParsingTestCase;
 import com.intellij.testFramework.PerformanceUnitTest;
 import com.intellij.testFramework.PlatformTestUtil;
-import com.intellij.testFramework.syntax.LexerTestCase;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
+import com.intellij.testFramework.junit5.fixture.TestFixtures;
 import com.intellij.tools.ide.metrics.benchmark.Benchmark;
 import com.intellij.xml.syntax.XmlSyntaxDefinition;
 import com.intellij.xml.syntax.lexer.XmlLexer;
-import org.jetbrains.annotations.NotNull;
+import org.junit.jupiter.api.Test;
 
 import java.io.File;
 import java.io.IOException;
 
-public class XmlLexerTest extends LexerTestCase {
-  @Override
-  protected @NotNull Lexer createLexer() {
-    return new XmlLexer();
+import static com.intellij.platform.testFramework.junit5.codeInsight.fixture.SyntaxLexerTestFixtureKt.syntaxLexerFixture;
+
+@TestFixtures
+public class XmlLexerTest {
+  private static final Logger LOG = Logger.getInstance(XmlLexerTest.class);
+
+  private final TestFixture<SyntaxLexerTestFixture> lexer = syntaxLexerFixture(
+    PlatformTestUtil.getCommunityPath().replace(File.separatorChar, '/') + "/xml/tests/testData/lexer/xml",
+    () -> new XmlLexer()
+  );
+
+  private void doTest(String text) {
+    lexer.get().doTest(text);
   }
 
-  @Override
-  protected @NotNull String getDirPath() {
-    return "/xml/tests/testData/lexer/xml";
-  }
-
-  @Override
-  protected @NotNull String getPathToTestDataFile(@NotNull String extension) {
-    return PlatformTestUtil.getCommunityPath().replace(File.separatorChar, '/') + "/" + getDirPath() + "/" + getTestName(true) + extension;
-  }
-
+  @Test
   public void testWrappedEL() {
     doTest("<idea-plugin><name>Remote${ Interpreter}</name></idea-plugin>");
   }
 
+  @Test
   public void testUnfinishedEL() {
     doTest("<idea-plugin><name>Remote${ Interpreter</name></idea-plugin>");
   }
 
+  @Test
   public void testUnfinishedStringInDoctype() {
     doTest("<!DOCTYPE faces-config PUBLIC \"-//Sun Microsystems, Inc.//DTD JavaServer Faces Config1.0//EN");
   }
 
+  @Test
   public void testUnfinishedMarkupDeclarationInDoctype() {
     doTest("<!DOCTYPE schema [ <!ENTITY RelativeURL  \"[^:#/\\?]*(:{0,0}|[#/\\?].*)\">");
   }
 
 
   @PerformanceUnitTest
+  @Test
   public void testPerformance1() throws IOException {
     doTestPerformance("pallada.xml");
   }
 
   @PerformanceUnitTest
+  @Test
   public void testPerformance2() throws IOException {
     doTestPerformance("performance2.xml");
   }

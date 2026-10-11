@@ -29,8 +29,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::worker::lease::{
-    AcquireRequest, HeldWorker, ReleaseResult, acquire_workers, disposition, receipt_for_path, release_workers, require_one_guest_os,
-    with_lease_operation,
+    AcquireRequest, HeldWorker, ReleaseResult, SlotReason, acquire_workers, disposition, receipt_for_path, release_workers,
+    require_one_guest_os, with_lease_operation,
 };
 use crate::worker::worker::Lease;
 use avl_base::plain::release_command;
@@ -178,6 +178,7 @@ impl Host {
                 lease,
                 receipt,
                 recovered: false,
+                slot_reason: SlotReason::Borrowed,
             });
             // The acquisition checks the guest of every lease it places or recovers; a receipt from the command line
             // says nothing about which guest this controller was invoked for.
@@ -203,7 +204,9 @@ impl Host {
                 count => format!("{count} workers, as {holder}"),
             };
             let leasing = self.reporter.start_phase(Phase::Lease, &label, None);
-            let acquired = acquire_workers(ctx, &self.manager, request).await;
+            // The build is done, so a slot whose daemon already serves it is the first choice.
+            let request = request.clone().for_build(built.launch_digest.clone());
+            let acquired = acquire_workers(ctx, &self.manager, &request).await;
             leasing.finish(&acquired);
             for item in acquired.iter().flatten() {
                 self.reporter.note(

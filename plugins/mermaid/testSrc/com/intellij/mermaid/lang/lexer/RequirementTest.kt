@@ -1,9 +1,13 @@
 package com.intellij.mermaid.lang.lexer
 
-class RequirementTest : MermaidLexerTestCase() {
-  override val diagramName: String
-    get() = "requirement"
+import com.intellij.testFramework.junit5.fixture.TestFixtures
+import org.junit.jupiter.api.Test
 
+@TestFixtures
+class RequirementTest {
+  private val lexer by mermaidLexerFixture("requirement")
+
+  @Test
   fun `test simple class requirement diagram`() {
     val content = """
     requirementDiagram
@@ -19,9 +23,10 @@ class RequirementTest : MermaidLexerTestCase() {
   
       test_entity - satisfies -> test_req
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
+  @Test
   fun `test full complex requirement diagram`() {
     val content = """
     requirementDiagram
@@ -90,6 +95,6 @@ class RequirementTest : MermaidLexerTestCase() {
       test_entity3 - verifies -> test_req5
       test_req <- copies - test_entity2
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 }

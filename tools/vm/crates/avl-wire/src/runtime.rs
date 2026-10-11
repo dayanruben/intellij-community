@@ -26,7 +26,7 @@ mod tests;
 
 /// The version of the descriptor this controller reads. Unrelated to [`crate::daemon::PROTOCOL_VERSION`]: one
 /// describes a build artifact, the other a running process. Bump it with `_SCHEMA_VERSION` in the `.bzl`.
-pub const SCHEMA_VERSION: u32 = 5;
+pub const SCHEMA_VERSION: u32 = 7;
 
 /// What the descriptor must declare itself to be.
 ///
@@ -55,6 +55,9 @@ pub mod code {
     /// A logical path that is absolute or contains `..`. It is joined onto a runfiles root and then onto a
     /// *guest* staging root, so one that escapes is a write outside the tree this controller owns.
     pub const PATH_ESCAPES: &str = "daemon_runtime_path_escapes_runfiles";
+    /// An IDE project root that is empty, absolute or contains `..`. The guest agent joins it onto the directory it
+    /// unpacked the project archive into, so a root that escapes opens a directory outside that tree.
+    pub const PROJECT_ROOT_INVALID: &str = "daemon_runtime_project_root_invalid";
     /// Two different files claiming one staged name. The stage would materialize whichever it reached last, and
     /// the digest would be computed over both.
     pub const DUPLICATE_LOGICAL_PATH: &str = "daemon_runtime_duplicate_logical_path";
@@ -65,6 +68,10 @@ pub mod code {
     pub const FLAG_UNRESOLVED: &str = "daemon_runtime_flag_unresolved";
     /// A staged classpath that does not correspond to the descriptor's, entry for entry.
     pub const DAEMON_STAGE_INVALID: &str = "daemon_runtime_stage_invalid";
+    /// A context plugin file whose destination is not a file inside a plugin directory, or that a second file claims
+    /// too. The daemon joins the destination onto the plugin directory of the IDE context, so one that escapes is a
+    /// write outside that directory.
+    pub const PLUGIN_DESTINATION_INVALID: &str = "daemon_runtime_plugin_destination_invalid";
 }
 
 /// The token the descriptor's flags carry where the host runfiles root belongs.
@@ -150,6 +157,51 @@ pub struct Jbr {
     pub preloaded_only: bool,
 }
 
+/// The keys of the `ide` section, as the descriptor spells them. The descriptor writer test of the Air lanes holds the
+/// Starlark rule to them.
+pub const IDE_SECTION_FIELDS: [&str; 4] = ["flagsFile", "plugins", "projectArchive", "projectRoot"];
+
+/// What the lane IDE is launched from, beside the distribution: the JVM flags file, the project it opens and the
+/// plugins of its context.
+///
+/// `flags_file` is the Bazel-written file of IDE JVM flags, one flag per line: the default flags of a dev launch,
+/// the `--add-opens` of the platform and the lane's own. `project_archive` is the zip of the project, and
+/// `project_root` is the directory inside the archive that the IDE opens, a relative slash path. `plugins` are the
+/// files that the daemon installs into the plugin directory of the IDE context. They travel by the jar push and not
+/// by a share, so neither the product identity nor the mount identity reads them.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IdeSection {
+    pub flags_file: RuntimeFile,
+    pub plugins: Vec<IdePluginFile>,
+    pub project_archive: RuntimeFile,
+    #[serde(deserialize_with = "non_empty")]
+    pub project_root: String,
+}
+
+/// One file of a plugin of the IDE context: `destination` is its slash path below the plugin directory of the
+/// context, such as `air-integrationTests-bridge-plugin/lib/x.jar`, and `file` is the runfile that holds its bytes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IdePluginFile {
+    pub destination: String,
+    pub file: RuntimeFile,
+}
+
+impl<'de> Deserialize<'de> for IdePluginFile {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct Fields {
+            #[serde(deserialize_with = "non_empty")]
+            destination: String,
+            file: RuntimeFile,
+        }
+
+        let Fields { destination, file } = object_only(deserializer)?;
+        Ok(Self { destination, file })
+    }
+}
+
 /// The Bazel-owned launch contract, after validation.
 ///
 /// Unrelated to [`crate::stage::RuntimeManifest`] despite the overlap in vocabulary: this is what the *host
@@ -167,6 +219,7 @@ pub struct RuntimeDescriptor {
     pub classpath: ClasspathTiers,
     pub dev_dist: DevDist,
     pub jbr: Jbr,
+    pub ide: IdeSection,
     pub data: Vec<RuntimeFile>,
 }
 
@@ -184,6 +237,8 @@ struct DescriptorFields {
     dev_dist: DevDist,
     #[serde(deserialize_with = "object_only")]
     jbr: Jbr,
+    #[serde(deserialize_with = "object_only")]
+    ide: IdeSection,
     data: Vec<RuntimeFile>,
 }
 
@@ -319,6 +374,7 @@ pub fn parse_runtime_descriptor(
         classpath: fields.classpath,
         dev_dist: fields.dev_dist,
         jbr: fields.jbr,
+        ide: fields.ide,
         data: fields.data,
     };
 
@@ -343,6 +399,30 @@ pub fn parse_runtime_descriptor(
     {
         return Err(fail(code::PATH_ESCAPES, &format!("{field}.logicalPath escapes the runfiles root")));
     }
+    if escapes(&descriptor.ide.project_root) {
+        return Err(fail(
+            code::PROJECT_ROOT_INVALID,
+            &format!("ide.projectRoot {} escapes the project archive", descriptor.ide.project_root),
+        ));
+    }
+    let mut destinations = HashSet::new();
+    for (index, plugin) in descriptor.ide.plugins.iter().enumerate() {
+        if !is_plugin_destination(&plugin.destination) {
+            return Err(fail(
+                code::PLUGIN_DESTINATION_INVALID,
+                &format!(
+                    "ide.plugins[{index}].destination {} is not a file inside a plugin directory",
+                    plugin.destination
+                ),
+            ));
+        }
+        if !destinations.insert(plugin.destination.as_str()) {
+            return Err(fail(
+                code::PLUGIN_DESTINATION_INVALID,
+                &format!("ide.plugins[{index}].destination {} is claimed twice", plugin.destination),
+            ));
+        }
+    }
 
     // The order of this list decides which duplicate a message names when there are two.
     let staged = descriptor
@@ -357,7 +437,10 @@ pub fn parse_runtime_descriptor(
             &descriptor.dev_dist.home,
             &descriptor.jbr.archive,
             &descriptor.jbr.manifest,
-        ]);
+            &descriptor.ide.flags_file,
+            &descriptor.ide.project_archive,
+        ])
+        .chain(descriptor.ide.plugins.iter().map(|plugin| &plugin.file));
     if let Some(duplicate) = first_duplicate(staged) {
         return Err(fail(code::DUPLICATE_LOGICAL_PATH, &format!("duplicate logical path {duplicate}")));
     }
@@ -382,7 +465,17 @@ fn labelled_files(descriptor: &RuntimeDescriptor) -> Vec<(String, &RuntimeFile)>
         ("devDist.home".to_owned(), &descriptor.dev_dist.home),
         ("jbr.archive".to_owned(), &descriptor.jbr.archive),
         ("jbr.manifest".to_owned(), &descriptor.jbr.manifest),
+        ("ide.flagsFile".to_owned(), &descriptor.ide.flags_file),
+        ("ide.projectArchive".to_owned(), &descriptor.ide.project_archive),
     ]);
+    labelled.extend(
+        descriptor
+            .ide
+            .plugins
+            .iter()
+            .enumerate()
+            .map(|(index, plugin)| (format!("ide.plugins[{index}].file"), &plugin.file)),
+    );
     labelled
 }
 
@@ -390,6 +483,17 @@ fn labelled_files(descriptor: &RuntimeDescriptor) -> Vec<(String, &RuntimeFile)>
 /// `..` and escapes nothing, and refusing it would be a build nobody could fix.
 fn escapes(logical_path: &str) -> bool {
     logical_path.starts_with('/') || logical_path.split('/').any(|component| component == "..")
+}
+
+/// A relative slash path of at least two components, the plugin directory and a file in it, with no empty, `.` or
+/// `..` component and no backslash.
+fn is_plugin_destination(destination: &str) -> bool {
+    let components: Vec<&str> = destination.split('/').collect();
+    components.len() >= 2
+        && !destination.contains('\\')
+        && components
+            .iter()
+            .all(|component| !component.is_empty() && *component != "." && *component != "..")
 }
 
 fn first_duplicate<'a>(files: impl IntoIterator<Item = &'a RuntimeFile>) -> Option<&'a str> {

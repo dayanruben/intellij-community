@@ -14,7 +14,12 @@ const val TEST_DATA_CACHE_NAME = "test-data-cache"
 const val IDE_TESTS_SUBSTRING: String = "ide-tests"
 
 abstract class GlobalPaths(val checkoutDir: Path) {
-  val intelliJOutDirectory: Path = checkoutDir.toAbsolutePath() / "out"
+  /**
+   * `<checkout>/out`, or the directory the system property `ide.starter.out.dir` names, for a checkout that is mounted
+   * read-only.
+   */
+  val intelliJOutDirectory: Path =
+    System.getProperty("ide.starter.out.dir")?.let(Path::of) ?: (checkoutDir.toAbsolutePath() / "out")
   val artifactsDirectory: Path = intelliJOutDirectory / "artifacts"
 
   /**

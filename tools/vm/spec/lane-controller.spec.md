@@ -7,6 +7,7 @@ targets:
   - ../crates/avl-guest/src/supervisor/launch.rs
   - ../crates/avl-guest/src/supervisor/state.rs
   - ../crates/avl-guest/src/supervisor/identity.rs
+  - ../crates/avl-guest/src/supervisor/supervise.rs
   - ../crates/avl-guest/src/stage.rs
   - ../crates/avl-guest/src/image.rs
   - ../crates/avl-guest/src/image/provision.rs
@@ -15,6 +16,13 @@ targets:
   - ../crates/avl-guest/src/linux/validate.rs
   - ../crates/avl-guest/src/relay.rs
   - ../crates/avl-guest/src/read_file.rs
+  - ../crates/avl-guest/src/ide.rs
+  - ../crates/avl-guest/src/ide/prepare.rs
+  - ../crates/avl-guest/src/ide/launch.rs
+  - ../crates/avl-guest/src/ide/gc.rs
+  - ../crates/avl-guest/src/ide/reap.rs
+  - ../crates/avl-guest/src/supervisor/thread_dump.rs
+  - ../crates/avl-wire/src/ide.rs
   - ../crates/avl-wire/src/supervisor.rs
   - ../crates/avl-wire/src/verb.rs
   - ../crates/avl-wire/src/pull.rs
@@ -41,10 +49,18 @@ targets:
   - ../crates/avl-report/src/report.rs
   - ../crates/avl-report/src/aggregate.rs
   - ../crates/avl-report/src/aggregate/persist.rs
+  - ../crates/avl-vm/src/report.rs
+  - ../crates/avl-vm/src/report/time.rs
   - ../crates/avl-vm/src/worker/hypervisor.rs
   - ../crates/avl-host-sys/src/share.rs
+  - ../crates/avl-host-sys/src/paths.rs
+  - ../crates/avl-host-sys/src/runfiles.rs
+  - ../crates/avl-host-sys/src/guest/runfiles.rs
+  - ../crates/avl-guest/src/runfiles.rs
+  - ../crates/avl-wire/src/runfiles.rs
   - ../crates/avl-vm/src/worker/tart.rs
   - ../crates/avl-vm/src/worker/docker.rs
+  - ../crates/avl-vm/src/worker/container.rs
   - ../crates/avl-testkit/src/tartfake.rs
   - ../crates/avl-vm/src/worker/parallels.rs
   - ../crates/avl-affected/src/affected.rs
@@ -83,6 +99,7 @@ targets:
   - ../crates/avl-host-sys/src/guest/storage.rs
   - ../crates/avl-vm/src/lane/lanes.rs
   - ../crates/avl-vm/src/lane/env.rs
+  - ../crates/avl-vm/src/lane/ide.rs
   - ../crates/avl-vm/src/lane/bazel.rs
   - ../crates/avl-vm/src/lane/affected.rs
   - ../crates/avl-vm/src/lane/affected/tests.rs
@@ -296,8 +313,29 @@ The rest of the scenario matrix is in
   [@test] ../crates/avl-vm/src/worker/docker/tests.rs
   [@test] ../crates/avl-base/src/config/tests.rs
 
+- A macOS host that names no engine runs the Docker workers on Apple `container` from macOS 26 on Apple silicon.
+  An older macOS runs them on the Lima engine. `AIR_VM_DOCKER_ENGINE=lima` or `container` overrides the version. A
+  host that names an engine in `DOCKER_BIN` or `DOCKER_HOST` keeps that engine.
+  [@test] ../crates/avl-base/src/config/tests.rs (`the_macos_version_chooses_the_engine`)
+  [@test] ../crates/avl-base/src/config/tests.rs (`the_container_choice_applies_only_to_a_mac_that_names_no_engine`)
+
+- On Apple `container`, the controller uses the server of the login session and never stops it. It starts a server
+  that is down. It refuses a server of another install with another major version.
+  [@test] ../crates/avl-vm/src/worker/container/tests.rs
+
+- On Apple `container`, each build and each container gets a nameserver, and each container gets the memory and the
+  CPUs of one worker. A container that stops while it starts is refused with its log and its boot log.
+  [@test] ../crates/avl-vm/src/worker/container/tests.rs (`a_start_speaks_the_apple_dialect`)
+  [@test] ../crates/avl-vm/src/worker/container/tests.rs (`a_container_that_stops_while_starting_quotes_both_logs`)
+
 - The daemon accepts declared directories as data inputs. A changed file, path, permission, or link changes their identity.
   [@test] ../crates/avl-report/src/digest/tests.rs
+  [@test] ../crates/avl-vm/src/daemon/build/tests.rs
+
+- The runtime descriptor names each file of a context plugin with its place below the plugin directory of the IDE
+  context. A place that leaves that directory, or that two files claim, is refused. The files have an identity of
+  their own, apart from the product and the mount identities. A changed file changes only that identity.
+  [@test] ../crates/avl-wire/src/runtime/tests.rs
   [@test] ../crates/avl-vm/src/daemon/build/tests.rs
 
 - VM preparation installs and probes no agent CLI. An existing image can keep an unused installation.
@@ -306,6 +344,40 @@ The rest of the scenario matrix is in
 
 - The daemon environment is part of the launch identity. A changed value restarts the daemon.
   [@test] ../crates/avl-vm/src/daemon/build/tests.rs
+
+- The controller tells the daemon how to launch the lane IDE. It names the installed guest agent, the directory of
+  the IDE contexts, and the home of the staged JVM. The IDE runs on that JVM too.
+  [@test] ../crates/avl-vm/src/daemon/start/tests.rs
+
+- The guest reads no checkout. A worker has one share, the Bazel output user root, read-only, on every backend. A
+  path of the checkout does not map to a guest path. A set `AIR_VM_REPO_SHARE_NAME` is refused.
+  [@test] ../crates/avl-host-sys/src/share/tests.rs
+  [@test] ../crates/avl-host-sys/src/paths/tests.rs
+  [@test] ../crates/avl-base/src/config/tests.rs
+  [@test] ../crates/avl-vm/src/worker/docker/tests.rs (`a_second_checkout_declares_the_same_container`)
+  [@test] ../crates/avl-vm/src/worker/container_linux/tests.rs
+
+- The parity layout links the Bazel output root and makes the writable roots of a run. It makes no checkout
+  directory and probes no `.git`. Its marker and its receipt name no checkout, so a worker serves every checkout of
+  the host.
+  [@test] ../crates/avl-host-sys/src/guest/parity/tests.rs
+
+- The guest builds its runfiles tree from the MANIFEST on every host. A runfile whose target is on the Bazel share is
+  a link. A runfile whose real path lies in the checkout is a staged runfile, and the tree holds a copy of it. The guest
+  checks each copy by its length and its sha256. A target under neither is refused. The first request carries no bytes, and
+  the guest asks for the bytes only when it has no tree of the digest.
+  [@test] ../crates/avl-host-sys/src/runfiles/tests.rs
+  [@test] ../crates/avl-host-sys/src/guest/runfiles/tests.rs
+  [@test] ../crates/avl-guest/src/runfiles/tests.rs
+  [@test] ../crates/avl-wire/src/runfiles/tests.rs
+  [@test] ../crates/avl-vm/src/daemon/build/tests.rs (`a_runfile_in_the_checkout_is_staged_with_its_digest`)
+  [@test] ../crates/avl-vm/src/daemon/start/tests.rs
+
+- The home of the daemon JVM is an empty directory of its staged generation. Its config, system and log directories
+  and the output tree of IDE Starter are on the guest disk. Each one has its own flag, so no path derives from a
+  checkout. The daemon refuses a home outside its generation.
+  [@test] ../crates/avl-vm/src/daemon/start/tests.rs
+  [@test] ../../../../plugins/air/tests/integration/uiDaemon/testSrc/AirUiDaemonStagedHomeTest.kt
 
 - A run that rules out each of its classes is not a run that matched no class. The controller gives the
   reason of each class, and does not tell the person to look at the selector.
@@ -424,6 +496,32 @@ The daemon's half and the IDE's half of supervision are in
   [@test] ../crates/avl-wire/src/progress/tests.rs
   [@test] ../crates/avl-vm/src/console/state/tests.rs
 
+- The run journal holds the life of the lane IDE. An `ideLaunched` record names the pid, the launch name, the
+  launch key and the log directory. An `ideExited` record names the pid, the exit code and the signal.
+  [@test] ../crates/avl-wire/src/daemon/tests.rs
+
+- The watchdog evidence may name a file of an IDE context. Examples are a heartbeat screenshot and the thread
+  dump before a kill.
+  [@test] ../crates/avl-wire/src/report/tests.rs
+
+- The dumps that each `slowStep` record names are evidence too. The controller fetches them beside the report,
+  after the files of the expiry, and at most eight. The journal keeps the record as a `runProgress` event.
+  [@test] ../crates/avl-wire/src/report/tests.rs
+  [@test] ../crates/avl-wire/src/daemon/tests.rs
+
+- `report time <run or iteration>` says where the time of a run went. It reads the journal of the run, the report of
+  each iteration and the spans of the trace bundles, and needs no worker. The answer is the total, and the time
+  inside the test cases and outside them. It adds the launches of the lane IDE and the time of the `restart` spans.
+  It shows the time of each `relaunch` part, such as the wait for the process. It also names the ten longest test
+  cases and the ten lane spans with the most self time. An iteration id names that iteration of the newest run that
+  reported it. A file that cannot be read is a note of the answer.
+  [@test] ../crates/avl-vm/src/report/time/tests.rs
+  [@test] ../crates/avl-vm/src/cli/tests.rs
+
+- With `--baseline <run or iteration>`, `report time` adds the ratio of each test class, this run over the
+  baseline. It also adds the median ratio over the classes that took more than 5 s in the baseline.
+  [@test] ../crates/avl-vm/src/report/time/tests.rs
+
 - On the daemon control channel, a field that is absent is absent, and is not null. The controller tells
   the two apart. The controller refuses an explicit null on that channel.
   [@test] ../../../../plugins/air/tests/integration/uiDaemon/testSrc/AirUiDaemonProtocolTest.kt
@@ -506,7 +604,7 @@ The daemon's half and the IDE's half of supervision are in
   that arrived are not the bytes that the agent named, the controller refuses the pull with
   `pull_digest_mismatch` and publishes nothing. On a Parallels worker, the guest sends the file in base64.
   [@test] ../crates/avl-vm/src/lane/observe/pull/tests.rs (`pull_refuses_bytes_the_receipt_does_not_name`)
-  [@test] ../crates/avl-vm/src/lane/observe/pull/tests.rs (`a_pull_moves_raw_bytes_on_tart_and_docker_and_base64_on_parallels`)
+  [@test] ../crates/avl-vm/src/lane/observe/pull/tests.rs (`a_pull_moves_raw_bytes_on_tart_docker_and_container_linux_and_base64_on_parallels`)
   [@test] ../crates/avl-guest/src/read_file/tests.rs
 
 - The record of an installed guest agent names the checkout which installed it. A controller of a different
@@ -530,9 +628,9 @@ The daemon's half and the IDE's half of supervision are in
   [@test] ../crates/avl-vm/src/lane/observe/status/tests.rs
 
 - Each verdict which can carry a reason has an error field beside it on the same row. `parityReady` is such
-  a verdict, and `parityError` gives the refusal code. A worker which a different checkout provisioned
-  reports `parityReady` false with `guest_init_stale`. The next run of this checkout provisions that worker
-  again. The controller resolves the host paths of the pool one time. A host path which it cannot resolve
+  a verdict, and `parityError` gives the refusal code. A worker which the controller provisioned for a different
+  Bazel output root reports `parityReady` false with `guest_init_stale`. The next run provisions that worker
+  again. A worker which a different checkout provisioned is ready, because the layout names no checkout. The controller resolves the host paths of the pool one time. A host path which it cannot resolve
   is `hostPathsError` of the answer, and not a refusal on each row. Every `parityReady` of that pool is
   then null, and `parityError` gives only a code of the guest.
   [@test] ../crates/avl-vm/src/lane/observe/status/tests.rs
@@ -611,6 +709,67 @@ The daemon's half and the IDE's half of supervision are in
   name against the spelling the installed agents already send.
   [@test] ../crates/avl-wire/src/verb/tests.rs
 
+- The guest agent reads the two documents of the lane IDE on standard input. `ide-prepare` reads the context
+  document, and `ide-launch` reads the launch document. Neither document holds a secret.
+  [@test] ../crates/avl-wire/src/ide/tests.rs
+
+- A preparation lays out the context: the data directories, the project, the disabled plugins, and the `home` and
+  `bin` directories. Each directory has mode 0700.
+  [@test] ../crates/avl-guest/src/ide/prepare/tests.rs
+
+- The lane IDE runs in a closed environment from its context. `HOME` is the `home` directory of the context, and
+  `PATH` starts with its `bin` directory.
+  [@test] ../crates/avl-guest/src/ide/launch/tests.rs
+  [@test] ../crates/avl-guest/src/supervisor/tests.rs
+
+- Beside those two, the environment of the lane IDE holds the fixed constants of the supervisor and an allowlist
+  of the agent's own environment. No other variable of the agent reaches the IDE.
+  [@test] ../crates/avl-guest/src/supervisor/tests.rs
+
+- The lane IDE always runs under a UTF-8 locale. A UTF-8 locale of the agent's own environment stays as it is. When
+  the agent has no locale, or one that is not UTF-8, the IDE gets `LC_ALL=C.UTF-8`.
+  [@test] ../crates/avl-guest/src/supervisor/tests.rs
+
+- The run spec of the IDE records the environment policy and its context directory. It holds no variable value.
+  A run spec without a policy inherits the environment of the agent, as the daemon run does.
+  [@test] ../crates/avl-wire/src/supervisor/tests.rs
+  [@test] ../crates/avl-guest/src/ide/launch/tests.rs
+
+- The IDE argv is the JVM, the argument file of the context, and the project directory. The launch record of the
+  context holds no property value.
+  [@test] ../crates/avl-guest/src/ide/launch/tests.rs
+
+- The agent owns the data directories of the IDE. A launch document or a flags file that sets one of their paths
+  is refused.
+  [@test] ../crates/avl-wire/src/ide/tests.rs
+  [@test] ../crates/avl-guest/src/ide/launch/tests.rs
+
+- A launch on a Linux guest refuses `ide_display_missing` when the agent's own environment has no `DISPLAY`. A
+  preparation or a launch for a context whose IDE runs refuses `ide_running`.
+  [@test] ../crates/avl-guest/src/ide/prepare/tests.rs
+  [@test] ../crates/avl-guest/src/ide/launch/tests.rs
+
+- A launch kills the JCEF helpers that name its context, and no other process.
+  [@test] ../crates/avl-guest/src/ide/reap/tests.rs
+
+- When the child of a run exits, the supervisor kills the processes that stay in the process group of the child. The
+  supervisor log of the run names each of them. The run then finishes with the exit of the child, and it is not
+  orphaned.
+  [@test] ../crates/avl-guest/src/supervisor/tests.rs
+
+- `cancel --thread-dump` writes a thread dump of the process before the signal. The dump of an IDE run goes into
+  the log directory of its launch. A failed dump keeps its file.
+  [@test] ../crates/avl-guest/src/supervisor/thread_dump/tests.rs
+
+- `ide-gc` keeps the newest log directories of each context. It always keeps the log directory of a live IDE.
+  [@test] ../crates/avl-guest/src/ide/gc/tests.rs
+
+- A fresh preparation deletes the data directories, the project, the `home` and `bin` directories, the argument
+  file and the launch record. It keeps the log directories and the run directories of earlier launches, and
+  `ide-gc` trims them.
+  [@test] ../crates/avl-guest/src/ide/prepare/tests.rs
+  [@test] ../crates/avl-guest/src/ide/launch/tests.rs
+
 - The supervisor gives the schema version in each reply. The controller refuses a reply that has a version
   it does not know.
   [@test] ../crates/avl-host-sys/src/guest/supervisor/tests.rs
@@ -626,6 +785,40 @@ The daemon's half and the IDE's half of supervision are in
   supervisor for the whole life of the daemon. A release that read only that slot could never give back a
   worker that has a warm daemon.
   [@test] ../crates/avl-vm/src/worker/lease/tests.rs
+
+- On the Apple `container` engine, a release keeps the warm daemon until the idle deadline only. The release
+  writes the deadline record and starts a detached `pool idle-stop` process, and the reply names `idleStopAt`.
+  `AIR_VM_IDLE_STOP` sets the grace, 3600 s by default. `off` writes nothing, and `0` stops the worker inside the
+  release.
+  [@test] ../crates/avl-vm/src/worker/lease/tests.rs
+  [@test] ../crates/avl-base/src/config/tests.rs
+
+- At the deadline the idle stop stops a running worker that no lease holds. It keeps a leased worker, and a
+  worker whose record is gone or names another nonce. It never starts a server that is down.
+  [@test] ../crates/avl-vm/src/worker/worker/docker/tests.rs
+
+- An acquisition ranks the free slots. The first choice is a running slot whose daemon serves the build that asks.
+  Then come a running slot, a stopped slot and an absent slot. Within one class the pool order stays, and a slot without a running
+  state keeps its place. The probes start nothing. The holder recovery comes first. The reply names the class in
+  `slotReason`.
+  [@test] ../crates/avl-vm/src/worker/lease/set/tests.rs
+  [@test] ../crates/avl-vm/src/worker/lease/tests.rs
+
+- A lease acquisition and a start remove the deadline record, so the worker keeps running for its new holder.
+  [@test] ../crates/avl-vm/src/worker/lease/tests.rs
+  [@test] ../crates/avl-vm/src/worker/worker/docker/tests.rs
+
+- On the Apple `container` engine the default pool size follows the host memory. The workers get at most a
+  quarter of it, from 2 to 16 slots. `AIR_VM_MAX_WORKERS` and `AIR_VM_WORKERS` win, and every other engine and
+  backend keeps 2 slots. `status` names the size and its reason.
+  [@test] ../crates/avl-base/src/config/tests.rs
+  [@test] ../crates/avl-host-sys/src/host/tests.rs
+  [@test] ../crates/avl-vm/src/lane/observe/status/tests.rs
+
+- On the Apple `container` engine the builder VM stops after each image build. The Docker dialect has no builder
+  to stop.
+  [@test] ../crates/avl-vm/src/worker/container/tests.rs
+  [@test] ../crates/avl-vm/src/worker/docker/tests.rs
 
 - A release succeeds when the run slot is free. A release also succeeds when the slot holds the idle daemon of
   this controller.
@@ -664,6 +857,42 @@ The daemon's half and the IDE's half of supervision are in
   run process.
   [@test] ../crates/avl-vm/src/worker/lease/tests.rs
   [@test] ../crates/avl-vm/src/worker/worker/tests.rs
+
+- A lane IDE is a supervisor run in the slot of its own context. A cancel of the daemon run does not stop it.
+  [@test] ../crates/avl-guest/src/ide/launch/tests.rs
+
+- A daemon restart for a change of the stable tier keeps each live lane IDE of the same product. The decision and
+  the timing line say `keep`.
+  [@test] ../crates/avl-vm/src/daemon/iterate/tests.rs
+  [@test] ../crates/avl-guest/src/ide/gc/tests.rs
+
+- A run on a healthy daemon that holds no running lane IDE launches the IDE again. A lease release causes this
+  state. The decision and the timing line say `relaunch`.
+  [@test] ../crates/avl-vm/src/daemon/iterate/tests.rs
+
+- The push offers the context plugin files with the test jars, and uploads only the files that the guest does not
+  hold. When only the context plugins changed, the run relaunches the IDE and refreshes no share. The decision and
+  the timing line say `relaunch`, and the reason is `the bridge plugin changed`. No lane distribution carries the
+  bridge plugin, so a bridge edit moves no product digest and needs no remount. A daemon record without a plugin
+  identity decides nothing on it.
+  [@test] ../crates/avl-vm/src/daemon/iterate/tests.rs
+  [@test] ../crates/avl-vm/src/daemon/run/tests.rs
+
+- Every other daemon start stops every lane IDE of the worker. A restart that remounts a VirtioFS share also stops
+  them, because each IDE runs from the share.
+  [@test] ../crates/avl-vm/src/daemon/start/tests.rs
+
+- `daemon stop` and a lease release stop every lane IDE of the worker. The next holder gets no IDE of the previous
+  runs. A pool recycle stops them too, before it unmakes the worker.
+  [@test] ../crates/avl-vm/src/daemon/command/tests.rs
+  [@test] ../crates/avl-vm/src/worker/lease/tests.rs
+
+- A daemon start whose stop of the lane IDEs fails refuses. It remounts nothing and stages nothing.
+  [@test] ../crates/avl-vm/src/daemon/start/tests.rs
+
+- A remount fails closed while a lane IDE runs. After the quiesce, a run that is not finished refuses
+  `daemon_mount_quiesce_failed`.
+  [@test] ../crates/avl-vm/src/daemon/iterate/tests.rs
 
 - A run without a receipt gives its lease back when its daemon start fails the health poll.
   [@test] ../crates/avl-vm/src/daemon/command/tests.rs
@@ -722,5 +951,6 @@ The [controller to-do list](../docs/ui-lane-controller-todo.md) holds the open w
 - [ADR 0059](../docs/decisions/0059-the-ui-lane-tooling-is-rust.md)
 - [ADR 0106](../docs/decisions/0106-a-warm-daemon-survives-a-lease-release.md)
 - [ADR 0182](../docs/decisions/0182-the-daemon-is-reached-through-the-exec-channel.md)
+- [ADR 0220](../../../../plugins/air/docs/decisions/0220-the-guest-agent-launches-the-lane-ide.md)
 - [Flow UI Scenarios](../../../../plugins/air/spec/docs/flow-ui-scenarios.spec.md)
 - [Scenario Traces](scenario-trace.spec.md)

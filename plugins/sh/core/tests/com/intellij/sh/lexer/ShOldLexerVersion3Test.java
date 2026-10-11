@@ -1,345 +1,416 @@
 // Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.sh.lexer;
 
-import com.intellij.lexer.Lexer;
 import com.intellij.openapi.application.PluginPathManager;
-import com.intellij.testFramework.LexerTestCase;
-import org.jetbrains.annotations.NotNull;
+import com.intellij.platform.testFramework.junit5.codeInsight.fixture.LexerTestFixture;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
+import com.intellij.testFramework.junit5.fixture.TestFixtures;
+import org.junit.jupiter.api.Test;
 
-public class ShOldLexerVersion3Test extends LexerTestCase {
-  @Override
-  protected @NotNull Lexer createLexer() {
-    return new ShLexer();
-  }
+import static com.intellij.platform.testFramework.junit5.codeInsight.fixture.LexerTestFixtureKt.lexerFixture;
 
-  @Override
-  protected @NotNull String getDirPath() {
-    return PluginPathManager.getPluginHomePath("sh") + "/core/testData/oldLexer/v3";
-  }
+@TestFixtures
+public class ShOldLexerVersion3Test {
+  private final TestFixture<LexerTestFixture> lexer =
+    lexerFixture(PluginPathManager.getPluginHomePath("sh") + "/core/testData/oldLexer/v3", () -> new ShLexer());
 
-  @NotNull
-  @Override
-  protected String getPathToTestDataFile(@NotNull String extension) {
-    return getDirPath() + "/" + getTestName(true) + extension;
-  }
-
+  @Test
   public void testSimpleDefTokenization() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testVariables() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testArrayVariables() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testArrayWithString() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testSquareBracketArithmeticExpr() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testArithmeticExpr() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testLetExpressions() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testShebang() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testIdentifier() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testStrings() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testSubshellString() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testSubshellSubstring() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testWords() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testInternalCommands() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testExpressions() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testSubshell() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testNumber() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testFunction() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testVariable() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testRedirect1() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testConditional() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testBracket() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testParameterSubstitution() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testWeirdStuff1() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testCaseWhitespacePattern() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testNestedCase() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testBackquote1() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testCasePattern() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testAssignmentList() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testEval() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testNestedStatements() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testV4Lexing() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testParamExpansionNested() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testParamExpansion() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testArithmeticLiterals() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testReadCommand() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testUmlaut() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testSubshellExpr() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testIssue201() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testHeredoc() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testMultilineHeredoc() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testIssue118() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testIssue125() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testIssue199() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testIssue242() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testIssue246() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testIssue266() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testIssue270() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testIssue272() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testIssue300() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testIssue303() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testIssue308() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testIssue89() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testIssue320() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testIssue325() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testIssue327() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testIssue330() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testIssue330Var() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testIssue341() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testIssue343() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testIssue354() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testIssue389() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testTrapLexing() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testEvalLexing() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testIssue376() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testIssue367() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testIssue418() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testHereString() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testUnicode() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testLineContinuation() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testIssue358() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testIssue426() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testIssue431() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testIssue419() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testIssue401() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testIssue457() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testIssue458() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testIssue469() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testIssue474() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 
+  @Test
   public void testIssue505() {
-    doFileTest("sh");
+    lexer.get().doFileTest("sh");
   }
 }

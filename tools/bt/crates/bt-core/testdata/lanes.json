@@ -23,6 +23,7 @@
     "//plugins/air/tests/integration/headless/junie:junie_test_lib",
     "//plugins/air/tests/integration/headless/pi:pi_test_lib",
     "//plugins/air/tests/integration/ui-live:ui-live_test_lib",
+    "//plugins/air/tests/integration/ui-perf:ui-perf_test_lib",
     "//plugins/air/tests/integration/ui-real:ui-real_test_lib",
     "//plugins/air/tests/integration/ui:ui_test_lib",
     "//plugins/air/tests/property/acp:air-backend-acp-property-tests_test_lib",
@@ -68,7 +69,7 @@
     },
     {
       "name": "ui",
-      "description": "deterministic UI-flow scenarios (launches a real IDE via IDE Starter)",
+      "description": "deterministic UI-flow scenarios (launches a real IDE through the guest agent)",
       "target": "//plugins/air/tests/integration/ui/...",
       "extra": [
         "--build_tests_only",
@@ -110,6 +111,16 @@
       "integrationTag": "air-integration-ui-live",
       "testLabel": "//plugins/air/tests/integration/ui-live:ui-live_test",
       "junitTag": "air-flow-ui-live"
+    },
+    {
+      "name": "ui-perf",
+      "description": "the Air performance tests on the product heap, explicit-only (each takes up to 90 min; the target is manual, and no --changed, suites, shard or flake picks it; a guest run is vm.cmd run --lane ui-perf)",
+      "target": "//plugins/air/tests/integration/ui-perf:ui-perf_test",
+      "extra": [],
+      "shards": 1,
+      "integrationTag": "air-integration-ui-perf",
+      "testLabel": "//plugins/air/tests/integration/ui-perf:ui-perf_test",
+      "junitTag": "air-ui-perf"
     },
     {
       "name": "gui-chat",

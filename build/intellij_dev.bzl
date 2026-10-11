@@ -28,6 +28,8 @@ def intellij_dev_dist_config(name, dist, visibility = None, tags = []):
         visibility = visibility,
     )
 
+# The JVM flags that every dev launch of an IDE starts with. A rule that writes the flags of an IDE launch elsewhere loads
+# this list, so the two launches agree.
 DEFAULT_JVM_FLAGS = [
     "--enable-native-access=ALL-UNNAMED",
     "-ea",

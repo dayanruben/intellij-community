@@ -36,6 +36,7 @@ use crate::daemon::flake::{DEFAULT_FLAKE_RESET, FlakeArgs, flake_reset_names};
 use crate::daemon::shard::{MAX_USEFUL_SHARDS, ShardArgs};
 use crate::daemon::{DaemonVerb, Junit5FilterKind, RunCommandArgs};
 use crate::lane::{LsArgs, PeekabooArgs};
+use crate::report::ReportVerb;
 use crate::worker::lease::{AcquireRequest, LeaseCommand, parse_count};
 use crate::worker::worker::{PoolCommand, PoolTarget};
 use avl_base::{Environment, Exit, Refusal, Selection};
@@ -181,8 +182,9 @@ pub(crate) struct Global {
     /// Adds NDJSON progress on stderr.
     #[arg(long, global = true)]
     pub stream: bool,
-    /// The pool: tart, parallels or docker. docker is the Ubuntu guest in a container.
-    #[arg(long, global = true, value_name = "tart|parallels|docker")]
+    /// The pool: tart, parallels, docker or container-linux. docker is the Ubuntu guest in a container, and
+    /// container-linux is the container of the testing-ui skill.
+    #[arg(long, global = true, value_name = "tart|parallels|docker|container-linux")]
     pub backend: Option<String>,
     /// The mode-0600 lease receipt.
     #[arg(long = "lease-file", global = true, value_name = "FILE")]
@@ -198,6 +200,10 @@ pub(crate) enum Cmd {
         action: ImageAction,
     },
     /// Materializes, starts, stops, collects or recycles the pool.
+    ///
+    /// The pool has two slots. On the Apple container engine the default follows the host memory instead: the workers
+    /// get at most a quarter of it, from 2 to 16 slots, so a host of 128 GiB with workers of 8 GiB has 4. status names
+    /// the size and its reason. AIR_VM_MAX_WORKERS sets the count, and AIR_VM_WORKERS names the slots.
     Pool {
         #[command(subcommand)]
         verb: PoolVerb,
@@ -260,13 +266,18 @@ pub(crate) enum Cmd {
         #[arg(value_name = "RELATIVE_ARTIFACT_PATH")]
         destination: String,
     },
-    /// Where the worker's VNC endpoint is; needs --lease-file.
+    /// Where the worker's VNC endpoint is; needs --lease-file, except on container-linux, whose pool has one worker.
     Vnc,
     /// Measures the start-up of the IDE on this host, from a staged copy of its dev distribution.
     #[command(long_about = crate::bench::LONG_ABOUT, after_help = crate::bench::EXIT_CODES)]
     Bench {
         #[command(subcommand)]
         verb: BenchVerb,
+    },
+    /// Reads what a run left on this host; needs no worker.
+    Report {
+        #[command(subcommand)]
+        verb: ReportVerb,
     },
 }
 
@@ -289,6 +300,7 @@ impl Cmd {
             Self::Pull { .. } => "pull",
             Self::Vnc => "vnc",
             Self::Bench { .. } => "bench",
+            Self::Report { .. } => "report",
         }
     }
 
@@ -334,6 +346,15 @@ pub(crate) enum PoolVerb {
         #[arg(value_name = "all|worker", value_parser = pool_target)]
         target: PoolTarget,
     },
+    /// The detached process of an idle stop, which a lease release on the Apple container engine starts.
+    #[command(hide = true)]
+    IdleStop {
+        #[arg(value_name = "WORKER")]
+        worker: String,
+        /// The nonce of the idle stop record that the release wrote.
+        #[arg(long, value_name = "NONCE")]
+        nonce: String,
+    },
 }
 
 fn pool_target(value: &str) -> Result<PoolTarget, Refusal> {
@@ -348,6 +369,7 @@ impl From<PoolVerb> for PoolCommand {
             PoolVerb::Stop { target } => Self::Stop(target),
             PoolVerb::Gc => Self::Gc,
             PoolVerb::Recycle { target } => Self::Recycle(target),
+            PoolVerb::IdleStop { worker, nonce } => Self::IdleStop { worker, nonce },
         }
     }
 }
@@ -374,6 +396,10 @@ pub(crate) enum LeaseVerb {
     /// The pool's leases; with a receipt, that worker's holder too.
     Show,
     /// Releases the receipt's lease.
+    ///
+    /// The worker keeps its warm daemon for the next lease. On the Apple container engine an unleased worker stops
+    /// AIR_VM_IDLE_STOP seconds after the release, 3600 by default, and the reply names the deadline as idleStopAt.
+    /// `off` keeps it running, and 0 stops it at the release. The next run starts it again with a cold daemon.
     Release,
 }
 

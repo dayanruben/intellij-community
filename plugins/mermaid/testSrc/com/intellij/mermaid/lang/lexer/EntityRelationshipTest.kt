@@ -1,19 +1,24 @@
 package com.intellij.mermaid.lang.lexer
 
-class EntityRelationshipTest : MermaidLexerTestCase() {
+import com.intellij.testFramework.junit5.fixture.TestFixtures
+import org.junit.jupiter.api.Test
+
+@TestFixtures
+class EntityRelationshipTest {
+  private val lexer by mermaidLexerFixture("entityRelationship")
+
   // Regression guard: `direction` is only a keyword when a direction value follows, so an entity may be
   // called `direction`. Matches upstream, which requires the value too.
+  @Test
   fun `test entity named direction`() {
     val content = """
     erDiagram
       direction ||--|| CAR : owns
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
-  override val diagramName: String
-    get() = "entityRelationship"
-
+  @Test
   fun `test simple entity relationship`() {
     val content = """
     erDiagram
@@ -21,9 +26,10 @@ class EntityRelationshipTest : MermaidLexerTestCase() {
       ORDER ||--|{ LINE-ITEM : contains
       CUSTOMER }|..|{ DELIVERY-ADDRESS : uses
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
+  @Test
   fun `test entity with attributes`() {
     val content = """
     erDiagram
@@ -35,9 +41,10 @@ class EntityRelationshipTest : MermaidLexerTestCase() {
       }
       ORDER ||--|{ LINE-ITEM : contains
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
+  @Test
   fun `test entity with attribute keys and comments`() {
     val content = """
     erDiagram
@@ -50,18 +57,20 @@ class EntityRelationshipTest : MermaidLexerTestCase() {
       }
       PERSON ||--o{ NAMED-DRIVER : is
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
+  @Test
   fun `test entity relationship with double quoted label`() {
     val content = """
     erDiagram
       CUSTOMER ||--o{ ORDER : "pla ce s"
       ORDER ||--|{ LINE-ITEM : ""
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
+  @Test
   fun `test entity names with double quotes`() {
     val content = """
     erDiagram
@@ -76,9 +85,10 @@ class EntityRelationshipTest : MermaidLexerTestCase() {
     
       "Service::User" }o--o{ "Service::Log" : has_many
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
+  @Test
   fun `test cardinality aliases`() {
     val content = """
     erDiagram
@@ -86,9 +96,10 @@ class EntityRelationshipTest : MermaidLexerTestCase() {
       ORDER one to one or more LINE-ITEM : contains
       CUSTOMER }| optionally to |{ DELIVERY-ADDRESS : uses
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
+  @Test
   fun `test attr keys`() {
     val content = """
     erDiagram
@@ -97,26 +108,29 @@ class EntityRelationshipTest : MermaidLexerTestCase() {
         string driverLicence PK, FK
       }
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
+  @Test
   fun `test parent-child relationship`() {
     val content = """
     erDiagram
       PROJECT u--|{ TEAM_MEMBER : parent
       TEAM_MEMBER }|--u PROJECT : child
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
+  @Test
   fun `test keyword in attribute`() {
     val content = """
     erDiagram
       BOOK{string *title}
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
+  @Test
   fun `test entity alias`() {
     val content = """
     erDiagram
@@ -129,6 +143,6 @@ class EntityRelationshipTest : MermaidLexerTestCase() {
       }
       p ||--o| c: has
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 }

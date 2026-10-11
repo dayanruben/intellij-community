@@ -3,36 +3,27 @@ package org.jetbrains.plugins.groovy.lang.parser;
 
 import com.intellij.lexer.Lexer;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.testFramework.LexerTestCase;
+import com.intellij.platform.testFramework.junit5.codeInsight.fixture.LexerTestFixture;
+import com.intellij.testFramework.PlatformTestUtil;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
+import com.intellij.testFramework.junit5.fixture.TestFixtures;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.groovy.lang.lexer.GroovyLexer;
 import org.jetbrains.plugins.groovy.util.TestUtils;
+import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-public class GroovyLexerTest extends LexerTestCase {
-  @NotNull
-  @Override
-  protected Lexer createLexer() {
-    return new GroovyLexer();
-  }
+import static com.intellij.platform.testFramework.junit5.codeInsight.fixture.LexerTestFixtureKt.lexerFixture;
 
-  @NotNull
-  @Override
-  protected String getDirPath() {
-    return "lexer";
-  }
+@TestFixtures
+public class GroovyLexerTest {
+  private final TestFixture<LexerTestFixture> lexer = lexerFixture(TestUtils.getAbsoluteTestDataPath() + "lexer", () -> new GroovyLexer());
 
-  @Override
-  protected @NotNull String getPathToTestDataFile(@NotNull String extension) {
-    return TestUtils.getAbsoluteTestDataPath() + getDirPath() + "/" + getTestName(true) + extension;
-  }
-
-  @Override
-  protected String printTokens(@NotNull final Lexer lexer, @NotNull CharSequence text, int start) {
-    lexer.start(text, start, text.length());
+  private static String printTokens(@NotNull Lexer lexer, @NotNull CharSequence text) {
+    lexer.start(text, 0, text.length());
     List<List<String>> tokens = new ArrayList<>(Arrays.asList(new ArrayList<>(Arrays.asList("offset", "state", "text", "type"))));
     Object tokenType;
     while ((tokenType = lexer.getTokenType()) != null) {
@@ -66,8 +57,9 @@ public class GroovyLexerTest extends LexerTestCase {
     return result.toString();
   }
 
+  @Test
   public void testComments() {
-    doTest("""
+    String text = """
              /**/
              /***/
              //
@@ -77,6 +69,9 @@ public class GroovyLexerTest extends LexerTestCase {
              
              
              //
-             """);
+             """;
+    LexerTestFixture fixture = lexer.get();
+    PlatformTestUtil.assertSameLinesWithFile(fixture.getPathToTestDataFile(".txt"), printTokens(fixture.createLexer(), text));
+    fixture.checkCorrectRestart(text);
   }
 }

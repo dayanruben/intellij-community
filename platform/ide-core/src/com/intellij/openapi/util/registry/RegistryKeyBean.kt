@@ -33,6 +33,11 @@ class RegistryKeyBean private constructor() {
     @ApiStatus.Internal
     const val KEY_CONFLICT_LOG_CATEGORY: String = "com.intellij.openapi.util.registry.overrides"
 
+    /** The language server fills a registry per snapshot, so it turns this INFO line off. Warnings stay. */
+    @ApiStatus.Internal
+    @JvmField
+    var logOverrides: Boolean = true
+
     @ApiStatus.Internal
     fun addKeysFromPlugins() {
       val point = (ApplicationManager.getApplication().extensionArea)
@@ -118,9 +123,11 @@ class RegistryKeyBean private constructor() {
               " e.g. declare and implement an extension to customize the required behavior dynamically."
             )
           } else {
-            val overrider = presentPlugin(newDescriptor)
-            val overridden = presentPlugin(oldDescriptor)
-            logger.info("Plugin $overrider overrides the registry key ${newDescriptor.name} declared by plugin $overridden.")
+            if (logOverrides) {
+              val overrider = presentPlugin(newDescriptor)
+              val overridden = presentPlugin(oldDescriptor)
+              logger.info("Plugin $overrider overrides the registry key ${newDescriptor.name} declared by plugin $overridden.")
+            }
             map.put(newDescriptor.name, newDescriptor)
           }
         }

@@ -17,6 +17,7 @@ jvm_library(
         "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common",
         "//libraries/kotlinc/kotlin-jps-common:libraries-kotlinc-kotlin-jps-common",
         "//plugins/kotlin/base/facet",
+        "//platform/structuralsearch/plugin",
     ],
 )
 
@@ -37,6 +38,7 @@ jvm_library(
         # do not sort,
         ":tests",
         "//plugins/kotlin:kotlin-plugin-community-main_test_lib",
+        "//platform/structuralsearch/plugin:plugin_test_lib",
     ],
     deps = [
         # do not sort,

@@ -221,11 +221,11 @@ fun intellijCommunityBaseFragment(platformPrefix: String? = null): ProductModule
   // the sqlite JDBC driver `importSettings` needs; private, so plugins bundle their own copy of it
   privateModule("intellij.libraries.sqlite")
   // Load-bearing product defaults stay core-time.
-  // The com.intellij.idea.customization plugin holds only additive rows.
+  // The IDEA-specific customization lives in intellij.idea.customization.plugin, which IntelliJ IDEA and its JetBrains Client bundle.
   module("intellij.platform.customization.min")
-  module("intellij.idea.customization.base")
   if (platformPrefix == "AndroidStudio") {
-    // Android Studio's bundled plugin set is managed externally, so this module stays in its core
+    // Android Studio's bundled plugin set is managed externally, so these modules stay in its core
+    module("intellij.idea.customization.base")
     module("intellij.idea.customization.backend")
   }
 
@@ -241,9 +241,12 @@ fun intellijCommunityBaseFragment(platformPrefix: String? = null): ProductModule
 
   embeddedModule("intellij.idea.community.ide.customization")
 
-  module("intellij.platform.ide.nonModalWelcomeScreen")
-  module("intellij.platform.ide.nonModalWelcomeScreen.frontend")
-  module("intellij.platform.ide.nonModalWelcomeScreen.backend")
+  if (platformPrefix == "AndroidStudio") {
+    // IntelliJ IDEA gets these modules from intellij.idea.customization.plugin
+    module("intellij.platform.ide.nonModalWelcomeScreen")
+    module("intellij.platform.ide.nonModalWelcomeScreen.frontend")
+    module("intellij.platform.ide.nonModalWelcomeScreen.backend")
+  }
 }
 
 inline fun ideaCommunityWindowsCustomizer(

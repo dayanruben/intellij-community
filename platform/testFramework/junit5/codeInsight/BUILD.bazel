@@ -55,6 +55,7 @@ jvm_library(
         "//platform/lang-api:lang",
         "//platform/projectModel-api:projectModel",
         "//platform/ide-core",
+        "//platform/syntax/syntax-api:syntax",
         ":libraries_junit6_provided",
         ":libraries_junit6-jupiter_provided",
         ":libraries_junit4_provided",
@@ -90,6 +91,7 @@ jvm_library(
         "//platform/ide-core:ide-core_test_lib",
         "//libraries/junit4",
         "//libraries/junit4:junit4_test_lib",
+        "//platform/syntax/syntax-api:syntax_test_lib",
     ],
 )
 ### auto-generated section `build intellij.platform.testFramework.junit5.codeInsight` end
@@ -145,6 +147,10 @@ jvm_library(
         "//platform/testFramework/junit5:junit5_test_lib",
         "//platform/util",
         "//platform/util:util_test_lib",
+        "//platform/syntax/syntax-api:syntax",
+        "//platform/syntax/syntax-api:syntax_test_lib",
+        "//platform/syntax/syntax-util:util",
+        "//platform/syntax/syntax-util:util_test_lib",
     ],
 )
 ### auto-generated section `build intellij.platform.testFramework.junit5.codeInsight.tests` end

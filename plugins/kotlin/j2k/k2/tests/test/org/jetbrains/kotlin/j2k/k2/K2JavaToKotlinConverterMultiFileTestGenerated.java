@@ -33,6 +33,11 @@ public class K2JavaToKotlinConverterMultiFileTestGenerated extends AbstractK2Jav
         runTest("../../shared/tests/testData/multiFile/AnnotationDoesNotLoseImport/");
     }
 
+    @TestMetadata("ClassNullMarked")
+    public void testClassNullMarked() throws Exception {
+        runTest("../../shared/tests/testData/multiFile/ClassNullMarked/");
+    }
+
     @TestMetadata("DetectPropertiesMultipleFiles")
     public void testDetectPropertiesMultipleFiles() throws Exception {
         runTest("../../shared/tests/testData/multiFile/DetectPropertiesMultipleFiles/");

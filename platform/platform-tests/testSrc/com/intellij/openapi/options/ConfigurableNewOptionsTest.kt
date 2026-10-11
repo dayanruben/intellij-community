@@ -4,6 +4,7 @@ package com.intellij.openapi.options
 import com.intellij.ide.plugins.newui.PluginUiModel
 import com.intellij.ide.plugins.newui.PluginUpdatesService
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.UiWithModelAccess
 import com.intellij.openapi.application.WriteIntentReadAction
 import com.intellij.openapi.options.ex.ConfigurableExtensionPointUtil
@@ -13,11 +14,13 @@ import com.intellij.openapi.updateSettings.impl.PluginUpdateHandler
 import com.intellij.openapi.updateSettings.impl.PluginUpdateProgressSink
 import com.intellij.openapi.updateSettings.impl.PluginUpdateHandlerProvider
 import com.intellij.openapi.updateSettings.impl.PluginUpdatesModel
+import com.intellij.platform.ide.customization.ExternalProductResourceUrls
 import com.intellij.testFramework.ExtensionTestUtil
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.junit5.SystemProperty
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.junit5.TestDisposable
+import com.intellij.testFramework.replaceService
 import com.intellij.ui.components.Badge
 import com.intellij.util.ui.UIUtil
 import kotlinx.coroutines.Dispatchers
@@ -37,6 +40,11 @@ internal class ConfigurableNewOptionsTest {
     ExtensionTestUtil.maskExtensions(PluginUpdateHandlerProvider.EP_NAME, listOf(NoopPluginUpdateHandlerProvider), disposable)
   }
 
+  @BeforeEach
+  fun stubProductUrls(@TestDisposable disposable: Disposable) {
+    ApplicationManager.getApplication().replaceService(ExternalProductResourceUrls::class.java, NoProductUrls, disposable)
+  }
+
   @AfterEach
   fun drainPluginUpdates(): Unit = timeoutRunBlocking {
     PluginUpdatesService.getInstance().awaitUpdates()
@@ -46,6 +54,8 @@ internal class ConfigurableNewOptionsTest {
    * The test creates the component of every page, and the Grammar and Style page loads the LanguageTool rules.
    * The loader sets `jdk.xml.maxGeneralEntitySizeLimit`, which the Xerces parser of the test classpath rejects,
    * so the test states the parser of the JDK.
+   * The Language and Region page builds a help link, and the test classpath has no product plugin with the URLs,
+   * so the test stubs [ExternalProductResourceUrls].
    */
   @Test
   @SystemProperty(propertyKey = "javax.xml.parsers.SAXParserFactory",
@@ -161,6 +171,8 @@ internal class ConfigurableNewOptionsTest {
 
   private data class LeafConfigurable(val configurable: UnnamedConfigurable, val path: List<String>)
 }
+
+private object NoProductUrls : ExternalProductResourceUrls
 
 private object NoopPluginUpdateHandlerProvider : PluginUpdateHandlerProvider {
   override fun getPluginUpdateHandler(): PluginUpdateHandler = NoopPluginUpdateHandler

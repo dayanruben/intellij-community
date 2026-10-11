@@ -274,7 +274,7 @@ def _modular_loader(tables, product):
     """Whether the generated plan says `product` starts through the modular loader, which reads the repository at every start."""
     return getattr(_plan(tables, product), "modular_loader", False)
 
-def _platform_fragments(tables, product, runtime_module_repository = False):
+def _platform_fragments(tables, product, runtime_module_repository = False, platform_set = None):
     """The platform component labels of one split product, for a distribution declared outside the build package.
 
     Returns `struct(fragments, fragment_names)` in composition order, with absolute labels into `tables.build_package`.
@@ -282,10 +282,16 @@ def _platform_fragments(tables, product, runtime_module_repository = False):
     labels name the community platform set in the community build package. With `runtime_module_repository`, or for a
     product the plan marks `modular_loader`, the list ends with the `platform_runtime_module_repository` component; a
     product whose plan has none fails.
+
+    `platform_set` is the `name` of a platform set that the platform set macro declares for another target platform.
+    It defaults to the entry's `platform_set`. A community product fails with it, because the community half owns
+    those sets.
     """
     community = _community_product(tables, product)
+    if platform_set != None and community != None:
+        fail("Product '%s' is a community product, so the community half owns its platform sets; do not pass platform_set '%s'" % (product, platform_set))
     build_package = community.build_package if community != None else tables.build_package
-    platform_set = (community.product if community != None else tables.product)(product).platform_set
+    platform_set = platform_set or (community.product if community != None else tables.product)(product).platform_set
     layout = _platform_fragment_layout(tables, product)
     fragments = ["%s:%s_%s" % (build_package, platform_set, entry.suffix) for entry in layout]
     fragment_names = [entry.fragment_name for entry in layout]
@@ -842,9 +848,14 @@ def intellij_dev_dist_declarations(tables):
         """
         return _platform_set(tables, product, name, target_platform, visibility)
 
-    def platform_fragments(product, runtime_module_repository = False):
+    def platform_fragments(product, runtime_module_repository = False, platform_set = None):
         """The platform component labels of one split product. See `_platform_fragments`."""
-        return _platform_fragments(tables, product, runtime_module_repository = runtime_module_repository)
+        return _platform_fragments(
+            tables,
+            product,
+            runtime_module_repository = runtime_module_repository,
+            platform_set = platform_set,
+        )
 
     def declare_fragments_dist(
             name,

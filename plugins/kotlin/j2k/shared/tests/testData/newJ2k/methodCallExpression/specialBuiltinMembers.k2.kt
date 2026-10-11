@@ -15,7 +15,7 @@ internal class A {
         val i = map.entries.iterator().next().key!! + 1
     }
 
-    fun bar(list: MutableList<String?>, map: HashMap<String?, Int?>) {
+    fun bar(list: MutableList<String?>, map: HashMap<String?, Int>) {
         val c = "a".get(0)
         val b = 10.toByte()
         val i = 10.1.toInt()
@@ -34,7 +34,7 @@ internal class A {
 
         for (entry in map.entries) {
             val key = entry.key
-            val value: Int = entry.value!!
+            val value = entry.value
             entry.setValue(value + 1)
         }
     }

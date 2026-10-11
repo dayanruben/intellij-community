@@ -5186,6 +5186,11 @@ public abstract class K2JavaToKotlinConverterSingleFileTestGenerated extends Abs
             runTest("../../shared/tests/testData/newJ2k/nullability/optionalIsNotNull.java");
         }
 
+        @TestMetadata("overrideParameterFromImplementation.java")
+        public void testOverrideParameterFromImplementation() throws Exception {
+            runTest("../../shared/tests/testData/newJ2k/nullability/overrideParameterFromImplementation.java");
+        }
+
         @TestMetadata("OverrideWithInheritanceLoop.java")
         public void testOverrideWithInheritanceLoop() throws Exception {
             runTest("../../shared/tests/testData/newJ2k/nullability/OverrideWithInheritanceLoop.java");
@@ -5287,6 +5292,41 @@ public abstract class K2JavaToKotlinConverterSingleFileTestGenerated extends Abs
         @TestMetadata("complex.java")
         public void testComplex() throws Exception {
             runTest("../../shared/tests/testData/newJ2k/nullabilityGenerics/complex.java");
+        }
+
+        @TestMetadata("elementsAddedNotNull.java")
+        public void testElementsAddedNotNull() throws Exception {
+            runTest("../../shared/tests/testData/newJ2k/nullabilityGenerics/elementsAddedNotNull.java");
+        }
+
+        @TestMetadata("elementsAddedNull.java")
+        public void testElementsAddedNull() throws Exception {
+            runTest("../../shared/tests/testData/newJ2k/nullabilityGenerics/elementsAddedNull.java");
+        }
+
+        @TestMetadata("elementsExplicitTypeArgumentInNew.java")
+        public void testElementsExplicitTypeArgumentInNew() throws Exception {
+            runTest("../../shared/tests/testData/newJ2k/nullabilityGenerics/elementsExplicitTypeArgumentInNew.java");
+        }
+
+        @TestMetadata("elementsOfEnumValues.java")
+        public void testElementsOfEnumValues() throws Exception {
+            runTest("../../shared/tests/testData/newJ2k/nullabilityGenerics/elementsOfEnumValues.java");
+        }
+
+        @TestMetadata("elementsOfNewArray.java")
+        public void testElementsOfNewArray() throws Exception {
+            runTest("../../shared/tests/testData/newJ2k/nullabilityGenerics/elementsOfNewArray.java");
+        }
+
+        @TestMetadata("elementsOfPublicParameter.java")
+        public void testElementsOfPublicParameter() throws Exception {
+            runTest("../../shared/tests/testData/newJ2k/nullabilityGenerics/elementsOfPublicParameter.java");
+        }
+
+        @TestMetadata("elementsThroughExtendsWildcard.java")
+        public void testElementsThroughExtendsWildcard() throws Exception {
+            runTest("../../shared/tests/testData/newJ2k/nullabilityGenerics/elementsThroughExtendsWildcard.java");
         }
 
         @TestMetadata("javaInteropTodo.java")

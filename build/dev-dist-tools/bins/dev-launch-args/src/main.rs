@@ -3,8 +3,8 @@
 //! `dev-launch-args` writes the `java` argument file of a dev launch at build time.
 //!
 //! The rule `intellij_dev_java_launcher` (`community/build/intellij_dev.bzl`) runs the command `jvm-args` in an action.
-//! The row then starts `java @<row>.jvm.args`, and no process runs before the JVM. See [`jvm_args`] for the options and
-//! the file. Every other command line fails with the exit code 2.
+//! The row then starts `java @<row>.jvm.args`, and no process runs before the JVM. See [`jvm_args`] for the options.
+//! The crate `dev-launch` composes the file. Every other command line fails with the exit code 2.
 //!
 //! ```text
 //! dev-launch-args jvm-args --ide-config=<file> --home=<directory> --idea-properties=<file> --vm-options=<file> \
@@ -13,7 +13,6 @@
 //! ```
 
 mod jvm_args;
-mod properties;
 
 use std::ffi::OsString;
 use std::io::Write;

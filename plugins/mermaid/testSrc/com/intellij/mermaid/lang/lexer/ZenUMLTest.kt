@@ -1,9 +1,13 @@
 package com.intellij.mermaid.lang.lexer
 
-class ZenUMLTest : MermaidLexerTestCase() {
-  override val diagramName: String
-    get() = "zenUML"
+import com.intellij.testFramework.junit5.fixture.TestFixtures
+import org.junit.jupiter.api.Test
 
+@TestFixtures
+class ZenUMLTest {
+  private val lexer by mermaidLexerFixture("zenUML")
+
+  @Test
   fun `test zenUML`() {
     val content = """
     zenuml
@@ -12,6 +16,6 @@ class ZenUMLTest : MermaidLexerTestCase() {
       John->Alice: Great!
       Alice->John: See you later!
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 }

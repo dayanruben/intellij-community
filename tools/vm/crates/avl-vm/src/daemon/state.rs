@@ -14,8 +14,9 @@ mod tests;
 /// The daemon one worker runs, as this controller started it: the worker and the guest port it listens on, how to
 /// authenticate, and the build identities it was launched and mounted for.
 ///
-/// Every field is required, because the next start compares every one: a file missing one is no daemon at all. The
-/// file is two-space JSON with a trailing newline, and only this controller reads it.
+/// Every field but [`Self::last_plugins_digest`] is required, because the next start compares every one: a file
+/// missing one is no daemon at all. The file is two-space JSON with a trailing newline, and only this controller reads
+/// it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct HostState {
@@ -29,6 +30,10 @@ pub(crate) struct HostState {
     pub launch_digest: String,
     pub last_product_digest: String,
     pub last_mount_digest: String,
+    /// The context plugin identity of the last iteration. A record of an older controller has none, and an empty value
+    /// is unknown: the next iteration decides nothing on it and records the value it ran with.
+    #[serde(default)]
+    pub last_plugins_digest: String,
 }
 
 impl HostState {

@@ -296,6 +296,8 @@ jvm_library(
         "//platform/util/jdom:jdom_test_lib",
         "//platform/testFramework/junit5",
         "//platform/testFramework/junit5:junit5_test_lib",
+        "//platform/testFramework/junit5/codeInsight",
+        "//platform/testFramework/junit5/codeInsight:codeInsight_test_lib",
         "//libraries/objenesis",
         "//libraries/objenesis:objenesis_test_lib",
         "//platform/testFramework/impl",

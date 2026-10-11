@@ -1,4 +1,3 @@
-// ERROR: Initializer type mismatch: expected 'Array<String?>', actual 'Array<String>'.
 class C {
     var stringsField: Array<String> = arrayOf<String>("Hello", "World")
 
@@ -15,9 +14,9 @@ class C {
     }
 
     fun local() {
-        val stringsLocal: Array<String?> = arrayOf<String>("Hello", "World")
+        val stringsLocal = arrayOf<String>("Hello", "World")
         for (s in stringsLocal) {
-            println(s!!.length)
+            println(s.length)
         }
     }
 }

@@ -1,4 +1,3 @@
-// IGNORE_K2
 // WITH_LIBRARY: ../../libSources/enum/kotlin
 // !LANGUAGE: -XXLanguage:-EnumEntries
 

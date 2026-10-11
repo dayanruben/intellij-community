@@ -15,47 +15,49 @@
  */
 package org.intellij.lang.xpath;
 
-import com.intellij.lexer.Lexer;
-import com.intellij.openapi.application.PathManager;
-import com.intellij.testFramework.LexerTestCase;
-import org.jetbrains.annotations.NotNull;
+import com.intellij.platform.testFramework.junit5.codeInsight.fixture.LexerTestFixture;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
+import com.intellij.testFramework.junit5.fixture.TestFixtures;
+import org.junit.jupiter.api.Test;
 
-public class XPathLexerTest extends LexerTestCase {
-  @Override
-  protected @NotNull Lexer createLexer() {
-    return XPathLexer.create(false);
-  }
+import static com.intellij.platform.testFramework.junit5.codeInsight.fixture.LexerTestFixtureKt.lexerFixture;
 
-  @Override
-  protected @NotNull String getDirPath() {
-    return TestBase.getTestDataPath("xpath/parsing/lexer").substring(PathManager.getHomePath().length());
-  }
+@TestFixtures
+public class XPathLexerTest {
+  private final TestFixture<LexerTestFixture> lexer = lexerFixture(TestBase.getTestDataPath("xpath/parsing/lexer"), () -> XPathLexer.create(false));
 
+  @Test
   public void testAttributeAxis() {
-    doTest("attribute::*");
+    lexer.get().doTest("attribute::*");
   }
 
+  @Test
   public void testBadAxis() {
-    doTest("something::*");
+    lexer.get().doTest("something::*");
   }
 
+  @Test
   public void testAttributeNodeType() {
-    doTest("attribute()");
+    lexer.get().doTest("attribute()");
   }
 
+  @Test
   public void testElementNodeType() {
-    doTest("element()");
+    lexer.get().doTest("element()");
   }
 
+  @Test
   public void testAttributeNCName() {
-    doTest("attribute/*");
+    lexer.get().doTest("attribute/*");
   }
 
+  @Test
   public void testElementNCName() {
-    doTest("element/*");
+    lexer.get().doTest("element/*");
   }
 
+  @Test
   public void testPrefixedNameAnd() {
-    doTest("child::xsd:element and contains('a', 'a')");
+    lexer.get().doTest("child::xsd:element and contains('a', 'a')");
   }
 }

@@ -1,9 +1,13 @@
 package com.intellij.mermaid.lang.lexer
 
-class MindmapTest : MermaidLexerTestCase() {
-  override val diagramName: String
-    get() = "mindmap"
+import com.intellij.testFramework.junit5.fixture.TestFixtures
+import org.junit.jupiter.api.Test
 
+@TestFixtures
+class MindmapTest {
+  private val lexer by mermaidLexerFixture("mindmap")
+
+  @Test
   fun `test simple`() {
     val content = """
     mindmap
@@ -12,9 +16,10 @@ class MindmapTest : MermaidLexerTestCase() {
           B
           C    
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
+  @Test
   fun `test node shapes`() {
     val content = """
     mindmap
@@ -27,17 +32,19 @@ class MindmapTest : MermaidLexerTestCase() {
         id{{I am a hexagon}}
         I am the default shape
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
+  @Test
   fun `test double quoted node description`() {
     val content = """
     mindmap
       id["I am [(a)] square"]
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
+  @Test
   fun `test icons`() {
     val content = """
     mindmap
@@ -47,9 +54,10 @@ class MindmapTest : MermaidLexerTestCase() {
         B(B)
         ::icon(mdi mdi-skull-outline)
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
+  @Test
   fun `test classes`() {
     val content = """
     mindmap
@@ -59,9 +67,10 @@ class MindmapTest : MermaidLexerTestCase() {
         B(B)
         C
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
+  @Test
   fun `test id with colon`() {
     val content = """
     mindmap
@@ -77,9 +86,10 @@ class MindmapTest : MermaidLexerTestCase() {
         :::id
         ::::id
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 
+  @Test
   fun `test comments`() {
     val content = """
     mindmap
@@ -89,6 +99,6 @@ class MindmapTest : MermaidLexerTestCase() {
         B(B)
         C
     """.trimIndent()
-    doTest(content)
+    lexer.doTest(content)
   }
 }

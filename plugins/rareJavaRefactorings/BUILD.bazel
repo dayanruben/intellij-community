@@ -132,6 +132,12 @@ jvm_library(
     ),
     module_name = "intellij.java.rareRefactorings.tests",
     visibility = ["//visibility:public"],
+    runtime_deps = [
+        # do not sort,
+        "//xml/plugin",
+        "//platform/structure-view-impl/plugin",
+        "//aether-dependency-resolver/plugin",
+    ],
 )
 
 jvm_library(
@@ -154,6 +160,9 @@ jvm_library(
         # do not sort,
         ":java-rareRefactorings-tests",
         "//platform/platform-impl:ide-impl_test_lib",
+        "//xml/plugin:plugin_test_lib",
+        "//platform/structure-view-impl/plugin:plugin_test_lib",
+        "//aether-dependency-resolver/plugin:plugin_test_lib",
     ],
     deps = [
         # do not sort,
