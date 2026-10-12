@@ -5,13 +5,15 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use avl_base::GuestOs;
+use avl_base::format::seconds;
 use avl_base::fs::create_private_dir;
-use avl_base::{Config, Exit, OrRefuse, Refusal};
+use avl_base::{Config, Exit, OrRefuse, PhaseRun, Refusal};
 use avl_host_sys::Ctx;
 use avl_host_sys::runfiles::{GuestRunfilesTree, GuestTreeInputs, HostRunfiles};
 use avl_report::digest::{self, FileDigestCache, JbrPolicy, PathDigest, ProductIdentityInput};
-use avl_wire::daemon::LABEL;
-use avl_wire::progress::Event;
+use avl_wire::daemon::{LABEL, LINUX_GUEST_LABEL};
+use avl_wire::progress::{Event, Phase};
 use avl_wire::report::Tree;
 use avl_wire::runtime::{self, RuntimeDescriptor, RuntimeFile};
 use serde::Serialize;
@@ -32,9 +34,19 @@ pub(crate) fn lane_environment_digest(environment: &BTreeMap<String, String>) ->
     digest::path_sensitive_digest(&entries)
 }
 
+/// The daemon target of a guest: one target per guest OS, because the guest is a target and not a build option.
+pub(crate) const fn daemon_label(guest_os: GuestOs) -> &'static str {
+    match guest_os {
+        GuestOs::Macos => LABEL,
+        GuestOs::Linux => LINUX_GUEST_LABEL,
+    }
+}
+
 /// One host build, stamped: what to launch, and the four identities that decide what can be reused.
 #[derive(Clone, Debug)]
 pub(crate) struct PreparedBuild {
+    /// The daemon target this build built ([`daemon_label`]).
+    pub label: &'static str,
     /// The runfiles tree the guest builds from the MANIFEST of `runfiles`, with the bytes of its staged runfiles.
     pub guest_tree: GuestRunfilesTree,
     /// The root of [`Self::guest_tree`], as the guest opens it. Every path the guest gets under the tree is joined onto
@@ -235,6 +247,16 @@ struct Stamped {
     runtime_digest: String,
     product_digest: String,
     mount_digest: String,
+    parts: StampParts,
+}
+
+/// How long each part of [`stamp`] took, so the journal names the part that grew.
+#[derive(Clone, Copy, Debug, Default)]
+struct StampParts {
+    open: Duration,
+    digests: Duration,
+    save: Duration,
+    tree: Duration,
 }
 
 /// Hashes every declared input of a descriptor through the digest cache and composes three of the four identities;
@@ -247,7 +269,9 @@ fn stamp(
     cache_path: &Path,
     tree_inputs: &GuestTreeInputs,
 ) -> Result<Stamped, Refusal> {
+    let started = Instant::now();
     let mut cache = FileDigestCache::open(cache_path);
+    let opened = Instant::now();
     let mut file = |file: &RuntimeFile| declared_input(&mut cache, runfiles, file, false);
 
     let mut hot_jars = Vec::with_capacity(descriptor.classpath.hot.len());
@@ -306,16 +330,25 @@ fn stamp(
     }
     let mount_digest = digest::path_sensitive_digest(&mount_entries);
 
+    let digested = Instant::now();
     cache.save().or_refuse("state_write_failed", Exit::FAILURE, || {
         format!("cannot save the digest cache {}", cache_path.display())
     })?;
+    let saved = Instant::now();
+    let guest_tree = runfiles.guest_tree(tree_inputs)?;
     Ok(Stamped {
-        guest_tree: runfiles.guest_tree(tree_inputs)?,
+        guest_tree,
         hot_jars,
         plugin_files,
         runtime_digest,
         product_digest,
         mount_digest,
+        parts: StampParts {
+            open: opened - started,
+            digests: digested - opened,
+            save: saved - digested,
+            tree: saved.elapsed(),
+        },
     })
 }
 
@@ -325,15 +358,37 @@ impl Host {
     ///
     /// The build fixes the bytes that a run pushes, so the checkout tree is read when the build starts, beside it,
     /// and adds no time to it.
+    ///
+    /// The work after the build is the phase [`Phase::Prepare`]. The build names the descriptor in its event file, so
+    /// the phase is the digest sweep and asks Bazel nothing.
     pub(crate) async fn prepare_build(&self, ctx: &Ctx, scope: &BuildScope) -> Result<PreparedBuild, Refusal> {
         let build_started = Instant::now();
+        let label = daemon_label(self.settings.guest_os);
         let (built, tree) = tokio::join!(
-            self.bazel.build(ctx, &scope.log, LABEL),
+            self.bazel.build(ctx, &scope.log, label),
             read_checkout_tree(ctx, &self.runner, &self.settings)
         );
         built?;
         self.reporter.publish(Event::Checkout(checkout_event(&tree)), None);
-        let descriptor_path = self.bazel.runtime_descriptor(ctx, LABEL).await?;
+        let phase = self.reporter.start_phase(Phase::Prepare, "hash what the host build produced", None);
+        let prepared = self.prepare_built(ctx, scope, label, build_started, tree, &phase).await;
+        phase.finish(&prepared);
+        prepared
+    }
+
+    /// The descriptor and the digest sweep of [`Host::prepare_build`], after its build.
+    async fn prepare_built(
+        &self,
+        ctx: &Ctx,
+        scope: &BuildScope,
+        label: &'static str,
+        build_started: Instant,
+        tree: Result<Tree, Refusal>,
+        phase: &PhaseRun,
+    ) -> Result<PreparedBuild, Refusal> {
+        let lookup_started = Instant::now();
+        let descriptor_path = self.bazel.runtime_descriptor(ctx, label).await?;
+        let lookup = lookup_started.elapsed();
         let build = build_started.elapsed();
 
         let stamp_started = Instant::now();
@@ -355,6 +410,21 @@ impl Host {
                 .await
                 .or_refuse("internal_error", Exit::FAILURE, || "the digest sweep failed".to_owned())??
         };
+        let StampParts {
+            open,
+            digests,
+            save,
+            tree: planned,
+        } = stamped.parts;
+        let text = |duration: Duration| seconds(duration.as_secs_f64() * 1000.0);
+        phase.progress(&format!(
+            "descriptor {}  cache open {}  digests {}  cache save {}  runfiles tree {}",
+            text(lookup),
+            text(open),
+            text(digests),
+            text(save),
+            text(planned)
+        ));
 
         let guest_runfiles_root = stamped.guest_tree.root.clone();
         let boot = controller_boot_digest(
@@ -366,6 +436,7 @@ impl Host {
         let daemon_environment = crate::lane::daemon_environment(&self.settings);
         let launch_digest = launch_digest(&stamped.runtime_digest, &boot, &daemon_environment);
         Ok(PreparedBuild {
+            label,
             guest_tree: stamped.guest_tree,
             guest_runfiles_root,
             descriptor,

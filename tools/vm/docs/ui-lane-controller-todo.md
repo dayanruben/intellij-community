@@ -81,6 +81,58 @@ Every item below was found by running something, and says so. Where a measuremen
   `cancel --thread-dump` path keeps its dump before the kill. The second half is `pool stop`, which should honour
   the receipt it is given instead of reading its own lease as another holder's.
 
+- **A change of the client environment between two Bazel commands discards the analysis of the other.**
+
+  On 2026-10-10 the lane build of a `vm.cmd run` ran 0 actions and still analyzed about 6,200 packages again on every
+  run, for 7.5 to 23 s. Three earlier commits named a trigger inside the lane run, and `java.log` of the output base
+  refutes all three. Each deletion they counted came after a command with another `SHLVL`:
+  - "setup build: the wrappers build their binary instead of running it" named the `bazel run` of the wrapper.
+  - "docs vm: the lane analysis was lost to a cquery, and is lost to other build options" named the `cquery` of the
+    controller.
+  - "setup vm controller: the pinned tools come from a record, not from Bazel" named the container target of the
+    lane build. After it, each lane build of the series still deleted 430,467 to 510,951 nodes.
+
+  The other build options of the lane config were a real cause. "setup build: the lane build runs with the default
+  build options" removed them. The cause that remained is the client environment. `vm.cmd` runs its own Bazel
+  command one shell deeper than the controller, because bash lowers `SHLVL` when it hands over to the controller with
+  `exec`. So the wrapper build had `SHLVL=3` and the lane build `SHLVL=2`. The control runs of that day kept the
+  analysis only because they ran every command from one shell. Measured at 23:29 UTC, from one shell (A4):
+
+  | command | `SHLVL` | nodes deleted before | analysis |
+  |---|---|---|---|
+  | the wrapper build | 3 | 5,078 | 0.6 s |
+  | the lane build | 2 | 508,967 | 6.5 s, 6,216 packages |
+  | the wrapper build | 2 | 20,903 | 0.5 s |
+  | the lane build | 2 | 0 | 0 packages, 1.5 s in all |
+
+  `bt.cmd` has the same pair: its build of `bt` and the test that `bt` runs. Each of the 31 `bt.cmd` tests in
+  `java.log` of that day came after a build with another `SHLVL`, and their median analysis took 11.8 s.
+  `bazel.cmd` now starts Bazel without `SHLVL` and `_`. No rc option and no repository rule of this repository reads
+  either variable, and the action environment is strict, so no action and no cache key changes.
+
+  What is open: the reader of the client environment inside Bazel is not named, and only `SHLVL` is measured.
+  `java.log` still shows `SHLVL=0` for every command after the change, so a step after `env -u` writes it back. The
+  value is the same for every caller, so it costs no analysis. An IDE
+  terminal and a plain shell differ in more variables, such as `TERMINAL_EMULATOR` and `TERM_PROGRAM`. A switch
+  between them can still cost one analysis. The test is a pair of commands that differ in one other variable.
+  `java.log` of the output base names every command with its argv, its client environment and its timestamps, and it
+  is the instrument here.
+
+- **Each Bazel command checks every output file on disk.**
+
+  Measured on 2026-10-10 in `java.log`: each command of a lane run spent 1.2 to 2.6 s on `checking 123421
+  filesystem nodes` in the afternoon, and 1.4 to 5.7 s on 157,329 nodes in the evening, after a rebase and under host
+  load. A run now has two Bazel commands, the build of the wrapper and the lane build, so it pays this twice.
+  `--noexperimental_check_output_files` would skip the check, but then a change of `bazel-out` from outside goes
+  unseen, and the working copy is shared. What is open is a cheaper check, or one command for both builds.
+
+- **The build of the `vm.cmd` wrapper is outside the run's journal.**
+
+  Measured on 2026-10-10 on the same series: the `bazel run` of the wrapper took 4.1 s before `runStarted`
+  (13:41:37.5 to 13:41:41.6 UTC), with no action to run. The record `runStarted` now names when the process started,
+  so a journal shows this cost. What is open is the cost itself: a build that has nothing to do still pays the Bazel
+  client, the option parse and the target check, and `AIR_VM_BIN` is the only way to skip it.
+
 ## Not ours
 
 - **Why the exec agent's vsock context cancels under load is inside Cirrus's `tart-guest-agent`.** It exits

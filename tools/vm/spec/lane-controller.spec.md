@@ -332,6 +332,9 @@ The rest of the scenario matrix is in
   [@test] ../crates/avl-report/src/digest/tests.rs
   [@test] ../crates/avl-vm/src/daemon/build/tests.rs
 
+- The digest cache keeps only the files that its last sweep read. A sweep that read nothing keeps the whole cache.
+  [@test] ../crates/avl-report/src/digest/tests.rs (`a_save_keeps_only_the_entries_of_its_sweep`)
+
 - The runtime descriptor names each file of a context plugin with its place below the plugin directory of the IDE
   context. A place that leaves that directory, or that two files claim, is refused. The files have an identity of
   their own, apart from the product and the mount identities. A changed file changes only that identity.
@@ -344,6 +347,34 @@ The rest of the scenario matrix is in
 
 - The daemon environment is part of the launch identity. A changed value restarts the daemon.
   [@test] ../crates/avl-vm/src/daemon/build/tests.rs
+
+- The event file of the lane build names the runtime descriptor. So the controller asks Bazel nothing between the
+  build and the decision about the IDE. A build whose event file names no descriptor makes the controller ask Bazel,
+  and a note says so. The lane build builds no pinned tool.
+  [@test] ../crates/avl-vm/src/lane/bazel/tests.rs (`a_lane_build_names_the_descriptor_and_no_query_follows`)
+  [@test] ../crates/avl-vm/src/lane/bazel/tests.rs (`a_failed_build_forgets_the_files_of_the_build_before_it`)
+  [@test] ../crates/avl-vm/src/lane/bazel/tests.rs (`the_lane_build_builds_this_guests_agent`)
+
+- The controller records the path of each pinned tool in its runtime root. The record is valid for the digest of the
+  file that pins the tool and for the Bazel user root. A later process reads the record and asks Bazel nothing. A
+  changed pin, or a recorded file that is gone, resolves the tool again with one query.
+  [@test] ../crates/avl-vm/src/worker/pin/tests.rs (`a_recorded_path_answers_the_next_process_without_a_query`)
+  [@test] ../crates/avl-vm/src/worker/pin/tests.rs (`a_changed_pin_resolves_again`)
+  [@test] ../crates/avl-vm/src/worker/pin/tests.rs (`a_recorded_file_that_is_gone_resolves_again`)
+
+- No Bazel command of the controller carries a build option of its own. The guest is a target: the controller builds the
+  daemon target of its guest OS. The lane builds no runfile links, and the controller reads the MANIFEST of the runtime
+  descriptor on every host. A tree beside the MANIFEST is ignored, because it can be one of an earlier build.
+  [@test] ../crates/avl-vm/src/lane/bazel/tests.rs (`every_invocation_carries_no_build_option_of_its_own`)
+  [@test] ../crates/avl-vm/src/daemon/build/tests.rs (`each_guest_builds_its_own_daemon_target`)
+  [@test] ../crates/avl-host-sys/src/runfiles/tests.rs (`a_host_reads_the_manifest_even_beside_a_tree`)
+
+- The journal has the phase `prepare`, from the end of the host build to the end of the digest sweep. Its progress
+  names the time of the descriptor lookup, the cache open, the digests, the cache save and the runfiles tree. The
+  record `runStarted` names when the process started. So the journal shows the build of the `vm.cmd` wrapper before
+  it.
+  [@test] ../crates/avl-vm/src/daemon/leased/tests.rs (`the_build_comes_before_the_lease`)
+  [@test] ../crates/avl-vm/src/daemon/leased/tests.rs (`a_process_start_reads_as_rfc3339_in_utc`)
 
 - The controller tells the daemon how to launch the lane IDE. It names the installed guest agent, the directory of
   the IDE contexts, and the home of the staged JVM. The IDE runs on that JVM too.
