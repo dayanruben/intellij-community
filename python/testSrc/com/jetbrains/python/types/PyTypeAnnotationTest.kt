@@ -4,6 +4,7 @@ package com.jetbrains.python.types
 import com.intellij.idea.TestFor
 import com.jetbrains.python.allure.Layers
 import com.jetbrains.python.allure.Subsystems
+import com.jetbrains.python.codeInsight.typing.PyTypingAnnotationInjector
 import com.jetbrains.python.fixtures.PyCodeInsightTestCase
 import com.jetbrains.python.inspections.PyTypeHintsInspection
 import com.jetbrains.python.psi.LanguageLevel
@@ -3678,11 +3679,9 @@ class PyTypeAnnotationTest : PyCodeInsightTestCase() {
     from ts import Timestamp
 
     Timestamp("2022-03-17 00:00:00")
-    #         ^^^^^^^^^^^^^^^^^^^^^ WARNING Expected type 'int', got 'Literal["2022-03-17 00:00:00"]' instead FIXME
     Timestamp(1)
     Timestamp(1.5)
-    #         ^^^ WARNING Expected type 'int', got 'float' instead FIXME
-    Timestamp(b"") # WARNING Expected type 'int', got 'bytes' instead FIXME Expected type 'int | float | str', got 'bytes' instead
+    Timestamp(b"") # WARNING Expected type 'int | float | str', got 'bytes' instead
     """.trimIndent(),
     "ts.pyi" to """
     class Timestamp:
@@ -3702,9 +3701,8 @@ class PyTypeAnnotationTest : PyCodeInsightTestCase() {
     from other import f
 
     f("a")
-    # ^^^ WARNING Expected type 'int', got 'Literal["a"]' instead FIXME
     f(1)
-    f(b"") # WARNING Expected type 'int', got 'bytes' instead FIXME Expected type 'int | str', got 'bytes' instead
+    f(b"") # WARNING Expected type 'int | str', got 'bytes' instead
     """.trimIndent(),
     "other.py" to """
     def f(x: int
@@ -3741,6 +3739,96 @@ class PyTypeAnnotationTest : PyCodeInsightTestCase() {
     "other.py" to """
     def f(x: ''' int
               | str ''') -> None: ...
+    """.trimIndent(),
+  )
+
+  @Test
+  @TestFor(issues = ["PY-53491"])
+  fun `PEP 604 union with a comment split over lines in another module accepts every member`() = test(
+    """
+    from other import f
+
+    f("a")
+    f(1)
+    f(b"") # WARNING Expected type 'int | str', got 'bytes' instead
+    """.trimIndent(),
+    "other.py" to """
+    def f(x: int  # a number
+               | str) -> None: ...
+    """.trimIndent(),
+  )
+
+  @Test
+  @TestFor(issues = ["PY-53491"])
+  fun `PEP 604 union bound split over lines in another module accepts every member`() = test(
+    """
+    from other import f
+
+    f("a")
+    f(1)
+    f(b"") # WARNING Expected type 'T ≤: int | str', got 'bytes' instead
+    """.trimIndent(),
+    "other.py" to """
+    def f[T: int
+             | str](x: T) -> T: ...
+    """.trimIndent(),
+  )
+
+  @Test
+  @TestFor(issues = ["PY-53491"])
+  fun `PEP 604 union in a TypedDict field split over lines in another module accepts every member`() = test(
+    """
+    from other import Movie
+
+    m: Movie = {"year": None}
+    """.trimIndent(),
+    "other.py" to """
+    from typing import TypedDict
+
+    Movie = TypedDict("Movie", {"year": int
+                                        | None})
+    """.trimIndent(),
+  )
+
+  @Test
+  @TestFor(issues = ["PY-53491"])
+  fun `PEP 604 union after a line continuation in another module keeps every member`() = test(
+    """
+    from other import C, g, x
+
+    r1 = g()
+    #    ^^^ TYPE int | str
+    r2 = x
+    #    └ TYPE int | str
+    r3 = C().attr
+    #    ^^^^^^^^ TYPE int | str
+    """.trimIndent(),
+    "other.py" to """
+    def g() -> int \
+            | str: ...
+
+    x: int \
+       | str
+
+    class C:
+        attr: int \
+              | str
+    """.trimIndent(),
+  )
+
+  @Test
+  @TestFor(issues = ["PY-53491"])
+  fun `PEP 604 union in a type alias split over lines in another module keeps every member`() = test(
+    """
+    from other import Alias
+
+    def f(a: Alias) -> None:
+        a
+    #   └ TYPE int | str
+    """.trimIndent(),
+    "other.py" to """
+    type Alias = (int
+                  | str)
     """.trimIndent(),
   )
 
@@ -4060,6 +4148,38 @@ class PyTypeAnnotationTest : PyCodeInsightTestCase() {
     #                     ^^^^^^^^^^^ WARNING Invalid type annotation
     type BadTypeAlias13 = f"{'int'}"
     #                     ^^^^^^^^^^ WARNING Invalid type annotation
+    """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-93096"], classes = [PyTypingAnnotationInjector::class])
+  fun `quoted type in a type alias statement is resolved`() = test("""
+    type X = list["Undefined"]
+    #             │^^^^^^^^^ WARNING Unresolved reference 'Undefined'
+    #             ^^^^^^^^^^^ ERROR Invalid type argument
+    """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-93096"], classes = [PyTypingAnnotationInjector::class])
+  fun `Literal string in a type alias statement is not a type`() = test("""
+    from typing import Literal
+
+    type X = Literal["a"]
+    """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-93096"], classes = [PyTypingAnnotationInjector::class])
+  fun `Annotated metadata string in a type alias statement is not a type`() = test("""
+    from typing import Annotated
+
+    type X = Annotated[int, "meta"]
+    """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-93096"], classes = [PyTypingAnnotationInjector::class])
+  fun `Literal string in a union of a type alias statement is not a type`() = test("""
+    from typing import Literal
+
+    type X = int | Literal["a b"]
     """.trimIndent())
 
   @Test

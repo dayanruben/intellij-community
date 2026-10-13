@@ -52,13 +52,10 @@ import com.intellij.ide.IdeEventQueue;
 import com.intellij.ide.actions.searcheverywhere.ClassSearchEverywhereContributor;
 import com.intellij.ide.actions.searcheverywhere.SearchEverywhereContributor;
 import com.intellij.ide.actions.searcheverywhere.SymbolSearchEverywhereContributor;
-import com.intellij.ide.structureView.StructureViewBuilder;
-import com.intellij.ide.structureView.newStructureView.StructureViewComponent;
 import com.intellij.ide.util.scopeChooser.ScopeDescriptor;
 import com.intellij.injected.editor.DocumentWindow;
 import com.intellij.injected.editor.EditorWindow;
 import com.intellij.injected.editor.VirtualFileWindow;
-import com.intellij.lang.LanguageStructureViewBuilder;
 import com.intellij.lang.annotation.HighlightSeverity;
 import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.mock.MockProgressIndicator;
@@ -99,7 +96,6 @@ import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.extensions.ExtensionsArea;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
-import com.intellij.openapi.fileEditor.FileEditor;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.fileEditor.OpenFileDescriptor;
 import com.intellij.openapi.fileEditor.TextEditor;
@@ -208,7 +204,6 @@ import com.intellij.usages.UsageViewPresentation;
 import com.intellij.usages.impl.UsageViewImpl;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.CommonProcessors;
-import com.intellij.util.Consumer;
 import com.intellij.util.ExceptionUtil;
 import com.intellij.util.Function;
 import com.intellij.util.ObjectUtils;
@@ -322,6 +317,29 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
     this.editor = editor;
     myEditorTestFixture = new EditorTestFixture(getProject(), editor, file);
     myPsiFile = ReadAction.compute(() -> PsiManager.getInstance(getProject()).findFile(myVirtualFile));
+  }
+
+  private EditorTestFixture getEditorTestFixture() {
+    reacquireInvalidInjectedEditor();
+    return myEditorTestFixture;
+  }
+
+  /**
+   * A commit replaces the injection when its shreds change, and the replaced injected editor becomes invalid.
+   * Pick the injected editor at the caret again, as the IDE does for every action.
+   * Injections are looked up only in a committed host, so an uncommitted host waits for the next commit.
+   */
+  private void reacquireInvalidInjectedEditor() {
+    if (!(editor instanceof EditorWindow editorWindow)) return;
+    ReadAction.run(() -> {
+      if (editorWindow.isValid()) return;
+      Editor hostEditor = editorWindow.getDelegate();
+      if (PsiDocumentManager.getInstance(getProject()).isUncommited(hostEditor.getDocument())) return;
+      VirtualFile hostFile = FileDocumentManager.getInstance().getFile(hostEditor.getDocument());
+      if (hostFile == null) return;
+      setFileAndEditor(hostFile, hostEditor);
+      setupEditorForInjectedLanguage();
+    });
   }
 
   private void clearFileAndEditor() {
@@ -844,7 +862,7 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
     if (filePaths.length != 0) {
       configureByFilesInner(filePaths);
     }
-    return myEditorTestFixture.getAllQuickFixes();
+    return getEditorTestFixture().getAllQuickFixes();
   }
 
   @Override
@@ -1026,12 +1044,12 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
   @Override
   public @Nullable @Unmodifiable List<String> getLookupElementStrings() {
     assertInitialized();
-    return myEditorTestFixture.getLookupElementStrings();
+    return getEditorTestFixture().getLookupElementStrings();
   }
 
   @Override
   public void finishLookup(char completionChar) {
-    myEditorTestFixture.finishLookup(completionChar);
+    getEditorTestFixture().finishLookup(completionChar);
   }
 
   @Override
@@ -1069,7 +1087,7 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
   @Override
   public @NotNull PsiElement getElementAtCaret() {
     assertInitialized();
-    return myEditorTestFixture.getElementAtCaret();
+    return getEditorTestFixture().getElementAtCaret();
   }
 
   @Override
@@ -1118,24 +1136,27 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
 
   @Override
   public <T extends PsiElement> T findElementByText(@NotNull String text, @NotNull Class<T> elementClass) {
-    return myEditorTestFixture.findElementByText(text, elementClass);
+    return getEditorTestFixture().findElementByText(text, elementClass);
   }
 
   @Override
   public void type(char c) {
     assertInitialized();
-    myEditorTestFixture.type(c);
+    getEditorTestFixture().type(c);
   }
 
   @Override
   public void type(@NotNull String s) {
-    myEditorTestFixture.type(s);
+    // a commit after any char can replace the injection, so the injected editor is checked before each one
+    for (int i = 0; i < s.length(); i++) {
+      getEditorTestFixture().type(s.charAt(i));
+    }
   }
 
   @Override
   public void performEditorAction(@NotNull String actionId, @Nullable AnActionEvent actionEvent) {
     assertInitialized();
-    EdtTestUtil.runInEdtAndWait(() -> myEditorTestFixture.performEditorAction(actionId, actionEvent));
+    EdtTestUtil.runInEdtAndWait(() -> getEditorTestFixture().performEditorAction(actionId, actionEvent));
   }
 
   @Override
@@ -1168,7 +1189,7 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
       configureByFiles(fileNames);
     }
     EdtTestUtil.runInEdtAndWait(() -> {
-      myEditorTestFixture.performEditorAction(IdeActions.ACTION_FIND_USAGES);
+      getEditorTestFixture().performEditorAction(IdeActions.ACTION_FIND_USAGES);
       FindUsagesManager.waitForAsyncTaskCompletion(getProject());
     });
     Disposer.register(getTestRootDisposable(), () -> {
@@ -1411,24 +1432,24 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
 
   @Override
   public LookupElement[] complete(@NotNull CompletionType type) {
-    return myEditorTestFixture.complete(type);
+    return getEditorTestFixture().complete(type);
   }
 
   @Override
   public LookupElement[] complete(@NotNull CompletionType type, int invocationCount) {
     assertInitialized();
-    return myEditorTestFixture.complete(type, invocationCount);
+    return getEditorTestFixture().complete(type, invocationCount);
   }
 
   @Override
   public LookupElement @Nullable [] completeBasic() {
-    return myEditorTestFixture.completeBasic();
+    return getEditorTestFixture().completeBasic();
   }
 
   @Override
   public final @NotNull List<LookupElement> completeBasicAllCarets(@Nullable Character charToTypeIfOnlyOneOrNoCompletion,
                                                                    @Nullable Character charToTypeIfMultipleCompletions) {
-    return myEditorTestFixture.completeBasicAllCarets(charToTypeIfOnlyOneOrNoCompletion, charToTypeIfMultipleCompletions);
+    return getEditorTestFixture().completeBasicAllCarets(charToTypeIfOnlyOneOrNoCompletion, charToTypeIfMultipleCompletions);
   }
 
   @Override
@@ -1448,7 +1469,7 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
 
   @Override
   public LookupElement @Nullable [] getLookupElements() {
-    return myEditorTestFixture.getLookupElements();
+    return getEditorTestFixture().getLookupElements();
   }
 
   @Override
@@ -1960,7 +1981,7 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
 
   @Override
   public @NotNull @Unmodifiable List<HighlightInfo> doHighlighting() {
-    return myEditorTestFixture.doHighlighting(myAllowDirt, myReadEditorMarkupModel);
+    return getEditorTestFixture().doHighlighting(myAllowDirt, myReadEditorMarkupModel);
   }
 
   @Override
@@ -1993,6 +2014,7 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
 
   @Override
   public Editor getEditor() {
+    reacquireInvalidInjectedEditor();
     return editor;
   }
 
@@ -2003,6 +2025,7 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
 
   @Override
   public PsiFile getFile() {
+    reacquireInvalidInjectedEditor();
     return myVirtualFile != null ? ReadAction.compute(() -> PsiManager.getInstance(getProject()).findFile(myVirtualFile)) : null;
   }
 
@@ -2321,28 +2344,7 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
 
   @Override
   public void assertPreferredCompletionItems(int selected, String @NotNull ... expected) {
-    myEditorTestFixture.assertPreferredCompletionItems(selected, expected);
-  }
-
-  @Override
-  public void testStructureView(@NotNull Consumer<? super StructureViewComponent> consumer) {
-    assertNotNull("configure first", myVirtualFile);
-
-    FileEditor fileEditor = FileEditorManager.getInstance(getProject()).getSelectedEditor(myVirtualFile);
-    assertNotNull("editor not opened for " + myVirtualFile, myVirtualFile);
-
-    StructureViewBuilder builder = LanguageStructureViewBuilder.getInstance().getStructureViewBuilder(getFile());
-    assertNotNull("no builder for " + myVirtualFile, builder);
-
-    StructureViewComponent component = null;
-    try {
-      component = (StructureViewComponent)builder.createStructureView(fileEditor, getProject());
-      PlatformTestUtil.waitForPromise(component.rebuildAndUpdate());
-      consumer.consume(component);
-    }
-    finally {
-      if (component != null) Disposer.dispose(component);
-    }
+    getEditorTestFixture().assertPreferredCompletionItems(selected, expected);
   }
 
   @Override
@@ -2357,7 +2359,7 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
 
   @Override
   public LookupImpl getLookup() {
-    return myEditorTestFixture.getLookup();
+    return getEditorTestFixture().getLookup();
   }
 
   @Override
@@ -2382,7 +2384,7 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
 
   @Override
   public @NotNull @Unmodifiable List<Crumb> getBreadcrumbsAtCaret() {
-    return myEditorTestFixture.getBreadcrumbsAtCaret();
+    return getEditorTestFixture().getBreadcrumbsAtCaret();
   }
 
   @Override

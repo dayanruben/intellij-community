@@ -35,10 +35,9 @@ public open class VirtualFileUrlImpl(
     if (!registered) registered = true
   }
 
-  internal fun isRegistered(): Boolean = registered
+  public fun isRegistered(): Boolean = registered
 
-  /** Returns the child for [nameSegment], or `null` if this node has no children yet or has no such child. */
-  internal fun findChild(nameSegment: String): VirtualFileUrlImpl? = childrenRef.get()?.get(nameSegment)
+  override fun findChild(nameSegment: String): VirtualFileUrlImpl? = childrenRef.get()?.get(nameSegment)
 
   /**
    * Returns the existing child for [nameSegment] or atomically creates it,

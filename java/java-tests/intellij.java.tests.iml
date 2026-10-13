@@ -53,6 +53,7 @@
     <orderEntry type="module" module-name="intellij.platform.structureView.frontend" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.structureView.backend" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.testFramework" />
+    <orderEntry type="module" module-name="intellij.platform.testFramework.structureView" />
     <orderEntry type="module" module-name="intellij.java.testFramework" />
     <orderEntry type="module" module-name="intellij.java.impl" />
     <orderEntry type="module" module-name="intellij.java.todo" scope="TEST" />
@@ -195,6 +196,7 @@
     <orderEntry type="module" module-name="intellij.java.structuralSearch" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.xml.emmet" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.xml.structureView.impl" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.idea.customization.plugin" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.libraries.junit6.params" scope="TEST" />
   </component>
 </module>

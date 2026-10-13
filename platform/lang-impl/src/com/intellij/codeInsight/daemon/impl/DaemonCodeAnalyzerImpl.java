@@ -171,7 +171,13 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
    * When it happens that the future has started sooner than this stamp, it will re-schedule itself for later.
    */
   private long myScheduledUpdateTimestamp; // guarded by this
-  private volatile boolean myFirstPassFinished; // the only possible transition: false -> true; the first pass runs without the autoreparse delay
+  /**
+   * The only possible transition: false -> true.
+   * The first pass of the project runs without the autoreparse delay, because it has nothing to debounce.
+   * A pass that finished for an open file enables the delay. A stop that canceled a running pass enables it too,
+   * because otherwise a held key reruns the unfinished pass on every key repeat.
+   */
+  private volatile boolean myAutoReparseDelayEnabled;
   private volatile boolean completeEssentialHighlightingRequested;
   private final AtomicInteger daemonCancelEventCount = new AtomicInteger();
   private final DaemonListener myDaemonListenerPublisher;
@@ -741,7 +747,9 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
   }
 
   synchronized void stopProcess(boolean toRestart, @NotNull @NonNls String reason) {
-    cancelAllUpdateProgresses(toRestart, reason);
+    if (cancelAllUpdateProgresses(toRestart, reason)) {
+      myAutoReparseDelayEnabled = true;
+    }
     boolean restart = toRestart && !myDisposed;
     if (LOG.isDebugEnabled()) {
       Map<FileEditor, DaemonProgressIndicator> progresses = Map.copyOf(myUpdateProgress);
@@ -803,7 +811,7 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
    * reset {@link #myScheduledUpdateTimestamp} always, but re-schedule {@link #myUpdateRunnable} only rarely because of thread scheduling overhead
    */
   private synchronized void scheduleIfNotRunning() {
-    long delayMs = myFirstPassFinished ? mySettings.getEffectiveAutoReparseDelay() : 0;
+    long delayMs = myAutoReparseDelayEnabled ? mySettings.getEffectiveAutoReparseDelay() : 0;
     myScheduledUpdateTimestamp = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(delayMs);
     // optimization: this check is to avoid too many re-schedules in case of thousands of event spikes
     boolean isDone = myUpdateRunnableFuture.isDone();
@@ -852,33 +860,37 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
     myUpdateRunnableFuture = EdtExecutorService.getScheduledExecutorInstance().schedule(myUpdateRunnable, delayNanos, TimeUnit.NANOSECONDS);
   }
 
-  // return true if the progress really was canceled
-  synchronized void cancelAllUpdateProgresses(boolean toRestart, @NotNull @NonNls String reason) {
+  // return true if at least one running progress was canceled
+  synchronized boolean cancelAllUpdateProgresses(boolean toRestart, @NotNull @NonNls String reason) {
     if (myDisposed || myProject.isDefault() || myProject.isDisposed() || myProject.getMessageBus().isDisposed()) {
-      return;
+      return false;
     }
-    processIndicators(indicator -> {
-      cancelIndicator(indicator, toRestart, null, reason);
-      return true;
-    });
+    boolean canceled = false;
+    for (DaemonProgressIndicator indicator : new ArrayList<>(myUpdateProgress.values())) {
+      canceled |= cancelIndicator(indicator, toRestart, null, reason);
+    }
     myUpdateProgress.clear();
     myPassExecutorService.cancelAll(false, reason);
     daemonCancelEventCount.incrementAndGet();
+    return canceled;
   }
 
-  private static void cancelIndicator(@NotNull DaemonProgressIndicator indicator,
-                                      boolean toRestart,
-                                      @Nullable Throwable cause,
-                                      @NonNls @NotNull String reason) {
-    if (!indicator.isCanceled()) {
-      PassExecutorService.log(indicator, null, "Cancel (reason: '", reason, "'), restart:", toRestart);
-      if (cause == null) {
-        indicator.cancel(reason);
-      }
-      else {
-        indicator.cancel(cause, reason);
-      }
+  // return true if the indicator was running and is canceled now
+  private static boolean cancelIndicator(@NotNull DaemonProgressIndicator indicator,
+                                         boolean toRestart,
+                                         @Nullable Throwable cause,
+                                         @NonNls @NotNull String reason) {
+    if (indicator.isCanceled()) {
+      return false;
     }
+    PassExecutorService.log(indicator, null, "Cancel (reason: '", reason, "'), restart:", toRestart);
+    if (cause == null) {
+      indicator.cancel(reason);
+    }
+    else {
+      indicator.cancel(cause, reason);
+    }
+    return true;
   }
 
   private synchronized void removeIndicatorFromMap(@NotNull FileEditor fileEditor, @NotNull DaemonProgressIndicator indicator) {
@@ -1566,7 +1578,7 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
     public void onStop() {
       VirtualFile file = myFileEditor.getFile();
       if (file != null && getFileEditorManager().isFileOpenWithRemotes(file)) {
-        myFirstPassFinished = true;
+        myAutoReparseDelayEnabled = true;
       }
       removeIndicatorFromMap(myFileEditor, this);
       myDaemonListenerPublisher.daemonFinished(List.of(myFileEditor));

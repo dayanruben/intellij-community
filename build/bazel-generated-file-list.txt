@@ -1089,6 +1089,7 @@ platform/tasks-platform-impl/tasks.impl.bookmarks
 platform/tasks-platform-impl/tasks.impl.debugger
 platform/testFramework
 platform/testFramework/bootstrap
+platform/testFramework/buildView
 platform/testFramework/common
 platform/testFramework/core
 platform/testFramework/eelJava
@@ -1102,6 +1103,7 @@ platform/testFramework/junit5/highlighting
 platform/testFramework/junit5/projectStructure
 platform/testFramework/monorepo
 platform/testFramework/selfContainedProjects
+platform/testFramework/structureView
 platform/testFramework/teamCity
 platform/testIntegration
 platform/testIntegration-ui

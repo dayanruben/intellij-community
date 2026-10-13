@@ -6,6 +6,7 @@ import com.intellij.ide.CopyPasteDelegator;
 import com.intellij.ide.IdeBundle;
 import com.intellij.ide.IdeView;
 import com.intellij.ide.SelectInTarget;
+import com.intellij.ide.actions.ViewInplaceCommentsListener;
 import com.intellij.ide.bookmark.BookmarksListener;
 import com.intellij.ide.impl.ProjectViewSelectInTarget;
 import com.intellij.ide.projectView.HelpID;
@@ -1157,7 +1158,7 @@ public class ProjectViewImpl extends ProjectView implements PersistentStateCompo
     MessageBusConnection connection = project.getMessageBus().connect();
     var loadStatisticsReporter = new ProjectViewInitReporter(connection);
     connection.subscribe(ProjectViewListener.TOPIC, loadStatisticsReporter);
-    project.getService(ProjectViewInitNotifier.class).initStarted();
+    ProjectViewInitNotifier.getInstance(project).initStarted();
 
     actionGroup = new DefaultActionGroup();
 
@@ -1217,6 +1218,15 @@ public class ProjectViewImpl extends ProjectView implements PersistentStateCompo
         }
       }, project);
     }
+    ApplicationManager.getApplication().getMessageBus().connect(project).subscribe(ViewInplaceCommentsListener.TOPIC, new ViewInplaceCommentsListener() {
+      @Override
+      public void settingChanged() {
+        var pane = getCurrentProjectViewPane();
+        if (pane != null) {
+          pane.updateFromRoot(true, ProjectViewUpdateCause.SETTINGS);
+        }
+      }
+    });
   }
   
   @ApiStatus.Internal

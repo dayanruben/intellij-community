@@ -172,6 +172,10 @@ pin the Kotlin and TypeScript ends to it.
   expectation sentence. Every span carries `air.span.status`, because OTLP has no word for aborted.
   [@test] ../crates/avl-trace/src/otlp/tests.rs
 
+- An action span and an assertion span carry `air.instruction.side` and `air.instruction.timeout_ms`, when
+  their `span` command states them.
+  [@test] ../crates/avl-trace/src/otlp/tests.rs (`the_example_spans_are_the_transcripts_spans`)
+
 - The span kinds are `reset`, `setup`, `step`, `operation`, `action`, `assertion`, `journey`, `restart` and
   `relaunch`. A `relaunch` span is one part of the relaunch that a `restart` span holds. A span key is
   `<kind>:<id>` and holds no counter, time or path.
@@ -256,7 +260,11 @@ The lane's side is [Flow UI Scenario Traces](../../../../plugins/air/spec/docs/f
 
 - `span` can carry `side`, `ide` or `host`, on an action or an assertion only. The recorder refuses a side on
   a span of any other kind.
-  [@test] ../crates/avl-trace/src/protocol/tests.rs (`only_an_instruction_span_states_a_side`)
+  [@test] ../crates/avl-trace/src/protocol/tests.rs (`only_an_instruction_span_states_a_side_and_a_deadline`)
+
+- `span` can carry `timeoutMs`, the deadline of the id in milliseconds, on an action or an assertion only.
+  The recorder refuses a deadline on a span of any other kind, and a deadline of 0.
+  [@test] ../crates/avl-trace/src/protocol/tests.rs (`only_an_instruction_span_states_a_side_and_a_deadline`)
 
 - Only the lane knows two times: a call's start and its duration. The recorder stamps everything else when the
   line arrives. A transcript therefore holds no other timestamp.
@@ -607,8 +615,8 @@ The Runs page, the run page and the trace page are in
   (0,0). A host with a display left of or above the primary one shifts tree overlays.
 - The manifest's lane is the profile's spelling, such as `UI`. The planner speaks the lane names of `bt`,
   such as `ui`. A reader that joins them maps the names.
-- A real run writes more `call` records than the golden transcript. The in-IDE reset and the scenario
-  preparation call the bridge inside spans the golden leaves empty.
+- A real run writes more `call` records than the golden transcript. The in-IDE reset calls the bridge inside
+  the two reset spans, and the golden leaves them empty.
 - A posted click records its point in a separate `press` entry, because its mouse events arrive after the
   gesture returns. The gesture's own entry keeps the target rectangle only.
 - The stage marks no point on a macOS host's screen recording. That video is scaled down from the Retina size,

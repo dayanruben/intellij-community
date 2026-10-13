@@ -3,10 +3,12 @@ use std::path::Path;
 use pretty_assertions::assert_eq;
 
 use super::{
-    FORCE_MODAL_PROPERTY, PROJECT_PROPERTIES, RunPlan, argfile_text, class_load_option, dist_options, entry_options, measure_options,
-    quote_argument, sandbox_options, scheme_arguments, span_ended,
+    DYNAMIC_AGENT_OPTION, FORCE_MODAL_PROPERTY, INTEGRATION_TEST_PROPERTY, Profiler, RunPlan, TRUST_PROPERTY, argfile_text,
+    class_load_option, dist_options, entry_options, idea_log_pid, measure_options, profile_stop_argv, quote_argument, sandbox_options,
+    scheme_arguments, span_ended,
 };
 use crate::bench::arm::Arm;
+use crate::bench::profile::ProfileEvent;
 use crate::bench::record::RunKind;
 use crate::bench::session::{Project, Sandbox};
 use crate::bench::stage::DistConfig;
@@ -26,6 +28,7 @@ fn the_measure_options_select_the_sandbox_and_the_files_of_the_run() {
         "-Xlog:class+load:file=/s/run/class-load.log:uptime,tags",
         "-Dfus.internal.test.mode=true",
         "-Dnosplash=true",
+        "-Didea.is.integration.test=true",
     ] {
         assert!(options.contains(&expected.to_owned()), "{expected}: {options:?}");
     }
@@ -33,6 +36,27 @@ fn the_measure_options_select_the_sandbox_and_the_files_of_the_run() {
         !options.iter().any(|option| option.contains("non.modal")),
         "the non-modal arm forces nothing"
     );
+}
+
+/// Every arm is an integration test, as every run of the IDE Starter is, and only a project start trusts its project.
+#[test]
+fn every_arm_is_an_integration_test_and_a_project_start_trusts_its_project() {
+    let sandbox = Sandbox::new("/s/sandbox");
+    let integration_test = format!("-D{INTEGRATION_TEST_PROPERTY}");
+    let trust = format!("-D{TRUST_PROPERTY}");
+    for arm in Arm::ALL {
+        let options = measure_options(Path::new("/s/run"), &sandbox, arm, None).expect("the options");
+        assert_eq!(
+            options.iter().filter(|option| **option == integration_test).count(),
+            1,
+            "{arm:?}: {options:?}"
+        );
+        assert_eq!(
+            options.contains(&trust),
+            matches!(arm, Arm::Project | Arm::EmptyEditor),
+            "{arm:?}: {options:?}"
+        );
+    }
 }
 
 /// Every arm writes the class-load log. A space in the run directory is no problem, and a `:` is an error that names
@@ -60,20 +84,76 @@ fn every_arm_writes_the_class_load_log_and_a_colon_in_the_run_directory_is_a_fai
     );
 }
 
+/// A profiled run starts the agent with the JVM and allows the dynamic load of the stop. The event of the profile is
+/// the one of `--profile-event`.
 #[test]
 fn the_modal_arm_forces_the_modal_screen_and_the_profile_adds_the_agent() {
-    let options = measure_options(
-        Path::new("/r"),
-        &Sandbox::new("/b"),
-        Arm::Modal,
-        Some(Path::new("/lib/libasyncProfiler.dylib")),
-    )
-    .expect("the options");
+    let profiler = |event| Profiler {
+        library: "/lib/libasyncProfiler.dylib".into(),
+        event,
+    };
+    let options =
+        measure_options(Path::new("/r"), &Sandbox::new("/b"), Arm::Modal, Some(&profiler(ProfileEvent::Cpu))).expect("the options");
     assert!(options.contains(&format!("-D{FORCE_MODAL_PROPERTY}")));
     assert_eq!(
-        options.last().map(String::as_str),
-        Some("-agentpath:/lib/libasyncProfiler.dylib=start,event=cpu,interval=1ms,threads,collapsed,file=/r/cpu.collapsed")
+        options[options.len() - 2..],
+        [
+            DYNAMIC_AGENT_OPTION.to_owned(),
+            "-agentpath:/lib/libasyncProfiler.dylib=start,event=cpu,interval=1ms,threads,collapsed,file=/r/cpu.collapsed".to_owned()
+        ]
     );
+    let wall = measure_options(
+        Path::new("/r"),
+        &Sandbox::new("/b"),
+        Arm::NonModal,
+        Some(&profiler(ProfileEvent::Wall)),
+    )
+    .expect("the options");
+    assert_eq!(
+        wall.last().map(String::as_str),
+        Some("-agentpath:/lib/libasyncProfiler.dylib=start,event=wall,interval=1ms,threads,collapsed,file=/r/cpu.collapsed")
+    );
+    let plain = measure_options(Path::new("/r"), &Sandbox::new("/b"), Arm::NonModal, None).expect("the options");
+    assert!(
+        !plain.contains(&DYNAMIC_AGENT_OPTION.to_owned()),
+        "a run without a profile loads no agent"
+    );
+}
+
+/// The stop of the profile loads the library again into the IDE with `stop`, through `jcmd` of the generation. `jcmd`
+/// joins its arguments, so a path with a space is quoted.
+#[test]
+fn the_profile_stops_at_the_gate_through_jcmd() {
+    assert_eq!(
+        profile_stop_argv(
+            Path::new("/g/jbr/Contents/Home/bin/jcmd"),
+            48213,
+            Path::new("/s/Application Support/async-profiler/libasyncProfiler.dylib"),
+            Path::new("/s/Application Support/non-modal-run-01/cpu-gate.collapsed"),
+        ),
+        [
+            "/g/jbr/Contents/Home/bin/jcmd",
+            "48213",
+            "JVMTI.agent_load",
+            "\"/s/Application Support/async-profiler/libasyncProfiler.dylib\"",
+            "\"stop,file=/s/Application Support/non-modal-run-01/cpu-gate.collapsed,collapsed\"",
+        ]
+    );
+}
+
+/// The PID of the IDE is the line that its start writes into `idea.log`. A log without it, or with another value, has
+/// none.
+#[test]
+fn the_pid_of_the_ide_comes_from_its_log() {
+    let log = "2026-10-01 15:18:10,201 [    283]   INFO - #c.i.p.i.b.StartupUtil - JVM: 25.0.2+10-b432.48 (OpenJDK 64-Bit Server VM)\n\
+               2026-10-01 15:18:10,201 [    283]   INFO - #c.i.p.i.b.StartupUtil - PID: 48213\n\
+               2026-10-01 15:18:10,202 [    284]   INFO - #c.i.p.i.b.StartupUtil - Timezone: Europe/Berlin (+02:00)\n";
+    assert_eq!(idea_log_pid(log), Some(48213));
+    assert_eq!(
+        idea_log_pid("2026-10-01 15:18:10,201 [    283]   INFO - #c.i.p.i.b.StartupUtil - OS: macOS (26.7)\n"),
+        None
+    );
+    assert_eq!(idea_log_pid("2026-10-01 15:18:10,201 [    283]   INFO - #c - PID: none\n"), None);
 }
 
 #[test]
@@ -112,14 +192,10 @@ fn the_prime_run_of_a_project_opens_its_first_file_and_a_measured_run_restores_i
     );
 
     let options = measure_options(Path::new("/r"), &sandbox, Arm::Project, None).expect("the options");
-    for property in PROJECT_PROPERTIES {
-        assert!(options.contains(&format!("-D{property}")), "{property}");
-    }
+    assert!(options.contains(&format!("-D{TRUST_PROPERTY}")), "{options:?}");
     assert!(!options.contains(&format!("-D{FORCE_MODAL_PROPERTY}")));
     let welcome_options = measure_options(Path::new("/r"), &sandbox, Arm::NonModal, None).expect("the options");
-    for property in PROJECT_PROPERTIES {
-        assert!(!welcome_options.contains(&format!("-D{property}")), "{property}");
-    }
+    assert!(!welcome_options.contains(&format!("-D{TRUST_PROPERTY}")), "{welcome_options:?}");
 }
 
 /// Every run of the empty-editor arm opens the project directory alone, so the IDE neither saves nor restores an
@@ -145,9 +221,7 @@ fn every_run_of_the_empty_editor_arm_opens_the_project_without_a_file() {
         );
     }
     let options = measure_options(Path::new("/r"), &sandbox, Arm::EmptyEditor, None).expect("the options");
-    for property in PROJECT_PROPERTIES {
-        assert!(options.contains(&format!("-D{property}")), "{property}");
-    }
+    assert!(options.contains(&format!("-D{TRUST_PROPERTY}")), "{options:?}");
     assert!(!options.contains(&format!("-D{FORCE_MODAL_PROPERTY}")));
 }
 

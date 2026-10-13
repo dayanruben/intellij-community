@@ -140,3 +140,46 @@ fn a_value_that_no_earlier_instruction_answers_is_refused() {
         vec!["scenario 'scenario' operation 'submit' takes the value 'path', which no earlier instruction answers".to_owned()]
     );
 }
+
+#[test]
+fn a_value_that_an_earlier_instruction_may_answer_is_answered() {
+    let submit = json!({"side": "ide", "timeoutMs": 1, "restarts": 0, "answers": [], "mayAnswer": ["draft"], "takes": [], "mayTake": [], "params": {}});
+    let kept = json!({"side": "ide", "timeoutMs": 1, "restarts": 0, "answers": [], "takes": ["draft"], "mayTake": [], "params": {}});
+    let vocabulary = json!({"runnerAnswers": [], "actions": {"submit": submit}, "assertions": {"kept": kept}});
+    let fits = json!([{"action": "submit"}, {"assertion": "kept", "expectation": "The draft tab is kept."}]);
+    assert_eq!(program(&vocabulary, &fits).refusals(), Vec::<String>::new());
+    let early = json!([{"assertion": "kept", "expectation": "The draft tab is kept."}, {"action": "submit"}]);
+    assert_eq!(
+        program(&vocabulary, &early).refusals(),
+        vec!["scenario 'scenario' operation 'submit' takes the value 'draft', which no earlier instruction answers".to_owned()]
+    );
+}
+
+#[test]
+fn a_string_parameter_accepts_any_string_and_nothing_else() {
+    let params = json!({"text": {"type": "string", "optional": false}});
+    let vocabulary = json!({"runnerAnswers": [], "actions": {"type-text": spec("ide", &params)}, "assertions": {}});
+    let instructions = json!([
+        {"action": "type-text", "args": {"text": "Any text, with \"quotes\" and $1."}},
+        {"action": "type-text", "args": {"text": ""}},
+        {"action": "type-text", "args": {"text": 1}},
+    ]);
+    assert_eq!(
+        program(&vocabulary, &instructions).refusals(),
+        vec!["scenario 'scenario' operation 'submit': the action 'type-text' parameter 'text' does not accept 1".to_owned()]
+    );
+}
+
+#[test]
+fn a_scenario_of_setups_with_no_flow_and_no_step_has_no_refusal() {
+    let document = json!({
+        "suite": "probe", "lane": "GUI_CHAT", "testClassName": "AirProbeGeneratedFlowUiTest", "restartsIde": false,
+        "labels": [{"name": "testClass", "value": "com.example.AirProbeGeneratedFlowUiTest"}],
+        "modules": [], "implementationFlows": [],
+        "vocabulary": {"runnerAnswers": [], "actions": {"launch": spec("ide", &json!({}))}, "assertions": {}},
+        "profiles": [{"name": "scenario", "fixture": "fixture", "flags": {}, "followsLastUsedPreset": false,
+            "requiresPromptProbe": false, "setups": [{"operation": "launch", "instructions": [{"action": "launch"}]}], "steps": []}],
+    });
+    let program = parse_suite_program(document.to_string().as_bytes()).unwrap();
+    assert_eq!(program.refusals(), Vec::<String>::new());
+}

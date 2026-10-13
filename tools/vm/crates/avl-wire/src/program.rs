@@ -31,6 +31,17 @@ vocabulary! {
     pub enum HostAction {
         /// Approves the JetBrains Account login of the value `signInUrl` in the JetBrains Cloud emulator.
         AccountApproveSignIn = "account-approve-sign-in",
+        /// Waits until the controlled agent receives the prompt that `agentTurn` claimed, and answers it as `agentPrompt`.
+        AgentAwaitPrompt = "agent-await-prompt",
+        /// Makes the controlled agent end the turn of `agentPrompt`.
+        AgentCompletePrompt = "agent-complete-prompt",
+        /// Claims the next prompt of the session `agentSession` before the chat sends it, and answers the claim as `agentTurn`.
+        AgentExpectPrompt = "agent-expect-prompt",
+        /// Starts a session of the controlled agent of the fixture, gives the launch answers of the fixture, and answers
+        /// the session as `agentSession` and its thread as `agentThreadId`.
+        AgentLaunch = "agent-launch",
+        /// Makes the controlled agent ask for a form in the turn of `agentPrompt`, under the stated key and schema.
+        AgentRequestElicitation = "agent-request-elicitation",
         /// Pauses the next package download of the fake registry.
         ConsentHoldDownload = "consent-hold-download",
         /// Makes the fake registry fail the next package download.
@@ -49,6 +60,10 @@ vocabulary! {
 vocabulary! {
     /// The assertions that a lane runner checks on the host.
     pub enum HostAssertion {
+        /// The controlled agent of `agentSession` receives the stated action as the answer to the form of the stated key.
+        AgentAwaitElicitationResponse = "agent-await-elicitation-response",
+        /// The prompt `agentPrompt` holds exactly the stated text.
+        AgentPromptContent = "agent-prompt-content",
         /// The fake registry fails the next package download.
         ConsentDownloadFaultArmed = "consent-download-fault-armed",
         /// The fake registry answered the stated count of package requests since `consentRegistryBaseline`.
@@ -61,6 +76,8 @@ vocabulary! {
     pub enum ParamType {
         Int = "int",
         Boolean = "boolean",
+        /// Any string: a literal payload, such as the text that a fake agent sends.
+        String = "string",
         /// A string of [`ParamSpec::values`].
         Enum = "enum",
     }
@@ -108,6 +125,9 @@ pub struct IdSpec {
     pub restarts: u32,
     /// The values one use answers. A runner keeps each one under its name, as an opaque blob.
     pub answers: Vec<String>,
+    /// The values one use answers only on some arguments. An absent answer keeps the old value under its name.
+    #[serde(default)]
+    pub may_answer: Vec<String>,
     /// The values one use needs. A runner passes the latest answer of each name.
     pub takes: Vec<String>,
     /// The values one use reads only on some arguments, or only when they exist.
@@ -126,7 +146,7 @@ pub struct ParamSpec {
     pub optional: bool,
 }
 
-/// One scenario: its setups, then its flow steps.
+/// One scenario: its setups, then its flow steps. A scenario of an authored program has setups only.
 #[derive(Clone, Debug, Deserialize)]
 pub struct ScenarioProgram {
     pub name: String,
@@ -208,7 +228,7 @@ impl SuiteProgram {
                     for name in spec.takes.iter().filter(|name| !answered.contains(name.as_str())) {
                         refusals.push(format!("{place} takes the value '{name}', which no earlier instruction answers"));
                     }
-                    answered.extend(spec.answers.iter().map(String::as_str));
+                    answered.extend(spec.answers.iter().chain(&spec.may_answer).map(String::as_str));
                 }
             }
         }
@@ -291,6 +311,7 @@ impl ParamSpec {
         match self.kind {
             ParamType::Int => value.as_i64().is_some(),
             ParamType::Boolean => value.is_boolean(),
+            ParamType::String => value.is_string(),
             ParamType::Enum => value
                 .as_str()
                 .is_some_and(|text| self.values.iter().any(|candidate| candidate == text)),

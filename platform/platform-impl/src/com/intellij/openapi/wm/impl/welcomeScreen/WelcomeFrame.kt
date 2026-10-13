@@ -2,6 +2,8 @@
 package com.intellij.openapi.wm.impl.welcomeScreen
 
 import com.intellij.CommonBundle
+import com.intellij.diagnostic.StartUpPerformanceService
+import com.intellij.diagnostic.runActivity
 import com.intellij.ide.AppLifecycleListener
 import com.intellij.ide.impl.ProjectUtilCore
 import com.intellij.internal.statistic.eventLog.getUiEventLogger
@@ -51,7 +53,9 @@ import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import com.intellij.util.ui.accessibility.AccessibleContextAccessor
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus.Internal
 import java.awt.Point
 import java.awt.Rectangle
@@ -179,19 +183,39 @@ class WelcomeFrame : JFrame(), IdeFrame, AccessibleContextAccessor, DisposableWi
           return@task
         }
 
-        val frame = EP.lazySequence().mapNotNull { it.createFrame() }.firstOrNull()
-                    ?: throw IllegalStateException("No implementation of `com.intellij.welcomeFrameProvider` extension point")
+        val frame = runActivity("welcome frame creating") {
+          EP.lazySequence().mapNotNull { it.createFrame() }.firstOrNull()
+        } ?: throw IllegalStateException("No implementation of `com.intellij.welcomeFrameProvider` extension point")
         val jFrame = frame as JFrame
         registerKeyboardShortcuts(jFrame.rootPane)
         hideSplashBeforeShow(jFrame)
-        jFrame.isVisible = true
+        runActivity("welcome frame showing") {
+          jFrame.isVisible = true
+        }
         FUSProjectHotStartUpMeasurer.reportWelcomeScreenIsGoingToBeShown()
         FUSProjectHotStartUpMeasurer.reportModalWelcomeScreenBecameVisible()
+        ensureStartUpReportIsWritten()
         installAppMenuIfNeeded(jFrame)
         instance = frame
         if (SystemInfoRt.isMac) {
           touchbar = TouchbarSupport.showWindowActions(frame.component)
         }
+      }
+    }
+
+    /**
+     * Creates the start-up performance service when the run requests the start-up report with `idea.log.perf.stats.file`.
+     * The service writes the report when the first project finishes its start-up, or at the exit if no project did.
+     * Without the service, a start-up that opens no project writes no report.
+     * The function doesn't write the report now, so a project that opens later still writes the report of its start-up.
+     */
+    private fun ensureStartUpReportIsWritten() {
+      if (System.getProperty("idea.log.perf.stats.file").isNullOrEmpty()) {
+        return
+      }
+
+      service<CoreUiCoroutineScopeHolder>().coroutineScope.launch {
+        serviceAsync<StartUpPerformanceService>()
       }
     }
 
@@ -215,7 +239,16 @@ class WelcomeFrame : JFrame(), IdeFrame, AccessibleContextAccessor, DisposableWi
       val customHandler = findNoProjectStateHandler()
       if (customHandler != null) {
         service<CoreUiCoroutineScopeHolder>().coroutineScope.launch {
-          customHandler()
+          try {
+            customHandler()
+          }
+          finally {
+            // The project that the handler opens reuses the frame of the last closed project.
+            // Dispose the frame when no project took it, for example, when the open failed.
+            withContext(Dispatchers.EDT + ModalityState.nonModal().asContextElement() + NonCancellable) {
+              (serviceAsync<WindowManager>() as? WindowManagerImpl)?.disposeRootFrame()
+            }
+          }
         }
         return
       }
