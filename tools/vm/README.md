@@ -57,9 +57,9 @@ and `:air-trace` natively.
 
 `docker/` holds the image of the Linux worker (`--backend docker`, ADR 0183): the `Dockerfile` and its
 entrypoint `air-display`. The entrypoint starts the X display and the window manager. The image carries the guest
-Node (ADR 0210). `avl-vm` embeds both files and
+Node ([the Docker image carries Node, and the Tart Linux worker is retired](docs/decisions/2026-10-08-the-docker-image-carries-node-and-the-tart-linux-worker-is-retired.md)). `avl-vm` embeds both files and
 builds the image; nobody builds it by hand. The base is `DOCKER_BASE_IMAGE` in `community/tools/vm/provision/versions.env`.
-`container.MODULE.bazel` pins Apple `container`, the engine of a Mac on macOS 26 or newer (ADR 0222, ADR 0224).
+`container.MODULE.bazel` pins Apple `container`, the engine of a Mac on macOS 26 or newer ([Apple container is a second engine of the Docker backend](docs/decisions/2026-10-09-apple-container-is-a-second-engine-of-the-docker-backend.md), ADR 0224).
 `docker/engine.lima.yaml` is the template of the Lima VM that runs the engine on an older macOS, or with
 `AIR_VM_DOCKER_ENGINE=lima` (ADR 0189). `avl-vm` embeds it too. `docker.MODULE.bazel` pins the Docker CLI and its
 `docker-buildx` plugin, and `lima.MODULE.bazel` pins Lima.
@@ -159,7 +159,7 @@ and copy `<bin>_closure.txt` from `out/bazel-bin` over `closure.txt`.
 and the defaults of the verb.
 
 Every run is an integration test, as every run of the IDE Starter is, so a welcome run measures what the perf test of
-the welcome screen measures. `session.json` names this measurement model, and ADR 0230 records it. A metric of a
+the welcome screen measures. `session.json` names this measurement model, and ADR 0234 records it. A metric of a
 welcome span or of a modal span is the sum of the spans of its name, as the perf test sums them, and a name that
 repeats is a note of the run. The digest shows these sums in the groups `welcome spans` and `modal spans`. The group
 `span ends (ms from the process start)` holds the end of the first span of each start-up step, on the clock of the
@@ -172,6 +172,12 @@ metric.
 run reads the PID of the IDE from `idea.log` and stops the profiler with `jcmd` of the generation, which writes
 `cpu-gate.collapsed`. `--profile-event wall` samples the wall clock in place of the CPU. A run that cannot stop the
 profiler keeps the whole-run profile `cpu.collapsed`, with a note that names why. The digest says which profile it read.
+
+Two costs of the instruments stay out of the numbers. The JVM writes `class-load.log` asynchronously, with
+`-Xlog:async:stall` and a buffer of 32 MB, because a flush of each class line under the global log lock costs a start
+about half a second of CPU. A full buffer stalls the logging thread and drops no line, so the class count stays exact.
+The profile leaves out the stacks under `Profiler::dlopen_hook`, where async-profiler parses the symbols of each library
+that the JVM loads, and the digest notes how many samples it left out.
 
 | verb | the question it answers | its output |
 | --- | --- | --- |

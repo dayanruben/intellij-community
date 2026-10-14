@@ -531,6 +531,15 @@ The daemon's half and the IDE's half of supervision are in
   launch key and the log directory. An `ideExited` record names the pid, the exit code and the signal.
   [@test] ../crates/avl-wire/src/daemon/tests.rs
 
+- The run journal holds each line that the daemon writes to its error stream during a run. Each line is an `output`
+  record. An example is the line that names a recycle of the lane IDE. The text has no stamp of the daemon, and the
+  record has its own time. An `output` record is not progress. It moves no deadline of the daemon or of the
+  controller. No `output` record of a run follows its summary.
+  [@test] ../crates/avl-wire/src/daemon/tests.rs
+  [@test] ../crates/avl-vm/src/daemon/run/tests.rs
+  [@test] ../../../../plugins/air/tests/integration/uiDaemon/testSrc/AirUiDaemonStampedOutputTest.kt
+  [@test] ../../../../plugins/air/tests/integration/uiDaemon/testSrc/AirUiDaemonProtocolTest.kt
+
 - The watchdog evidence may name a file of an IDE context. Examples are a heartbeat screenshot and the thread
   dump before a kill.
   [@test] ../crates/avl-wire/src/report/tests.rs
@@ -982,6 +991,6 @@ The [controller to-do list](../docs/ui-lane-controller-todo.md) holds the open w
 - [ADR 0059](../docs/decisions/0059-the-ui-lane-tooling-is-rust.md)
 - [ADR 0106](../docs/decisions/0106-a-warm-daemon-survives-a-lease-release.md)
 - [ADR 0182](../docs/decisions/0182-the-daemon-is-reached-through-the-exec-channel.md)
-- [ADR 0220](../../../../plugins/air/docs/decisions/0220-the-guest-agent-launches-the-lane-ide.md)
+- [ADR 0234](../../../../plugins/air/docs/decisions/0234-the-guest-agent-launches-the-lane-ide.md)
 - [Flow UI Scenarios](../../../../plugins/air/spec/docs/flow-ui-scenarios.spec.md)
 - [Scenario Traces](scenario-trace.spec.md)
