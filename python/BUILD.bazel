@@ -48,6 +48,7 @@ resourcegroup(
     name = "pycharm-community_resources",
     srcs = glob(
         ["resources/**/*"],
+        allow_empty = True,
         exclude = ["resources/**/icon-robots.txt"],
     ),
     strip_prefix = "resources",
@@ -407,6 +408,7 @@ jvm_library(
     resource_strip_prefix = "pluginResources",
     resources = glob(
         ["pluginResources/**/*"],
+        allow_empty = True,
         exclude = ["pluginResources/**/icon-robots.txt"],
     ),
     visibility = ["//visibility:public"],
@@ -482,7 +484,6 @@ jvm_library(
         "//libraries/netty/codec-http:libraries-netty-codec-http",
         "//libraries/jsoup",
         "//libraries/javax/annotation",
-        "@lib//ant/lib:ant-provided",
         "//python/python-psi-impl:psi-impl",
         "//python/python-sdk/backend",
         "//python/python-sdk/common",
@@ -569,6 +570,7 @@ jvm_library(
         "//python/python-poetry/backend",
         "//platform/eel-nioFs",
         "//platform/wsl-impl",
+        "//libraries/commons/compress",
     ],
 )
 
@@ -654,7 +656,6 @@ jvm_library(
         "//libraries/netty/codec-http:libraries-netty-codec-http_test_lib",
         "//libraries/jsoup:jsoup_test_lib",
         "//libraries/javax/annotation:annotation_test_lib",
-        "@lib//ant/lib:ant-provided",
         "//python/python-psi-impl:psi-impl_test_lib",
         "//python/python-sdk/backend:backend_test_lib",
         "//python/python-sdk/common:common_test_lib",
@@ -739,6 +740,7 @@ jvm_library(
         "//python/python-poetry/backend:backend_test_lib",
         "//platform/eel-nioFs:eel-nioFs_test_lib",
         "//platform/wsl-impl:wsl-impl_test_lib",
+        "//libraries/commons/compress:compress_test_lib",
     ],
 )
 ### auto-generated section `build intellij.python.community.impl` end
@@ -1555,6 +1557,7 @@ jvm_library(
     resource_strip_prefix = "helpers",
     resources = glob(
         ["helpers/**/*"],
+        allow_empty = True,
         exclude = ["helpers/**/icon-robots.txt"],
     ),
     visibility = ["//visibility:public"],
