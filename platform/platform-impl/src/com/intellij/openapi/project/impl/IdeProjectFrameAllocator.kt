@@ -65,6 +65,7 @@ import com.intellij.openapi.wm.ex.ProjectFrameCapability
 import com.intellij.openapi.wm.ex.ProjectFrameTypeService
 import com.intellij.openapi.wm.ex.ProjectFrameUiPolicy
 import com.intellij.openapi.wm.ex.ToolWindowManagerListener
+import com.intellij.openapi.wm.ex.WelcomeScreenProjectProvider
 import com.intellij.openapi.wm.ex.normalizeProjectFrameKey
 import com.intellij.openapi.wm.impl.FrameBoundsConverter
 import com.intellij.openapi.wm.impl.FrameInfo
@@ -78,6 +79,7 @@ import com.intellij.openapi.wm.impl.ToolWindowManagerImpl
 import com.intellij.openapi.wm.impl.WindowManagerImpl
 import com.intellij.openapi.wm.impl.checkForNonsenseBounds
 import com.intellij.openapi.wm.impl.updateFullScreenState
+import com.intellij.openapi.wm.impl.welcomeScreen.recentProjects.preloadRecentProjectsWithoutCurrent
 import com.intellij.platform.diagnostic.telemetry.impl.getTraceActivity
 import com.intellij.platform.diagnostic.telemetry.impl.rootTask
 import com.intellij.platform.diagnostic.telemetry.impl.span
@@ -95,7 +97,9 @@ import com.intellij.util.messages.SimpleMessageBusConnection
 import com.intellij.util.ui.accessibility.ScreenReader
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CompletableJob
 import kotlinx.coroutines.CoroutineName
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -112,6 +116,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.VisibleForTesting
 import java.awt.Component
 import java.awt.Dimension
 import java.awt.Frame
@@ -128,6 +133,7 @@ import javax.swing.SwingUtilities
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.coroutines.resume
 import kotlin.math.min
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
 internal class IdeProjectFrameAllocator(
@@ -136,9 +142,38 @@ internal class IdeProjectFrameAllocator(
 ) : ProjectFrameAllocator {
   private val deferredProjectFrameHelper = CompletableDeferred<IdeProjectFrameHelper>()
 
+  /**
+   * Completes when the first fill of the main menu of the frame may run, see [FrameLoadingState.mainMenuFillPermit].
+   */
+  private val mainMenuFillPermit: CompletableJob = createMainMenuFillPermit(options)
+
   override suspend fun preInitProject(project: Project) {
+    // the earliest point that knows the project, before the background write actions of the pre-init
+    permitMainMenuFill(project)
+    if (serviceAsync<ProjectFrameCapabilitiesService>().has(project, ProjectFrameCapability.WELCOME_EXPERIENCE)) {
+      // the left panel of the welcome frame takes the list instead of collecting it on the EDT
+      preloadRecentProjectsWithoutCurrent(project)
+    }
     project.getOrCreatePostOpenEditorsDeferred()
     (FileEditorManager.getInstanceAsync(project) as? FileEditorManagerImpl)?.initJob?.join()
+  }
+
+  private suspend fun permitMainMenuFill(project: Project) {
+    if (mainMenuFillPermit.isCompleted) {
+      return
+    }
+    if (serviceAsync<ProjectFrameCapabilitiesService>().has(project, ProjectFrameCapability.WELCOME_EXPERIENCE)) {
+      @Suppress("UsagesOfObsoleteApi")
+      permitMainMenuFillOnContentPainted(
+        scope = (project as ComponentManagerEx).getCoroutineScope(),
+        permit = mainMenuFillPermit,
+        contentPainted = project.getOrCreateFrameContentPaintedDeferred(),
+        timeout = MAIN_MENU_FILL_PERMIT_TIMEOUT,
+      )
+    }
+    else {
+      mainMenuFillPermit.complete()
+    }
   }
 
   override suspend fun runInBackground(projectInitObservable: ProjectInitObservable) {
@@ -169,12 +204,18 @@ internal class IdeProjectFrameAllocator(
     span("frame allocator foreground") {
       coroutineScope {
         val job = currentCoroutineContext().job
+        val frameLoadingDone = createFrameLoadingDone(foregroundJob = job)
+        job.invokeOnCompletion { cause ->
+          if (cause != null) {
+            mainMenuFillPermit.complete()
+          }
+        }
         val frameSettingsDeferred = async(CoroutineName("project frame settings resolving")) {
           resolveFrameSettings()
         }
 
         val frameInitJob = launch(CoroutineName("project frame creating")) {
-          val loadingState = MutableLoadingState(done = job)
+          val loadingState = MutableLoadingState(done = frameLoadingDone, mainMenuFillPermit = mainMenuFillPermit)
           span("frame creation") {
             createFrameManager(loadingState, frameSettingsDeferred.await())
           }
@@ -191,9 +232,12 @@ internal class IdeProjectFrameAllocator(
 
           launch {
             val windowManager = serviceAsync<WindowManager>() as WindowManagerImpl
+            // a welcome-experience frame starts the progress reporting of its status bar with its widgets, once it is interactive
+            val isWelcomeExperience = serviceAsync<ProjectFrameCapabilitiesService>()
+              .has(project, ProjectFrameCapability.WELCOME_EXPERIENCE)
             span("frame assignment", Dispatchers.ui(CoroutineSupport.UiDispatcherKind.STRICT)) {
               windowManager.assignFrame(frameHelper, project)
-              frameHelper.setRawProject(project)
+              frameHelper.setRawProject(project, initializesStatusBar = !isWelcomeExperience)
             }
           }
 
@@ -234,8 +278,27 @@ internal class IdeProjectFrameAllocator(
           span("initFrame") {
             launch(CoroutineName("tool window pane creation")) {
               val deferredToolWindowManager = async { project.serviceAsync<ToolWindowManager>() as? ToolWindowManagerImpl }
+              // resolve the policy once: the provider of the welcome project policy writes a first-run flag
+              val projectFrameUiPolicyDeferred = async {
+                serviceAsync<ProjectFrameCapabilitiesService>().getUiPolicyForToolWindows(project)
+              }
+              // a welcome-experience frame registers the tool windows it shows first, and every other one after its content paints
+              val eagerToolWindowIdsDeferred = async {
+                if (serviceAsync<ProjectFrameCapabilitiesService>().has(project, ProjectFrameCapability.WELCOME_EXPERIENCE)) {
+                  val toolWindowManager = deferredToolWindowManager.await()
+                  toolWindowManager?.let { computeEagerToolWindowIdsOfWelcomeFrame(it, projectFrameUiPolicyDeferred.await()) }
+                }
+                else {
+                  null
+                }
+              }
               val taskListDeferred = async(CoroutineName("toolwindow init command creation")) {
-                computeToolWindowBeans(project, frameSettingsDeferred.await().projectFrameTypeId)
+                val eagerToolWindowIds = eagerToolWindowIdsDeferred.await()
+                computeToolWindowBeans(
+                  project = project,
+                  projectFrameTypeId = frameSettingsDeferred.await().projectFrameTypeId,
+                  isIncluded = { eagerToolWindowIds == null || it in eagerToolWindowIds },
+                )
               }
 
               val toolWindowManager = deferredToolWindowManager.await() ?: return@launch
@@ -244,8 +307,7 @@ internal class IdeProjectFrameAllocator(
               val toolWindowPane = withContext(Dispatchers.UI) {
                 projectFrameHelper.toolWindowPane
               }
-              // resolve the policy once: the provider of the welcome project policy writes a first-run flag
-              val projectFrameUiPolicy = serviceAsync<ProjectFrameCapabilitiesService>().getUiPolicyForToolWindows(project)
+              val projectFrameUiPolicy = projectFrameUiPolicyDeferred.await()
               val earlyStartupToolWindowActivation = projectFrameUiPolicy?.let {
                 EarlyStartupToolWindowActivation.create(toolWindowManager, project, it)
               }
@@ -256,6 +318,7 @@ internal class IdeProjectFrameAllocator(
                   taskListDeferred = taskListDeferred,
                   projectFrameTypeId = projectFrameTypeId,
                   onDefaultPaneToolWindowsRegistered = earlyStartupToolWindowActivation?.let { it::run },
+                  defersToolWindowRegistration = eagerToolWindowIdsDeferred.await() != null,
                 )
               }
               if (projectFrameUiPolicy != null) {
@@ -276,6 +339,20 @@ internal class IdeProjectFrameAllocator(
           frameInitJob.join() // StatusBar needs to be created
           frameHelperInitJob.join()
           project.getOrCreateIdeFrameDeferred().complete(frameHelper)
+        }
+
+        launch {
+          val project = projectInitObservable.awaitProjectInit()
+          if (serviceAsync<ProjectFrameCapabilitiesService>().has(project, ProjectFrameCapability.WELCOME_EXPERIENCE)) {
+            @Suppress("UsagesOfObsoleteApi")
+            completeFrameLoadingOnContentPainted(
+              scope = (project as ComponentManagerEx).getCoroutineScope(),
+              done = frameLoadingDone,
+              foregroundJob = job,
+              frameHelperInitJob = frameHelperInitJob,
+              contentPainted = project.getOrCreateFrameContentPaintedDeferred(),
+            )
+          }
         }
 
         launch {
@@ -424,6 +501,7 @@ internal class IdeProjectFrameAllocator(
   )
 
   override suspend fun projectNotLoaded(cannotConvertException: CannotConvertException?) {
+    mainMenuFillPermit.complete()
     val frameHelper = if (deferredProjectFrameHelper.isCompleted) {
       deferredProjectFrameHelper.await()
     }
@@ -547,7 +625,28 @@ private class EarlyStartupToolWindowActivation private constructor(
   }
 }
 
-private fun applyProjectFrameUiPolicy(
+/**
+ * Returns the ids of the tool windows that a welcome-experience frame registers before its content paints:
+ * the welcome set of the product, the startup tool window, and the tool windows that the stored layout shows.
+ * Returns null when the product declares no welcome set, so the frame registers every tool window at once.
+ */
+private fun computeEagerToolWindowIdsOfWelcomeFrame(
+  toolWindowManager: ToolWindowManagerImpl,
+  projectFrameUiPolicy: ProjectFrameUiPolicy?,
+): Set<String>? {
+  val welcomeToolWindowIds = WelcomeScreenProjectProvider.getToolWindowIdsToExclusiveShowing()
+  if (welcomeToolWindowIds.isEmpty()) {
+    return null
+  }
+
+  val result = HashSet(welcomeToolWindowIds)
+  projectFrameUiPolicy?.startupToolWindowIdToActivate?.let(result::add)
+  result.addAll(toolWindowManager.getToolWindowIdsShownByStoredLayout())
+  return result
+}
+
+@VisibleForTesting
+internal fun applyProjectFrameUiPolicy(
   toolWindowManager: ToolWindowManager,
   project: Project,
   projectFrameUiPolicy: ProjectFrameUiPolicy,
@@ -567,14 +666,14 @@ private fun applyProjectFrameUiPolicy(
       }
     }
 
-    hideNotExclusive(toolWindowManager.toolWindowIds.filter { !exclusiveShowing.contains(it) })
-
     val messageBusConnection = project.messageBus.connect(project)
     messageBusConnection.subscribe(ToolWindowManagerListener.TOPIC, object : ToolWindowManagerListener {
       override fun toolWindowsRegistered(ids: List<String>, toolWindowManager: ToolWindowManager) {
         hideNotExclusive(ids.filter { !exclusiveShowing.contains(it) })
       }
     })
+    // after the subscription: the deferred registration of a welcome-experience frame may register tool windows at any time
+    hideNotExclusive(toolWindowManager.toolWindowIds.filter { !exclusiveShowing.contains(it) })
   }
 
   val startupToolWindowId = projectFrameUiPolicy.startupToolWindowIdToActivate.takeUnless { isStartupToolWindowActivated }
@@ -818,6 +917,8 @@ internal fun presentProjectViewOnStartup(
 }
 
 private val EMPTY_STATE_FOCUS_SETTLEMENT_TIMEOUT = 5.seconds
+
+private val MAIN_MENU_FILL_PERMIT_TIMEOUT = 2.seconds
 
 /**
  * Ends the startup presentation hold when [postOpenEditors] never got to release the hold [restoreEditors] took.
@@ -1134,6 +1235,7 @@ internal suspend fun isReadmeLookupOnStartupEnabled(project: Project): Boolean {
  * Installs the default status bar widgets of [project] and updates the frame title.
  * A [ProjectFrameCapability.WELCOME_EXPERIENCE] project installs its widgets after [frameLoadingJob] completes,
  * because the creation and the `install` of each widget is an EDT event that delays the frame becoming interactive.
+ * Its status bar starts the progress reporting at the same time, see [ProjectFrameHelper.setRawProject].
  */
 private suspend fun installStatusBarWidgetsAndUpdateTitle(frameHelper: IdeProjectFrameHelper, project: Project, frameLoadingJob: Job) {
   if (!serviceAsync<ProjectFrameCapabilitiesService>().has(project, ProjectFrameCapability.WELCOME_EXPERIENCE)) {
@@ -1148,7 +1250,84 @@ private suspend fun installStatusBarWidgetsAndUpdateTitle(frameHelper: IdeProjec
   if (frameLoadingJob.isCancelled && !project.isOpen) {
     return
   }
+  withContext(Dispatchers.UiWithModelAccess) {
+    frameHelper.initializeStatusBar()
+  }
   frameHelper.installDefaultProjectStatusBarWidgets(project)
 }
 
-private class MutableLoadingState(override val done: Job) : FrameLoadingState
+/**
+ * Returns the job that ends the loading state of a frame: until it completes, the loading layer consumes the input.
+ * It completes when [foregroundJob] completes, and its cancellation, for example, by ESC on the loading layer, cancels [foregroundJob].
+ */
+@VisibleForTesting
+internal fun createFrameLoadingDone(foregroundJob: Job): CompletableJob {
+  val done = Job()
+  foregroundJob.invokeOnCompletion { cause ->
+    if (cause == null) {
+      done.complete()
+    }
+    else {
+      done.cancel(cause as? CancellationException ?: CancellationException("The frame loading failed", cause))
+    }
+  }
+  done.invokeOnCompletion { cause ->
+    if (cause is CancellationException) {
+      foregroundJob.cancel(cause)
+    }
+  }
+  return done
+}
+
+/**
+ * Completes [done] once [frameHelperInitJob] is done and [contentPainted] is completed,
+ * so the loading state of a welcome frame ends when its content is painted, not when the tail of the tool window initialization ends.
+ * The waiter runs in [scope], so it never holds [foregroundJob], and it stops when [foregroundJob] ends.
+ */
+@VisibleForTesting
+internal fun completeFrameLoadingOnContentPainted(
+  scope: CoroutineScope,
+  done: CompletableJob,
+  foregroundJob: Job,
+  frameHelperInitJob: Job,
+  contentPainted: Deferred<Unit>,
+) {
+  val waiter = scope.launch(CoroutineName("frame content painted waiting")) {
+    frameHelperInitJob.join()
+    contentPainted.await()
+    // a failed frame helper initialization cancels the foreground job, and the loading state ends with it
+    if (!frameHelperInitJob.isCancelled && !foregroundJob.isCancelled) {
+      done.complete()
+    }
+  }
+  foregroundJob.invokeOnCompletion { waiter.cancel() }
+}
+
+/**
+ * Returns the permit of the first main menu fill of a frame opened with [options], see [FrameLoadingState.mainMenuFillPermit].
+ * A frame that is not initialized early learns about its project only after the project preparation, so its fill does not wait.
+ */
+@VisibleForTesting
+internal fun createMainMenuFillPermit(options: OpenProjectTask): CompletableJob {
+  val permit = Job()
+  if (!isFrameInitializedEarly(options)) {
+    permit.complete()
+  }
+  return permit
+}
+
+/**
+ * Completes [permit] when [contentPainted] completes, or after [timeout] when the paint does not come.
+ * The waiter runs in [scope], and its end in any way completes [permit], so a fill never waits for a disposed project.
+ */
+@VisibleForTesting
+internal fun permitMainMenuFillOnContentPainted(scope: CoroutineScope, permit: CompletableJob, contentPainted: Job, timeout: Duration) {
+  val waiter = scope.launch(CoroutineName("main menu fill permit waiting")) {
+    withTimeoutOrNull(timeout) {
+      contentPainted.join()
+    }
+  }
+  waiter.invokeOnCompletion { permit.complete() }
+}
+
+private class MutableLoadingState(override val done: Job, override val mainMenuFillPermit: Job) : FrameLoadingState

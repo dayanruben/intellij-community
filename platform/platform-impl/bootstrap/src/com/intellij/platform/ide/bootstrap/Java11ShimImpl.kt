@@ -75,12 +75,15 @@ class Java11ShimImpl : Java11Shim() {
     }
   }
 
-  override fun getCallerFrame(calleeClassName: String): StackTraceElement? {
+  override val walksOnlyRequestedFrames: Boolean
+    get() = true
+
+  override fun getStackTrace(limit: Int, vararg calleeClassNames: String): Array<StackTraceElement> {
     return StackWalker.getInstance().walk { frames ->
-      frames.filter { it.className != calleeClassName && it.className != Java11ShimImpl::class.java.name }
-        .findFirst()
-        .orElse(null)
-        ?.toStackTraceElement()
-    }
+      frames.dropWhile { isSkippedFrame(it.className, calleeClassNames) }
+        .limit(limit.toLong())
+        .map { it.toStackTraceElement() }
+        .toList()
+    }.toTypedArray()
   }
 }
