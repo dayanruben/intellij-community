@@ -250,17 +250,17 @@ fn the_checklist_shows_the_plan_and_the_usual_times() {
 fn a_decision_explains_its_row() {
     let mut run = Run::new();
     run.publish(
-        &decision(Subject::Daemon, "restart", Some("the stable runtime or JBR changed")),
+        &decision(Subject::Daemon, "restart", Some("the launch of the daemon changed")),
         "air-linux-1",
     );
     assert!(
-        run.has_line("⟳ daemon restart — the stable runtime or JBR changed"),
+        run.has_line("⟳ daemon restart — the launch of the daemon changed"),
         "the scrollback is {:?}",
         run.scrollback
     );
     let live = run.live(120);
     assert!(
-        live.contains("restart — the stable runtime or JBR changed"),
+        live.contains("restart — the launch of the daemon changed"),
         "the daemon row does not say why:\n{live}"
     );
 
@@ -587,7 +587,7 @@ fn the_card_states_the_reason_the_lanes_and_a_failed_phase() {
     let mut no_tests = verdict(
         Status::NoTests,
         Some("no_tests_discovered"),
-        "lane ui-real: lane ui-real matched no tests in the hot tier (iteration it-2)",
+        "lane ui-real: lane ui-real matched no tests (iteration it-2)",
     );
     no_tests.counts.started = 9;
     no_tests.lanes = vec![
@@ -606,7 +606,7 @@ fn the_card_states_the_reason_the_lanes_and_a_failed_phase() {
             lane: "ui-real".to_owned(),
             status: Status::NoTests,
             code: Some("no_tests_discovered".to_owned()),
-            summary: "lane ui-real matched no tests in the hot tier (iteration it-2)".to_owned(),
+            summary: "lane ui-real matched no tests (iteration it-2)".to_owned(),
             counts: VerdictCounts::default(),
             report: None,
         },
@@ -617,7 +617,7 @@ fn the_card_states_the_reason_the_lanes_and_a_failed_phase() {
     for fragment in [
         "FAILED",
         "9 passed · 0 failed",
-        "lane ui-real: lane ui-real matched no tests in the hot tier (iteration it-2)",
+        "lane ui-real: lane ui-real matched no tests (iteration it-2)",
         "✓ lane ui 9 passed",
         "✗ lane ui-real lane ui-real matched no tests",
         "✗ release: the lease is still held (release_failed)",

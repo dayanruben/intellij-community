@@ -214,8 +214,9 @@ fn an_unknown_conflict_reason_is_data() {
     );
 }
 
-// The lane daemon sends the eight fields of protocol 6. The JVM daemon also sends the two fields that protocol 6
-// dropped, and the reader ignores them, so one reader serves both runners.
+// The lane daemon sends the eight fields of protocol 6. A JVM daemon that a guest still holds from an older controller
+// also sends the two fields that protocol 6 dropped. The reader ignores them, so the controller reads the protocol of
+// that daemon and retires it.
 #[test]
 fn a_status_of_either_runner_decodes() {
     let lane_daemon = br#"{"protocolVersion":6,"daemonBootStamp":"b","controllerLaunchDigest":"d","productStamp":"p","ideRunning":true,"busy":false,"iterationCount":7,"pid":42}"#;
@@ -229,8 +230,8 @@ fn a_status_of_either_runner_decodes() {
     assert_eq!(decode_missing_jars(br#"{"missing":["a"]}"#).unwrap().missing, ["a"]);
 }
 
-// The run request of the JVM runner has no lane-daemon field, because the JVM daemon refuses an unknown one. The lane
-// daemon gets the lane and the digests of the lane inputs too.
+// A field that a request does not use is absent from it. A run of the lane daemon names the lane and the digests of the
+// lane inputs.
 #[test]
 fn the_run_request_names_the_lane_inputs_for_the_lane_daemon_only() {
     let mut request = RunRequest {
@@ -238,9 +239,9 @@ fn the_run_request_names_the_lane_inputs_for_the_lane_daemon_only() {
         junit5_filters: vec!["include-tag=air-integration-ui".to_owned()],
         product_stamp: "p".to_owned(),
         launch_digest: "l".to_owned(),
-        hot_jars: vec!["h".to_owned()],
         active_execution_timeout_sec: 1800,
         progress_gap_timeout_sec: 300,
+        run_budget_sec: None,
         ide_plugins: vec![IdePlugin {
             destination: "air-integrationTests-bridge-plugin/lib/a.jar".to_owned(),
             sha256: "s".to_owned(),
@@ -252,7 +253,7 @@ fn the_run_request_names_the_lane_inputs_for_the_lane_daemon_only() {
     };
     assert_eq!(
         serde_json::to_string(&request).unwrap(),
-        r#"{"selectors":[],"junit5Filters":["include-tag=air-integration-ui"],"productStamp":"p","launchDigest":"l","hotJars":["h"],"activeExecutionTimeoutSec":1800,"progressGapTimeoutSec":300,"idePlugins":[{"destination":"air-integrationTests-bridge-plugin/lib/a.jar","sha256":"s"}]}"#
+        r#"{"selectors":[],"junit5Filters":["include-tag=air-integration-ui"],"productStamp":"p","launchDigest":"l","activeExecutionTimeoutSec":1800,"progressGapTimeoutSec":300,"idePlugins":[{"destination":"air-integrationTests-bridge-plugin/lib/a.jar","sha256":"s"}]}"#
     );
     request.lane = Some("ui".to_owned());
     request.lane_inputs = Some(LaneInputs {
@@ -429,17 +430,10 @@ fn the_plan_record_carries_the_discovered_classes() {
     );
 }
 
+// A literal, so a bump of the protocol is a deliberate change of the lane daemon and of the controller together.
 #[test]
-fn each_runner_reports_its_own_protocol_version() {
-    // Literals, so bumping the JVM constant without the Kotlin side is a deliberate two-file change.
-    assert_eq!(JVM_PROTOCOL_VERSION, 5, "`AIR_UI_DAEMON_PROTOCOL_VERSION` must move with it");
+fn the_lane_daemon_speaks_protocol_6() {
     assert_eq!(PROTOCOL_VERSION, 6);
-    assert_eq!(Runner::Jvm.protocol_version(), JVM_PROTOCOL_VERSION);
-    assert_eq!(Runner::Daemon.protocol_version(), PROTOCOL_VERSION);
-    assert_eq!(
-        Runner::ALL.iter().map(|runner| runner.as_str()).collect::<Vec<_>>(),
-        ["jvm", "daemon"]
-    );
 }
 
 // A dynamic node carries its factory's method and its own display name, so a progress line names both; a plain

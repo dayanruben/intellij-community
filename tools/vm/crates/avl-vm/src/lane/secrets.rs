@@ -18,6 +18,7 @@ use avl_base::format::words;
 use avl_base::{Exit, Refusal};
 use avl_host_sys::SpawnOptions;
 use avl_host_sys::guest::{Guest, guest_join};
+use avl_wire::program::lane::LiveContext;
 
 use avl_base::RefusalExt;
 
@@ -26,7 +27,10 @@ mod tests;
 
 /// The daemon environment variable that names the guest directory of the run secrets. Set to a path, never to a
 /// value, and the same path for every run, so it changes the launch digest once and never again.
-pub(crate) const RUN_SECRETS_VARIABLE: &str = "AIR_VM_RUN_SECRETS";
+pub(crate) use avl_wire::daemon::RUN_SECRETS_VARIABLE;
+
+/// The code of a live run without the run input of its Central login, the code of the lane daemon for the same lack.
+pub(crate) const LIVE_INPUT_CODE: &str = "lane_live_input";
 
 /// The shortest value a run secret may have. The artifact scan looks for the value in text, and a value this short
 /// would match ordinary text and refuse every run. A credential is far longer.
@@ -223,6 +227,25 @@ impl RunSecrets {
     /// The variable names, in the order the command line gave them.
     pub(crate) fn names(&self) -> Vec<&str> {
         self.secrets.iter().map(|secret| secret.name.as_str()).collect()
+    }
+
+    /// Refuses a run of the live lane `lane` whose secrets lack the run input of the Central login that its live context
+    /// `live` names, so a missing pipe costs no build and no lease. The refusal names the input and the command that
+    /// fills it, never a value.
+    pub(crate) fn require_live_login(&self, lane: &str, live: &LiveContext) -> Result<(), Refusal> {
+        if self.names().contains(&live.login_input.as_str()) {
+            return Ok(());
+        }
+        Err(Refusal::new(
+            LIVE_INPUT_CODE,
+            Exit::USAGE,
+            format!(
+                "the lane {lane} runs real agents on the JetBrains Central login, and the run has no run input {input}; pipe \
+                 the login into the run: `{source} | vm.cmd run --lane {lane} --test-env {input}=@-`",
+                input = live.login_input,
+                source = live.login_source,
+            ),
+        ))
     }
 
     /// The name of the first secret whose value, or a part of it, appears anywhere in `text`, or `None`.

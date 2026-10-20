@@ -11,7 +11,6 @@ targets:
   - ../crates/avl-guest/src/lane/services/cloud/spawner/*.rs
   - ../crates/avl-guest/testdata/lane-services/*
   - ../../../../plugins/air/tests/integration/bridge/resident/tests/AirLaneService*.kt
-  - ../../../../plugins/air/tests/integration/flow/src/driver/AirLaneServiceControl.kt
 ---
 
 # The Lane Services
@@ -110,10 +109,8 @@ lane secret with the purpose `air-lane-services`, and the IDE reads it from `lan
   [@test] ../../../../plugins/air/tests/integration/contract/test/driver/AirLaneServicesClientTest.kt
 
 - Each service answers the script of the golden `testdata/lane-services/control-exchanges.json` with the recorded
-  status and the recorded answer. The services of the test process answer the same script until the lane daemon
-  serves every lane.
+  status and the recorded answer.
   [@test] ../crates/avl-guest/src/lane/services/tests.rs
-  [@test] ../../../../plugins/air/tests/integration/contract/test/driver/AirLaneServiceRoutesTest.kt
 
 - One client in the IDE reads and arms the four services. It decodes every recorded answer of the golden, and its
   refusal names the service, the status and the code. A wait of the client fails at its deadline and names the wait.
@@ -325,13 +322,17 @@ A command of the control server acts on the dial in this way:
 | --- | --- |
 | `write`, `writeMalformed` | it sends the line or the bytes as one text message, then it acknowledges the command |
 | `closeStdout` | it reports `stdout_closed`, acknowledges the command, and closes the dial with 1000 |
-| `exit` | it reports `process_exit` with the code, acknowledges the command, and closes the dial with 1001 |
+| `exit` | it reports `process_exit` with the code, acknowledges the command, closes the control connection, and closes the dial with 1001 |
 | `mcpCall`, `mcpListTools` | it answers an error result, because a remote spawner offers no MCP server |
 
 - Each command has the effect of the table.
   [@test] ../crates/avl-guest/src/lane/services/cloud/spawner/tests.rs
 
-- The end of a dial reports `stdin_eof`. Then the spawner closes the control connection.
+- The end of a dial before an exit reports `stdin_eof`. Then the spawner closes the control connection.
+  [@test] ../crates/avl-guest/src/lane/services/cloud/spawner/tests.rs
+
+- An exit closes the control connection at once. The dial then waits at most 2 s for the answer of the IDE to its
+  close. Then the connection of the dial ends, also without the answer.
   [@test] ../crates/avl-guest/src/lane/services/cloud/spawner/tests.rs
 
 - A dial before the attach closes with 1011. So does a dial that the control server refuses.

@@ -17,7 +17,8 @@ use crate::lane::services::testing::{FIXTURE_JAVA, fixture_jar};
 /// The daemon port of the default lane daemon, `AIR_VM_DAEMON_PORT`.
 const DAEMON_PORT: u16 = 27_100;
 
-/// The digest of the option file templates that `AirLaneDigestTest` pins on the Kotlin side.
+/// The digest of the option file templates. `AirIdeLaunchDefaults.OPTION_FILES_DIGEST` is the same value on the Kotlin
+/// side, but no Kotlin test reads it.
 const KOTLIN_OPTION_FILES_DIGEST: &str = "e1abc8fc017dfeaa535168b652f8624bd88d626773b0c7083dbe88810fb110c4";
 
 /// A controlled agent of the fixture. The IDE serves the control channel of every controlled agent.
@@ -57,11 +58,13 @@ fn runtimes() -> Vec<CliRuntime> {
             name: "codex".to_owned(),
             command: vec!["/runtimes/codex/bin/codex".to_owned()],
             identity: "codex-1".to_owned(),
+            version: None,
         },
         CliRuntime {
             name: "pi".to_owned(),
             command: vec!["/runtimes/node/bin/node".to_owned(), "/runtimes/pi/it's/cli.js".to_owned()],
             identity: "pi-1".to_owned(),
+            version: None,
         },
     ]
 }
@@ -165,6 +168,7 @@ fn written(document: &LaneDocument) -> (Prepared, LaneIdentity, ServicePorts) {
         java: Path::new(FIXTURE_JAVA),
         fake_agent_jar: &fixture_jar(),
         runtimes: &runtimes,
+        live: None,
     }
     .write(&prepared.paths)
     .unwrap();
@@ -294,6 +298,7 @@ fn a_second_write_keeps_the_general_settings_and_the_next_start_file_and_drops_a
         java: Path::new(FIXTURE_JAVA),
         fake_agent_jar: &jar,
         runtimes: &runtimes,
+        live: None,
     };
     context(&owned).write(&prepared.paths).unwrap();
     let config = Path::new(&prepared.paths.config_dir);
@@ -395,9 +400,8 @@ fn git_output(directory: &Path, arguments: &[&str]) -> String {
     String::from_utf8(output.stdout).unwrap().trim().to_owned()
 }
 
-// A lane with a Cloud agent makes its project a Git repository, as `AirCloudGitRemote.prepare` of the test process
-// does: one commit of every project file on `main`, and the upstream `origin/main` in a bare repository beside the
-// project. A second write keeps that repository. A lane without a Cloud agent leaves the project as it is.
+// A lane with a Cloud agent makes its project a Git repository: one commit of every project file on `main`, and the
+// upstream `origin/main` in a bare repository beside the project. A second write keeps that repository. A lane without a Cloud agent leaves the project as it is.
 #[test]
 fn a_lane_with_a_cloud_agent_makes_its_project_a_repository_with_an_origin() {
     let (cloud, runtimes) = (document_with_a_cloud_agent(), runtimes());
@@ -414,6 +418,7 @@ fn a_lane_with_a_cloud_agent_makes_its_project_a_repository_with_an_origin() {
         java: Path::new(FIXTURE_JAVA),
         fake_agent_jar: &jar,
         runtimes: &runtimes,
+        live: None,
     };
     context.write(&prepared.paths).unwrap();
     let origin = prepared.context.join("project/plain-project-origin.git");
@@ -477,6 +482,7 @@ fn a_document_that_the_daemon_cannot_launch_as_it_states_is_refused() {
             java: Path::new(java),
             fake_agent_jar: &jar,
             runtimes,
+            live: None,
         }
         .check()
         .unwrap_err();
@@ -485,7 +491,7 @@ fn a_document_that_the_daemon_cannot_launch_as_it_states_is_refused() {
     };
     let mut live = document.clone();
     live.lane = "UI_LIVE".to_owned();
-    assert!(refusal(&live, &runtimes, FIXTURE_JAVA).contains("no live lane"));
+    assert!(refusal(&live, &runtimes, FIXTURE_JAVA).contains("launches only in a live run"));
     assert!(refusal(&document, &runtimes[..1], FIXTURE_JAVA).contains("CLI runtimes"));
     let mut services = document.clone();
     services.services.remove("codexModel");

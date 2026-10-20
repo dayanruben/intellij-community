@@ -1071,7 +1071,6 @@
       <module fileurl="file://$PROJECT_DIR$/tools/intellij.lambda.sampleTestsWithPlugin/intellij.lambda.sampleTestsWithPlugin.plugin/intellij.lambda.sampleTestsWithPlugin.plugin.iml" filepath="$PROJECT_DIR$/tools/intellij.lambda.sampleTestsWithPlugin/intellij.lambda.sampleTestsWithPlugin.plugin/intellij.lambda.sampleTestsWithPlugin.plugin.iml" />
       <module fileurl="file://$PROJECT_DIR$/tools/intellij.lambda.testFramework/plugin/intellij.lambda.test.plugin.iml" filepath="$PROJECT_DIR$/tools/intellij.lambda.testFramework/plugin/intellij.lambda.test.plugin.iml" />
       <module fileurl="file://$PROJECT_DIR$/tools/intellij.lambda.testFramework/intellij.lambda.testFramework.iml" filepath="$PROJECT_DIR$/tools/intellij.lambda.testFramework/intellij.lambda.testFramework.iml" />
-      <module fileurl="file://$PROJECT_DIR$/tools/intellij.lambda.testFramework/intellij.lambda.testFramework.tests.iml" filepath="$PROJECT_DIR$/tools/intellij.lambda.testFramework/intellij.lambda.testFramework.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/aalto-xml/intellij.libraries.aalto.xml.iml" filepath="$PROJECT_DIR$/libraries/aalto-xml/intellij.libraries.aalto.xml.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/ai-grazie-rule-engine/intellij.libraries.ai.grazie.rule.engine.iml" filepath="$PROJECT_DIR$/libraries/ai-grazie-rule-engine/intellij.libraries.ai.grazie.rule.engine.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/ai-grazie-semantic-engine/intellij.libraries.ai.grazie.semantic.engine.iml" filepath="$PROJECT_DIR$/libraries/ai-grazie-semantic-engine/intellij.libraries.ai.grazie.semantic.engine.iml" />
@@ -2054,6 +2053,7 @@
       <module fileurl="file://$PROJECT_DIR$/platform/dvcs-impl/shared/intellij.platform.vcs.dvcs.impl.shared.iml" filepath="$PROJECT_DIR$/platform/dvcs-impl/shared/intellij.platform.vcs.dvcs.impl.shared.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/dvcs-impl/intellij.platform.vcs.dvcs.impl.tests.iml" filepath="$PROJECT_DIR$/platform/dvcs-impl/intellij.platform.vcs.dvcs.impl.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/vcs-impl/intellij.platform.vcs.impl.iml" filepath="$PROJECT_DIR$/platform/vcs-impl/intellij.platform.vcs.impl.iml" />
+      <module fileurl="file://$PROJECT_DIR$/platform/vcs-impl/backend/intellij.platform.vcs.impl.backend.iml" filepath="$PROJECT_DIR$/platform/vcs-impl/backend/intellij.platform.vcs.impl.backend.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/vcs-impl/debugger/intellij.platform.vcs.impl.debugger.iml" filepath="$PROJECT_DIR$/platform/vcs-impl/debugger/intellij.platform.vcs.impl.debugger.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/vcs-impl/exec/intellij.platform.vcs.impl.exec.iml" filepath="$PROJECT_DIR$/platform/vcs-impl/exec/intellij.platform.vcs.impl.exec.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/vcs-impl/frontend/intellij.platform.vcs.impl.frontend.iml" filepath="$PROJECT_DIR$/platform/vcs-impl/frontend/intellij.platform.vcs.impl.frontend.iml" />
@@ -2420,6 +2420,7 @@
       <module fileurl="file://$PROJECT_DIR$/plugins/git4idea/hosting/intellij.vcs.git.hosting.iml" filepath="$PROJECT_DIR$/plugins/git4idea/hosting/intellij.vcs.git.hosting.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/git4idea/localHistory/intellij.vcs.git.localHistory.iml" filepath="$PROJECT_DIR$/plugins/git4idea/localHistory/intellij.vcs.git.localHistory.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/git4idea/performanceTesting/intellij.vcs.git.performanceTesting.iml" filepath="$PROJECT_DIR$/plugins/git4idea/performanceTesting/intellij.vcs.git.performanceTesting.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/git4idea/rpc.backend/intellij.vcs.git.rpc.backend.iml" filepath="$PROJECT_DIR$/plugins/git4idea/rpc.backend/intellij.vcs.git.rpc.backend.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/git4idea/rt/intellij.vcs.git.rt.iml" filepath="$PROJECT_DIR$/plugins/git4idea/rt/intellij.vcs.git.rt.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/git4idea/shared/intellij.vcs.git.shared.iml" filepath="$PROJECT_DIR$/plugins/git4idea/shared/intellij.vcs.git.shared.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/git4idea/terminal/intellij.vcs.git.terminal.iml" filepath="$PROJECT_DIR$/plugins/git4idea/terminal/intellij.vcs.git.terminal.iml" />

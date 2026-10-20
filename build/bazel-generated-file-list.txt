@@ -1156,6 +1156,7 @@ platform/vcs-api
 platform/vcs-api/shared
 platform/vcs-api/vcs-api-core
 platform/vcs-impl
+platform/vcs-impl/backend
 platform/vcs-impl/debugger
 platform/vcs-impl/exec
 platform/vcs-impl/frontend
@@ -1313,6 +1314,7 @@ plugins/git4idea/hosting
 plugins/git4idea/intellij.vcs.git.coverage
 plugins/git4idea/localHistory
 plugins/git4idea/performanceTesting
+plugins/git4idea/rpc.backend
 plugins/git4idea/rt
 plugins/git4idea/shared
 plugins/git4idea/terminal

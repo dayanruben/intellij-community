@@ -614,16 +614,17 @@ The lane's side is [Flow UI Scenario Traces](../../../../plugins/air/spec/docs/f
   [@test] ../crates/air-trace/src/plan/tests.rs
 
 - The planner plans a suite of an explicit-only lane when its own class names it. Its warning names the cost of the
-  lane. Each scenario of `ui-live` spends a billed turn, and another lane runs only when a caller names it.
-  [@test] ../crates/air-trace/src/plan/tests.rs (`an_explicit_only_class_plans_the_piped_guest_run_and_the_billed_host_run`)
+  lane. Each scenario of `ui-live` spends a billed turn, and another lane runs only when a caller names it. The
+  live lane gets the piped guest run and no host line, because a host refuses the live lane.
+  [@test] ../crates/air-trace/src/plan/tests.rs (`an_explicit_only_class_plans_the_piped_guest_run_and_no_host_run_of_the_live_lane`)
 
 - The planner answers commands and never starts a run. The exit is 0 when it reached something, 3 when it
   reached nothing, 2 for usage, and 1 for an unreadable checkout.
   [@test] ../crates/air-trace/src/plan/tests.rs
 
 - The planner and the controller read the UI lanes and their test labels from one table. That table reads them
-  from bt's lane table. Neither tool keeps a list of lanes of its own. The lane table of bt names no JUnit tag. The
-  JVM runner of the controller selects a lane by the JUnit tag of its suites, and it keeps that tag in its own table.
+  from bt's lane table. Neither tool keeps a list of lanes of its own. Neither table names a JUnit tag, because the
+  lane daemon selects the documents of a lane by its name.
   [@test] ../crates/avl-affected/src/lanes/tests.rs
   [@test] ../../bt/crates/bt-core/src/lanes/tests.rs
   [@test] ../crates/avl-vm/src/lane/lanes/tests.rs

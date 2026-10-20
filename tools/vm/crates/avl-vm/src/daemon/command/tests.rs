@@ -105,17 +105,17 @@ async fn daemon_warm_reports_the_build_identities_and_touches_no_guest() {
         .await
         .unwrap();
     for (key, digest) in [
-        ("runtimeDigest", &built.runtime_digest),
         ("launchDigest", &built.launch_digest),
         ("productDigest", &built.product_digest),
         ("mountDigest", &built.mount_digest),
     ] {
         assert_eq!(outcome.data[key], json!(digest), "{key}");
     }
+    assert_eq!(outcome.data.get("runtimeDigest"), None, "the payload names no runtime digest");
     assert!(
         outcome
             .text
-            .starts_with(&format!("warmed docker {} in ", &built.runtime_digest[..12]))
+            .starts_with(&format!("warmed docker {} in ", &built.launch_digest[..12]))
             && outcome.text.ends_with('s')
             && !outcome.text.contains('\n'),
         "one line naming the configuration, the digest and the cost: {:?}",
@@ -126,8 +126,8 @@ async fn daemon_warm_reports_the_build_identities_and_touches_no_guest() {
     assert!(!fixture.settings.worker_dir(&fixture.worker).join("host-build.log").exists());
 }
 
-// `daemon status` reports a healthy daemon's own account and the runner that started it, and "no healthy daemon"
-// otherwise.
+// `daemon status` reports a healthy daemon's own account, and "no healthy daemon" otherwise. A record of an older
+// controller can name the runner of its daemon, and the status reads past it.
 #[tokio::test]
 async fn command_daemon_status_reports_the_daemons_own_account() {
     let fixture = Fixture::new().await;
@@ -138,38 +138,17 @@ async fn command_daemon_status_reports_the_daemons_own_account() {
     assert_eq!(outcome.data["reachable"], json!(false));
     let prep = fixture.prepared().await;
     let state = fixture.seed_healthy_daemon(&prep);
+    let path = HostState::path(&fixture.settings, &fixture.worker);
+    let mut record: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    record["runner"] = json!("jvm");
+    std::fs::write(&path, record.to_string()).unwrap();
     fixture.daemon.script().iteration_count = 4;
     let outcome = fixture.host.command_daemon(&ctx, DaemonVerb::Status, Some(&receipt)).await.unwrap();
-    assert_eq!(
-        outcome.text,
-        format!("daemon={}\nrunner=jvm\nide=stopped\niterations=4", state.run_id)
-    );
+    assert_eq!(outcome.text, format!("daemon={}\nide=stopped\niterations=4", state.run_id));
     assert_eq!(outcome.data["reachable"], json!(true));
     assert_eq!(outcome.data["daemon"]["runId"], json!(state.run_id));
-    assert_eq!(outcome.data["daemon"]["runner"], json!("jvm"));
+    assert_eq!(outcome.data["daemon"].get("runner"), None);
     assert_eq!(outcome.data["status"]["iterationCount"], json!(4));
-}
-
-// `daemon status` asks a daemon in the protocol of the runner that started it, not in that of its own `--runner`. So a
-// lane daemon is reachable for a command of `--runner jvm`, which a pull script and a hand command are.
-#[tokio::test]
-async fn command_daemon_status_asks_a_lane_daemon_in_its_own_protocol() {
-    let fixture = Fixture::new().await;
-    assert_eq!(fixture.host.daemon().runner(), Runner::Jvm);
-    let receipt = fixture.lease_receipt();
-    let prep = fixture.prepared().await;
-    let mut state = fixture.seed_healthy_daemon(&prep);
-    state.runner = Some(Runner::Daemon);
-    state.write(&fixture.settings, &fixture.worker).unwrap();
-    fixture.daemon.script().protocol_version = avl_wire::daemon::PROTOCOL_VERSION;
-    let outcome = fixture
-        .host
-        .command_daemon(&Ctx::background(), DaemonVerb::Status, Some(&receipt))
-        .await
-        .unwrap();
-    assert_eq!(outcome.data["reachable"], json!(true), "{}", outcome.text);
-    assert_eq!(outcome.data["daemon"]["runner"], json!("daemon"));
-    assert!(outcome.text.contains("\nrunner=daemon\n"), "{}", outcome.text);
 }
 
 // `daemon stop` retires the state and says which run it stopped.
@@ -451,7 +430,7 @@ async fn command_daemon_start_reports_the_endpoint_and_phases() {
     let fixture = Fixture::new().await;
     let receipt = fixture.lease_receipt();
     let prep = fixture.prepared().await;
-    fixture.install_happy_guest(&prep);
+    fixture.install_happy_guest();
     fixture.daemon.script().launch_digest = prep.launch_digest.clone();
     fixture.mark_ready().await;
     let outcome = fixture
@@ -475,7 +454,7 @@ async fn command_daemon_start_reports_the_endpoint_and_phases() {
         (&outcome.data["worker"], &outcome.data["port"]),
         (&json!(fixture.worker), &json!(fixture.daemon.port()))
     );
-    assert_eq!(outcome.data["runtimeDigest"], json!(prep.runtime_digest));
+    assert_eq!(outcome.data.get("runtimeDigest"), None, "the payload names no runtime digest");
     assert_eq!(outcome.data["productDigest"], json!(prep.product_digest));
     assert!(!outcome.data["phases"].as_array().unwrap().is_empty());
     assert!(
@@ -520,10 +499,10 @@ fn the_phase_table_aligns_its_rows_and_rounds_to_a_tenth() {
 // The slowest guest call is rendered beside the guest column it breaks down, and only when the phase made one.
 #[test]
 fn the_phase_table_names_the_slowest_guest_call_beside_the_guest_column() {
-    let skeleton = "tart exec … /vm/agent stage";
+    let skeleton = "tart exec … /vm/agent ide-gc";
     let table = render_phase_table(&[
         Timing {
-            name: "prepare-launch".to_owned(),
+            name: "ide-gc".to_owned(),
             elapsed_ms: 11_000,
             guest_calls: 2,
             guest_ms: 10_900,
@@ -1015,7 +994,7 @@ async fn command_run_reports_no_tests_discovered_at_six() {
     let failure = refusal(result);
     assert_eq!((failure.code.as_ref(), failure.exit), ("no_tests_discovered", Exit::TESTS_FAILED));
     assert!(
-        failure.message.contains("matched no tests in the hot tier (iteration it-23)"),
+        failure.message.contains("matched no tests (iteration it-23)"),
         "{:?}",
         failure.message
     );
@@ -1097,7 +1076,7 @@ async fn a_self_leased_run_whose_daemon_never_answers_gives_its_lease_back() {
     let fixture = Fixture::with_environment(&[("USER", "suite-user")]).await;
     fixture.on("df", answer_text(PLENTIFUL_DF));
     let prep = fixture.prepared().await;
-    fixture.install_happy_guest(&prep);
+    fixture.install_happy_guest();
     fixture.install_slot_double(None);
     // No daemon is recorded, so the iteration starts one, and a start asks the readiness gate first.
     fixture.mark_ready().await;
@@ -1236,6 +1215,123 @@ async fn a_self_leased_run_refuses_its_selection_before_it_leases() {
     assert!(!fixture.daemon.saw_request("/run"), "a refused selection reached the daemon");
 }
 
+/// The committed lane document of the live lane `ui-live`, where the catalog of the fixture checkout puts the lane
+/// documents.
+fn commit_live_lane_document(fixture: &Fixture) {
+    let document = json!({
+        "schemaVersion": 2, "lane": "UI_LIVE", "launchProperties": [], "requirements": [], "agents": [],
+        "registryAgents": [], "disabledPluginIds": [], "cliRuntimes": [],
+        "services": {"jetBrainsCloud": "jba-jcp-emulator-1"},
+        "live": {"loginInput": "AIR_LIVE_CENTRAL_LOGIN", "loginSource": "central login export", "centralRuntime": "central",
+            "centralPort": 19516, "centralAgents": ["codex", "claude-code", "junie"],
+            "runtimes": [{"name": "claude", "environment": {"DISABLE_AUTOUPDATER": "1"}}, {"name": "junie", "environment": {}}],
+            "projectUnpackRoot": "/tmp/air-ui-live/project"},
+    });
+    let root = crate::lane::lane_document_root(&fixture.settings)
+        .unwrap()
+        .expect("the Air lane table names a catalog");
+    let directory = root.join(avl_wire::program::LANE_DOCUMENT_DIRECTORY);
+    std::fs::create_dir_all(&directory).unwrap();
+    std::fs::write(directory.join("ui-live.json"), document.to_string()).unwrap();
+}
+
+/// The refusal of a run of `ui-live` without the run input of its Central login, as the window of the live lane
+/// compares it.
+const LIVE_LOGIN_REFUSAL: &str = "the lane ui-live runs real agents on the JetBrains Central login, and the run has no run \
+                                  input AIR_LIVE_CENTRAL_LOGIN; pipe the login into the run: `central login export | vm.cmd \
+                                  run --lane ui-live --test-env AIR_LIVE_CENTRAL_LOGIN=@-`";
+
+// The live lane runs on the Central login that the run hands its guest. A run of it without that run input is refused
+// before the build, the lease and any guest command, under a receipt and self-leased, and the refusal names the
+// command that pipes the login. Another secret is no login. With the login the same run reaches the daemon.
+#[tokio::test]
+async fn a_live_run_without_its_login_input_is_refused_before_any_build() {
+    let (fixture, receipt) = run_outcome_fixture(passing_run_lines("it-31")).await;
+    commit_live_lane_document(&fixture);
+    let builds = fixture.bazel.build_calls();
+    fixture.forget_calls();
+    let other = fixture.settings.runtime_root.join("other");
+    std::fs::write(&other, "another-secret-of-the-run-0123456789").unwrap();
+    let other = format!("AIR_OTHER_SECRET=@{}", other.display());
+    for argv in [vec!["--lane", "ui-live"], vec!["--lane", "ui-live", "--test-env", &other]] {
+        let (result, verdict) = run_for_verdict(&fixture, &argv, Some(&receipt)).await;
+        let failure = refusal(result);
+        assert_eq!((failure.code.as_ref(), failure.exit), ("lane_live_input", Exit::USAGE), "{argv:?}");
+        assert_eq!(failure.message, LIVE_LOGIN_REFUSAL);
+        assert!(verdict.is_none());
+    }
+    assert_eq!(fixture.bazel.build_calls(), builds, "the refusal costs no build");
+    assert_eq!(fixture.channel().lines(), Vec::<String>::new());
+    assert!(!fixture.daemon.saw_request("POST /run"));
+
+    fixture.stdin.feed(b"central-login-export-from-a-pipe-0123456789\n");
+    let (result, _) = run_for_verdict(
+        &fixture,
+        &["--lane", "ui-live", "--test-env", "AIR_LIVE_CENTRAL_LOGIN=@-"],
+        Some(&receipt),
+    )
+    .await;
+    result.unwrap();
+    assert!(fixture.daemon.saw_request("POST /run"), "a run with its login reaches the daemon");
+
+    let fixture = self_leased_fixture(Vec::new()).await;
+    commit_live_lane_document(&fixture);
+    let (result, _) = run_for_verdict(&fixture, &["--lane", "ui-live"], None).await;
+    assert_eq!(refusal(result).message, LIVE_LOGIN_REFUSAL);
+    require_unleased(&fixture);
+    assert!(!fixture.daemon.saw_request("/run"), "a refused live run reached the daemon");
+}
+
+// A run that holds the live lane builds the descriptor of the live lane, which adds its CLIs, and a run of another lane
+// builds the one of the lanes. The live CLIs are a target and not a build option, so neither build needs an option of
+// its own.
+#[tokio::test]
+async fn a_live_run_builds_the_live_descriptor_and_another_run_the_one_of_the_lanes() {
+    let (fixture, receipt) = run_outcome_fixture(Vec::new()).await;
+    assert_eq!(fixture.settings.guest_os, GuestOs::Linux);
+    commit_live_lane_document(&fixture);
+    fixture.queue_runs(vec![passing_run_lines("it-36"), passing_run_lines("it-37")]);
+    fixture.stdin.feed(b"central-login-export-from-a-pipe-0123456789\n");
+    let (live, _) = run_for_verdict(
+        &fixture,
+        &["--lane", "ui-live", "--test-env", "AIR_LIVE_CENTRAL_LOGIN=@-"],
+        Some(&receipt),
+    )
+    .await;
+    live.unwrap();
+    assert_eq!(
+        fixture.bazel.built_labels().last().map(String::as_str),
+        Some(avl_wire::daemon::LINUX_GUEST_LIVE_LABEL)
+    );
+    let (lanes, _) = run_for_verdict(&fixture, &["--lane", "ui"], Some(&receipt)).await;
+    lanes.unwrap();
+    assert_eq!(
+        fixture.bazel.built_labels().last().map(String::as_str),
+        Some(avl_wire::daemon::LINUX_GUEST_LABEL)
+    );
+}
+
+// Only a Linux guest runs the live lane, and no macOS guest has its descriptor. So a live run on a macOS guest is
+// refused before the build and the lease, and a wrong backend costs seconds.
+#[tokio::test]
+async fn a_live_run_on_a_macos_guest_is_refused_before_the_build_and_the_lease() {
+    let fixture = Fixture::tart_macos().await;
+    assert_eq!(fixture.settings.guest_os, GuestOs::Macos);
+    commit_live_lane_document(&fixture);
+    let builds = fixture.bazel.build_calls();
+    fixture.stdin.feed(b"central-login-export-from-a-pipe-0123456789\n");
+    let (result, verdict) = run_for_verdict(&fixture, &["--lane", "ui-live", "--test-env", "AIR_LIVE_CENTRAL_LOGIN=@-"], None).await;
+    let failure = refusal(result);
+    assert_eq!((failure.code.as_ref(), failure.exit), ("lane_live_input", Exit::USAGE));
+    assert_eq!(
+        failure.message,
+        "the lane ui-live runs only in a Linux guest, and the backend tart has macOS guests; run it with --backend docker"
+    );
+    assert!(verdict.is_none());
+    assert_eq!(fixture.bazel.build_calls(), builds, "the refusal costs no build");
+    require_unleased(&fixture);
+}
+
 // An interrupt while the iteration is in flight keeps the lease, as `shard` does: a release proves no run is active,
 // which is not true here. The refusal names the receipt that frees the worker.
 #[tokio::test]
@@ -1372,10 +1468,7 @@ async fn a_run_of_several_lanes_answers_one_envelope_with_a_verdict_per_lane() {
     );
     assert_eq!(published.counts.started, 3);
     let last: Value = serde_json::from_slice(&fixture.daemon.script().run_body).unwrap();
-    assert!(
-        last["junit5Filters"].to_string().contains("include-tag=air-gui-chat"),
-        "the last iteration asked for {last}"
-    );
+    assert_eq!(last["lane"], "gui-chat", "the last iteration asked for {last}");
 }
 
 // The exit is the worst of the lanes, so a red middle lane is still exit 6, and the green lanes are still in the
