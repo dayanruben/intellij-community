@@ -210,7 +210,8 @@ pub(crate) fn run(args: &LaneRunArgs, variable: &dyn Fn(&str) -> Option<String>)
     })?;
     let descriptor = runtime::parse_runtime_descriptor(&content, &args.descriptor, guest_platform())
         .map_err(|error| AgentRefusal::refused(error.code, error.message))?;
-    let launch_inputs = inputs::from_descriptor(&descriptor, &daemon_args)?;
+    let mut launch_inputs = inputs::from_descriptor(&descriptor, &daemon_args)?;
+    launch_inputs.trace.bazel_outputs = bazel_outputs(variable);
     let jcmd = launch_inputs.jcmd();
     let mut notes = flags.notes;
     if host_probe_applies(args, variable, cfg!(target_os = "linux")) {
@@ -272,9 +273,7 @@ pub(crate) fn run(args: &LaneRunArgs, variable: &dyn Fn(&str) -> Option<String>)
             stream: stream_path.clone(),
             xml: xml_files(&root, variable),
             ide_root: daemon_args.ide_root,
-            report: variable(OUTPUTS_VARIABLE)
-                .filter(|directory| !directory.is_empty())
-                .map(|directory| PathBuf::from(directory).join(monitor::REPORT_FILE)),
+            report: bazel_outputs(variable).map(|directory| directory.join(monitor::REPORT_FILE)),
         },
         budget,
         budget.map(|budget| started + budget + KILL_GRACE),
@@ -339,7 +338,8 @@ pub(crate) fn budget_problem(events: &[RunEvent], budget: Option<Duration>, vari
 
 /// Whether lane-run proves the host before the lane IDE starts: on Linux, for a run that launches an IDE, on a host that
 /// no controller prepared, such as a TeamCity agent or a developer host. The controller names the run secrets
-/// directory for its workers alone, and `validate-guest` proved such a worker at its boot, so a run there pays nothing.
+/// directory for its workers alone. `validate-guest` proved the display of such a worker at its boot, and the lane
+/// daemon of the worker proves the shared objects of its distribution at its own boot. So a run there pays nothing.
 pub(crate) fn host_probe_applies(args: &LaneRunArgs, variable: &dyn Fn(&str) -> Option<String>, linux: bool) -> bool {
     linux && !args.plan_only && variable(RUN_SECRETS_VARIABLE).is_none_or(|value| value.trim().is_empty())
 }
@@ -360,9 +360,8 @@ pub(crate) fn host_display(variable: &dyn Fn(&str) -> Option<String>) -> Result<
 fn probe_host(inputs: &LaunchInputs, variable: &dyn Fn(&str) -> Option<String>) -> Result<Vec<String>, AgentRefusal> {
     let probe = ValidateGuestArgs {
         display: host_display(variable)?,
-        runtime_root: inputs.dist_home.clone(),
     };
-    GuestValidator::new(&probe, SystemRunner).probe_host()
+    GuestValidator::new(&probe, SystemRunner).probe_host(&inputs.dist_home)
 }
 
 /// The refusal code of a plan whose documents do not select.
@@ -496,6 +495,14 @@ pub(crate) fn refuse_shards(variable: &dyn Fn(&str) -> Option<String>) -> Result
         )),
         _ => Ok(()),
     }
+}
+
+/// The outputs directory of the Bazel test, `$TEST_UNDECLARED_OUTPUTS_DIR`, which Bazel keeps after the test. The trace
+/// bundles and the hang report go there. An empty value names no directory.
+pub(crate) fn bazel_outputs(variable: &dyn Fn(&str) -> Option<String>) -> Option<PathBuf> {
+    variable(OUTPUTS_VARIABLE)
+        .filter(|directory| !directory.is_empty())
+        .map(PathBuf::from)
 }
 
 /// The run directory: `--runtime-root`, then `$AIR_LANE_RUNTIME_ROOT`, then `$TEST_TMPDIR/air-lane`.

@@ -17,9 +17,9 @@ use crate::lane::services::testing::{FIXTURE_JAVA, fixture_jar};
 /// The daemon port of the default lane daemon, `AIR_VM_DAEMON_PORT`.
 const DAEMON_PORT: u16 = 27_100;
 
-/// The digest of the option file templates. `AirIdeLaunchDefaults.OPTION_FILES_DIGEST` is the same value on the Kotlin
-/// side, but no Kotlin test reads it.
-const KOTLIN_OPTION_FILES_DIGEST: &str = "e1abc8fc017dfeaa535168b652f8624bd88d626773b0c7083dbe88810fb110c4";
+/// The digest of the option file templates, which the config key reads. A change of a template changes this value and
+/// the config key of every lane.
+const OPTION_FILES_DIGEST: &str = "e1abc8fc017dfeaa535168b652f8624bd88d626773b0c7083dbe88810fb110c4";
 
 /// A controlled agent of the fixture. The IDE serves the control channel of every controlled agent.
 const IDE_OWNED_AGENT: &str = "genui-agent";
@@ -85,7 +85,7 @@ fn identity(document: &LaneDocument, runtimes: &[CliRuntime]) -> LaneIdentity {
     LaneIdentity::new(inputs.config_key(), DAEMON_PORT)
 }
 
-/// A prepared context below a new temporary directory, as `ide-prepare` lays it out.
+/// A prepared context below a new temporary directory, as a preparation lays it out.
 struct Prepared {
     _root: tempfile::TempDir,
     context: PathBuf,
@@ -220,8 +220,8 @@ fn a_lane_context_opens_no_readme() {
 }
 
 #[test]
-fn the_option_templates_are_the_bytes_of_the_kotlin_templates() {
-    assert_eq!(option_files_digest(), KOTLIN_OPTION_FILES_DIGEST);
+fn the_option_templates_have_the_pinned_digest() {
+    assert_eq!(option_files_digest(), OPTION_FILES_DIGEST);
 }
 
 #[test]
@@ -230,10 +230,10 @@ fn the_context_of_the_ui_lane_is_the_golden() {
     expect_test::expect_file![testdata("ui-context.txt")].assert_eq(&tree(&prepared.context));
 }
 
-/// `ui-acp-json.dump` holds the `acp.json` lines of the lane `UI` from the launch dump of the JVM host, with its masks:
+/// `ui-acp-json.dump` holds the `acp.json` lines of the lane `UI` from a recorded launch dump, with its masks:
 /// `<ctx>` for the context, `<java>` for each command, `<key-derived>` for the control environment.
 #[test]
-fn acp_json_equals_the_launch_dump_of_the_jvm_host_except_the_key_derived_values() {
+fn acp_json_equals_the_recorded_dump_except_the_key_derived_values() {
     let (prepared, _, _) = written(&document());
     let written = fs::read_to_string(Path::new(&prepared.paths.home_dir).join(ACP_JSON)).unwrap();
     let real = real_path(&prepared.context).unwrap().display().to_string();

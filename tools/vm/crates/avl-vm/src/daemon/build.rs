@@ -195,10 +195,8 @@ impl BuildScope {
 #[serde(rename_all = "camelCase")]
 struct StaticLaunch<'a> {
     schema_version: u32,
-    main_class: &'a str,
     static_jvm_flags: &'a [String],
     jbr_platform: &'a str,
-    java_home_suffix: &'a str,
 }
 
 /// `@controller-boot`: every controller-chosen boot setting a daemon is exec'd with. The daemon port is
@@ -212,7 +210,6 @@ pub(crate) struct ControllerBoot<'a> {
     /// The home of the lane daemon in its state directory, which the lane IDE gets as `idea.dev.project.root`.
     pub(crate) guest_home: &'a str,
     pub(crate) vm_data: &'a str,
-    pub(crate) vm_download_cache: &'a str,
     pub(crate) vm_home: &'a str,
     pub(crate) vm_node: &'a str,
     pub(crate) vm_tmp: &'a str,
@@ -236,7 +233,6 @@ pub(crate) fn controller_boot_digest(settings: &Config, guest_runfiles_root: &st
         daemon_port,
         guest_home: &guest_home,
         vm_data: &settings.vm_data,
-        vm_download_cache: &settings.vm_download_cache,
         vm_home: &settings.vm_home,
         vm_node: &settings.vm_node,
         vm_tmp: &settings.vm_tmp,
@@ -248,16 +244,13 @@ pub(crate) fn controller_boot_digest(settings: &Config, guest_runfiles_root: &st
 fn static_launch_digest(descriptor: &RuntimeDescriptor) -> String {
     literal_digest(&StaticLaunch {
         schema_version: descriptor.schema_version,
-        main_class: &descriptor.main_class,
         static_jvm_flags: &descriptor.static_jvm_flags,
         jbr_platform: &descriptor.jbr.platform,
-        java_home_suffix: &descriptor.jbr.java_home_suffix,
     })
 }
 
-/// The launch digest over its three parts. No jar of the classpath and no file of the JBR enters it. A running daemon
-/// cannot change its own environment. So a change to the daemon environment re-execs the daemon, and it does not wait
-/// for a restart by hand.
+/// The launch digest over its three parts. No file of the JBR enters it. A running daemon cannot change its own
+/// environment. So a change to the daemon environment re-execs the daemon, and it does not wait for a restart by hand.
 pub(crate) fn launch_digest(
     static_launch_digest: &str,
     controller_boot_digest: &str,

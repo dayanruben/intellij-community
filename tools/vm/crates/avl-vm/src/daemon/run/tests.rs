@@ -329,7 +329,7 @@ async fn non_record_lines_are_kept_as_output() {
 }
 
 // The push offers the context plugin files and the lane inputs by digest, and uploads only what the guest does not
-// hold. The two documents of the fixture are one jar, so their digest is offered once. No jar of the hot tier travels.
+// hold. The two documents of the fixture are one jar, so their digest is offered once.
 #[tokio::test]
 async fn push_jars_uploads_only_missing_digests() {
     let (fixture, prep, state) = executing().await;
@@ -995,7 +995,7 @@ fn a_selector_becomes_either_a_selection_or_a_class_name_filter() {
         let (selectors, junit5_filters) = selector_to_run_request(filter);
         assert_eq!(selectors, want_selectors, "{filter}");
         assert_eq!(junit5_filters, want_filters, "{filter}");
-        // Never null on the wire: the far end is Kotlin with non-nullable fields.
+        // Never null on the wire: the lane daemon reads these lists with no default.
         let encoded = serde_json::to_value(RunRequest {
             selectors: selectors.clone(),
             junit5_filters: junit5_filters.clone(),

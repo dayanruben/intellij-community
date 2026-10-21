@@ -37,6 +37,7 @@ use avl_bridge::{BridgeFailure, ErrorKind};
 use avl_trace::bridge::{ATTACHMENTS_ROUTE, AttachmentKind, attachment_route, decode_attachment_list};
 use avl_trace::protocol::{self, Label, ScenarioCommand, Side as TraceSide, SnapshotPhase, SpanKind};
 use avl_wire::daemon::TypedFailure;
+use avl_wire::ide::SYSTEM_DIR;
 use avl_wire::program::lane::{Delivery, LIVE_LANE, LaneAgent, LaneDocument};
 use avl_wire::program::{
     HostAction, IdKind, IdSpec, Instruction, OperationProgram, ScenarioProgram, Side, SuiteFixture, SuiteProgram, SuiteReset,
@@ -126,6 +127,19 @@ const AIR_PERFORMANCE_FILE: &str = "air-performance.json";
 const TRACE_READ: Duration = Duration::from_secs(10);
 /// How many lines of a reset failure a skip reason and a failure carry.
 const CARRIED_FAILURE_LINES: usize = 20;
+/// The directory of the Codex daemons in the system directory of the IDE. It holds the ledger [`CODEX_LEDGER_FILE`] and
+/// the record `<id>.json` of each daemon. `CodexAppServerManager` and `FileCodexAppServerLedgerStore` of the Codex
+/// provider own the layout.
+const CODEX_DAEMONS_DIR: &str = "air/codex-app-server/generations";
+/// The Codex daemon ledger in [`CODEX_DAEMONS_DIR`].
+const CODEX_LEDGER_FILE: &str = "ledger.json";
+/// The fields of a Codex daemon record that a scenario never attaches. The startup arguments can name the MCP endpoint
+/// of the IDE, and the URL is the endpoint of the daemon.
+const CODEX_PRIVATE_FIELDS: [&str; 2] = ["startupConfigArgs", "tcpUrl"];
+/// How many Codex daemon records a failed scenario attaches beside the ledger, the newest first.
+const MAX_CODEX_RECORDS: usize = 32;
+/// The largest Codex file that a failed scenario attaches.
+const MAX_CODEX_FILE_BYTES: u64 = 1024 * 1024;
 
 /// What the program runner needs from the lane IDE: the bridge, the relaunch, the lane services, and the probes of the
 /// watchdog. The lane daemon gives its IDE owner; a test gives a fake.
@@ -135,11 +149,7 @@ pub(crate) trait Lane: Probes {
 
     /// Quits the IDE, performs `while_down` on its context directory, launches it again on the same context, and waits
     /// for readiness.
-    fn relaunch(
-        &self,
-        cause: Relaunch,
-        while_down: &mut dyn FnMut(&Path) -> Result<(), String>,
-    ) -> Result<(), String>;
+    fn relaunch(&self, cause: Relaunch, while_down: &mut dyn FnMut(&Path) -> Result<(), String>) -> Result<(), String>;
 
     fn services(&self) -> &dyn ServiceControl;
 
@@ -689,6 +699,7 @@ impl<'r, 's> Runner<'r, 's> {
             .and_then(|()| self.body(suite, profile, &fixture));
         if verdict.is_err() {
             self.trace().snap_failure();
+            self.attach_codex_daemons();
         }
         if !self.isolation.borrow().exhausted() && self.watch.expired().is_none() {
             let cleanup = self.traced_reset(ResetPhase::After, &profile.name, reset);
@@ -858,11 +869,7 @@ impl<'r, 's> Runner<'r, 's> {
 
     /// A relaunch of the IDE as a `restart` span with the key `restart:ide` for `restart-ide` and `restart:recycle` for a
     /// recycle, as the recorder keys them.
-    fn relaunch_span(
-        &self,
-        cause: Relaunch,
-        while_down: &mut dyn FnMut(&Path) -> Result<(), String>,
-    ) -> Result<(), String> {
+    fn relaunch_span(&self, cause: Relaunch, while_down: &mut dyn FnMut(&Path) -> Result<(), String>) -> Result<(), String> {
         let id = match cause {
             Relaunch::Restart => "ide",
             Relaunch::Recycle => "recycle",
@@ -1207,7 +1214,7 @@ impl<'r, 's> Runner<'r, 's> {
     /// Keeps the trace attachments that the IDE queued during the part `label` for the trace: the stills of its steps,
     /// and its named captures and files. The IDE forgets an entry that a fetch took, and its next list forgets the rest
     /// of this one, so the runner fetches each listed id at once. A read that fails is a note and fails no part, because
-    /// an attachment is evidence. The JVM host reads the same two routes after each part.
+    /// an attachment is evidence.
     fn collect_trace_attachments(&self, label: &str) {
         let listed = self
             .lane
@@ -1251,6 +1258,35 @@ impl<'r, 's> Runner<'r, 's> {
                         if entry.required { ", which its body named" } else { "" }
                     ));
                 }
+            }
+        }
+    }
+
+    /// Attaches the Codex daemon ledger of the IDE and its newest [`MAX_CODEX_RECORDS`] daemon records to the trace of a
+    /// failed scenario, so a failure of a Codex daemon shows the history of each daemon. A record goes without its
+    /// [`CODEX_PRIVATE_FIELDS`]. An IDE with no Codex daemon directory attaches nothing. A file that cannot be read is a
+    /// note, because an attachment is evidence.
+    fn attach_codex_daemons(&self) {
+        let Some(context) = self.lane.context_dir() else {
+            return;
+        };
+        let (files, left_out) = codex_daemon_files(&context.join(SYSTEM_DIR).join(CODEX_DAEMONS_DIR));
+        if left_out > 0 {
+            self.stream.note(format!(
+                "[attachment] the IDE holds {left_out} Codex daemon record(s) more than the {MAX_CODEX_RECORDS} that a failed \
+                 scenario attaches"
+            ));
+        }
+        for file in files {
+            let name = file.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+            match read_codex_file(&file, name != CODEX_LEDGER_FILE) {
+                Ok(bytes) => {
+                    self.trace()
+                        .attach(&format!("Codex daemon {name}"), "application/json", &bytes, "json");
+                }
+                Err(error) => self
+                    .stream
+                    .note(format!("[attachment] cannot attach the Codex file {}: {error}", file.display())),
             }
         }
     }
@@ -1573,7 +1609,7 @@ fn install_request(suite: &str, install: &RawValue) -> Result<(String, Value, Du
     Ok((name, request, Duration::from_millis(timeout)))
 }
 
-/// The extension of a file of the media type `media_type` in the bundle, as the JVM host names it.
+/// The extension of a file of the media type `media_type` in the bundle.
 fn extension_of_media_type(media_type: &str) -> &'static str {
     match media_type {
         "image/png" => "png",
@@ -1638,7 +1674,8 @@ fn label_value(suite: &SuiteProgram, name: &str) -> Option<String> {
         .map(|label| label.value.clone())
 }
 
-/// The identity of the case of `profile`: the class and the factory method of the JUnit node of the JVM host.
+/// The identity of the case of `profile`: the `testClass` label of its suite as the class, and the factory method as
+/// the method.
 pub(crate) fn case_identity(suite: &SuiteProgram, profile: &ScenarioProgram) -> CaseIdentity {
     CaseIdentity {
         suite: suite.suite.clone(),
@@ -1761,4 +1798,53 @@ pub(crate) fn suites_of(documents: Vec<(SuiteProgram, Vec<u8>)>) -> Result<Vec<S
             Ok(Suite { program, raw_profiles })
         })
         .collect()
+}
+
+/// The Codex files of the daemon directory `directory`: the ledger first, then the [`MAX_CODEX_RECORDS`] newest daemon
+/// records, and how many older records stay out. Only regular `.json` files count, so a daemon log and a link stay out.
+fn codex_daemon_files(directory: &Path) -> (Vec<PathBuf>, usize) {
+    let mut ledger = None;
+    let mut records: Vec<(SystemTime, PathBuf)> = Vec::new();
+    for entry in fs::read_dir(directory).into_iter().flatten().filter_map(Result::ok) {
+        let path = entry.path();
+        if !entry.file_type().is_ok_and(|kind| kind.is_file()) || path.extension().is_none_or(|extension| extension != "json") {
+            continue;
+        }
+        if entry.file_name() == CODEX_LEDGER_FILE {
+            ledger = Some(path);
+        } else {
+            let modified = entry.metadata().and_then(|metadata| metadata.modified()).unwrap_or(UNIX_EPOCH);
+            records.push((modified, path));
+        }
+    }
+    records.sort_by(|(left_time, left), (right_time, right)| right_time.cmp(left_time).then_with(|| left.cmp(right)));
+    let left_out = records.len().saturating_sub(MAX_CODEX_RECORDS);
+    let files = ledger
+        .into_iter()
+        .chain(records.into_iter().take(MAX_CODEX_RECORDS).map(|(_, path)| path))
+        .collect();
+    (files, left_out)
+}
+
+/// The bytes of the Codex file `file` to attach, or why it is not attached: an error, or more than
+/// [`MAX_CODEX_FILE_BYTES`]. A daemon `record` goes as its JSON object without the [`CODEX_PRIVATE_FIELDS`], and a record
+/// that is no JSON object is not attached, because its private fields cannot be dropped.
+fn read_codex_file(file: &Path, record: bool) -> Result<Vec<u8>, String> {
+    let size = fs::metadata(file).map_err(|error| error.to_string())?.len();
+    if size > MAX_CODEX_FILE_BYTES {
+        return Err(format!(
+            "it holds {size} bytes, more than the {MAX_CODEX_FILE_BYTES} that a scenario attaches"
+        ));
+    }
+    let bytes = fs::read(file).map_err(|error| error.to_string())?;
+    if !record {
+        return Ok(bytes);
+    }
+    let Ok(Value::Object(mut fields)) = serde_json::from_slice::<Value>(&bytes) else {
+        return Err("it is no JSON object, so its private fields cannot be dropped".to_owned());
+    };
+    for private in CODEX_PRIVATE_FIELDS {
+        fields.remove(private);
+    }
+    serde_json::to_vec_pretty(&Value::Object(fields)).map_err(|error| error.to_string())
 }

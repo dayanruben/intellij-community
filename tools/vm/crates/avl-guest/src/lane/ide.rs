@@ -593,7 +593,7 @@ impl IdeOwner {
         Some(HeldIde { pid: state.pid, ..held })
     }
 
-    /// The paths of the context `context`, by the layout of `ide-prepare`.
+    /// The paths of the context `context`, by the layout of a preparation.
     fn layout(&self, context: &Path) -> IdePrepared {
         let child = |name: &str| context.join(name).display().to_string();
         let unpack = context.join(wire_ide::PROJECT_DIR);
@@ -720,7 +720,8 @@ impl IdeOwner {
         Ok(())
     }
 
-    /// The `-D` properties of the launch of `held`, in the order of the JVM host. A later property wins. A bare IDE gets
+    /// The `-D` properties of the launch of `held`. A later property wins, in this order: the paths of the launch, the
+    /// launch properties of the lane document, the properties of the lane services, and the bridge. A bare IDE gets
     /// the launch properties of the lane document without the internal mode, and no property of a lane service.
     fn launch_properties(&self, launch: &LaneLaunch<'_>, held: &HeldIde) -> Result<BTreeMap<String, String>, AgentRefusal> {
         let services = if held.bare {

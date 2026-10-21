@@ -4,7 +4,7 @@
 //! the push stored, selects the documents of the lane, makes the IDE of the lane ready, and names the plan. The program runner of
 //! [`super::program`] then runs each scenario of each selected document, under the watchdog of [`super::watchdog`] and
 //! with the recorder of [`super::trace`]. The bundles of the recorder go to `<iterationDir>/air-traces`, which the
-//! trace pull of the controller packs. The JUnit XML of the stream goes to `<iterationDir>/test.xml`, which `/results`
+//! trace pull of the controller packs, or to the outputs directory of the Bazel test of `lane-run`. The JUnit XML of the stream goes to `<iterationDir>/test.xml`, which `/results`
 //! serves.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -643,7 +643,10 @@ fn start_trace(inputs: &TraceInputs, iteration_dir: &Path, iteration_id: &str, b
         return Trace::off();
     };
     match RecorderProcess::start(recorder) {
-        Ok(process) => Trace::open(Box::new(process), Trace::hello(iteration_dir, iteration_id, inputs.screen, bridge)),
+        Ok(process) => Trace::open(
+            Box::new(process),
+            Trace::hello(iteration_dir, inputs.bazel_outputs.as_deref(), iteration_id, inputs.screen, bridge),
+        ),
         Err(error) => {
             let reason = format!("{error}; the iteration records no trace");
             log(&reason);
@@ -682,11 +685,7 @@ impl Lane for DaemonLane<'_, '_> {
         self.bridge.post(request, within)
     }
 
-    fn relaunch(
-        &self,
-        cause: Relaunch,
-        while_down: &mut dyn FnMut(&Path) -> Result<(), String>,
-    ) -> Result<(), String> {
+    fn relaunch(&self, cause: Relaunch, while_down: &mut dyn FnMut(&Path) -> Result<(), String>) -> Result<(), String> {
         let restarted = self.daemon.with_ide(|owner| {
             owner.restart(
                 self.launch,
@@ -878,6 +877,12 @@ impl Probes for DaemonLane<'_, '_> {
         )
         .map(|_| ())
         .map_err(|refusal| refusal.message)
+    }
+
+    fn log_dir(&self) -> Option<PathBuf> {
+        self.target
+            .current()
+            .map(|(context, run_id, _)| supervisor::thread_dump::directory(&context, &run_id))
     }
 }
 

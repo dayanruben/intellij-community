@@ -39,12 +39,12 @@ Air docs site. `air-trace plan` says what to run to record new ones.
 the bridge routes and the viewer.
 
 The contract is declared once, in Rust, in `community/tools/vm/crates/avl-trace`. Two golden files there
-pin the Kotlin and TypeScript ends to it.
+pin the viewer to it.
 
 ## Goals
 
 - A bundle is self-contained, so a CI publisher can adopt it later without a viewer change.
-- A killed lane JVM still leaves a readable bundle, marked as truncated.
+- A killed lane still leaves a readable bundle, marked as truncated.
 - The parts that must run are Rust, so a guest needs no JVM to record, pack or serve.
 
 ## Non-goals
@@ -329,8 +329,10 @@ The lane's side is [Flow UI Scenario Traces](../../../../plugins/air/spec/docs/f
   [@test] ../crates/avl-record/src/tests.rs
 
 - The lane daemon is a lane of the protocol. Its `hello` names the launcher `daemon` and the root
-  `<iterationDir>/air-traces`. Its transcript of a green scenario is held to a golden.
+  `<iterationDir>/air-traces`, and its transcript of a green scenario is held to a golden. Under a Bazel test,
+  `lane-run` names the launcher `bazel` and the root `$TEST_UNDECLARED_OUTPUTS_DIR/air-traces`.
   [@test] ../crates/avl-guest/src/lane/program/tests.rs (`a_green_scenario_runs_between_two_resets_and_writes_the_golden_transcript`)
+  [@test] ../crates/avl-guest/src/lane/trace/tests.rs (`a_bazel_test_roots_the_bundles_in_its_outputs_directory`)
 
 - The lane daemon writes one `call` for each bridge request, and one for each step of a chain after it.
   [@test] ../crates/avl-guest/src/lane/program/tests.rs (`a_green_scenario_runs_between_two_resets_and_writes_the_golden_transcript`)
@@ -357,11 +359,12 @@ The lane's side is [Flow UI Scenario Traces](../../../../plugins/air/spec/docs/f
 
 - The recorder reads the screen itself only when the hello says `screen`. The Linux guest's lane targets set
   `-Dair.flow.trace.screen=on`, because the guest's `Xvfb` belongs to the lane. A direct lane on a
-  developer's machine records the IDE's paint and no screen video. It records the screen only when the person
-  running it passes the property or sets `AIR_TRACE_SCREEN=on`. Their screen shows everything else they have
-  open. On macOS, reading it asks for Screen Recording permission, and that prompt can take the focus from the
-  IDE.
+  developer's machine records the IDE's paint and no screen video, and it never reads the screen. `lane-run`
+  refuses the property as a JVM flag, so only the guest descriptor sets it. The screen of a developer shows
+  everything else they have open. On macOS, reading it asks for Screen Recording permission, and that prompt can
+  take the focus from the IDE.
   [@test] ../crates/avl-record/src/ladder/tests.rs (`the_ladder_reads_x_only_where_allowed_and_where_the_ide_draws_to_it`)
+  [@test] ../crates/avl-guest/src/lane/run/tests.rs (`an_unknown_jvm_flag_or_a_split_that_is_not_one_is_refused_by_name`)
   [@test] ../../../../plugins/air/tests/integration/ui_lane_ide.bzl
 
 - X11 is read only where the IDE draws to it, which is Linux. A Mac with XQuartz has a `DISPLAY` too, and its
@@ -416,10 +419,6 @@ The lane's side is [Flow UI Scenario Traces](../../../../plugins/air/spec/docs/f
 - The `idea.log` slice is the bytes written between the scenario's start and its end. A rotated or replaced
   log adds the new file. A slice is capped at 32 MiB.
   [@test] ../crates/avl-record/src/idealog/tests.rs
-
-- Under the checkout's root the recorder keeps the newest 20 runs, the current run always among them. The
-  daemon's and Bazel's roots belong to owners who already clean them up.
-  [@test] ../crates/avl-record/src/retention.rs
 
 ### Packing and the VM pull
 
@@ -482,7 +481,7 @@ The lane's side is [Flow UI Scenario Traces](../../../../plugins/air/spec/docs/f
   a loopback name, and refuses a request the browser marks as cross-site.
   [@test] ../crates/air-trace/src/serve/tests.rs
 
-- By default it looks in `out/air-traces`, in the Air lanes' `bazel-testlogs`, and in the controller's pulled
+- By default it looks in the Air lanes' `bazel-testlogs` and in the controller's pulled
   zips. `--root` adds a place, and `--no-default-roots` drops the defaults.
   [@test] ../crates/air-trace/src/serve/tests.rs
 
@@ -512,10 +511,16 @@ The lane's side is [Flow UI Scenario Traces](../../../../plugins/air/spec/docs/f
   `bundle-append` event names its bundle and its file, and carries complete lines only.
   [@test] ../crates/air-trace/src/serve/tests.rs
 
-- `GET /__air/events` sends `run-appended` with `{runId}` when a run's journal grows. The watcher follows the
-  runs directory and the directory of each running run. A record that changes a count also changes the
-  listing, and `runs-changed` follows.
+- `GET /__air/events` sends `run-appended` with `{runId}` when a run's journal grows, and when a new run appears.
+  The watcher follows the runs directory, the directory of each running run, and each run directory without a
+  journal. A record that changes a count also changes the listing, and `runs-changed` follows.
   [@test] ../crates/air-trace/src/serve/tests/service.rs (`run_appended_is_sent_when_a_journal_grows`)
+  [@test] ../crates/air-trace/src/serve/tests/service.rs (`a_run_directory_seen_before_its_journal_is_watched`)
+
+- A file event can come late or not at all. The server reads the runs directory every second, so a new run is
+  announced without its event. A watcher that dropped events sends a rescan notice, and the notice starts a scan.
+  [@test] ../crates/air-trace/src/serve/tests/service.rs (`a_new_run_is_announced_without_a_file_event`)
+  [@test] ../crates/air-trace/src/serve/tests/service.rs (`a_rescan_notice_of_the_watcher_starts_a_scan`)
 
 - `POST /__air/plan` answers the planner's result for `{text}`, or for a dropped file whose bytes are the body
   and whose name is `?fileName=`. It adds the bundles of the server's listing for the scenarios the plan names,

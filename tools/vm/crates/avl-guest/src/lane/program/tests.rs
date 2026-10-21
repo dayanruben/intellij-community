@@ -259,6 +259,10 @@ impl Probes for Fake {
         self.killed.store(true, Ordering::SeqCst);
         Ok(())
     }
+
+    fn log_dir(&self) -> Option<PathBuf> {
+        None
+    }
 }
 
 impl Lane for Fake {
@@ -267,11 +271,7 @@ impl Lane for Fake {
             .post_json("/api/air/ui-test", &request.to_string(), Instant::now() + within)
     }
 
-    fn relaunch(
-        &self,
-        cause: Relaunch,
-        while_down: &mut dyn FnMut(&Path) -> Result<(), String>,
-    ) -> Result<(), String> {
+    fn relaunch(&self, cause: Relaunch, while_down: &mut dyn FnMut(&Path) -> Result<(), String>) -> Result<(), String> {
         self.relaunches.lock().unwrap().push(cause);
         let down = while_down(self.context.path());
         if !self.relaunch_keeps_pid.load(Ordering::SeqCst) {
@@ -478,7 +478,7 @@ fn run_set(fake: &Fake, suites: &[Suite], setup: &Setup) -> Ran {
     let iteration = TempDir::new().unwrap();
     let trace = Trace::open(
         Box::new(recording.clone()),
-        Trace::hello(iteration.path(), "iter-golden", false, fake.recorder_bridge()),
+        Trace::hello(iteration.path(), None, "iter-golden", false, fake.recorder_bridge()),
     );
     let mut out = Vec::new();
     let counts = {
@@ -1585,8 +1585,8 @@ fn session_suite() -> Suite {
     }))
 }
 
-// A scenario that requires a runner value which the runner has not is skipped before its reset, as the JVM host aborts
-// it. No reset and no part of it reach the IDE.
+// A scenario that requires a runner value which the runner has not is skipped before its reset. No reset and no part
+// of it reach the IDE.
 #[test]
 fn a_scenario_that_requires_an_absent_runner_value_is_skipped_before_its_reset() {
     let fake = Fake::new(Script::default());
@@ -1919,4 +1919,96 @@ fn a_scenario_past_its_timeout_is_aborted_and_no_later_scenario_starts() {
     assert_eq!(ran.events("testStarted").len(), 1);
     let done = ran.trace.iter().find(|line| line.starts_with(r#"{"op":"done""#)).unwrap();
     assert!(done.starts_with(r#"{"op":"done","status":"aborted""#), "{done}");
+}
+
+/// Writes the Codex daemon directory of the IDE of `fake`: the ledger, two daemon records, a record that is no JSON
+/// object, and the log of one daemon. The record `older` changed an hour before the record `cd555461`.
+fn write_codex_daemons(fake: &Fake) {
+    let directory = fake.context.path().join(SYSTEM_DIR).join(CODEX_DAEMONS_DIR);
+    fs::create_dir_all(&directory).unwrap();
+    fs::write(directory.join(CODEX_LEDGER_FILE), r#"{"version":3,"generations":[]}"#).unwrap();
+    for id in ["older", "cd555461"] {
+        let record = format!(
+            r#"{{"launchId":"{id}","processIds":[],"startupConfigArgs":["-c","mcp_servers.idea.url=x"],"tcpUrl":"ws://127.0.0.1:1"}}"#
+        );
+        fs::write(directory.join(format!("{id}.json")), record).unwrap();
+    }
+    fs::write(directory.join("broken.json"), "not a record").unwrap();
+    fs::write(directory.join("cd555461.log"), "the log of a daemon").unwrap();
+    for (id, ago) in [("older", Duration::from_hours(1)), ("broken", Duration::from_hours(2))] {
+        fs::File::open(directory.join(format!("{id}.json")))
+            .unwrap()
+            .set_modified(SystemTime::now() - ago)
+            .unwrap();
+    }
+}
+
+/// The Codex files that the trace of `ran` attached, as the title and the text of each.
+fn codex_attachments(ran: &Ran) -> Vec<(String, String)> {
+    ran.trace
+        .iter()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .filter(|command| command["op"] == "attach" && command["name"].as_str().is_some_and(|name| name.starts_with("Codex daemon")))
+        .map(|command| {
+            let text = fs::read_to_string(command["file"].as_str().unwrap()).unwrap();
+            (command["name"].as_str().unwrap().to_owned(), text)
+        })
+        .collect()
+}
+
+/// Runs one scenario of one assertion against `fake`.
+fn run_one_assertion(fake: &Fake) -> Ran {
+    let vocabulary = json!({"runnerAnswers": [], "actions": {}, "assertions": {"terminal-panel-mounts": ide(&[], &[], &[])}});
+    let instructions = json!([{"assertion": "terminal-panel-mounts", "expectation": "The terminal panel mounts."}]);
+    run(fake, &[story(&vocabulary, &json!([scenario("reopens", &instructions)]))], None)
+}
+
+/// A lane whose assertion `terminal-panel-mounts` fails.
+fn failing_assertion() -> Fake {
+    let failure = json!({"type": "java.lang.AssertionError", "message": "no terminal panel", "stack": ["Air.check(Air.kt:7)"]});
+    Fake::new(Script {
+        failures: BTreeMap::from([("assertion/terminal-panel-mounts".to_owned(), failure)]),
+        ..Script::default()
+    })
+}
+
+// A failed scenario attaches the Codex daemon ledger of the IDE as it is, and then each daemon record, the newest first,
+// without its startup arguments and its URL. A record that is no JSON object is a note, and a daemon log stays out. A
+// passed scenario attaches none, and a failed scenario of an IDE with no Codex daemon directory attaches none.
+#[test]
+fn a_failed_scenario_attaches_the_codex_daemon_ledger_and_records_of_the_ide() {
+    let failing = failing_assertion();
+    write_codex_daemons(&failing);
+    let ran = run_one_assertion(&failing);
+    assert_eq!(ran.events("testFinished")[0]["status"], "FAILED");
+    let record = |id: &str| format!("{{\n  \"launchId\": \"{id}\",\n  \"processIds\": []\n}}");
+    assert_eq!(
+        codex_attachments(&ran),
+        [
+            (
+                "Codex daemon ledger.json".to_owned(),
+                r#"{"version":3,"generations":[]}"#.to_owned()
+            ),
+            ("Codex daemon cd555461.json".to_owned(), record("cd555461")),
+            ("Codex daemon older.json".to_owned(), record("older")),
+        ]
+    );
+    assert!(
+        ran.events("output").iter().any(|record| record["text"]
+            .as_str()
+            .unwrap()
+            .ends_with("broken.json: it is no JSON object, so its private fields cannot be dropped")),
+        "{:?}",
+        ran.events("output")
+    );
+
+    let passing = Fake::new(Script::default());
+    write_codex_daemons(&passing);
+    let ran = run_one_assertion(&passing);
+    assert_eq!(ran.events("testFinished")[0]["status"], "SUCCESSFUL");
+    assert!(codex_attachments(&ran).is_empty());
+
+    let ran = run_one_assertion(&failing_assertion());
+    assert_eq!(ran.events("testFinished")[0]["status"], "FAILED");
+    assert!(codex_attachments(&ran).is_empty());
 }

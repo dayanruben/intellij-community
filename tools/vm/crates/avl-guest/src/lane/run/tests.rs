@@ -219,6 +219,8 @@ fn an_unknown_jvm_flag_or_a_split_that_is_not_one_is_refused_by_name() {
     );
     assert!(unknown.contains("idea.test.runner.index and idea.test.runners.count"), "{unknown}");
     assert!(refusal(&["-Xmx2g"]).contains("the flag -Xmx2g is none"));
+    // Only the guest descriptor sets the screen flag. A direct lane never reads the screen of the developer.
+    assert!(refusal(&["-Dair.flow.trace.screen=on"]).contains("air.flow.trace.screen"));
     assert!(refusal(&["-D"]).contains("takes only a -D<name>=<value> property"));
     assert!(refusal(&["-Didea.test.runner.index=0"]).contains("needs both"));
     assert!(refusal(&["-Didea.test.runners.count=2"]).contains("needs both"));
@@ -236,8 +238,9 @@ fn an_unknown_jvm_flag_or_a_split_that_is_not_one_is_refused_by_name() {
 }
 
 // lane-run proves the host only where nothing proved it yet: on Linux, for a run that launches an IDE, and on a host
-// that no controller prepared. A worker of the controller names the run secrets directory, and validate-guest proved
-// that worker at its boot, so a run there pays nothing.
+// that no controller prepared. A worker of the controller names the run secrets directory. validate-guest proved the
+// display of that worker at its boot, and its lane daemon proves the shared objects of the distribution at its own
+// boot, so a run there pays nothing.
 #[test]
 fn only_a_linux_run_on_a_host_that_no_controller_prepared_probes_the_host() {
     let host = environment(&[]);
@@ -345,4 +348,14 @@ fn a_run_that_its_budget_ended_is_a_teamcity_build_problem_with_the_case_and_the
         budget_problem(&[expired("run_budget_timeout", case)], budget, &environment(&[])),
         None
     );
+}
+
+// The outputs directory of a Bazel test is its `TEST_UNDECLARED_OUTPUTS_DIR`. lane-run roots the trace bundles and the
+// hang report there. An empty or absent value names no directory.
+#[test]
+fn the_outputs_directory_of_a_bazel_test_is_its_variable() {
+    let outputs = |value: Option<&str>| bazel_outputs(&|name| value.filter(|_| name == "TEST_UNDECLARED_OUTPUTS_DIR").map(str::to_owned));
+    assert_eq!(outputs(Some("/testlogs/outputs")), Some(PathBuf::from("/testlogs/outputs")));
+    assert_eq!(outputs(Some("")), None);
+    assert_eq!(outputs(None), None);
 }

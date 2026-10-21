@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 use crate::daemon::build::PreparedBuild;
 use crate::daemon::host::Host;
 use crate::daemon::http::{StatusProbe, protocol_refusal, require_supported_protocol};
-use crate::daemon::state::{HostState, guest_home, guest_state_dir};
+use crate::daemon::state::{HostState, guest_home, guest_state_dir, guest_state_file};
 use crate::lane::ide::{IdeRetention, gc_guest_ides, gc_note, guest_ide_root};
 use avl_base::RefusalExt;
 use avl_wire::ide::IdeGcResult;
@@ -360,10 +360,14 @@ impl Host {
             ));
         }
         {
-            // This is the free-space check of a start. It comes before the lane daemon and its IDE write anything.
+            // This is the free-space check of a start. It comes before the lane daemon and its IDE write anything. The
+            // removal of the retired roots comes first, so the check counts the space that they held. It
+            // is inside this phase, because the phase table is a contract.
             let (step, _phase) = ctx.begin("free-space");
-            self.require_guest_free_space(&self.guest(&step, channel), Some(&Scope::worker(worker)))
-                .await?;
+            let guest = self.guest(&step, channel);
+            let scope = Scope::worker(worker);
+            self.remove_retired_roots(&guest, Some(&scope)).await;
+            self.require_guest_free_space(&guest).await?;
         }
 
         let run_id = wire::run_id(&avl_base::new_id());
@@ -378,13 +382,7 @@ impl Host {
             "--",
             "/usr/bin/env",
         ]);
-        arguments.extend(crate::lane::guest_run_environment(
-            settings,
-            &prep.daemon_environment,
-            &run_id,
-            &prep.guest_runfiles_root,
-            &location,
-        ));
+        arguments.extend(crate::lane::guest_run_environment(settings, &prep.daemon_environment));
         arguments.extend(daemon_command(settings, prep, &state_dir, &location));
         let started = {
             let (step, _phase) = ctx.begin("supervisor-start");
@@ -396,6 +394,15 @@ impl Host {
             guest
                 .as_user(
                     &words(["/bin/mkdir", "-p", &state_dir, &agent_state]),
+                    &SpawnOptions::within(GUEST_COMMAND_TIMEOUT),
+                )
+                .await?;
+            // The previous daemon leaves its state file, and the new daemon removes it only late in its boot. The
+            // phases before this one proved that no daemon holds the slot, so from here only the daemon of this run
+            // writes the file that the boot poll reads.
+            guest
+                .as_user(
+                    &words(["/bin/rm", "-f", &guest_state_file(settings)]),
                     &SpawnOptions::within(GUEST_COMMAND_TIMEOUT),
                 )
                 .await?;
@@ -418,7 +425,6 @@ impl Host {
                 worker,
                 channel,
                 &run_id,
-                &state_dir,
                 prep,
                 &agent_digest,
                 started,
@@ -447,7 +453,6 @@ impl Host {
         worker: &str,
         channel: &dyn Channel,
         run_id: &str,
-        state_dir: &str,
         prep: &PreparedBuild,
         agent_digest: &str,
         started: Result<RunState, Refusal>,
@@ -464,7 +469,7 @@ impl Host {
         }
         let published = {
             let (step, _phase) = ctx.begin("boot-poll");
-            let state_file = guest_join(state_dir, "daemon.json");
+            let state_file = guest_state_file(&self.settings);
             self.boot_poll(&self.guest(&step, channel), worker, run_id, &state_file, boot_budget)
                 .await?
         };
@@ -548,6 +553,10 @@ impl Host {
 
     /// Waits for the daemon to publish its state file, or for its supervisor to say it died.
     ///
+    /// The poll accepts only a file that names the pid of the run. The supervisor names the pid of its child, and the
+    /// lane daemon is that child. A file of another pid is not the file of this run, so the poll goes on. A budget that
+    /// ends on such a file refuses `daemon_state_file_foreign` and names both pids.
+    ///
     /// Counted, not just timed. Two exec round-trips and a 3 s sleep per turn, so this loop's elapsed is the JVM's
     /// boot *plus* up to 3 s of quantization plus the round-trips - three costs with three different fixes.
     async fn boot_poll(
@@ -564,6 +573,8 @@ impl Host {
             probes: 0,
             last_unsuccessful: None,
         };
+        // The pid that the last file of another process named, and the pid of the run then.
+        let mut foreign: Option<(i64, i32)> = None;
         loop {
             record.probes += 1;
             let probe = guest
@@ -595,7 +606,13 @@ impl Host {
             if !published.trim_ascii().is_empty() {
                 // The daemon writes this file to a temporary path and moves it with ATOMIC_MOVE, so a reader sees a
                 // whole document or no file at all. That makes every failure below a fault rather than a race.
-                return read_state_file(state_file, &published);
+                let state = read_state_file(state_file, &published)?;
+                match probe.pid {
+                    Some(pid) if i64::from(pid) == state.pid => return Ok(state),
+                    // A run that is still starting names no pid, so its own file and another file look the same.
+                    None => {}
+                    Some(pid) => foreign = Some((state.pid, pid)),
+                }
             }
             record.last_unsuccessful = Some(wait.elapsed());
             if !wait.pause(guest.ctx).await {
@@ -604,6 +621,17 @@ impl Host {
                 }
                 break;
             }
+        }
+        if let Some((file_pid, run_pid)) = foreign {
+            return Err(Refusal::new(
+                "daemon_state_file_foreign",
+                Exit::SOFTWARE,
+                format!(
+                    "the state file at {state_file} names pid {file_pid}, but run {run_id} is pid {run_pid}: another \
+                     process wrote it, and the daemon of this run published none in time"
+                ),
+            )
+            .with_details(json!({ "runId": run_id, "filePid": file_pid, "runPid": run_pid })));
         }
         Err(Refusal::new(
             "daemon_boot_timeout",
