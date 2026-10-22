@@ -3,12 +3,14 @@ package com.intellij.openapi.editor.impl
 
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.application.edtWriteAction
 import com.intellij.openapi.editor.CustomFoldRegion
 import com.intellij.openapi.editor.CustomFoldRegionRenderer
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.FoldRegion
 import com.intellij.openapi.editor.ex.DocumentPatch
 import com.intellij.openapi.editor.ex.FoldingListener
+import com.intellij.openapi.editor.impl.marker.PMarkerResolution
 import com.intellij.openapi.editor.impl.marker.SnapshotMarkerEngineImpl
 import com.intellij.openapi.editor.impl.marker.SnapshotMarkerReference
 import com.intellij.openapi.editor.impl.marker.SnapshotRangeMarkerImpl
@@ -37,11 +39,13 @@ class SnapshotFoldingModelTest {
       val region = addFoldRegion(editor, 1, 4) as SnapshotRangeMarkerImpl
       val rootStore = editor.foldingModel.rootStore()
       val shiftedSnapshot = document.snapshotMarkerStores.applyPatch(initialSnapshot, textPatch(0, 0, "xy"))
+      val initialResolution = SnapshotMarkerEngineImpl.resolveRangeMarker(region, rootStore.rootReference(initialSnapshot).get())
+      val shiftedResolution = SnapshotMarkerEngineImpl.resolveRangeMarker(region, rootStore.rootReference(shiftedSnapshot).get())
 
       BranchState(
         usesSnapshotStorage = editor.foldingModel.isUsingSnapshotFoldingStorage,
-        initialStart = SnapshotMarkerEngineImpl.resolveRangeMarker(region, rootStore.rootReference(initialSnapshot).get()).startOffset,
-        shiftedStart = SnapshotMarkerEngineImpl.resolveRangeMarker(region, rootStore.rootReference(shiftedSnapshot).get()).startOffset,
+        initialStart = PMarkerResolution.startOffset(initialResolution),
+        shiftedStart = PMarkerResolution.startOffset(shiftedResolution),
       )
     }
 
@@ -191,6 +195,7 @@ class SnapshotFoldingModelTest {
               return laterRegion
             }
           },
+          policy = entry.policy,
         )
       }
 
@@ -230,6 +235,50 @@ class SnapshotFoldingModelTest {
     assertThat(state.expandedIsValid).isFalse()
     assertThat(state.allRegions).hasSize(1)
     assertThat(state.allRegions.single().placeholderText).isEqualTo("collapsed")
+  }
+
+  @Test
+  fun `visible duplicate leaves the cache`(): Unit = timeoutRunBlocking {
+    val (survivor, visibleRegions) = withEditor("01234567890123456789") { editor ->
+      val model = editor.foldingModel
+      lateinit var collapsed: FoldRegion
+      model.runBatchFoldingOperation {
+        model.addFoldRegion(0, 10, "expanded")!!
+        collapsed = model.addFoldRegion(1, 10, "collapsed")!!
+        collapsed.isExpanded = false
+      }
+      model.fetchVisible()
+
+      edtWriteAction {
+        editor.document.deleteString(0, 1)
+      }
+
+      collapsed to model.fetchVisible()!!.toList()
+    }
+
+    assertThat(visibleRegions).containsExactly(survivor)
+  }
+
+  @Test
+  fun `deleted fold region leaves the cache after folding is enabled`(): Unit = timeoutRunBlocking {
+    val visibleRegions = withEditor("0123456789") { editor ->
+      val model = editor.foldingModel
+      model.runBatchFoldingOperation {
+        model.addFoldRegion(2, 7, "...")!!
+      }
+      model.fetchVisible()
+
+      model.setFoldingEnabled(false)
+      edtWriteAction {
+        editor.document.deleteString(1, 8)
+      }
+      model.setFoldingEnabled(true)
+      model.updateCachedOffsets()
+
+      model.fetchVisible()!!.toList()
+    }
+
+    assertThat(visibleRegions).isEmpty()
   }
 
   @Test

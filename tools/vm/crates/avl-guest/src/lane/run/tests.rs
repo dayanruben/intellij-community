@@ -196,9 +196,27 @@ fn the_runner_flags_split_the_lane_and_each_ignored_flag_gives_one_note() {
         jvm_flags(&[]).unwrap(),
         JvmFlags {
             split: RunnerSplit::WHOLE,
-            notes: Vec::new()
+            notes: Vec::new(),
+            allure: false,
         }
     );
+}
+
+// The lane flag of the Allure results is a JVM flag of lane-run too, so a person asks for them for one Bazel run. Only
+// the value `on` asks, and a run without the flag writes no Allure result.
+#[test]
+fn the_allure_flag_asks_for_the_allure_results_of_one_run() {
+    let mut flags = teamcity_flags(1);
+    assert!(!jvm_flags(&flags).unwrap().allure);
+    flags.push(inputs::ALLURE_FLAG.to_owned());
+    let asked = jvm_flags(&flags).unwrap();
+    assert_eq!(
+        (asked.allure, asked.split, asked.notes.len()),
+        (true, RunnerSplit { index: 1, count: 2 }, 3)
+    );
+    let refusal = jvm_flags(&["-Dair.flow.trace.allure=true".to_owned()]).unwrap_err();
+    assert_eq!(refusal.code, JVM_FLAG_CODE);
+    assert_eq!(refusal.message, "the JVM property air.flow.trace.allure takes only the value on");
 }
 
 // Another flag is refused by name, so the next flag of a job is loud. The refusal of an unknown property names it and
@@ -217,9 +235,12 @@ fn an_unknown_jvm_flag_or_a_split_that_is_not_one_is_refused_by_name() {
         unknown.contains("idea.some.token") && !unknown.contains("s3cr3t-value"),
         "{unknown}"
     );
-    assert!(unknown.contains("idea.test.runner.index and idea.test.runners.count"), "{unknown}");
+    assert!(
+        unknown.contains("idea.test.runner.index, idea.test.runners.count and air.flow.trace.allure"),
+        "{unknown}"
+    );
     assert!(refusal(&["-Xmx2g"]).contains("the flag -Xmx2g is none"));
-    // Only the guest descriptor sets the screen flag. A direct lane never reads the screen of the developer.
+    // The screen flag is no JVM flag. A direct lane reads the screen only on a TeamCity build, never on a developer host.
     assert!(refusal(&["-Dair.flow.trace.screen=on"]).contains("air.flow.trace.screen"));
     assert!(refusal(&["-D"]).contains("takes only a -D<name>=<value> property"));
     assert!(refusal(&["-Didea.test.runner.index=0"]).contains("needs both"));
@@ -251,6 +272,28 @@ fn only_a_linux_run_on_a_host_that_no_controller_prepared_probes_the_host() {
     assert!(!host_probe_applies(&args(&[]), &worker, true));
     assert!(!host_probe_applies(&args(&["--plan-only"]), &host, true));
     assert!(!host_probe_applies(&args(&[]), &host, false));
+}
+
+// No person works on the X display of a TeamCity agent on Linux, so the recorder may read it. Each missing condition
+// keeps the screen closed, and a developer host is no TeamCity build.
+#[test]
+fn only_a_teamcity_build_on_linux_with_a_display_lets_the_recorder_read_the_screen() {
+    let build = [("TEAMCITY_VERSION", "2026.1"), ("DISPLAY", ":0.0")];
+
+    assert!(build_owns_screen(&environment(&build), true));
+    assert!(!build_owns_screen(&environment(&build), false));
+    assert!(!build_owns_screen(&environment(&[("DISPLAY", ":0.0")]), true));
+    assert!(!build_owns_screen(
+        &environment(&[("TEAMCITY_VERSION", " "), ("DISPLAY", ":0.0")]),
+        true
+    ));
+    assert!(!build_owns_screen(&environment(&[("TEAMCITY_VERSION", "2026.1")]), true));
+    assert!(!build_owns_screen(
+        &environment(&[("TEAMCITY_VERSION", "2026.1"), ("DISPLAY", " ")]),
+        true
+    ));
+    let developer = environment(&[("DISPLAY", ":1"), ("TEST_UNDECLARED_OUTPUTS_DIR", "/testlogs/outputs")]);
+    assert!(!build_owns_screen(&developer, true));
 }
 
 // The lane IDE opens its windows on an X display, so a host without DISPLAY is refused by name before the probe.

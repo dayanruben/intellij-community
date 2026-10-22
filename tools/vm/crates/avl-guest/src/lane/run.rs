@@ -5,7 +5,8 @@
 //! `bt --lane` and a TeamCity agent. It reads the runtime descriptor, stores the lane inputs and the context plugins of
 //! the runfiles in the jar store by digest, and runs the iteration of [`super::iteration`] as a `/run` would. It writes
 //! the run stream on standard output and into the run directory, and the JUnit XML of the stream into the run
-//! directory and to the XML file of a Bazel test. It quits the IDE, and exits 0 when the run is green.
+//! directory and to the XML file of a Bazel test. It quits the IDE, and exits 0 when the run is green. Under a Bazel test,
+//! a run that is not green keeps its evidence in the outputs directory of the test, as [`super::evidence`] states.
 //!
 //! With `--plan-only` it stops before the IDE: it stages the inputs and selects the documents as a run does, and it
 //! writes the [`RunPlan`] on standard output. So a host proves a lane rule and its runfiles without a lane IDE.
@@ -25,6 +26,7 @@ use avl_wire::session_log;
 use serde::Serialize;
 
 use super::channel::{self, BOOT_CODE, log};
+use super::evidence::{self, Evidence, Limits, Moment};
 use super::inputs::{self, LaunchInputs, guest_platform};
 use super::iteration::{self, RunnerSplit};
 use super::monitor::{self, BUDGET_PROBLEM, LiveStop, MONITOR_THREAD, Monitor, MonitorPaths};
@@ -59,8 +61,8 @@ const TOTAL_SHARDS_VARIABLE: &str = "TEST_TOTAL_SHARDS";
 const TEST_TIMEOUT_VARIABLE: &str = "TEST_TIMEOUT";
 /// The variable of the outputs directory of a Bazel test, which Bazel keeps after the test.
 const OUTPUTS_VARIABLE: &str = "TEST_UNDECLARED_OUTPUTS_DIR";
-/// What the budget of a run leaves for its end: the kill grace of the watchdog, the hard stop with its JUnit XML and the
-/// cancel of the IDE with a thread dump, and the kill delay of Bazel.
+/// What the budget of a run leaves for its end: the kill grace of the watchdog, the hard stop with its JUnit XML, the
+/// cancel of the IDE with a thread dump and the copy of the evidence, and the kill delay of Bazel.
 pub(crate) const TEARDOWN_RESERVE: Duration = Duration::from_mins(3);
 /// The refusal code of a budget that a run cannot keep.
 pub(crate) const BUDGET_CODE: &str = "lane_run_budget";
@@ -74,6 +76,8 @@ pub(crate) const JVM_FLAG_CODE: &str = "lane_run_jvm_flag";
 const RUNNER_INDEX_PROPERTY: &str = "idea.test.runner.index";
 /// The JVM property of the count of the runners of a TeamCity UI job.
 const RUNNERS_COUNT_PROPERTY: &str = "idea.test.runners.count";
+/// The JVM property that asks the recorder for the Allure results, with the value `on`: [`inputs::ALLURE_FLAG`].
+const ALLURE_PROPERTY: &str = "air.flow.trace.allure";
 /// Why lane-run ignores a bucketing property of the JUnit runner.
 const BUCKETING_IGNORED: &str = "lane-run splits the lane by the order of its suites, not by duration buckets";
 /// The JVM properties that lane-run ignores, each with the reason that its note gives.
@@ -83,22 +87,25 @@ const IGNORED_PROPERTIES: [(&str, &str); 3] = [
     ("idea.tests.duration.bucketing.enabled", BUCKETING_IGNORED),
 ];
 
-/// What the `--jvm_flag` arguments of a run ask for: the share of this runner of the lane, and one note for each flag
-/// that lane-run ignores.
+/// What the `--jvm_flag` arguments of a run ask for: the share of this runner of the lane, one note for each flag that
+/// lane-run ignores, and whether the recorder writes the Allure results.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct JvmFlags {
     pub split: RunnerSplit,
     pub notes: Vec<String>,
+    pub allure: bool,
 }
 
 /// Reads the `--jvm_flag` arguments that the UI job of TeamCity passes to the JUnit runner. The runner index and count
-/// give the split. Each ignored property gives a note. A flag that is no `-D` property, another property, a property
-/// with two values, and an index and a count that do not make a split are refused. The refusal of another flag names
-/// it and never its value.
+/// give the split. `-Dair.flow.trace.allure=on` asks for the Allure results, and another value of that property is
+/// refused. Each ignored property gives a note. A flag that is no `-D` property, another property, a property with two
+/// values, and an index and a count that do not make a split are refused. The refusal of another flag names it and
+/// never its value.
 pub(crate) fn jvm_flags(flags: &[String]) -> Result<JvmFlags, AgentRefusal> {
     let refused = |message: String| AgentRefusal::refused(JVM_FLAG_CODE, message);
     let mut properties: BTreeMap<&str, &str> = BTreeMap::new();
     let mut notes = Vec::new();
+    let mut allure = false;
     for flag in flags {
         let Some(property) = flag.strip_prefix("-D").filter(|property| !property.is_empty()) else {
             let name = flag.split('=').next().unwrap_or_default();
@@ -111,10 +118,17 @@ pub(crate) fn jvm_flags(flags: &[String]) -> Result<JvmFlags, AgentRefusal> {
             notes.push(format!("lane-run ignores the JVM flag {flag}: {reason}"));
             continue;
         }
+        if name == ALLURE_PROPERTY {
+            if value != "on" {
+                return Err(refused(format!("the JVM property {ALLURE_PROPERTY} takes only the value on")));
+            }
+            allure = true;
+            continue;
+        }
         if name != RUNNER_INDEX_PROPERTY && name != RUNNERS_COUNT_PROPERTY {
             return Err(refused(format!(
-                "lane-run does not take the JVM property {name}: it takes {RUNNER_INDEX_PROPERTY} and \
-                 {RUNNERS_COUNT_PROPERTY}, and it ignores {}",
+                "lane-run does not take the JVM property {name}: it takes {RUNNER_INDEX_PROPERTY}, \
+                 {RUNNERS_COUNT_PROPERTY} and {ALLURE_PROPERTY}, and it ignores {}",
                 IGNORED_PROPERTIES.map(|(ignored, _)| ignored).join(", ")
             )));
         }
@@ -148,7 +162,7 @@ pub(crate) fn jvm_flags(flags: &[String]) -> Result<JvmFlags, AgentRefusal> {
             )));
         }
     };
-    Ok(JvmFlags { split, notes })
+    Ok(JvmFlags { split, notes, allure })
 }
 
 /// Packs each recorded session that [`session_log::VARIABLE`] names into the jar store, as the controller pushes them
@@ -212,6 +226,8 @@ pub(crate) fn run(args: &LaneRunArgs, variable: &dyn Fn(&str) -> Option<String>)
         .map_err(|error| AgentRefusal::refused(error.code, error.message))?;
     let mut launch_inputs = inputs::from_descriptor(&descriptor, &daemon_args)?;
     launch_inputs.trace.bazel_outputs = bazel_outputs(variable);
+    launch_inputs.trace.screen |= build_owns_screen(variable, cfg!(target_os = "linux"));
+    launch_inputs.trace.allure |= flags.allure;
     let jcmd = launch_inputs.jcmd();
     let mut notes = flags.notes;
     if host_probe_applies(args, variable, cfg!(target_os = "linux")) {
@@ -264,6 +280,7 @@ pub(crate) fn run(args: &LaneRunArgs, variable: &dyn Fn(&str) -> Option<String>)
             .map_err(|error| AgentRefusal::failure(BOOT_CODE, format!("cannot write the plan: {error}")))?;
         return Ok(0);
     }
+    let evidence = bazel_outputs(variable).map(|outputs| Evidence::new(&daemon_args.state_dir, &daemon_args.ide_root, &outputs));
     let stream_path = root.join(STREAM_FILE);
     let stream = File::create(&stream_path)
         .map_err(|error| AgentRefusal::failure(BOOT_CODE, format!("cannot create {}: {error}", stream_path.display())))?;
@@ -274,6 +291,7 @@ pub(crate) fn run(args: &LaneRunArgs, variable: &dyn Fn(&str) -> Option<String>)
             xml: xml_files(&root, variable),
             ide_root: daemon_args.ide_root,
             report: bazel_outputs(variable).map(|directory| directory.join(monitor::REPORT_FILE)),
+            evidence: evidence.clone(),
         },
         budget,
         budget.map(|budget| started + budget + KILL_GRACE),
@@ -301,10 +319,15 @@ pub(crate) fn run(args: &LaneRunArgs, variable: &dyn Fn(&str) -> Option<String>)
     }
     let stream = fs::read(&stream_path)
         .map_err(|error| AgentRefusal::failure(BOOT_CODE, format!("cannot read {}: {error}", stream_path.display())))?;
-    if let Some(problem) = budget_problem(&monitor::decode_stream(&stream), budget, variable) {
+    let events = monitor::decode_stream(&stream);
+    if let Some(problem) = budget_problem(&events, budget, variable) {
         println!("{problem}");
     }
     let green = is_green(&stream) && finished.is_ok();
+    if !green && let Some(evidence) = &evidence {
+        let kept = evidence::keep(evidence, &events, Moment::RunEnd, Limits::LANE);
+        log(&kept.describe(&evidence.destination));
+    }
     written?;
     Ok(u8::from(!green))
 }
@@ -342,6 +365,13 @@ pub(crate) fn budget_problem(events: &[RunEvent], budget: Option<Duration>, vari
 /// daemon of the worker proves the shared objects of its distribution at its own boot. So a run there pays nothing.
 pub(crate) fn host_probe_applies(args: &LaneRunArgs, variable: &dyn Fn(&str) -> Option<String>, linux: bool) -> bool {
     linux && !args.plan_only && variable(RUN_SECRETS_VARIABLE).is_none_or(|value| value.trim().is_empty())
+}
+
+/// Whether the recorder may read the screen of a run whose descriptor does not let it: a TeamCity build on Linux with
+/// an X display. A TeamCity agent runs one build at a time, and no person works on its display, so it shows nothing of a
+/// person. A host of a developer is no TeamCity build, so lane-run never reads the screen of a person.
+pub(crate) fn build_owns_screen(variable: &dyn Fn(&str) -> Option<String>, linux: bool) -> bool {
+    linux && teamcity::is_team_city(variable) && variable("DISPLAY").is_some_and(|display| !display.trim().is_empty())
 }
 
 /// The X display of the host, `DISPLAY`, refused by name when it is unset, because the lane IDE opens its windows on it.
