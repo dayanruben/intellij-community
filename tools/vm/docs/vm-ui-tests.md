@@ -910,6 +910,14 @@ when a run appears or a run's journal grows. It listens on 127.0.0.1 only. `--ro
 A root can be a zip that holds zips: discovery extracts an inner zip once into `out/air-traces-cache`. So
 `--root bazel.logs.zip` works for a TeamCity artifact, and so does a local `outputs.zip`.
 
+**Where the time went.** Each relaunch of the IDE in a scenario is a `restart` span, and the flame chart shows its
+parts below it: the quit, the work while the IDE is down, the launch, the wait for `READY`, and the robot and ping
+chain. `vm.cmd report time` sums those parts over a run. The header of a picture names the time that the recorder spent
+on its snapshot, part by part. A step that no bundle holds is a `timing` record of the run stream. Examples are the
+launch of a bare IDE and the end of `lane-run`. The Notes of the run page list these records, and the launch, the
+readiness and the exit of the lane IDE. The steps that each scenario runs are one sum there, and the notes after the
+first 20 fold under one line.
+
 **A CI run.** `--teamcity` opens the traces of a TeamCity build:
 
 ```bash
@@ -948,13 +956,13 @@ run, and the server of the link is the root of `BUILD_URL`. Without the files or
 listing still publish with no link, and stderr says why.
 
 An agent keeps its checkout and its Bazel output base across builds, so the testlogs can hold the tests of an earlier
-build. The step publishes only a test whose `test.xml` is from the start of the build or later. The REST API of the
-build gives the start and the time of the server, so the step corrects for the skew of the clocks and allows two minutes
-more. `--since` sets the start. A warning counts the skipped tests. The step also empties its output first. Once the
-archive is published, it removes the bundle directories that the archive holds from the testlogs, so `bazel.logs.zip`
-does not carry them twice. Off TeamCity, only `--remove-packed` asks for that. It never turns a build red: each problem
-is a warning in the build log, and the exit is 0. Only a usage error of the command line exits 2. No Air build
-configuration runs this step yet; it is one more step in `ultimate-teamcity-config`.
+build. The step publishes only a test whose `test.xml` is from the start of the build or later. The first step of the
+build sets `AIR_TRACE_SINCE` to the start, with `date -u +%Y-%m-%dT%H:%M:%SZ` on the agent. `--since` overrides it. On
+TeamCity without either, a warning says so and every test publishes. A warning counts the skipped tests. The step also
+empties its output first. Once the archive is published, it removes the bundle directories that the archive holds from
+the testlogs, so `bazel.logs.zip` does not carry them twice. Off TeamCity, only `--remove-packed` asks for that. It
+never turns a build red: each problem is a warning in the build log, and the exit is 0. Only a usage error of the
+command line exits 2. No Air build configuration runs this step yet; it is one more step in `ultimate-teamcity-config`.
 
 When the site in `out/air-site` is missing, or older than `plugins/air/docs/src` or the `src`, `scripts` and
 `styles` of the kernel `community/tools/docs-site`, the server builds it once in the background:

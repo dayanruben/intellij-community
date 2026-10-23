@@ -424,6 +424,14 @@ The lane's side is [Flow UI Scenario Traces](../../../../plugins/air/spec/docs/f
   and acks. The bound is 1.8 s, below the lane's 2 s.
   [@test] ../crates/avl-record/src/session/tests.rs
 
+- The snapshot record holds the time of each part in milliseconds, on the clock of the recorder. They are
+  `air.snapshot.grab_ms`, `air.snapshot.tree_ms`, `air.snapshot.spans_ms` and `air.snapshot.still_ms`, the change check
+  and the queue of the picture. When the encoders are behind, `still_ms` holds the wait for a free place in their queue.
+  A part that did not run has no time. `air.snapshot.duration_ms` is the time from the
+  arrival of the `snap` line to the record. So it holds a wait behind an earlier line too, and the ack follows it.
+  [@test] ../crates/avl-record/src/session/tests.rs (`a_snapshot_names_the_time_of_each_of_its_parts`)
+  [@test] ../crates/avl-record/src/session/tests.rs (`a_session_without_a_bridge_still_takes_pictures`)
+
 - The WebP encoding runs after the ack, on a bounded writer. `done` waits for every still before it writes
   the manifest.
   [@test] ../crates/avl-record/src/stills/tests.rs
@@ -547,17 +555,17 @@ The lane's side is [Flow UI Scenario Traces](../../../../plugins/air/spec/docs/f
   write their logs into another configuration.
   [@test] ../crates/air-trace/src/publish/tests.rs (`the_testlogs_are_found_beside_the_binary_that_bazel_run_starts`)
 
-- A TeamCity agent keeps its checkout and its Bazel output base across builds. So the testlogs can hold the tests of
-  an earlier build, which this build did not run. The step publishes only a test whose `test.xml` is from the start
-  of the build or later. The start is `--since`, or on TeamCity the `startDate` of the REST API of the build. The step
-  asks `teamcity.serverUrl` with `teamcity.auth.userId` and `teamcity.auth.password` of the build. The `currentTime` of
-  the server gives the skew between its clock and the clock of the agent, and the start moves by it. A test then counts
-  from two minutes before the start. Each skipped test is one line on stderr, and one warning counts them. A stronger
-  warning says when no test is left to publish. A start that does not read is a warning, and then every test
-  publishes. Off TeamCity without `--since`, every test publishes.
+- A TeamCity agent keeps its checkout and its Bazel output base across builds. So the testlogs can hold the tests of an
+  earlier build, which this build did not run. The step publishes only a test whose `test.xml` is from the start of the
+  build or later. The start is `--since`, else the variable `AIR_TRACE_SINCE`, a time of RFC 3339. The first step of the
+  build sets it with the clock of the agent. Bazel writes the `test.xml` with the same clock, so no skew and no margin
+  apply. The step asks no server. Each skipped test is one line on stderr, and one warning counts them. A stronger
+  warning says when no test is left to publish. A value of the variable that does not read is a warning, and so is a
+  step on TeamCity without a start. Then every test publishes. Off TeamCity without a start, every test publishes with
+  no warning.
   [@test] ../crates/air-trace/src/publish/tests.rs (`the_tests_of_an_earlier_build_are_skipped`)
-  [@test] ../crates/air-trace/src/publish/teamcity/tests.rs (`the_start_of_a_build_is_its_start_date_in_the_clock_of_this_machine`)
-  [@test] ../crates/air-trace/src/serve/teamcity/tests.rs (`the_agent_client_gives_curl_the_build_credentials_on_its_standard_input`)
+  [@test] ../crates/air-trace/src/publish/tests.rs (`the_start_of_the_build_is_the_flag_or_the_variable_of_the_first_step`)
+  [@test] ../crates/air-trace/tests/cli.rs (`teamcity_publish_takes_the_start_of_the_build_from_air_trace_since`)
 
 - Before it writes, the step empties its output, so the output holds the files of this run only. It empties the
   default output, and an output that holds its marker file `.air-traces-publish`. It refuses another `--out` that
