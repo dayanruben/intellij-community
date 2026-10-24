@@ -86,6 +86,8 @@ impl ServiceControl for FakeServices {
 struct Script {
     /// The answers of the successive `Reset` requests; a reset past the list holds.
     resets: VecDeque<Value>,
+    /// The answers of the successive `ResetManagedAgents` requests; a request past the list holds.
+    managed_agent_resets: VecDeque<Value>,
     /// The failure of each request type that fails.
     failures: BTreeMap<String, Value>,
     /// The value of each request type that answers one; any other answers `{}`.
@@ -110,6 +112,8 @@ struct Fake {
     killed: Arc<AtomicBool>,
     /// A relaunch keeps the pid, as a launch that left the old IDE on the bridge port would.
     relaunch_keeps_pid: AtomicBool,
+    /// The part of a relaunch that a refusal ends, as an IDE that does not get ready ends its readiness part.
+    refused_part: Mutex<Option<RelaunchPart>>,
     /// The launches and the ends of a bare IDE, in order.
     bare: Mutex<Vec<&'static str>>,
     /// A bare launch fails, as an IDE that never gets ready does.
@@ -169,6 +173,7 @@ impl Fake {
             services: FakeServices::default(),
             killed,
             relaunch_keeps_pid: AtomicBool::new(false),
+            refused_part: Mutex::new(None),
             bare: Mutex::new(Vec::new()),
             bare_launch_fails: AtomicBool::new(false),
             air_reloads: Mutex::new(Vec::new()),
@@ -212,7 +217,7 @@ fn answer(script: &mut Script, kind: &str, body: &Value) -> Value {
     }
     let value = match kind.trim_start_matches(BRIDGE) {
         "Reset" => script.resets.pop_front().unwrap_or(Value::Null),
-        "ResetManagedAgents" => Value::Null,
+        "ResetManagedAgents" => script.managed_agent_resets.pop_front().unwrap_or(Value::Null),
         "StepSequence" => {
             let mut stopped = false;
             let outcomes: Vec<Value> = body["steps"]
@@ -272,11 +277,51 @@ impl Lane for Fake {
             .post_json("/api/air/ui-test", &request.to_string(), Instant::now() + within)
     }
 
-    fn relaunch(&self, cause: Relaunch, while_down: &mut dyn FnMut(&Path) -> Result<(), String>) -> Result<(), String> {
+    /// Runs the parts of a restart in the order of the owner: the launch counts the pid up, a refused part ends the
+    /// relaunch, and a failure of `while_down` fails its part and is the failure of the relaunch after its last part.
+    fn relaunch(
+        &self,
+        cause: Relaunch,
+        while_down: &mut dyn FnMut(&Path) -> Result<(), String>,
+        parts: &mut dyn RelaunchParts,
+    ) -> Result<(), String> {
         self.relaunches.lock().unwrap().push(cause);
-        let down = while_down(self.context.path());
-        if !self.relaunch_keeps_pid.load(Ordering::SeqCst) {
-            self.pid.fetch_add(1, Ordering::SeqCst);
+        let refused_part = *self.refused_part.lock().unwrap();
+        let mut down = Ok(());
+        for part in [
+            RelaunchPart::Quit,
+            RelaunchPart::Down,
+            RelaunchPart::Launch,
+            RelaunchPart::Ready,
+            RelaunchPart::Ping,
+        ] {
+            parts.begin(part);
+            if part == RelaunchPart::Quit {
+                for inner in [RelaunchPart::QuitRequest, RelaunchPart::QuitExit] {
+                    parts.begin(inner);
+                    parts.end(inner, None);
+                }
+            }
+            match part {
+                RelaunchPart::Down => down = while_down(self.context.path()),
+                RelaunchPart::Launch if !self.relaunch_keeps_pid.load(Ordering::SeqCst) => {
+                    self.pid.fetch_add(1, Ordering::SeqCst);
+                }
+                _ => {}
+            }
+            let refuse = |code: &'static str, message: &str| {
+                <crate::reply::AgentRefusal as crate::reply::AgentRefusalExt>::refused(code, message.to_owned())
+            };
+            if refused_part == Some(part) {
+                let refusal = refuse(crate::lane::readiness::NOT_READY_CODE, "the IDE did not get ready");
+                parts.end(part, Some(&refusal));
+                return Err(format!("{}: {}", refusal.code, refusal.message));
+            }
+            let down_failure = match (part, &down) {
+                (RelaunchPart::Down, Err(error)) => Some(refuse(crate::lane::ide::CODE, error)),
+                _ => None,
+            };
+            parts.end(part, down_failure.as_ref());
         }
         down
     }
@@ -410,6 +455,20 @@ struct Ran {
 impl Ran {
     fn events(&self, event: &str) -> Vec<&Value> {
         self.records.iter().filter(|record| record["event"] == event).collect()
+    }
+
+    /// The step and the subject of each `timing` record, in stream order. Each record also states its time.
+    fn timings(&self) -> Vec<(String, String)> {
+        self.events("timing")
+            .iter()
+            .map(|record| {
+                assert!(record["durationMs"].is_i64() && record["timestamp"].is_string(), "{record}");
+                (
+                    record["step"].as_str().unwrap().to_owned(),
+                    record["subject"].as_str().unwrap_or_default().to_owned(),
+                )
+            })
+            .collect()
     }
 }
 
@@ -688,6 +747,12 @@ fn a_green_scenario_runs_between_two_resets_and_writes_the_golden_transcript() {
         "com.intellij.air.integration.flow.generated.ui.AirRenameSessionGeneratedFlowUiTest"
     );
     assert_eq!(finished[0]["methodName"], "generatedFlowScenarios");
+    let scenario = |step: &str| (step.to_owned(), "rename-closed-project-session".to_owned());
+    assert_eq!(
+        ran.timings(),
+        [scenario("services-reset"), scenario("services-reset"), scenario("recorder-close")],
+        "the reset of the lane services on each side, then the close of the bundle"
+    );
     expect_file![avl_testkit::crate_path!("testdata/lane-daemon/transcript.ndjson")].assert_eq(&without_clock(&ran.trace));
 }
 
@@ -806,6 +871,56 @@ fn a_failed_story_instruction_files_the_session_logs_that_the_ide_queued() {
     assert_eq!(attached, [("events.jsonl of acp:s-1".to_owned(), "txt".to_owned())]);
 }
 
+/// The `relaunch` spans of the trace under the `restart` span of `key`: each key, and the status and the error type of
+/// its end.
+fn relaunch_parts(trace: &[String], key: &str) -> Vec<(String, String, Option<String>)> {
+    let lines: Vec<Value> = trace.iter().map(|line| serde_json::from_str::<Value>(line).unwrap()).collect();
+    let restart = lines
+        .iter()
+        .find(|line| line["op"] == "span" && line["key"] == key)
+        .unwrap_or_else(|| panic!("no span {key}: {trace:?}"));
+    lines
+        .iter()
+        .filter(|line| line["op"] == "span" && line["parent"] == restart["id"])
+        .map(|span| {
+            let end = lines.iter().find(|line| line["op"] == "end" && line["id"] == span["id"]).unwrap();
+            (
+                span["key"].as_str().unwrap().to_owned(),
+                end["status"].as_str().unwrap().to_owned(),
+                end["error"]["type"].as_str().map(str::to_owned),
+            )
+        })
+        .collect()
+}
+
+// A recycle whose IDE does not get ready ends its readiness part with the code of the refusal, and runs no part after it.
+#[test]
+fn a_recycle_that_does_not_get_ready_fails_its_ready_part_with_the_refusal_code() {
+    let fake = Fake::new(Script {
+        resets: VecDeque::from([json!("2 editor tabs remain open")]),
+        ..Script::default()
+    });
+    *fake.refused_part.lock().unwrap() = Some(RelaunchPart::Ready);
+    let vocabulary = json!({"runnerAnswers": [], "actions": {"rename-session-select": ide(&[], &[], &[])}, "assertions": {}});
+    let instructions = json!([{"action": "rename-session-select"}]);
+    let ran = run(&fake, &[story(&vocabulary, &json!([scenario("renames", &instructions)]))], None);
+    assert_eq!(ran.events("testFinished")[0]["status"], "FAILED");
+    let passed = |key: &str| (key.to_owned(), "passed".to_owned(), None);
+    assert_eq!(
+        relaunch_parts(&ran.trace, "restart:recycle"),
+        [
+            passed("relaunch:quit"),
+            passed("relaunch:down"),
+            passed("relaunch:launch"),
+            (
+                "relaunch:ready".to_owned(),
+                "failed".to_owned(),
+                Some(crate::lane::readiness::NOT_READY_CODE.to_owned())
+            ),
+        ]
+    );
+}
+
 // A reset that does not hold recycles the IDE once, and the scenario runs and passes on the new pid.
 #[test]
 fn a_dirty_reset_recycles_once_and_the_scenario_passes_on_a_new_pid() {
@@ -920,6 +1035,37 @@ fn a_restart_performs_while_down_and_states_the_fixture_again() {
     assert_eq!(
         fake.bodies("assertion/rename-session-title")[0]["whileDownReads"],
         json!({"config/options/workspace.xml": "<before/><after/>"})
+    );
+    let spans: Vec<Value> = ran
+        .trace
+        .iter()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .filter(|line| line["op"] == "span")
+        .collect();
+    let under = |parent: &str| -> Vec<(&str, &str)> {
+        let parent = spans.iter().find(|span| span["key"] == parent).unwrap();
+        spans
+            .iter()
+            .filter(|span| span["parent"] == parent["id"])
+            .map(|span| (span["key"].as_str().unwrap(), span["title"].as_str().unwrap()))
+            .collect()
+    };
+    assert_eq!(
+        under("restart:ide"),
+        [
+            ("relaunch:quit", "[relaunch] quit"),
+            ("relaunch:down", "[relaunch] while down"),
+            ("relaunch:launch", "[relaunch] launch"),
+            ("relaunch:ready", "[relaunch] ready"),
+            ("relaunch:ping", "[relaunch] robot and ping"),
+        ]
+    );
+    assert_eq!(
+        under("relaunch:quit"),
+        [
+            ("relaunch:quit/request", "[relaunch] quit request"),
+            ("relaunch:quit/exit", "[relaunch] process exit")
+        ]
     );
 }
 
@@ -1404,6 +1550,19 @@ fn a_bare_suite_runs_last_on_its_own_ide_and_its_one_request_is_its_instruction(
     assert!(bare_trace[0].starts_with(r#"{"op":"scenario""#), "{bare_trace:?}");
     // The slice of a bare IDE starts at the first byte of its fresh log, so it holds the start-up records.
     assert!(bare_trace[0].ends_with(r#","logFrom":0}"#), "{bare_trace:?}");
+    let timed = |step: &str, subject: &str| (step.to_owned(), subject.to_owned());
+    let bare = "Air loads no more classes than its budget while a project opens";
+    assert_eq!(
+        ran.timings(),
+        [
+            timed("services-reset", "renames"),
+            timed("services-reset", "renames"),
+            timed("recorder-close", "renames"),
+            timed("bare-launch", "startup-class-loading"),
+            timed("bare-program", bare),
+            timed("recorder-close", bare),
+        ]
+    );
     let shared = ran
         .trace
         .iter()
@@ -1745,9 +1904,119 @@ fn a_suite_installs_its_managed_agents_once_after_the_baseline() {
     });
     let ran = run(&fake, &[installing_suite(Some(&install))], None);
     assert_eq!(ran.events("testFinished")[0]["status"], "SUCCESSFUL");
-    let order: Vec<String> = fake.requests().into_iter().map(|(_, kind)| kind).take(3).collect();
-    assert_eq!(order, ["ResetManagedAgents", "InstallManagedAgents", "Reset"]);
+    let order: Vec<String> = fake.requests().into_iter().map(|(_, kind)| kind).collect();
+    assert_eq!(
+        order,
+        [
+            "ResetManagedAgents",
+            "InstallManagedAgents",
+            "Reset",
+            "StepSequence",
+            "action/rename-session-select",
+            "Reset"
+        ],
+        "a green scenario sends no baseline in its reset after"
+    );
     assert_eq!(fake.bodies(INSTALL), [install]);
+}
+
+/// The install request of Codex, as the generator writes it.
+fn codex_install() -> Value {
+    json!({"type": INSTALL, "agents": [{"displayName": "Codex", "fullAgentId": "acp.registry.codex-acp"}], "timeoutMs": 300_000})
+}
+
+/// The failure of the one action of [`installing_suite`].
+fn failed_select() -> (String, Value) {
+    (
+        "action/rename-session-select".to_owned(),
+        json!({"type": "java.lang.AssertionError", "message": "the registry agent is not launchable", "stack": []}),
+    )
+}
+
+// A failed scenario can stop before it puts back an agent that it removed. So its reset after sends the managed-agent
+// baseline again, after the reset in the IDE: the reset of the managed agents, then the install of the suite.
+#[test]
+fn a_failed_scenario_restores_the_managed_agent_baseline_in_its_reset_after() {
+    let install = codex_install();
+    let fake = Fake::new(Script {
+        answers: BTreeMap::from([(INSTALL.to_owned(), Value::Null)]),
+        failures: BTreeMap::from([failed_select()]),
+        ..Script::default()
+    });
+    let ran = run(&fake, &[installing_suite(Some(&install))], None);
+    let finished = ran.events("testFinished");
+    assert_eq!(
+        (finished[0]["status"].as_str(), finished[0]["message"].as_str()),
+        (Some("FAILED"), Some("the registry agent is not launchable")),
+        "a baseline that holds adds nothing to the failure of the scenario"
+    );
+    let order: Vec<String> = fake
+        .requests()
+        .into_iter()
+        .map(|(_, kind)| kind)
+        .filter(|kind| !kind.starts_with("GET "))
+        .collect();
+    assert_eq!(
+        order,
+        [
+            "ResetManagedAgents",
+            "InstallManagedAgents",
+            "Reset",
+            "StepSequence",
+            "action/rename-session-select",
+            "Reset",
+            "ResetManagedAgents",
+            "InstallManagedAgents"
+        ]
+    );
+    assert_eq!(fake.bodies(INSTALL), [install.clone(), install]);
+    let baselines = fake.bodies(&format!("{BRIDGE}ResetManagedAgents"));
+    assert_eq!(baselines[0], baselines[1], "both baselines reset the same registry agents");
+    assert!(fake.relaunches.lock().unwrap().is_empty());
+}
+
+// A baseline that does not hold after a failed scenario is a reset that does not hold. The isolation recycles the IDE,
+// and the reset and the baseline run again on the new pid. The recycle names the scenario that broke the state.
+#[test]
+fn a_failed_baseline_after_a_failed_scenario_recycles_the_ide_through_the_isolation() {
+    let install = codex_install();
+    let fake = Fake::new(Script {
+        answers: BTreeMap::from([(INSTALL.to_owned(), Value::Null)]),
+        failures: BTreeMap::from([failed_select()]),
+        managed_agent_resets: VecDeque::from([Value::Null, json!("a pending install did not stop")]),
+        ..Script::default()
+    });
+    let ran = run(&fake, &[installing_suite(Some(&install))], None);
+    assert_eq!(*fake.relaunches.lock().unwrap(), [Relaunch::Recycle]);
+    assert_eq!(ran.events("testFinished")[0]["status"], "FAILED");
+    let after: Vec<(u32, String)> = fake
+        .requests()
+        .into_iter()
+        .skip_while(|(_, kind)| kind != "action/rename-session-select")
+        .skip(1)
+        .filter(|(_, kind)| !kind.starts_with("GET "))
+        .collect();
+    let on = |pid: u32, kind: &str| (pid, kind.to_owned());
+    assert_eq!(
+        after,
+        [
+            on(1, "Reset"),
+            on(1, "ResetManagedAgents"),
+            on(2, "Reset"),
+            on(2, "ResetManagedAgents"),
+            on(2, "InstallManagedAgents")
+        ]
+    );
+    assert!(
+        ran.events("output")
+            .iter()
+            .any(|record| record["text"].as_str().unwrap().starts_with(
+                "The IDE was recycled 1 time(s): after 'renames': restoring the managed-agent baseline failed: Air \
+             managed-agent baseline failed: a pending install did not stop"
+            )),
+        "{:#?}",
+        ran.events("output")
+    );
 }
 
 // An install that answers a text fails the suite as one reset failure that names the text. A fixture that starts with

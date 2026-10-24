@@ -373,6 +373,7 @@ java/terminal/shared
 java/testFramework
 java/testFramework/backend
 java/testFramework/shared
+java/testFramework/tests
 java/typeMigration
 java/unscramble
 java/vcs
@@ -971,6 +972,7 @@ platform/platform-resources-en-file-templates
 platform/platform-resources-file-types
 platform/platform-tests
 platform/platform-tests/benchmarks
+platform/platform-tests/concurrency
 platform/platform-tests/durability
 platform/platform-tests/eel-helper
 platform/platform-util-io
@@ -1724,6 +1726,7 @@ plugins/maven/testFramework
 plugins/mcp-server
 plugins/mcp-server/mcpserver.frontend
 plugins/mcp-server/mcpserver.plugin
+plugins/mcp-server/mcpserver.skills
 plugins/mcp-server/mcpserver.stdio
 plugins/mcp-server/mcpserver.terminal
 plugins/mcp-server/mcpserver.terminal.frontend
@@ -1930,6 +1933,12 @@ python/python-markdown
 python/python-minimap
 python/python-packaging
 python/python-parser
+python/python-pixi/backend
+python/python-pixi/common
+python/python-pixi/frontend
+python/python-pixi/plugin
+python/python-pixi/test-env
+python/python-pixi/tests
 python/python-poetry/backend
 python/python-poetry/common
 python/python-poetry/frontend
@@ -1951,6 +1960,7 @@ python/python-pytools/backend
 python/python-pytools/common
 python/python-pytools/frontend
 python/python-pytools/tests
+python/python-refactoring
 python/python-requirements/backend
 python/python-requirements/common
 python/python-requirements/tests

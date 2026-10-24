@@ -3,6 +3,7 @@ package com.intellij.java.codeInsight.documentation.render;
 
 import com.intellij.codeInsight.documentation.render.DocRenderItem;
 import com.intellij.codeInsight.documentation.render.DocRenderItemManager;
+import com.intellij.codeInsight.documentation.render.DocRenderItemUpdaterListeners;
 import com.intellij.codeInsight.documentation.render.DocRenderPassFactory;
 import com.intellij.codeInsight.folding.CodeFoldingSettings;
 import com.intellij.ide.highlighter.JavaFileType;
@@ -137,6 +138,22 @@ public class JavaDocRenderTest {
       toggleItem();
       verifyFoldingState(10, 26);
       verifyItem(12, 26, "another");
+    });
+  }
+
+  @Test
+  public void testDisposingOtherListenersKeepsRenderedItem() {
+    myFixture.runTest(() -> {
+      configure("""
+                  class C {
+                    /** doc */
+                    int a;
+                  }
+                  """, true);
+      Object otherOwner = new Object();
+      DocRenderItemUpdaterListeners.INSTANCE.setupListeners(myFixture.getEditor(), otherOwner);
+      DocRenderItemUpdaterListeners.INSTANCE.disposeListeners(myFixture.getEditor(), otherOwner);
+      verifyItem(12, 22, "doc");
     });
   }
 
@@ -331,14 +348,23 @@ public class JavaDocRenderTest {
                     int a;
                   }""", true);
       EditorTestUtil.setEditorVisibleSize(myFixture.getEditor(), 100, 1);
-      // a headless EditorImpl reports a hidden cursor until the first mouse event, and the icon update skips a hidden cursor
-      new EditorMouseFixture((EditorImpl)myFixture.getEditor()).moveToXY(0, 0);
-      PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue();
-      try (MockedStatic<MouseInfo> mouseInfo = Mockito.mockStatic(MouseInfo.class)) {
-        mouseInfo.when(MouseInfo::getPointerInfo).thenThrow(new ArrayIndexOutOfBoundsException("Index 1 out of bounds for length 1"));
-        EditorTestUtil.setEditorVisibleSize(myFixture.getEditor(), 100, 2);
+      EditorSettingsExternalizable editorSettings = EditorSettingsExternalizable.getInstance();
+      boolean storedQuickDocOnMouseHover = editorSettings.isShowQuickDocOnMouseOverElement();
+      // the mouse move below would schedule a hover documentation popup, which can outlive the test and its PSI
+      editorSettings.setShowQuickDocOnMouseOverElement(false);
+      try {
+        // a headless EditorImpl reports a hidden cursor until the first mouse event, and the icon update skips a hidden cursor
+        new EditorMouseFixture((EditorImpl)myFixture.getEditor()).moveToXY(0, 0);
         PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue();
-        mouseInfo.verify(MouseInfo::getPointerInfo, Mockito.atLeastOnce());
+        try (MockedStatic<MouseInfo> mouseInfo = Mockito.mockStatic(MouseInfo.class)) {
+          mouseInfo.when(MouseInfo::getPointerInfo).thenThrow(new ArrayIndexOutOfBoundsException("Index 1 out of bounds for length 1"));
+          EditorTestUtil.setEditorVisibleSize(myFixture.getEditor(), 100, 2);
+          PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue();
+          mouseInfo.verify(MouseInfo::getPointerInfo, Mockito.atLeastOnce());
+        }
+      }
+      finally {
+        editorSettings.setShowQuickDocOnMouseOverElement(storedQuickDocOnMouseHover);
       }
     });
   }

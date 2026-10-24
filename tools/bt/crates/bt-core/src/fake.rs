@@ -187,6 +187,11 @@ impl Runtime for FakeRuntime {
         self.state().files.get(&path).cloned().ok_or_else(|| not_found(&path))
     }
 
+    fn write_text_file(&self, path: &Path, text: &str) -> io::Result<()> {
+        self.state().files.insert(key(path), text.to_owned());
+        Ok(())
+    }
+
     fn read_lines(&self, path: &Path) -> Box<dyn Iterator<Item = String> + '_> {
         let text = self.state().files.get(&key(path)).cloned().unwrap_or_default();
         Box::new(text.split('\n').map(str::to_owned).collect::<Vec<_>>().into_iter())
@@ -264,6 +269,25 @@ impl Runtime for FakeRuntime {
 
     fn remove(&self, path: &Path) -> io::Result<()> {
         self.state().removed.push(key(path));
+        Ok(())
+    }
+
+    /// Copies the text of a held file. Directories need no creation, because the fake holds files only.
+    fn copy_file(&self, from: &Path, to: &Path) -> io::Result<()> {
+        let from = key(from);
+        let mut state = self.state();
+        let text = state.files.get(&from).cloned().ok_or_else(|| not_found(&from))?;
+        state.files.insert(key(to), text);
+        Ok(())
+    }
+
+    /// Drops every held file under the directory, and records the directory as removed.
+    fn remove_dir_all(&self, path: &Path) -> io::Result<()> {
+        let path = key(path);
+        let prefix = format!("{path}/");
+        let mut state = self.state();
+        state.files.retain(|held, _| !held.starts_with(&prefix));
+        state.removed.push(path);
         Ok(())
     }
 

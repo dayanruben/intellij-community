@@ -14,7 +14,8 @@
 //!    arguments in camel case, the values it takes, and `timeoutMs`. The transport waits `timeoutMs`, a margin and the
 //!    grace of the bridge. A host id runs here, see [`super::host_ids`]. An authored program runs only the host ids of
 //!    [`AUTHORED_HOST_IDS`].
-//! 4. A failure snapshot on failure, then `reset:after`, then `done`.
+//! 4. A failure snapshot on failure, then `reset:after`, then `done`. The `reset:after` of a failed scenario also sends
+//!    the managed-agent baseline again when its suite has a `managedAgentInstall`, see [`Runner::managed_agent_baseline`].
 //!
 //! A suite of the launch profile `bare` runs after the suites of the shared IDE, on an IDE of its own, see
 //! [`Runner::bare_suite`]. Its scenarios run their programs with no reset and no preparation, and the IDE gets no request
@@ -36,7 +37,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use avl_bridge::{BridgeFailure, ErrorKind};
 use avl_trace::bridge::{ATTACHMENTS_ROUTE, AttachmentKind, attachment_route, decode_attachment_list};
 use avl_trace::protocol::{self, Label, ScenarioCommand, Side as TraceSide, SnapshotPhase, SpanKind};
-use avl_wire::daemon::TypedFailure;
+use avl_wire::daemon::{TimedStep, TypedFailure};
 use avl_wire::ide::SYSTEM_DIR;
 use avl_wire::program::lane::{Delivery, LIVE_LANE, LaneAgent, LaneDocument};
 use avl_wire::program::{
@@ -49,7 +50,7 @@ use serde_json::value::RawValue;
 use serde_json::{Map, Value, json};
 
 use super::host_ids::{self, HostId, HostSide, ServiceControl};
-use super::ide::Relaunch;
+use super::ide::{Relaunch, RelaunchPart, RelaunchParts};
 use super::readiness::{READY_TIMEOUT, request};
 use super::recycle::{Isolation, RecycleBudget, ResetPhase, never_ran};
 use super::session_logs::{self, StagedLog};
@@ -150,8 +151,13 @@ pub(crate) trait Lane: Probes {
     fn call(&self, request: &Value, within: Duration) -> Result<Value, avl_bridge::Error>;
 
     /// Quits the IDE, performs `while_down` on its context directory, launches it again on the same context, and waits
-    /// for readiness.
-    fn relaunch(&self, cause: Relaunch, while_down: &mut dyn FnMut(&Path) -> Result<(), String>) -> Result<(), String>;
+    /// for readiness. `parts` gets the begin and the end of each part.
+    fn relaunch(
+        &self,
+        cause: Relaunch,
+        while_down: &mut dyn FnMut(&Path) -> Result<(), String>,
+        parts: &mut dyn RelaunchParts,
+    ) -> Result<(), String>;
 
     fn services(&self) -> &dyn ServiceControl;
 
@@ -507,13 +513,13 @@ impl<'r, 's> Runner<'r, 's> {
             if self.watch.expired().is_some() {
                 return;
             }
-            self.scenario(program, profile, raw, reset);
+            self.scenario(program, profile, raw, &reset);
         }
     }
 
     /// The prologue of a suite: the document, the declared CLIs, the managed-agent baseline, and the Agent Spawner of the
     /// Cloud emulator. It answers what the reset of each scenario sends.
-    fn prologue<'p>(&self, suite: &'p SuiteProgram) -> Result<&'p SuiteReset, Failure> {
+    fn prologue<'p>(&self, suite: &'p SuiteProgram) -> Result<ScenarioReset<'p>, Failure> {
         document_fits(suite)?;
         if self.document.lane != LIVE_LANE {
             refuse_live_host_ids(suite)?;
@@ -610,31 +616,44 @@ impl<'r, 's> Runner<'r, 's> {
             })
             .collect::<Result<_, _>>()?;
         self.watch.step(&format!("{} managed-agent baseline", suite.suite), || {
-            self.lane
-                .services()
-                .registry_clear()
-                .map_err(|error| Failure::runner(kind::RESET, format!("resetting the registry distribution fault failed: {error}")))?;
-            let answer = self.lifecycle("ResetManagedAgents", json!({ "agentIds": self.managed_agent_ids() }), RESET_TIMEOUT)?;
-            if !answer.is_null() {
-                return Err(Failure::runner(
-                    kind::RESET,
-                    format!("Air managed-agent baseline failed: {}", text_of(&answer)),
-                ));
-            }
-            if let Some((name, request, timeout)) = &install {
-                let answer = self.call(name, request, *timeout + self.instruction_margin)?;
-                if !answer.is_null() {
-                    return Err(Failure::runner(
-                        kind::RESET,
-                        format!("Air managed-agent install failed: {}", text_of(&answer)),
-                    ));
-                }
-            }
+            self.managed_agent_baseline(install.as_ref())?;
             for action in &prologue {
                 self.live_host_id(*action).map_err(|message| Failure::runner(kind::HOST, message))?;
             }
-            Ok(reset)
+            Ok(ScenarioReset { reset, install })
         })
+    }
+
+    /// The managed-agent baseline: it clears the registry fault, puts the registry agents of the lane back to never
+    /// seen, and sends `install`, the `managedAgentInstall` of the suite. The prologue of a suite sends it, and the reset
+    /// after a failed scenario sends it again.
+    ///
+    /// The runner does not verify the installed state before a scenario. The only probe is `awaitLaunchableRegistryAgent`,
+    /// a private function of the authored journey code. No lifecycle request asks the IDE for that state. A scenario that
+    /// removes an agent and passes puts the agent back itself. A failed scenario can stop before it does that, so the
+    /// runner restores the baseline after each failed scenario.
+    fn managed_agent_baseline(&self, install: Option<&ManagedAgentInstall>) -> Result<(), Failure> {
+        self.lane
+            .services()
+            .registry_clear()
+            .map_err(|error| Failure::runner(kind::RESET, format!("resetting the registry distribution fault failed: {error}")))?;
+        let answer = self.lifecycle("ResetManagedAgents", json!({ "agentIds": self.managed_agent_ids() }), RESET_TIMEOUT)?;
+        if !answer.is_null() {
+            return Err(Failure::runner(
+                kind::RESET,
+                format!("Air managed-agent baseline failed: {}", text_of(&answer)),
+            ));
+        }
+        if let Some((name, request, timeout)) = install {
+            let answer = self.call(name, request, *timeout + self.instruction_margin)?;
+            if !answer.is_null() {
+                return Err(Failure::runner(
+                    kind::RESET,
+                    format!("Air managed-agent install failed: {}", text_of(&answer)),
+                ));
+            }
+        }
+        Ok(())
     }
 
     /// Runs the live host id `action`: the refresh of the Central wiring, or the hand-over of the Junie sessions that
@@ -678,7 +697,7 @@ impl<'r, 's> Runner<'r, 's> {
         ids
     }
 
-    fn scenario(&self, suite: &SuiteProgram, profile: &ScenarioProgram, raw: &RawValue, reset: &SuiteReset) {
+    fn scenario(&self, suite: &SuiteProgram, profile: &ScenarioProgram, raw: &RawValue, reset: &ScenarioReset<'_>) {
         let case = case_identity(suite, profile);
         if self.isolation.borrow().exhausted() {
             let reason = self.isolation.borrow().exhaustion_reason();
@@ -697,14 +716,16 @@ impl<'r, 's> Runner<'r, 's> {
         let fixture = suite.fixtures.get(&profile.fixture).cloned().unwrap_or_default();
 
         let mut verdict = self
-            .traced_reset(ResetPhase::Before, &profile.name, reset)
+            .traced_reset(ResetPhase::Before, &profile.name, reset.reset, None)
             .and_then(|()| self.body(suite, profile, &fixture));
         if verdict.is_err() {
             self.trace().snap_failure();
             self.attach_codex_daemons();
         }
         if !self.isolation.borrow().exhausted() && self.watch.expired().is_none() {
-            let cleanup = self.traced_reset(ResetPhase::After, &profile.name, reset);
+            // A failed scenario can leave a registry agent removed or half installed, so its reset restores the baseline.
+            let baseline = reset.install.as_ref().filter(|_| verdict.is_err());
+            let cleanup = self.traced_reset(ResetPhase::After, &profile.name, reset.reset, baseline);
             verdict = match (verdict, cleanup) {
                 (Err(mut primary), Err(cleanup)) => {
                     primary.suppressed.push(cleanup.message);
@@ -726,7 +747,12 @@ impl<'r, 's> Runner<'r, 's> {
             aborted: failure.aborted || expired,
             ..failure
         });
+        let recorded = self.trace().recording();
+        let closing = Instant::now();
         self.trace().finish_scenario(failure.as_ref().map(Failure::trace).as_ref());
+        if recorded {
+            self.stream.timing(TimedStep::RecorderClose, closing, Some(&case.name));
+        }
         self.report_trace_failure();
         let status = match &failure {
             None => CaseStatus::Successful,
@@ -752,9 +778,11 @@ impl<'r, 's> Runner<'r, 's> {
         }
         self.bare.set(true);
         self.watch.quiet(|| {
+            let started = Instant::now();
             let launched = self
                 .watch
                 .step(&format!("{} bare launch", program.suite), || self.lane.launch_bare(&launch.key));
+            self.stream.timing(TimedStep::BareLaunch, started, Some(&program.suite));
             if let Err(error) = launched {
                 let failure = Failure::runner(
                     kind::LAUNCH,
@@ -792,6 +820,7 @@ impl<'r, 's> Runner<'r, 's> {
         self.stream.started(&case);
         self.watch.execution_started(self.stream, case.execution());
         let verdict = self.body(suite, profile, &SuiteFixture::default());
+        self.stream.timing(TimedStep::BareProgram, started, Some(&profile.name));
         // A bare IDE runs on a fresh context, so its log holds its launch alone. The slice starts at its first byte and
         // holds what the IDE wrote during the program, the start-up included.
         let mut command = scenario_command(suite, profile, raw, self.lane.recorder_bridge());
@@ -818,7 +847,13 @@ impl<'r, 's> Runner<'r, 's> {
         self.watch.budget_left().map(|left| RecycleBudget { left, need: RECYCLE_NEED })
     }
 
-    fn traced_reset(&self, phase: ResetPhase, scenario: &str, reset: &SuiteReset) -> Result<(), Failure> {
+    fn traced_reset(
+        &self,
+        phase: ResetPhase,
+        scenario: &str,
+        reset: &SuiteReset,
+        baseline: Option<&ManagedAgentInstall>,
+    ) -> Result<(), Failure> {
         let side = phase.as_str();
         let span = self
             .trace()
@@ -828,7 +863,7 @@ impl<'r, 's> Runner<'r, 's> {
                 phase,
                 scenario,
                 self.recycle_budget(),
-                &mut || self.reset(phase, scenario, reset),
+                &mut || self.reset(phase, scenario, reset, baseline),
                 &mut || self.relaunch_span(Relaunch::Recycle, &mut |_| Ok(())),
             )
         });
@@ -841,8 +876,10 @@ impl<'r, 's> Runner<'r, 's> {
         failure.map_or(Ok(()), Err)
     }
 
-    /// The reset of one side: in the IDE, then the three lane services. Every failed step is named in one message.
-    fn reset(&self, phase: ResetPhase, scenario: &str, reset: &SuiteReset) -> Result<(), String> {
+    /// The reset of one side: in the IDE, then the three lane services. Every failed step is named in one message. With
+    /// `baseline`, a reset that holds then sends the managed-agent baseline with that install. A baseline that fails is a
+    /// reset that does not hold, so the isolation recycles the IDE and sends the reset and the baseline again.
+    fn reset(&self, phase: ResetPhase, scenario: &str, reset: &SuiteReset, baseline: Option<&ManagedAgentInstall>) -> Result<(), String> {
         let mut failures = Vec::new();
         let name = format!("Air state reset ({} '{scenario}')", phase.as_str());
         let fields = json!({
@@ -857,6 +894,7 @@ impl<'r, 's> Runner<'r, 's> {
             Err(failure) => failures.push(describe(&name, &failure.message)),
         }
         let services = self.lane.services();
+        let started = Instant::now();
         for (what, cleared) in [
             ("resetting the registry distribution fault", services.registry_clear()),
             ("clearing captured feedback", services.feedback_clear()),
@@ -866,11 +904,22 @@ impl<'r, 's> Runner<'r, 's> {
                 failures.push(describe(what, &error));
             }
         }
+        self.stream.timing(TimedStep::ServicesReset, started, Some(scenario));
+        if failures.is_empty()
+            && let Some(install) = baseline
+        {
+            let restored = self.watch.step(&format!("{scenario} managed-agent baseline"), || {
+                self.managed_agent_baseline(Some(install))
+            });
+            if let Err(failure) = restored {
+                failures.push(describe("restoring the managed-agent baseline", &failure.message));
+            }
+        }
         if failures.is_empty() { Ok(()) } else { Err(failures.join("\n")) }
     }
 
     /// A relaunch of the IDE as a `restart` span with the key `restart:ide` for `restart-ide` and `restart:recycle` for a
-    /// recycle, as the recorder keys them.
+    /// recycle, as the recorder keys them. Each part of the relaunch is a `relaunch` span inside it, see [`TracedParts`].
     fn relaunch_span(&self, cause: Relaunch, while_down: &mut dyn FnMut(&Path) -> Result<(), String>) -> Result<(), String> {
         let id = match cause {
             Relaunch::Restart => "ide",
@@ -878,8 +927,12 @@ impl<'r, 's> Runner<'r, 's> {
         };
         let span = self.trace().open_span(SpanKind::Restart, id, &format!("[restart] {id}"), None);
         self.trace().restart();
+        let mut parts = TracedParts {
+            trace: &self.trace,
+            open: Vec::new(),
+        };
         let outcome = self.watch.step(&format!("relaunch for {id}"), || {
-            self.watch.relaunching(|| self.lane.relaunch(cause, while_down))
+            self.watch.relaunching(|| self.lane.relaunch(cause, while_down, &mut parts))
         });
         let failure = outcome
             .as_ref()
@@ -1154,7 +1207,7 @@ impl<'r, 's> Runner<'r, 's> {
                             "the first reset of '{scenario}' fails on purpose, so the lane recycles the IDE"
                         ));
                     }
-                    self.reset(ResetPhase::Before, scenario, reset)
+                    self.reset(ResetPhase::Before, scenario, reset, None)
                 },
                 &mut || self.relaunch_span(Relaunch::Recycle, &mut |_| Ok(())),
             )
@@ -1541,6 +1594,28 @@ impl<'r, 's> Runner<'r, 's> {
     }
 }
 
+/// The parts of one relaunch as the `relaunch` spans of the trace, each under the innermost open span: the `restart`
+/// span, or the part it runs inside. A part that a refusal ended fails with the code of the refusal as its type.
+struct TracedParts<'t> {
+    trace: &'t RefCell<Trace>,
+    /// The spans of the parts that run now, the innermost last.
+    open: Vec<u32>,
+}
+
+impl RelaunchParts for TracedParts<'_> {
+    fn begin(&mut self, part: RelaunchPart) {
+        let title = format!("[relaunch] {}", part.title());
+        self.open
+            .push(self.trace.borrow_mut().open_span(SpanKind::Relaunch, part.as_str(), &title, None));
+    }
+
+    fn end(&mut self, _part: RelaunchPart, failure: Option<&crate::reply::AgentRefusal>) {
+        let Some(span) = self.open.pop() else { return };
+        let failure = failure.map(|refusal| Failure::runner(&refusal.code, refusal.message.clone()).trace());
+        self.trace.borrow_mut().end_span(span, failure.as_ref());
+    }
+}
+
 /// The host side of an instruction: the services of the lane, a restart that states the fixture again, and the proof of
 /// the recycle over the reset of the suite.
 struct RunnerHost<'a, 'r, 's> {
@@ -1593,9 +1668,19 @@ impl HostSide for RunnerHost<'_, '_, '_> {
     }
 }
 
-/// The `managedAgentInstall` of the suite `suite`: the simple name of its request type, the request, and its deadline in
-/// the IDE. A body that is no object with a `type` and a `timeoutMs` fails the prologue of the suite.
-fn install_request(suite: &str, install: &RawValue) -> Result<(String, Value, Duration), Failure> {
+/// The `managedAgentInstall` of a suite: the simple name of its request type, the request, and its deadline in the IDE.
+type ManagedAgentInstall = (String, Value, Duration);
+
+/// What the resets of the scenarios of a suite send: the reset section of the suite document, and the install that the
+/// reset after a failed scenario sends again with the managed-agent baseline.
+struct ScenarioReset<'p> {
+    reset: &'p SuiteReset,
+    install: Option<ManagedAgentInstall>,
+}
+
+/// The `managedAgentInstall` of the suite `suite`. A body that is no object with a `type` and a `timeoutMs` fails the
+/// prologue of the suite.
+fn install_request(suite: &str, install: &RawValue) -> Result<ManagedAgentInstall, Failure> {
     let refused = |problem: &str| Failure::runner(kind::DOCUMENT, format!("the managedAgentInstall of the suite '{suite}' {problem}"));
     let request: Value = serde_json::from_str(install.get()).map_err(|error| refused(&format!("is no JSON: {error}")))?;
     let name = request

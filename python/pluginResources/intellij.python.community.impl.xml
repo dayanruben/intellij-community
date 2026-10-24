@@ -116,8 +116,9 @@
     <module name="intellij.python.pydev"/>
     <module name="intellij.python.pyproject"/>
     <module name="intellij.python.pytools.backend"/>
-    <module name="intellij.python.pytools.common"/>
     <module name="intellij.python.pytools.backend.runtime"/>
+    <module name="intellij.python.pytools.common"/>
+    <module name="intellij.python.refactoring"/>
     <module name="intellij.python.requirements.backend"/>
     <module name="intellij.python.sdk.backend"/>
     <module name="intellij.python.sdk.common"/>
@@ -333,13 +334,11 @@
                  key="django.enable.pyi.stubs"/>
     <library.type implementation="com.jetbrains.python.library.PythonLibraryType"/>
     <renameHandler implementation="com.jetbrains.python.magicLiteral.PyMagicLiteralRenameHandler"/>
-    <nameSuggestionProvider implementation="com.jetbrains.python.refactoring.PyNameSuggestionProvider"/>
     <methodNavigationOffsetProvider implementation="com.jetbrains.python.codeInsight.PyMethodNavigationOffsetProvider"/>
     <copyPastePreProcessor implementation="com.jetbrains.python.editor.PythonCopyPasteProcessor"/>
 
     <lang.syntaxHighlighterFactory language="Python" implementationClass="com.jetbrains.python.highlighting.PySyntaxHighlighterFactory"/>
     <lang.findUsagesProvider language="Python" implementationClass="com.jetbrains.python.findUsages.PythonFindUsagesProvider"/>
-    <lang.namesValidator language="Python" implementationClass="com.jetbrains.python.refactoring.rename.PythonNamesValidator"/>
     <lang.surroundDescriptor language="Python"
                              implementationClass="com.jetbrains.python.refactoring.surround.PyStatementSurroundDescriptor"/>
     <lang.surroundDescriptor language="Python"
@@ -566,9 +565,6 @@
     <codeInsight.overrideMethod language="Python" implementationClass="com.jetbrains.python.codeInsight.override.PyOverrideMethodsHandler"/>
     <codeInsight.implementMethod language="Python"
                                  implementationClass="com.jetbrains.python.codeInsight.implement.PyImplementMethodsHandler"/>
-    <lang.refactoringSupport language="Python" implementationClass="com.jetbrains.python.refactoring.PyRefactoringProvider"/>
-    <lang.refactoringSupport.classMembersRefactoringSupport language="Python"
-                                                            implementationClass="com.jetbrains.python.refactoring.classes.PyMembersRefactoringSupport"/>
     <codeInsight.gotoSuper language="Python" implementationClass="com.jetbrains.python.codeInsight.PyGotoSuperHandler"/>
     <typeDeclarationProvider implementation="com.jetbrains.python.codeInsight.PyTypeDeclarationProvider"/>
     <lang.smartEnterProcessor language="Python"
@@ -610,22 +606,7 @@
                               order="last, before default"/>
     <findUsagesHandlerFactory implementation="com.jetbrains.python.magicLiteral.PyMagicLiteralFindUsagesHandlerFactory"/>
 
-    <renamePsiElementProcessor implementation="com.jetbrains.python.refactoring.rename.RenamePyVariableProcessor" order="last" id="pyvar"/>
-    <renamePsiElementProcessor implementation="com.jetbrains.python.refactoring.rename.RenamePyFunctionProcessor" order="before pyvar"/>
     <renamePsiElementProcessor implementation="com.jetbrains.python.magicLiteral.PyMagicLiteralRenameProcessor" order="before pyvar"/>
-    <renamePsiElementProcessor implementation="com.jetbrains.python.refactoring.rename.RenamePyFileProcessor" order="first"/>
-    <renamePsiElementProcessor implementation="com.jetbrains.python.refactoring.rename.RenameUnsupportedExpressionProcessor"/>
-    <renameHandler implementation="com.jetbrains.python.refactoring.rename.PyMemberInplaceRenameHandler"/>
-
-    <automaticRenamerFactory implementation="com.jetbrains.python.refactoring.rename.PyContainingFileRenamerFactory"/>
-    <automaticRenamerFactory implementation="com.jetbrains.python.refactoring.rename.PyInheritorRenameFactory"/>
-    <automaticRenamerFactory implementation="com.jetbrains.python.refactoring.rename.PyParametersRenameFactory"/>
-
-    <moveFileHandler implementation="com.jetbrains.python.refactoring.move.PyMoveFileHandler"/>
-    <refactoring.moveHandler implementation="com.jetbrains.python.refactoring.move.PyMoveSymbolDelegate"/>
-
-    <refactoring.changeSignatureUsageProcessor
-      implementation="com.jetbrains.python.refactoring.changeSignature.PyChangeSignatureUsageProcessor" id="Python"/>
 
     <analyzeStacktraceFilter implementation="com.jetbrains.python.run.PythonTracebackFilter"/>
 
@@ -775,9 +756,6 @@
 
     <codeInsight.lineMarkerProvider language="Python" implementationClass="com.jetbrains.python.pyi.PyiRelatedItemLineMarkerProvider"/>
 
-    <refactoring.invertBoolean language="Python"
-                               implementationClass="com.jetbrains.python.refactoring.invertBoolean.PyInvertBooleanDelegate"/>
-
     <!--folding-->
     <codeFoldingOptionsProvider instance="com.jetbrains.python.PythonFoldingOptionsProvider" id="Python"
                                 order="after Android,after C++,after General,after Go,after Handlebars,after JAVA,after JavaScript,after JPAQL,after JSON,after Kubernetes,after LinkerScript,after Markdown,after ObjectiveC,after PHP"/>
@@ -832,8 +810,6 @@
                         serviceImplementation="com.jetbrains.python.codeInsight.imports.CodeStylePyImportCollectorFactory"/>
     <applicationService serviceInterface="com.jetbrains.python.codeInsight.imports.ImportChooser" open="true"
                         serviceImplementation="com.jetbrains.python.codeInsight.imports.PyImportChooser"/>
-    <applicationService serviceInterface="com.jetbrains.python.refactoring.PyRefactoringUiService"
-                        serviceImplementation="com.jetbrains.python.refactoring.PyRefactoringUiServiceImpl"/>
     <applicationService serviceInterface="com.jetbrains.python.PythonDocumentationHighlightingService"
                         serviceImplementation="com.jetbrains.python.PythonDocumentationHighlightingServiceImpl"/>
 
@@ -850,9 +826,6 @@
 
     <!-- Pipenv -->
     <editorFactoryListener implementation="com.jetbrains.python.sdk.pipenv.PipEnvPipFileWatcher"/>
-
-    <suggestedRefactoringSupport language="Python"
-                                 implementationClass="com.jetbrains.python.refactoring.suggested.PySuggestedRefactoringSupport"/>
 
     <!-- Targets API -->
     <registryKey key="enable.conda.on.targets" defaultValue="false" description="Enables Conda configuration on targets."/>
@@ -1069,10 +1042,6 @@
 
     <extensionPoint qualifiedName="Pythonid.pythonSdkReadOnlyProvider"
                     interface="com.jetbrains.python.sdk.readOnly.PythonSdkReadOnlyProvider"
-                    dynamic="true"/>
-
-    <extensionPoint qualifiedName="Pythonid.customProcessHandlerProvider"
-                    interface="com.jetbrains.python.run.PyCustomProcessHandlerProvider"
                     dynamic="true"/>
 
     <extensionPoint qualifiedName="com.jetbrains.python.testing.pyTestLineMarkerContributorCustomizer"
@@ -1357,27 +1326,6 @@
     </group>
 
     <action overrides="true" id="XDebugger.CopyValue" class="com.jetbrains.python.debugger.actions.PyXCopyValueAction"/>
-
-    <action id="PyConvertModuleToPackage" class="com.jetbrains.python.refactoring.convertModulePackage.PyConvertModuleToPackageAction"
-    >
-      <add-to-group group-id="RefactoringMenu" anchor="last"/>
-    </action>
-
-    <action id="PyConvertPackageToModuleAction" class="com.jetbrains.python.refactoring.convertModulePackage.PyConvertPackageToModuleAction"
-    >
-      <add-to-group group-id="RefactoringMenu" anchor="last"/>
-    </action>
-
-    <action id="PyExtractFunction" class="com.jetbrains.python.refactoring.extractmethod.PyExtractFunctionAction"
-            use-shortcut-of="ExtractMethod">
-      <add-to-group group-id="IntroduceActionsGroup" anchor="after" relative-to-action="ExtractMethod"/>
-      <add-to-group group-id="Floating.CodeToolbar.Extract" anchor="first"/>
-    </action>
-
-    <action id="PyIntroduceAttribute" class="com.jetbrains.python.refactoring.introduce.field.PyIntroduceAttributeAction"
-            use-shortcut-of="IntroduceField">
-      <add-to-group group-id="IntroduceActionsGroup" anchor="after" relative-to-action="IntroduceField"/>
-    </action>
 
     <action id="StepIntoMyCode" class="com.jetbrains.python.debugger.PyStepIntoMyCodeAction"
             icon="AllIcons.Debugger.StepIntoMyCode">

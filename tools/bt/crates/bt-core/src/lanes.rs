@@ -14,6 +14,7 @@ use crate::areas::Areas;
 use crate::exit::fail_infra;
 use crate::runtime::{Platform, Runtime, repo_file};
 use crate::selector::Resolution;
+use crate::shard_plan::{PLANNED_SHARDS, SHARD_PLAN_ENV};
 
 /// One lane table, a flat object. Only `lanes` is required:
 ///
@@ -22,7 +23,8 @@ use crate::selector::Resolution;
 ///   UI-lane controller and its trace planner read instead of a table of their own.
 /// - `tags`: every Bazel tag a test target of the area may carry, each a [`TagSpec`]. It is the one description of
 ///   them. The area's own tests hold the BUILD files to it, and [`Lanes::parse`] refuses a table whose lanes and
-///   tags disagree. The categories with an exclusion reason, in table order, are what a broad run excludes. The CI
+///   tags disagree. The categories with an exclusion reason, in table order, are what a lane with all of them
+///   excludes. A multi-target run that the caller spelled out excludes them except the `fast-lane` ones. The CI
 ///   exclusion of the area should be the `ci` ones, so it stays correct when a lane is added. Adding a
 ///   `dedicated-suite` category before its build configuration exists would leave the suite running nowhere.
 /// - `integrationRoot`: the target pattern prefix of the integration tree. A multi-target run the caller spelled
@@ -145,6 +147,9 @@ pub enum BroadRunExclusion {
     Ci,
     /// A lane and a CI configuration of its own run the targets.
     DedicatedSuite,
+    /// Only the lanes that name the tag exclude the targets, for their cost. A multi-target run that the caller spelled
+    /// out and the CI configurations run them, so a directory selector still runs what the default loop leaves out.
+    FastLane,
 }
 
 /// A string or an array of strings, as a list.
@@ -384,6 +389,17 @@ impl Lanes {
             .map(|tag| &tag.name)
     }
 
+    /// The tags [`wildcard_guards`] excludes: the categories with an exclusion reason other than
+    /// [`BroadRunExclusion::FastLane`], in table order.
+    fn wildcard_excluded_tags(&self) -> impl Iterator<Item = &String> {
+        self.category_tags()
+            .filter(|tag| {
+                tag.excluded_from_broad_runs
+                    .is_some_and(|exclusion| exclusion != BroadRunExclusion::FastLane)
+            })
+            .map(|tag| &tag.name)
+    }
+
     /// The one `--test_tag_filters` value a broad local run carries.
     ///
     /// One value rather than one flag per axis: bazel's `--test_tag_filters` is last-wins, so a second occurrence
@@ -437,7 +453,8 @@ impl LaneSpec {
 /// Without it a pattern over an area builds every non-test target in the subtree and then launches real IDEs
 /// through IDE Starter, which also wants the network: one keystroke from the safe command.
 ///
-/// Every area adds the tags its broad runs exclude, joined into one `--test_tag_filters`. A pattern rooted inside
+/// Every area adds the tags its broad runs exclude, joined into one `--test_tag_filters`. A `fast-lane` category is not
+/// one of them: a directory run is how a caller runs the targets that the fast lane leaves out. A pattern rooted inside
 /// an area's integration tree is asking for exactly those tests, so that area keeps its tags. Either way
 /// `-- --test_tag_filters=…` still wins, because passthrough args land last. An empty list is guarded, which is the
 /// safe reading.
@@ -452,7 +469,7 @@ pub fn wildcard_guards(areas: &Areas, labels: &[String]) -> Vec<String> {
         if in_integration {
             continue;
         }
-        for tag in lanes.broad_run_excluded_tags() {
+        for tag in lanes.wildcard_excluded_tags() {
             if !tags.contains(&tag) {
                 tags.push(tag);
             }
@@ -504,6 +521,10 @@ pub struct RunPlan {
     pub no_cache: bool,
     pub test_env: Vec<String>,
     pub passthrough: Vec<String>,
+    /// The shard plan file of a planned run; see [`uses_shard_plan`].
+    pub shard_plan: Option<String>,
+    /// Where bazel writes its profile, for a multi-target run.
+    pub profile: Option<String>,
 }
 
 /// The shard count for a run.
@@ -512,15 +533,22 @@ pub struct RunPlan {
 /// before it runs anything, so shards are only worth buying where they are the sole source of parallelism.
 ///
 /// A run covering many targets already saturates the machine across targets, and there the fixed cost dominates:
-/// measured on `--lane fast` (63 targets, 6221 tests, warm server, nothing to compile), forced=6 spends 3m24s
-/// against 1m55s for forced=2. Below 2 it regresses again, because the lane becomes bound by its heaviest target.
+/// measured on `--lane fast` (63 targets, 6221 tests, warm server, nothing to compile), forced=6 by test spends 3m24s
+/// against 1m55s for forced=2. One count for all targets is still wrong for most of them, so such a run forces
+/// [`PLANNED_SHARDS`] and the shard plan gives each target its own count; see [`crate::shard_plan`].
 pub fn default_shards(resolution: &Resolution, lane: Option<&LaneSpec>) -> u32 {
     // A lane that names its own count owns the decision: for IDE-launching lanes the cost and isolation unit is
     // the IDE, not JVM bootstrap, and the flow lanes rely on one shared instance.
     if let Some(shards) = lane.and_then(|lane| lane.shards) {
         return shards;
     }
-    if resolution.multi_target { 2 } else { 6 }
+    if uses_shard_plan(resolution, lane) { PLANNED_SHARDS } else { 6 }
+}
+
+/// Whether a run without an explicit shard count takes the shard plan: a run over many targets, unless its lane names
+/// its own count.
+pub fn uses_shard_plan(resolution: &Resolution, lane: Option<&LaneSpec>) -> bool {
+    resolution.multi_target && lane.and_then(|lane| lane.shards).is_none()
 }
 
 pub const BEP_FLAG: &str = "--build_event_json_file";
@@ -593,6 +621,12 @@ pub fn build_bazel_args(plan: &RunPlan) -> Vec<String> {
         .collect();
     if !junit_filters.is_empty() {
         args.push(format!("--test_env=JB_TEST_JUNIT5_FILTERS={}", junit_filters.join(";")));
+    }
+    if let Some(shard_plan) = &plan.shard_plan {
+        args.push(format!("--test_env={SHARD_PLAN_ENV}={shard_plan}"));
+    }
+    if let Some(profile) = &plan.profile {
+        args.push(format!("--profile={profile}"));
     }
     if plan.no_cache {
         args.push("--cache_test_results=no".to_owned());

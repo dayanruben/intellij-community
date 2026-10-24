@@ -63,6 +63,10 @@ pub trait Runtime: Sync {
 
     fn read_text_file(&self, path: &Path) -> io::Result<String>;
 
+    /// Replaces a file in one step, so a concurrent reader sees the old text or the new, never a part. Creates the
+    /// directory of the file when it is missing.
+    fn write_text_file(&self, path: &Path, text: &str) -> io::Result<()>;
+
     /// Streams a file that may not exist and may end mid-line.
     ///
     /// No error: bazel never wrote the BEP file when it died during startup or option parsing, and a truncated
@@ -92,6 +96,12 @@ pub trait Runtime: Sync {
     fn temp_file(&self, prefix: &str) -> PathBuf;
 
     fn remove(&self, path: &Path) -> io::Result<()>;
+
+    /// Copies one file, and creates the directories of `to` first.
+    fn copy_file(&self, from: &Path, to: &Path) -> io::Result<()>;
+
+    /// Removes a directory with everything in it. A directory that is not there is no error.
+    fn remove_dir_all(&self, path: &Path) -> io::Result<()>;
 
     /// Wall-clock milliseconds. Only differences are used, so a fake can start anywhere.
     fn now_ms(&self) -> u64;

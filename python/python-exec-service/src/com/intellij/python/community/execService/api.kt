@@ -30,6 +30,7 @@ import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.jetbrains.python.PythonBinary
 import com.jetbrains.python.Result
 import com.jetbrains.python.errorProcessing.ExecError
+import com.jetbrains.python.errorProcessing.MessageError
 import com.jetbrains.python.errorProcessing.PyResult
 import com.jetbrains.python.venvReader.Directory
 import org.jetbrains.annotations.ApiStatus
@@ -361,7 +362,7 @@ data class TtySize(val rows: UShort, val cols: UShort)
 
 
 /**
- * When we uploaded a [Args.addLocalFile] to a remote machine, how should we report it to a process?
+ * When we uploaded a [Args.addPath] to a remote machine, how should we report it to a process?
  */
 fun interface FileReporter {
   /**
@@ -372,7 +373,7 @@ fun interface FileReporter {
 }
 
 /**
- * Local file provided to [Args.addLocalFile] will magically be available on a remote side.
+ * Local file provided to [Args.addPath] will magically be available on a remote side.
  * How would you like to pass it to a binary?
  */
 sealed interface HowToReportFile {
@@ -414,8 +415,8 @@ interface DirScope {
 /**
  * ```kotlin
  *   val args = Args()
- *   args.addLocalFile(helper)
- *   args.addTextArgs("-v")
+ *   args.addPath(helper)
+ *   args.addArgs("-v")
  * ```
  */
 class Args(vararg initialArgs: String) {
@@ -428,11 +429,12 @@ class Args(vararg initialArgs: String) {
   fun addArgs(args: List<String>): Args = addArgs(*args.toTypedArray())
 
   /**
-   * This file will be copied to remote machine, and its remote name will be added to the list of arguments or env.
+   * If [path] is on the eel that runs the process, the eel path (without the MRFS prefix) is reported.
+   * If this file is local and eel is remote, it will be copied to remote machine, and its remote name will be added to the list of arguments or env.
    * Use [fileReporter] to control it.
    */
-  fun addLocalFile(localFile: Path, fileReporter: FileReporter = FileReporter { Pair(it, HowToReportFile.AnArgument) }): Args {
-    _args.add(Arg.FileArg(localFile, fileReporter))
+  fun addPath(path: Path, fileReporter: FileReporter = FileReporter { Pair(it, HowToReportFile.AnArgument) }): Args {
+    _args.add(Arg.FileArg(path, fileReporter))
     return this
   }
 
@@ -480,7 +482,7 @@ class Args(vararg initialArgs: String) {
   }
 
   /**
-   * Arguments from [addLocalFile] and [addLocalDir].
+   * Arguments from [addPath] and [addLocalDir].
    */
   internal val localArgs: List<Arg.LocalArg>
     get() = _args.mapNotNull {
@@ -493,7 +495,7 @@ class Args(vararg initialArgs: String) {
   /**
    * An eel or a target implementation calls this function. It must supply an [Uploader].
    */
-  internal suspend fun getArgsAndEnv(uploader: Uploader): ArgsAndEnv = ArgsAndEnv.create(_args, uploader)
+  internal suspend fun getArgsAndEnv(uploader: Uploader): Result<ArgsAndEnv, MessageError> = ArgsAndEnv.create(_args, uploader)
 }
 
 

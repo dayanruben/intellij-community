@@ -39,10 +39,10 @@ fn started(id: &str, class: &str) -> RunEvent {
 fn the_recorded_stream_renders_its_golden() {
     let mut messages = Messages::default();
     let mut lines = Vec::new();
-    for (index, event) in run_stream().iter().enumerate() {
+    for event in &run_stream() {
         lines.extend(messages.record(WORKER, event));
         // The trace of the failed scenario arrives while the next record streams.
-        if index == 5 {
+        if matches!(&event.kind, RunEventKind::TestFinished(finished) if finished.execution.display_name == "attach-file") {
             lines.extend(messages.trace(
                 WORKER,
                 &trace("attach-file", "/runs/run-1/traces/it-boot1-1/001.zip", true),
@@ -194,5 +194,14 @@ fn a_warning_is_a_message_with_the_warning_status() {
     assert_eq!(
         warning("no viewer: 'x' [y] | z"),
         "##teamcity[message text='no viewer: |'x|' |[y|] || z' status='WARNING']"
+    );
+}
+
+/// A log message has the normal status, so TeamCity shows it as a plain line of the build log.
+#[test]
+fn a_log_message_has_the_normal_status() {
+    assert_eq!(
+        log_message("see https://example.test/a?b=c [1]"),
+        "##teamcity[message text='see https://example.test/a?b=c |[1|]']"
     );
 }

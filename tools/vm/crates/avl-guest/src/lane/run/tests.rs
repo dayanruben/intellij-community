@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use std::ffi::OsString;
 
@@ -7,6 +9,8 @@ use pretty_assertions::assert_eq;
 
 use super::*;
 use crate::cli::{Verb, parse};
+use crate::lane::build_log::tests::{finished, line, plan, started, summary as summary_of};
+use crate::lane::stream::CaseStatus;
 
 /// The arguments of `lane-run --lane ui --descriptor /r/d.json` and `extra`.
 fn args(extra: &[&str]) -> LaneRunArgs {
@@ -106,6 +110,83 @@ fn only_a_summary_without_failures_is_green() {
     assert!(!is_green(format!("{note}\n{}\n", summary(true)).as_bytes()));
     assert!(!is_green(format!("{note}\n").as_bytes()));
     assert!(!is_green(format!("{note}\nnot a record\n{}\n", summary(false)).as_bytes()));
+}
+
+/// The steps of an end, which each say that they ran. The end answers `green`, and the XML write fails on `refuse_xml`.
+struct FakeEnding {
+    ran: Vec<&'static str>,
+    green: bool,
+    refuse_xml: bool,
+}
+
+impl Ending for FakeEnding {
+    fn write_xml(&mut self) -> Result<(), AgentRefusal> {
+        self.ran.push("xml");
+        if self.refuse_xml {
+            return Err(AgentRefusal::failure(BOOT_CODE, "cannot write the JUnit XML"));
+        }
+        Ok(())
+    }
+
+    fn quit(&mut self) -> Result<(), AgentRefusal> {
+        self.ran.push("quit");
+        Ok(())
+    }
+
+    fn end(&mut self, quit: &Result<(), AgentRefusal>) -> Result<bool, AgentRefusal> {
+        self.ran.push("end");
+        Ok(self.green && quit.is_ok())
+    }
+
+    fn keep_evidence(&mut self) {
+        self.ran.push("evidence");
+    }
+}
+
+// After the summary of its iteration, lane-run runs its own steps in order and writes the `timing` record of each after
+// it: the XML, the quit, the end, and the evidence of a run that is not green. Each record has no subject, and a stream
+// with them is still green. A JUnit XML that cannot be written is the refusal of the run, after every step ran.
+#[test]
+fn the_steps_after_the_iteration_are_timing_records_after_the_summary() {
+    let steps = |green: bool, refuse_xml: bool| {
+        let mut stream = format!("{}\n", summary(false)).into_bytes();
+        let mut ending = FakeEnding {
+            ran: Vec::new(),
+            green,
+            refuse_xml,
+        };
+        let outcome = finish(&mut stream, &mut ending);
+        let text = String::from_utf8(stream.clone()).unwrap();
+        let timed: Vec<String> = text
+            .lines()
+            .skip(1)
+            .map(|line| match decode_run_event(line.as_bytes()).unwrap().kind {
+                RunEventKind::Timing(timing) if timing.subject.is_none() => timing.step,
+                other => panic!("{other:?}"),
+            })
+            .collect();
+        assert!(is_green(&stream), "{text}");
+        (outcome.map_err(|refusal| refusal.code.into_owned()), ending.ran, timed)
+    };
+    assert_eq!(
+        steps(true, false),
+        (
+            Ok(true),
+            vec!["xml", "quit", "end"],
+            vec!["lane-run-xml".to_owned(), "lane-run-quit".to_owned(), "lane-run-end".to_owned()]
+        )
+    );
+    let red = ["lane-run-xml", "lane-run-quit", "lane-run-end", "lane-run-evidence"]
+        .map(str::to_owned)
+        .to_vec();
+    assert_eq!(
+        steps(false, false),
+        (Ok(false), vec!["xml", "quit", "end", "evidence"], red.clone())
+    );
+    assert_eq!(
+        steps(false, true),
+        (Err(BOOT_CODE.to_owned()), vec!["xml", "quit", "end", "evidence"], red)
+    );
 }
 
 // The JUnit XML goes into the run directory, and to the file of a Bazel test: $JB_XML_OUTPUT_FILE before
@@ -296,6 +377,28 @@ fn only_a_teamcity_build_on_linux_with_a_display_lets_the_recorder_read_the_scre
     assert!(!build_owns_screen(&developer, true));
 }
 
+// AIR_LANE_VIDEO=failed keeps the video of a scenario that did not pass only. Unset or empty, every scenario keeps its
+// video, so a TeamCity build keeps every video until its config sets the variable. Another value is refused by name.
+#[test]
+fn air_lane_video_keeps_every_video_unless_it_says_failed() {
+    let retention = |value: Option<&str>| {
+        let pairs: Vec<(&str, &str)> = value.map(|value| (VIDEO_VARIABLE, value)).into_iter().collect();
+        video_retention(&environment(&pairs))
+    };
+    assert_eq!(retention(None).unwrap(), VideoRetention::Always);
+    assert_eq!(retention(Some(" ")).unwrap(), VideoRetention::Always);
+    assert_eq!(retention(Some("always")).unwrap(), VideoRetention::Always);
+    assert_eq!(retention(Some("failed")).unwrap(), VideoRetention::Failed);
+    assert_eq!(retention(Some(" failed\n")).unwrap(), VideoRetention::Failed);
+
+    let refusal = retention(Some("passed")).unwrap_err();
+    assert_eq!(refusal.code, VIDEO_CODE);
+    assert_eq!(
+        refusal.message,
+        r#"$AIR_LANE_VIDEO is "passed", and it takes only always or failed"#
+    );
+}
+
 // The lane IDE opens its windows on an X display, so a host without DISPLAY is refused by name before the probe.
 #[test]
 fn a_host_without_a_display_is_refused_by_name() {
@@ -401,4 +504,53 @@ fn the_outputs_directory_of_a_bazel_test_is_its_variable() {
     assert_eq!(outputs(Some("/testlogs/outputs")), Some(PathBuf::from("/testlogs/outputs")));
     assert_eq!(outputs(Some("")), None);
     assert_eq!(outputs(None), None);
+}
+
+/// A build log file that refuses each write, and counts the writes.
+struct Refusing(Arc<AtomicUsize>);
+
+impl Write for Refusing {
+    fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Err(io::Error::other("no space left on the device"))
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+// A failed write to the build log channel turns the channel off after one line of the log. The run file still gets each
+// record, so a green run stays green.
+#[test]
+fn a_failed_write_to_the_build_log_keeps_the_run_file_whole_and_green() {
+    let writes = Arc::new(AtomicUsize::new(0));
+    let channel = BuildLog::to(
+        Box::new(Refusing(writes.clone())),
+        PathBuf::from("/agent/temp/air-lane-live/live.log"),
+        "ui",
+        None,
+        PathBuf::new(),
+    );
+    let mut tee = Tee {
+        file: Vec::new(),
+        out: io::sink(),
+        build_log: Some(channel),
+    };
+    let records = [
+        line(&plan(2)),
+        line(&started("passes")),
+        line(&finished("passes", CaseStatus::Successful, 1000)),
+        line(&started("again")),
+        line(&finished("again", CaseStatus::Successful, 1000)),
+        line(&summary_of(2, 0)),
+    ];
+
+    for record in &records {
+        tee.write_all(record).unwrap();
+    }
+
+    assert_eq!(tee.file, records.concat());
+    assert!(is_green(&tee.file), "the run file gives the verdict of the run");
+    assert_eq!(writes.load(Ordering::SeqCst), 1, "the channel is off after its first failed write");
 }

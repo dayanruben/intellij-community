@@ -36,17 +36,15 @@ import com.intellij.openapi.editor.ex.FoldingModelEx;
 import com.intellij.openapi.editor.ex.RangeMarkerEx;
 import com.intellij.openapi.editor.ex.util.EditorUtil;
 import com.intellij.openapi.editor.impl.event.DocumentEventImpl;
-import com.intellij.openapi.editor.impl.marker.SnapshotRangeMarkerImpl;
 import com.intellij.openapi.editor.impl.softwrap.SoftWrapHelper;
 import com.intellij.openapi.editor.impl.view.EditorPainter;
+import com.intellij.openapi.editor.registry.EditorRegistry;
 import com.intellij.openapi.ide.CopyPasteManager;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.TextRangeScalarUtil;
 import com.intellij.openapi.util.UserDataHolderBase;
-import com.intellij.openapi.util.registry.Registry;
-import com.intellij.openapi.util.registry.RegistryValue;
 import com.intellij.util.DocumentUtil;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.StackTraceSnapshot;
@@ -66,7 +64,6 @@ import java.awt.Rectangle;
 @ApiStatus.Internal
 public final class CaretImpl extends UserDataHolderBase implements Caret, Dumpable {
   private static final Logger LOG = Logger.getInstance(CaretImpl.class);
-  private static final RegistryValue VIM_LIKE_CARET_SELECTION_ENABLED = Registry.get("editor.block.caret.selection.vim-like");
   /** Removing many carets disposes many of them, so the disposal trace keeps a bounded number of frames. */
   private static final int DISPOSAL_TRACE_FRAMES = 16;
 
@@ -537,7 +534,7 @@ public final class CaretImpl extends UserDataHolderBase implements Caret, Dumpab
     final EditorComponentImpl content = myEditor.getContentComponent();
     int editorUpdateWidth = myEditor.getScrollPane().getHorizontalScrollBar().getValue() + visibleArea.width;
     int gutterUpdateWidth = gutter.getWidth();
-    int additionalRepaintHeight = this == myCaretModel.getPrimaryCaret() && Registry.is("editor.adjust.right.margin")
+    int additionalRepaintHeight = this == myCaretModel.getPrimaryCaret() && EditorRegistry.current().isRightMarginAdjusted()
                                   && EditorPainter.isMarginShown(myEditor) ? 1 : 0;
     if ((oldY <= newY + newHeight) && (oldY + oldHeight >= newY)) { // repaint regions overlap
       int y = Math.min(oldY, newY);
@@ -1418,7 +1415,7 @@ public final class CaretImpl extends UserDataHolderBase implements Caret, Dumpab
         // lead so that block-caret mouse-drag selection (see EditorImpl#processMouseDragged) is unchanged.
         boolean useEndPosition = mySelectionEndPositionIsLead &&
                                  EditorUtil.isBlockLikeCaret(this) &&
-                                 VIM_LIKE_CARET_SELECTION_ENABLED.asBoolean();
+                                 EditorRegistry.current().isVimLikeBlockCaretSelection();
         return getSelectionVisualPosition(selectionMarker, !useEndPosition);
       }
       return getSelectionVisualPosition(selectionMarker, !mySelectionEndPositionIsLead);
@@ -1503,24 +1500,6 @@ public final class CaretImpl extends UserDataHolderBase implements Caret, Dumpab
     LOG.assertTrue(!DocumentUtil.isInsideSurrogatePair(myDocument, getOffset()));
     LOG.assertTrue(!DocumentUtil.isInsideSurrogatePair(myDocument, getSelectionStart()));
     LOG.assertTrue(!DocumentUtil.isInsideSurrogatePair(myDocument, getSelectionEnd()));
-  }
-
-  void beforeSnapshotMarkerChange() {
-    PositionMarker marker = myPositionMarker;
-    if (marker instanceof SnapshotPositionMarker snapshotMarker) {
-      snapshotMarker.beforeDocumentChange();
-    }
-  }
-
-  void snapshotMarkersChanged(@NotNull DocumentEvent event) {
-    PositionMarker positionMarker = myPositionMarker;
-    if (positionMarker instanceof SnapshotPositionMarker snapshotMarker) {
-      snapshotMarker.documentChanged(event);
-    }
-    SelectionMarker selectionMarker = mySelectionMarker;
-    if (selectionMarker instanceof SnapshotSelectionMarker snapshotMarker) {
-      snapshotMarker.documentChanged(event);
-    }
   }
 
   private @NotNull PositionMarker createPositionMarker(int offset) {
@@ -1739,28 +1718,15 @@ public final class CaretImpl extends UserDataHolderBase implements Caret, Dumpab
     }
   }
 
-  private final class SnapshotPositionMarker extends SnapshotRangeMarkerImpl implements PositionMarker {
-    private final SnapshotCaretMarkerStorage storage;
-    private int offsetBeforeChange;
-
+  private final class SnapshotPositionMarker extends SnapshotCaretMarker implements PositionMarker {
     private SnapshotPositionMarker(@NotNull SnapshotCaretMarkerStorage storage, int offset) {
-      super(myDocument, storage.getRootStore(), storage.nextMarkerId(), storage.positionSpec(),
-            TextRangeScalarUtil.toScalarRange(offset, offset), storage.positionPolicy());
-      this.storage = storage;
-      offsetBeforeChange = offset;
-      storage.add(this, offset, offset, storage.positionSpec());
+      super(storage, offset, offset, storage.positionSpec(), storage.positionPolicy());
     }
 
-    private void beforeDocumentChange() {
-      offsetBeforeChange = getStartOffset();
-    }
-
-    private void documentChanged(@NotNull DocumentEvent event) {
-      int oldOffset = offsetBeforeChange;
-      if (oldOffset < event.getOffset()) {
-        return;
-      }
-      int newOffset = getStartOffset();
+    @Override
+    public void documentChanged(@NotNull DocumentEvent event, int oldOffset) {
+      int offsetAfterChange = getStartOffset();
+      int newOffset = offsetAfterChange;
       boolean replacedPoint = event.getOffset() < oldOffset && oldOffset < event.getOffset() + event.getOldLength();
       if (replacedPoint && !event.getDocument().isInBulkUpdate() && event.isWholeTextReplaced()) {
         try {
@@ -1777,8 +1743,9 @@ public final class CaretImpl extends UserDataHolderBase implements Caret, Dumpab
         newOffset = event.getOffset() + event.getNewLength();
       }
       newOffset = DocumentUtil.alignToCodePointBoundary(event.getDocument(), newOffset);
-      if (newOffset != getStartOffset()) {
-        storage.relocate(this, newOffset, storage.positionSpec());
+      if (newOffset != offsetAfterChange) {
+        myPositionMarker = createPositionMarker(newOffset);
+        dispose();
       }
 
       myLogicalColumnAdjustment = 0;
@@ -1798,22 +1765,12 @@ public final class CaretImpl extends UserDataHolderBase implements Caret, Dumpab
     }
   }
 
-  final class SnapshotSelectionMarker extends SnapshotRangeMarkerImpl implements SelectionMarker {
+  final class SnapshotSelectionMarker extends SnapshotCaretMarker implements SelectionMarker {
     private int startVirtualOffset;
     private int endVirtualOffset;
 
     private SnapshotSelectionMarker(@NotNull SnapshotCaretMarkerStorage storage, int startOffset, int endOffset) {
-      this(storage, startOffset, endOffset, storage.nextMarkerId(), storage.selectionSpec());
-    }
-
-    private SnapshotSelectionMarker(@NotNull SnapshotCaretMarkerStorage storage,
-                                    int startOffset,
-                                    int endOffset,
-                                    long markerId,
-                                    byte spec) {
-      super(myDocument, storage.getRootStore(), markerId, spec, TextRangeScalarUtil.toScalarRange(startOffset, endOffset),
-            storage.selectionPolicy());
-      storage.add(this, startOffset, endOffset, spec);
+      super(storage, startOffset, endOffset, storage.selectionSpec(), storage.selectionPolicy());
     }
 
     @Override
@@ -1853,7 +1810,8 @@ public final class CaretImpl extends UserDataHolderBase implements Caret, Dumpab
       endVirtualOffset = endOffset;
     }
 
-    private void documentChanged(@NotNull DocumentEvent event) {
+    @Override
+    public void documentChanged(@NotNull DocumentEvent event, int oldOffset) {
       if (endVirtualOffset > 0 && isValid()) {
         Document document = event.getDocument();
         int startAfter = getStartOffset();

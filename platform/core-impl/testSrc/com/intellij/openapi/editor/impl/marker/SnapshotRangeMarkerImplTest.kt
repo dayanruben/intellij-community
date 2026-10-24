@@ -4,6 +4,7 @@ package com.intellij.openapi.editor.impl.marker
 import com.intellij.openapi.editor.impl.DocumentImpl
 import com.intellij.openapi.editor.impl.RangeMarkersImpl
 import com.intellij.openapi.util.TextRange
+import com.intellij.openapi.util.TextRangeScalarUtil
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertSame
@@ -15,14 +16,39 @@ import java.util.concurrent.TimeUnit
 
 internal class SnapshotRangeMarkerImplTest {
   @Test
+  fun `validity checks do not resolve offsets`() {
+    RangeMarkersImpl.usePMarkerImplementationIn<RuntimeException> {
+      val document = DocumentImpl("abcdefgh", true)
+      val marker = document.createRangeMarker(2, 4) as SnapshotRangeMarkerImpl
+      val point = document.createRangeMarker(3, 3)
+      val reference = marker.currentRootReference()
+      val original = reference.get()
+      val removed = original.remove(marker.id)
+      for (root in listOf(original, removed, original)) {
+        reference.set(object : PMarkerRoot by root {
+          override fun resolve(markerId: Long): Long = error("Validity checks must not resolve offsets")
+        })
+
+        assertEquals(root === original, marker.isValid)
+        assertTrue(point.isValid)
+      }
+
+      reference.set(original)
+      marker.dispose()
+      assertFalse(marker.isValid)
+      assertTrue(point.isValid)
+    }
+  }
+
+  @Test
   fun `root insertion does not resolve the marker reference for its policy`() {
     val reference = object : SnapshotMarkerReference {
-      override fun get(): SnapshotRangeMarkerImpl? = error("Insertion must not resolve the marker reference")
+      override fun get(): SnapshotRangeMarkerImpl = error("Insertion must not resolve the marker reference")
     }
     val spec = MarkerSpec.create(isGreedyToLeft = false, isGreedyToRight = false)
     val root = PMarkerRootImpl.empty().insert(1, 2, 4, spec, flavorFlags = 0, markerReference = reference)
 
-    assertEquals(PMarkerResolution.valid(2, 4), root.resolve(1))
+    assertEquals(PMarkerResolution.valid(TextRangeScalarUtil.toScalarRange(2, 4)), root.resolve(1))
   }
 
   @Test
@@ -55,7 +81,7 @@ internal class SnapshotRangeMarkerImplTest {
     RangeMarkersImpl.usePMarkerImplementationIn<RuntimeException> {
       val document = DocumentImpl("abcdefgh", true)
       val marker = document.createRangeMarker(2, 4) as SnapshotRangeMarkerImpl
-      assertEquals(PMarkerResolution.valid(2, 4), marker.initialRange)
+      assertEquals(PMarkerResolution.valid(TextRangeScalarUtil.toScalarRange(2, 4)), marker.fallbackRange)
       val reference = marker.currentRootReference()
       val spec = MarkerSpec.create(isGreedyToLeft = false, isGreedyToRight = false)
       val shifted = reference.get().remove(marker.id).insert(marker.id, 4, 6, spec, flavorFlags = 0)
@@ -77,8 +103,8 @@ internal class SnapshotRangeMarkerImplTest {
 
       marker.dispose()
       assertFalse(marker.isValid)
-      assertEquals(TextRange(2, 4), marker.textRange)
-      assertEquals(PMarkerResolution.invalid(2, 4), SnapshotMarkerEngineImpl.resolveRangeMarker(marker, reference.get()))
+      assertEquals(TextRange(4, 6), marker.textRange)
+      assertEquals(PMarkerResolution.invalid(TextRangeScalarUtil.toScalarRange(4, 6)), SnapshotMarkerEngineImpl.resolveRangeMarker(marker, reference.get()))
     }
   }
 

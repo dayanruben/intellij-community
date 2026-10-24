@@ -9,6 +9,7 @@ import com.intellij.openapi.editor.ex.RangeMarkerEx
 import com.intellij.openapi.editor.impl.DocumentImpl
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.TextRange
+import com.intellij.openapi.util.TextRangeScalarUtil
 import com.intellij.util.Processor
 import com.intellij.util.ref.GCUtil
 import it.unimi.dsi.fastutil.longs.LongArrayList
@@ -34,6 +35,7 @@ import java.util.function.LongConsumer
 import kotlin.concurrent.thread
 import kotlin.random.Random
 
+@Suppress("SameParameterValue")
 @UsePMarkerImplementation
 class SnapshotMarkerEngineImplTest {
   @Test
@@ -692,7 +694,7 @@ class SnapshotMarkerEngineImplTest {
     assertRange(marker, initialSnapshot, startOffset = 2, endOffset = 4)
     val storedMarker = marker as SnapshotRangeMarkerImpl
     val invalid = SnapshotMarkerEngineImpl.resolveRangeMarker(storedMarker, rootFor(storedMarker, child))
-    assertEquals(PMarkerResolution.invalid(2, 4), invalid)
+    assertEquals(PMarkerResolution.invalid(TextRangeScalarUtil.toScalarRange(2, 4)), invalid)
     assertTrue(SnapshotMarkerEngineImpl.removeRangeMarker(marker))
     assertDisposed(marker, child, startOffset = 2, endOffset = 4)
   }
@@ -710,15 +712,22 @@ class SnapshotMarkerEngineImplTest {
 
     assertEquals(1, countOverlappingMarkers(fixture.rootStore, fixture.initialSnapshot, startOffset = 0, endOffset = 6))
 
+    fixture.document.insertString(0, "XX")
+    val currentSnapshot = fixture.document.core.snapshot()
     marker.dispose()
 
-    val root = rootFor(marker, fixture.initialSnapshot)
+    val root = rootFor(marker, currentSnapshot)
     val resolution = SnapshotMarkerEngineImpl.resolveRangeMarker(marker, root)
     assertEquals("Marker is disposed", SnapshotMarkerEngineImpl.invalidationReason(marker, root))
-    assertEquals(PMarkerResolution.invalid(2, 4), resolution)
+    assertEquals(PMarkerResolution.invalid(TextRangeScalarUtil.toScalarRange(4, 6)), resolution)
     assertFalse(marker.isValid)
-    assertEquals(TextRange(2, 4), marker.textRange)
-    assertEquals(0, countOverlappingMarkers(fixture.rootStore, fixture.initialSnapshot, startOffset = 0, endOffset = 6))
+    assertEquals(TextRange(4, 6), marker.textRange)
+    assertEquals(0, countOverlappingMarkers(fixture.rootStore, currentSnapshot, startOffset = 0, endOffset = 8))
+    assertDisposed(marker, fixture.initialSnapshot, startOffset = 2, endOffset = 4)
+
+    fixture.document.insertString(0, "Y")
+    marker.dispose()
+    assertEquals(TextRange(4, 6), marker.textRange)
   }
 
   @Test
@@ -731,15 +740,18 @@ class SnapshotMarkerEngineImplTest {
       endOffset = 4,
       spec = nonGreedySpec()
     ) as SnapshotRangeMarkerImpl
+    fixture.document.insertString(0, "XX")
     assertTrue(fixture.document.removeRangeMarker(marker))
 
-    val root = rootFor(marker, fixture.initialSnapshot)
+    val currentSnapshot = fixture.document.core.snapshot()
+    val root = rootFor(marker, currentSnapshot)
     val resolution = SnapshotMarkerEngineImpl.resolveRangeMarker(marker, root)
     assertFalse(PMarkerResolution.isValid(resolution))
     assertEquals("Marker is disposed", SnapshotMarkerEngineImpl.invalidationReason(marker, root))
     assertFalse(marker.isValid)
-    assertEquals(0, countOverlappingMarkers(fixture.rootStore, fixture.initialSnapshot, startOffset = 0, endOffset = 6))
+    assertEquals(0, countOverlappingMarkers(fixture.rootStore, currentSnapshot, startOffset = 0, endOffset = 8))
     assertFalse(fixture.document.removeRangeMarker(marker))
+    assertEquals(TextRange(4, 6), marker.textRange)
   }
 
   @Test
@@ -1482,6 +1494,7 @@ class SnapshotMarkerEngineImplTest {
       endOffset = 4,
       spec = nonGreedySpec(),
     )
+    fixture.document.insertString(0, "XX")
     val start = CountDownLatch(1)
     val results = ConcurrentLinkedQueue<Boolean>()
     val threads = List(4) {
@@ -1496,6 +1509,7 @@ class SnapshotMarkerEngineImplTest {
 
     assertEquals(1, results.count { it })
     assertEquals(3, results.count { !it })
+    assertEquals(TextRange(4, 6), marker.textRange)
   }
 
   @Test
@@ -1600,7 +1614,7 @@ class SnapshotMarkerEngineImplTest {
     val root = rootFor(storedMarker, snapshot)
     val resolution = SnapshotMarkerEngineImpl.resolveRangeMarker(storedMarker, root)
     assertEquals("Marker is disposed", SnapshotMarkerEngineImpl.invalidationReason(storedMarker, root))
-    assertEquals(PMarkerResolution.invalid(startOffset, endOffset), resolution)
+    assertEquals(PMarkerResolution.invalid(TextRangeScalarUtil.toScalarRange(startOffset, endOffset)), resolution)
   }
 
   private fun rootFor(marker: SnapshotRangeMarkerImpl, snapshot: DocumentSnapshot): PMarkerRoot {
@@ -1784,8 +1798,8 @@ class SnapshotMarkerEngineImplTest {
 
     private val markerStores: SnapshotMarkerStores = document.snapshotMarkerStores
 
-    private var nextModSequence = initialSnapshot.modState().sequence() + 1
-    private var nextModStamp = initialSnapshot.modState().stamp() + 1
+    private var nextModSequence: Int = initialSnapshot.modState().sequence() + 1
+    private var nextModStamp: Long = initialSnapshot.modState().stamp() + 1
 
     fun applyOp(parent: DocumentSnapshot, op: DocumentOp): DocumentSnapshot = markerStores.applyPatch(parent, parent.applyOp(op), null)
 

@@ -5,6 +5,7 @@
 //! against the lane IDE, with its values, its host ids, the recycle of the IDE, the watchdog, the trace and the run
 //! stream.
 
+pub(crate) mod build_log;
 pub(crate) mod channel;
 pub(crate) mod context;
 pub(crate) mod evidence;
@@ -16,11 +17,13 @@ pub(crate) mod iteration;
 pub(crate) mod live;
 pub(crate) mod monitor;
 pub(crate) mod package;
+pub(crate) mod performance;
 pub(crate) mod program;
 pub(crate) mod readiness;
 pub(crate) mod recycle;
 pub(crate) mod reload;
 pub(crate) mod run;
+pub(crate) mod run_result;
 pub(crate) mod services;
 pub(crate) mod session_logs;
 pub(crate) mod stream;

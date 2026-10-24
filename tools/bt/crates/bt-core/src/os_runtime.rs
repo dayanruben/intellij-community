@@ -350,6 +350,18 @@ impl Runtime for OsRuntime {
         std::fs::read_to_string(path)
     }
 
+    /// A temporary file beside the target, renamed over it: a rename within one directory replaces the file at once.
+    fn write_text_file(&self, path: &Path, text: &str) -> io::Result<()> {
+        let dir = path.parent().unwrap_or_else(|| Path::new("."));
+        std::fs::create_dir_all(dir)?;
+        let mut file = tempfile::NamedTempFile::new_in(dir)?;
+        file.write_all(text.as_bytes())?;
+        let mut temp = file.into_temp_path();
+        std::fs::rename(&temp, path)?;
+        temp.disable_cleanup(true);
+        Ok(())
+    }
+
     /// Nothing for a file that is not there, which is the runtime's contract rather than a swallowed failure: bazel
     /// never wrote that file when it died during option parsing.
     fn read_lines(&self, path: &Path) -> Box<dyn Iterator<Item = String> + '_> {
@@ -436,6 +448,22 @@ impl Runtime for OsRuntime {
     /// Deletes one file and is content for it to be absent already.
     fn remove(&self, path: &Path) -> io::Result<()> {
         match std::fs::remove_file(path) {
+            Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
+            _ => Ok(()),
+        }
+    }
+
+    fn copy_file(&self, from: &Path, to: &Path) -> io::Result<()> {
+        if let Some(parent) = to.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        // A new file rather than `std::fs::copy`: bazel's outputs are read-only, and a read-only copy is one that
+        // Windows refuses to delete when the retention removes an old run.
+        io::copy(&mut File::open(from)?, &mut File::create(to)?).map(|_| ())
+    }
+
+    fn remove_dir_all(&self, path: &Path) -> io::Result<()> {
+        match std::fs::remove_dir_all(path) {
             Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
             _ => Ok(()),
         }

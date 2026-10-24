@@ -149,19 +149,145 @@ fn the_bep_file_is_deleted_after_a_dry_run_and_after_a_failed_excluded_build() {
     assert_eq!(fake.state().removed, [BEP_PATH], "after a failed excluded build");
 }
 
-/// A lane parallelises across its targets already, so per-target shards are only fixed JVM cost.
+/// A lane parallelises across its targets already, so the shard plan gives each target its own count.
 #[test]
-fn a_lane_shards_each_target_twice_and_a_single_target_six_times() {
-    assert_mentions(&dry_run(&["--lane", "fast"]), &["--test_sharding_strategy=forced=2"]);
-    assert_mentions(&dry_run(&[CORE_LABEL]), &["--test_sharding_strategy=forced=6"]);
+fn a_lane_forces_the_planned_count_with_the_plan_and_a_single_target_six_shards() {
+    assert_mentions(
+        &dry_run(&["--lane", "fast"]),
+        &[
+            "--test_sharding_strategy=forced=2",
+            "--test_env=JB_TEST_SHARD_PLAN=out/bt/shard-plan.tsv",
+            "--profile=/repo/out/bt/profile.json.gz",
+        ],
+    );
+    let single = dry_run(&[CORE_LABEL]);
+    assert_mentions(&single, &["--test_sharding_strategy=forced=6"]);
+    assert!(!single.contains("JB_TEST_SHARD_PLAN"), "{single}");
 }
 
 #[test]
 fn an_explicit_shard_count_wins_over_the_breadth_derived_default() {
-    assert_mentions(
-        &dry_run(&["--lane", "fast", "--shards", "9"]),
-        &["--test_sharding_strategy=forced=9"],
+    let explicit = dry_run(&["--lane", "fast", "--shards", "9"]);
+    assert_mentions(&explicit, &["--test_sharding_strategy=forced=9"]);
+    // the plan gives a target at most the planned count, so an explicit count runs without it
+    assert!(!explicit.contains("JB_TEST_SHARD_PLAN"), "{explicit}");
+}
+
+const SHARD_PLAN: &str = "/repo/out/bt/shard-plan.tsv";
+const OTHER_LABEL: &str = "//plugins/air/other:other_test";
+
+/// The class times of a target whose shards all passed replace its lines. A failed target keeps its old lines, so a
+/// rerun of its failed shard splits the classes as its cached shards did.
+#[test]
+fn a_lane_run_records_the_class_times_of_the_targets_that_passed() {
+    let fake = fake_air_tree();
+    fake.put_absolute(
+        SHARD_PLAN,
+        &format!("default\t2\nclass\t{OTHER_LABEL}\tcom.Old\t7.000\nclass\t{CORE_LABEL}\tcom.Stale\t1.000\n"),
     );
+    let xml = |suites: &str| format!("<testsuites>{suites}</testsuites>");
+    fake.put_absolute(
+        "/exec/testlogs/core/shard_1/test.xml",
+        &xml(r#"<testsuite name="com.A" tests="1" time="70.5"/><testsuite name="com.A$Inner" tests="1" time="2"/>"#),
+    );
+    fake.put_absolute(
+        "/exec/testlogs/core/shard_2/test.xml",
+        &xml(r#"<testsuite name="com.B" tests="1" time="30"/><testsuite name="com.A" tests="1" time="1.5"/>"#),
+    );
+    fake.put_absolute(
+        "/exec/testlogs/core/shard_3/test.xml",
+        &xml(r#"<testsuite name="Sharding" tests="0"/>"#),
+    );
+    fake.put_absolute(
+        "/exec/testlogs/other/test.xml",
+        &xml(r#"<testsuite name="com.New" tests="1" time="3"/>"#),
+    );
+    fake.put_absolute(
+        BEP_PATH,
+        &bep_lines(&[
+            test_result_event(&AttemptSpec {
+                shard: 1,
+                xml: "/exec/testlogs/core/shard_1/test.xml",
+                ..attempt(CORE_LABEL)
+            }),
+            test_result_event(&AttemptSpec {
+                shard: 2,
+                xml: "/exec/testlogs/core/shard_2/test.xml",
+                ..attempt(CORE_LABEL)
+            }),
+            test_result_event(&AttemptSpec {
+                shard: 3,
+                xml: "/exec/testlogs/core/shard_3/test.xml",
+                ..attempt(CORE_LABEL)
+            }),
+            test_result_event(&AttemptSpec {
+                status: "FAILED",
+                xml: "/exec/testlogs/other/test.xml",
+                ..attempt(OTHER_LABEL)
+            }),
+        ]),
+    );
+    run(&["--lane", "fast"], &fake);
+
+    assert_eq!(
+        fake.state().files.get(SHARD_PLAN).map(String::as_str),
+        Some(
+            &*[
+                "# The shard plan of bt. bt rewrites this file after each multi-target run.",
+                "default\t2",
+                &format!("target\t{OTHER_LABEL}\t1"),
+                &format!("class\t{OTHER_LABEL}\tcom.Old\t7.000"),
+                &format!("target\t{CORE_LABEL}\t2"),
+                &format!("class\t{CORE_LABEL}\tcom.A\t72.000"),
+                &format!("class\t{CORE_LABEL}\tcom.A$Inner\t2.000"),
+                &format!("class\t{CORE_LABEL}\tcom.B\t30.000"),
+                "",
+            ]
+            .join("\n")
+        )
+    );
+}
+
+/// A filtered run times only some classes of a target, so it keeps the record of each target.
+#[test]
+fn only_a_run_of_all_classes_records_the_class_times() {
+    let resolution = Resolution {
+        labels: vec!["//plugins/air/...".to_owned()],
+        multi_target: true,
+        ..Resolution::default()
+    };
+    let plan = |apply: &dyn Fn(&mut RunPlan)| {
+        let mut plan = RunPlan {
+            resolution: resolution.clone(),
+            ..RunPlan::default()
+        };
+        apply(&mut plan);
+        plan
+    };
+    assert!(runs_all_classes(&plan(&|_| {})));
+    assert!(!runs_all_classes(&plan(
+        &|plan| plan.resolution.junit5_filters = vec!["include-class=com.A".to_owned()]
+    )));
+    assert!(!runs_all_classes(&plan(
+        &|plan| plan.resolution.include_package = Some("com.a".to_owned())
+    )));
+    assert!(!runs_all_classes(&plan(&|plan| plan.resolution.filter = Some("com.A".to_owned()))));
+    assert!(!runs_all_classes(&plan(
+        &|plan| plan.passthrough = vec!["--test_filter=com.A".to_owned()]
+    )));
+    assert!(!runs_all_classes(&plan(&|plan| {
+        plan.passthrough = vec!["--test_env=JB_TEST_JUNIT5_FILTERS=include-class=com.A".to_owned()];
+    })));
+    assert!(!runs_all_classes(&plan(
+        &|plan| plan.test_env = vec!["JB_TEST_JUNIT5_FILTERS".to_owned()]
+    )));
+}
+
+#[test]
+fn a_dry_run_writes_no_shard_plan() {
+    let fake = fake_air_tree();
+    run(&["--lane", "fast", "--dry-run"], &fake);
+    assert!(!fake.state().files.contains_key(SHARD_PLAN));
 }
 
 #[test]
@@ -513,25 +639,28 @@ fn the_bep_file_is_deleted_even_when_the_run_blows_up() {
     // And a run that unwinds: the guard runs on the panic's way out.
     struct Exploding(FakeRuntime);
     impl Runtime for Exploding {
-        fn repo_root(&self) -> &std::path::Path {
+        fn repo_root(&self) -> &Path {
             self.0.repo_root()
         }
         fn platform(&self) -> bt_core::runtime::Platform {
             self.0.platform()
         }
-        fn read_text_file(&self, path: &std::path::Path) -> std::io::Result<String> {
+        fn read_text_file(&self, path: &Path) -> std::io::Result<String> {
             self.0.read_text_file(path)
         }
-        fn read_lines(&self, _: &std::path::Path) -> Box<dyn Iterator<Item = String> + '_> {
+        fn write_text_file(&self, path: &Path, text: &str) -> std::io::Result<()> {
+            self.0.write_text_file(path, text)
+        }
+        fn read_lines(&self, _: &Path) -> Box<dyn Iterator<Item = String> + '_> {
             panic!("the BEP reader blew up")
         }
-        fn read_dir(&self, path: &std::path::Path) -> std::io::Result<Vec<bt_core::runtime::DirEntry>> {
+        fn read_dir(&self, path: &Path) -> std::io::Result<Vec<bt_core::runtime::DirEntry>> {
             self.0.read_dir(path)
         }
-        fn list_files(&self, dir: &std::path::Path) -> std::io::Result<Vec<PathBuf>> {
+        fn list_files(&self, dir: &Path) -> std::io::Result<Vec<PathBuf>> {
             self.0.list_files(dir)
         }
-        fn exists(&self, path: &std::path::Path) -> bool {
+        fn exists(&self, path: &Path) -> bool {
             self.0.exists(path)
         }
         fn spawn(&self, command: &[OsString], heartbeat: Option<bt_core::runtime::Heartbeat<'_>>) -> SpawnResult {
@@ -540,8 +669,14 @@ fn the_bep_file_is_deleted_even_when_the_run_blows_up() {
         fn temp_file(&self, prefix: &str) -> PathBuf {
             self.0.temp_file(prefix)
         }
-        fn remove(&self, path: &std::path::Path) -> std::io::Result<()> {
+        fn remove(&self, path: &Path) -> std::io::Result<()> {
             self.0.remove(path)
+        }
+        fn copy_file(&self, from: &Path, to: &Path) -> std::io::Result<()> {
+            self.0.copy_file(from, to)
+        }
+        fn remove_dir_all(&self, path: &Path) -> std::io::Result<()> {
+            self.0.remove_dir_all(path)
         }
         fn now_ms(&self) -> u64 {
             self.0.now_ms()
@@ -747,4 +882,39 @@ fn a_module_outside_the_migrated_list_is_refused_before_bazel_starts() {
         ],
     );
     assert!(fake.spawned().is_empty(), "{:?}", fake.spawned());
+}
+
+/// The next run of a failed target overwrites out/bazel-testlogs, so a red run copies the logs of its failed shards to
+/// a run directory of its own, and the digest names it.
+#[test]
+fn a_red_run_keeps_the_logs_of_its_failed_shard_and_names_the_run_directory() {
+    let fake = fake_air_tree();
+    one_attempt(
+        &fake,
+        "FAILED",
+        &suite_xml(&suite(
+            "AgentThreadIdentityTest",
+            vec![failing("a", "E", "boom", "\tat com.intellij.air.X.y(X.kt:1)")],
+        )),
+    );
+    // The log path that the fixture BEP reports for an attempt without its own.
+    fake.put_absolute("/exec/testlogs/pkg/target/test.log", "the log of the failed shard");
+    spawn_answers(&fake, 3, "");
+
+    let digest = run(&["AgentThreadIdentityTest"], &fake).text;
+
+    let kept = digest
+        .lines()
+        .find_map(|line| line.strip_prefix("kept   "))
+        .unwrap_or_else(|| panic!("no kept line in:\n{digest}"));
+    let run_dir = kept.split_whitespace().next().unwrap_or_default();
+    assert!(run_dir.starts_with("out/bt-runs/"), "{digest}");
+    let copied: Vec<String> = fake.state().files.keys().filter(|path| path.contains(run_dir)).cloned().collect();
+    assert_eq!(
+        copied,
+        [
+            format!("/repo/{run_dir}/pkg/target/test.log"),
+            format!("/repo/{run_dir}/pkg/target/test.xml")
+        ]
+    );
 }
