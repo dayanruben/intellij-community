@@ -107,12 +107,8 @@ jvm_library(
         "@lib//:kotlin-stdlib",
         "//platform/analysis-api:analysis",
         "//platform/analysis-api:analysis_test_lib",
-        "//plugins/markdown/core:markdown",
-        "//plugins/markdown/core:markdown_test_lib",
         "//platform/core-api:core",
         "//platform/core-api:core_test_lib",
-        "//platform/lang-impl",
-        "//platform/lang-impl:lang-impl_test_lib",
         "//plugins/markdown/plugin:plugin-main",
         "//plugins/markdown/plugin:plugin-main_test_lib",
         "//python/python-psi-impl:psi-impl",
@@ -125,6 +121,8 @@ jvm_library(
         "//platform/testFramework:testFramework_test_lib",
         "//libraries/junit4",
         "//libraries/junit4:junit4_test_lib",
+        "//platform/scratch/plugin",
+        "//platform/scratch/plugin:plugin_test_lib",
     ],
 )
 ### auto-generated section `build intellij.python.markdown.tests` end

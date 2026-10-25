@@ -16,7 +16,7 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use crate::runtime::{DirEntry, Heartbeat, Platform, Runtime, SpawnResult};
+use crate::runtime::{DirEntry, Heartbeat, Platform, Runtime, STOPPED_IDLE, SpawnResult};
 
 /// How much of a child's output is kept.
 ///
@@ -168,6 +168,219 @@ pub fn spawn_child(dir: Option<&Path>, command: &[OsString], heartbeat: Option<H
             output: "nothing to spawn: the command line is empty".to_owned(),
         },
     }
+}
+
+/// Runs a child to completion, in `dir` when one is given, with the stdin and the streams of
+/// [`Runtime::spawn_streaming`]: each stderr line goes to `error_line` as it comes, and the output is the whole stdout.
+///
+/// Never fails, as [`spawn_child`].
+pub fn spawn_streaming_child(dir: Option<&Path>, command: &[OsString], error_line: &(dyn Fn(&str) + Sync)) -> SpawnResult {
+    match command_for(dir, command) {
+        Some(child) => stream_to_end(child, error_line),
+        None => SpawnResult {
+            exit_code: 127,
+            output: "nothing to spawn: the command line is empty".to_owned(),
+        },
+    }
+}
+
+/// Runs a prepared command to completion, with the stdin and the streams of [`spawn_streaming_child`].
+fn stream_to_end(mut child: Command, error_line: &(dyn Fn(&str) + Sync)) -> SpawnResult {
+    child.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut process = match child.spawn() {
+        Ok(process) => process,
+        Err(error) => return could_not_start(&child, &error),
+    };
+    // Held, never written, and dropped only after the child is reaped: the end of the stdin is the signal that this
+    // process is gone.
+    let stdin = process.stdin.take();
+    let (Some(mut stdout), Some(stderr)) = (process.stdout.take(), process.stderr.take()) else {
+        return SpawnResult {
+            exit_code: 127,
+            output: format!("{}: the pipes of the child are missing", child.get_program().to_string_lossy()),
+        };
+    };
+    let output = thread::scope(|scope| {
+        scope.spawn(move || {
+            let mut reader = BufReader::new(stderr);
+            let mut line = Vec::new();
+            while matches!(reader.read_until(b'\n', &mut line), Ok(read) if read > 0) {
+                let text = String::from_utf8_lossy(&line);
+                error_line(text.trim_end_matches(['\n', '\r']));
+                line.clear();
+            }
+        });
+        let mut bytes = Vec::new();
+        // What arrived before a broken pipe is what the child said; waiting for it is still the right answer.
+        let _ = stdout.read_to_end(&mut bytes);
+        String::from_utf8_lossy(&bytes).into_owned()
+    });
+    let waited = process.wait();
+    drop(stdin);
+    match waited {
+        Ok(status) => SpawnResult {
+            exit_code: status.code().unwrap_or(-1),
+            output,
+        },
+        Err(error) => SpawnResult {
+            exit_code: 127,
+            output: format!("{output}\n{error}"),
+        },
+    }
+}
+
+/// Runs a child to completion, in `dir` when one is given, with `input` on its stdin; see
+/// [`Runtime::spawn_with_input`]. Never fails, as [`spawn_child`].
+pub fn spawn_child_with_input(dir: Option<&Path>, command: &[OsString], input: &str) -> SpawnResult {
+    let Some(mut child) = command_for(dir, command) else {
+        return SpawnResult {
+            exit_code: 127,
+            output: "nothing to spawn: the command line is empty".to_owned(),
+        };
+    };
+    child.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut process = match child.spawn() {
+        Ok(process) => process,
+        Err(error) => return could_not_start(&child, &error),
+    };
+    let stdin = process.stdin.take();
+    // From a thread, so a child that writes before it reads to the end cannot block on a full pipe.
+    let finished = thread::scope(|scope| {
+        scope.spawn(move || {
+            if let Some(mut stdin) = stdin {
+                // A child that exits before it reads everything closes the pipe; its exit code tells the rest.
+                let _ = stdin.write_all(input.as_bytes());
+            }
+        });
+        process.wait_with_output()
+    });
+    match finished {
+        Ok(finished) => SpawnResult {
+            exit_code: finished.status.code().unwrap_or(-1),
+            output: format!(
+                "{}{}",
+                String::from_utf8_lossy(&finished.stdout),
+                String::from_utf8_lossy(&finished.stderr)
+            ),
+        },
+        Err(error) => SpawnResult {
+            exit_code: 127,
+            output: error.to_string(),
+        },
+    }
+}
+
+/// Runs a child to completion, in `dir` when one is given, and stops it with its process group when it writes nothing
+/// for `idle`; see [`Runtime::spawn_watched`]. Never fails, as [`spawn_child`].
+pub fn spawn_child_watched(dir: Option<&Path>, command: &[OsString], idle: Duration) -> SpawnResult {
+    match command_for(dir, command) {
+        Some(child) => watch_to_end(child, idle),
+        None => SpawnResult {
+            exit_code: 127,
+            output: "nothing to spawn: the command line is empty".to_owned(),
+        },
+    }
+}
+
+/// Runs a prepared command to completion, as [`run_to_end`] does, and stops it when it writes nothing for `idle`.
+///
+/// The child gets a process group of its own on Unix, because the stall is often in a grandchild: git waits for the
+/// ssh it started, and the ssh holds the pipe. Stopping the group closes the pipe, so the read ends too.
+fn watch_to_end(mut child: Command, idle: Duration) -> SpawnResult {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        child.process_group(0);
+    }
+    let pipe = io::pipe().and_then(|(reader, writer)| Ok((reader, writer.try_clone()?, writer)));
+    let (mut reader, stdout, stderr) = match pipe {
+        Ok(pipe) => pipe,
+        Err(error) => return could_not_start(&child, &error),
+    };
+    child.stdout(stdout).stderr(stderr);
+    let spawned = child.spawn();
+    let program = child.get_program().to_owned();
+    drop(child);
+    let mut process = match spawned {
+        Ok(process) => process,
+        Err(error) => {
+            return SpawnResult {
+                exit_code: 127,
+                output: format!("{}: {error}", program.to_string_lossy()),
+            };
+        }
+    };
+    let last_output = std::sync::Mutex::new(Instant::now());
+    let tail = std::sync::Mutex::new(Tail::new(MAX_RETAINED_OUTPUT));
+    let (waited, stopped) = thread::scope(|scope| {
+        scope.spawn(|| {
+            let mut chunk = vec![0u8; 64 * 1024];
+            loop {
+                match reader.read(&mut chunk) {
+                    Ok(0) => break,
+                    Ok(read) => {
+                        tail.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(&chunk[..read]);
+                        *last_output.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Instant::now();
+                    }
+                    Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+                    Err(_) => break,
+                }
+            }
+        });
+        let mut stopped = false;
+        let waited = loop {
+            match process.try_wait() {
+                Ok(Some(status)) => break Ok(status),
+                Ok(None) => {}
+                Err(error) => break Err(error),
+            }
+            let quiet = last_output.lock().unwrap_or_else(std::sync::PoisonError::into_inner).elapsed();
+            if quiet >= idle {
+                stop_group(&mut process);
+                stopped = true;
+                break process.wait();
+            }
+            thread::sleep(Duration::from_millis(100).min(idle));
+        };
+        // The scope joins the reader here: the child and its group are gone, so the pipe is closed.
+        (waited, stopped)
+    });
+    let output = tail.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner).text();
+    if stopped {
+        return SpawnResult {
+            exit_code: STOPPED_IDLE,
+            output: format!(
+                "{output}\n{} wrote nothing for {} s, so it was stopped",
+                program.to_string_lossy(),
+                idle.as_secs()
+            ),
+        };
+    }
+    match waited {
+        Ok(status) => SpawnResult {
+            exit_code: status.code().unwrap_or(-1),
+            output,
+        },
+        Err(error) => SpawnResult {
+            exit_code: 127,
+            output: format!("{output}\n{error}"),
+        },
+    }
+}
+
+/// Stops a child and, on Unix, every process of its group.
+fn stop_group(process: &mut std::process::Child) {
+    #[cfg(unix)]
+    {
+        // `kill` of the group, not of the child alone: a grandchild that holds the pipe would keep the read open.
+        let _ = Command::new("kill")
+            .args(["-KILL", "--", &format!("-{}", process.id())])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    let _ = process.kill();
 }
 
 fn command_for(dir: Option<&Path>, command: &[OsString]) -> Option<Command> {
@@ -431,6 +644,31 @@ impl Runtime for OsRuntime {
         }
     }
 
+    fn spawn_with_input(&self, command: &[OsString], input: &str) -> SpawnResult {
+        match &self.spawner {
+            Spawner::Refuse => refuse_spawn(command),
+            Spawner::Child => spawn_child_with_input(None, command, input),
+            Spawner::ChildIn(dir) => spawn_child_with_input(Some(dir), command, input),
+        }
+    }
+
+    fn spawn_watched(&self, command: &[OsString], idle: Duration) -> SpawnResult {
+        match &self.spawner {
+            Spawner::Refuse => refuse_spawn(command),
+            Spawner::Child => spawn_child_watched(None, command, idle),
+            Spawner::ChildIn(dir) => spawn_child_watched(Some(dir), command, idle),
+        }
+    }
+
+    fn spawn_streaming(&self, command: &[OsString]) -> SpawnResult {
+        let error_line = |line: &str| (self.write_error)(line);
+        match &self.spawner {
+            Spawner::Refuse => refuse_spawn(command),
+            Spawner::Child => spawn_streaming_child(None, command, &error_line),
+            Spawner::ChildIn(dir) => spawn_streaming_child(Some(dir), command, &error_line),
+        }
+    }
+
     /// A fresh file in the system temporary directory, created so no second process can pick the same name.
     fn temp_file(&self, prefix: &str) -> PathBuf {
         match tempfile::Builder::new().prefix(&format!("{prefix}-")).suffix(".json").tempfile() {
@@ -462,11 +700,32 @@ impl Runtime for OsRuntime {
         io::copy(&mut File::open(from)?, &mut File::create(to)?).map(|_| ())
     }
 
+    fn create_dir_all(&self, path: &Path) -> io::Result<()> {
+        std::fs::create_dir_all(path)
+    }
+
     fn remove_dir_all(&self, path: &Path) -> io::Result<()> {
         match std::fs::remove_dir_all(path) {
             Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
             _ => Ok(()),
         }
+    }
+
+    fn home_dir(&self) -> Option<PathBuf> {
+        std::env::home_dir()
+    }
+
+    fn confirm(&self, question: &str) -> Option<bool> {
+        use std::io::IsTerminal;
+        if !io::stdin().is_terminal() {
+            return None;
+        }
+        let mut stderr = io::stderr();
+        let _ = write!(stderr, "{question} [y/N] ");
+        let _ = stderr.flush();
+        let mut answer = String::new();
+        io::stdin().read_line(&mut answer).ok()?;
+        Some(matches!(answer.trim(), "y" | "Y" | "yes" | "Yes"))
     }
 
     fn now_ms(&self) -> u64 {
