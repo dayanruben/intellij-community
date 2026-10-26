@@ -138,6 +138,7 @@ jvm_library(
         "//java/java-impl:impl",
         "//platform/testRunner",
         "//notebooks/visualization",
+        "//java/ide-customization",
     ],
 )
 
@@ -152,10 +153,7 @@ jvm_library(
         ],
         allow_empty = True,
     ),
-    associates = [
-        "//java/ide-customization",
-        "//java/ide-customization:ide-customization_test_lib",
-    ],
+    module_name = "intellij.java.ide.customization.tests",
     visibility = ["//visibility:public"],
     runtime_deps = [
         # do not sort,
@@ -168,6 +166,7 @@ jvm_library(
         "//platform/testRunner:testRunner_test_lib",
         "//notebooks/visualization:visualization_test_lib",
         "//platform/ide-core:ide-core_test_lib",
+        "//java/ide-customization:ide-customization_test_lib",
     ],
     deps = [
         # do not sort,

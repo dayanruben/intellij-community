@@ -23,6 +23,21 @@ pub(crate) const LEASE_FAILED: &str = "lease_failed";
 pub(crate) const CHECKOUT_FAILED: &str = "checkout_failed";
 pub(crate) const SPAWN_FAILED: &str = "spawn_failed";
 pub(crate) const AGENT_ERROR: &str = "agent_error";
+/// `.yonder.toml` of the commit cannot be read, or it has an unknown key or a value of the wrong shape.
+pub(crate) const BAD_CONFIG: &str = "bad_config";
+/// A prepare step of `.yonder.toml` failed, so the command did not run.
+pub(crate) const PREPARE_FAILED: &str = "prepare_failed";
+
+/// The binary of an upgrade has another size or SHA-256 than the request names, or it does not run here as an agent
+/// of this schema that can be upgraded again.
+pub(crate) const BAD_BINARY: &str = "bad_binary";
+/// The agent cannot stage, keep or swap its binary, or start the watchdog: no LaunchAgent, or a failed file call.
+pub(crate) const UPGRADE_FAILED: &str = "upgrade_failed";
+
+/// The new binary of an upgrade writes another LaunchAgent than the one on the host, so only `setup` can install it.
+pub(crate) const PLIST_CHANGED: &str = "plist_changed";
+/// The new binary of an upgrade has a lower version than the current one, and the request has no `force`.
+pub(crate) const DOWNGRADE: &str = "downgrade";
 
 /// `setup` cannot start the agent under launchd.
 pub(crate) const LAUNCHD_FAILED: &str = "launchd_failed";

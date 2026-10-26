@@ -6,12 +6,12 @@ use super::*;
 /// The agent of a temporary home, as `serve` makes it.
 fn agent(home: &Path) -> Agent {
     let identity = Identity::generate().expect("an identity");
-    Agent {
-        home: Home::new(home.to_path_buf()),
-        tls: ServerTls::new(&identity, home.join("clients")).expect("the TLS setup"),
-        exe: PathBuf::from("yonderd"),
-        repos: Mutex::default(),
-    }
+    Agent::new(
+        Home::new(home.to_path_buf()),
+        ServerTls::new(&identity, home.join("clients")).expect("the TLS setup"),
+        PathBuf::from("yonderd"),
+        PathBuf::from("launchctl"),
+    )
 }
 
 /// The agent checks a repository once: a path that a check found stays found while it is a directory, and a missing
@@ -28,7 +28,7 @@ fn a_repository_that_a_check_found_needs_no_second_check() {
     assert_eq!(agent.repo("~/repo").expect("a repository"), repo);
     // Without its .git a fresh check refuses the directory; the agent answers from what it found.
     fs::rename(repo.join(".git"), home.path().join("moved.git")).expect("the .git moved away");
-    assert!(!git::is_repo(&repo));
+    assert!(git::check_repo(&repo).is_err());
     assert_eq!(agent.repo("~/repo").expect("a found repository"), repo);
     fs::remove_dir_all(&repo).expect("the directory removed");
     assert_eq!(agent.repo("~/repo").expect_err("no directory").code, REPO_MISSING);

@@ -8,11 +8,11 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::Duration;
 
-use yonder_link::proto::{Reply, Request, SCHEMA_VERSION};
+use yonder_link::proto::{FEATURES, Reply, Request, SCHEMA_VERSION};
 use yonder_link::{AllowList, Channel, Identity, ServerTls};
 
 use crate::config::{Config, HostFile};
-use crate::process::{Call, Processes, Ran, Stopped};
+use crate::process::{Call, Processes, Ran, Stop, Stopped};
 use crate::{Client, Timing};
 
 /// Short deadlines, so a test of a lost link ends in seconds.
@@ -24,6 +24,8 @@ pub(crate) const FAST: Timing = Timing {
     first_backoff: Duration::from_millis(10),
     max_backoff: Duration::from_millis(50),
     agent_start: Duration::from_secs(1),
+    keepalive: Duration::from_millis(50),
+    upgrade: Duration::from_millis(500),
 };
 
 pub(crate) const ALIAS: &str = "studio";
@@ -51,6 +53,8 @@ pub(crate) fn failed(code: i32, stderr: &str) -> Ran {
 pub(crate) struct FakeProcesses {
     rules: Vec<(String, Ran)>,
     calls: Mutex<Vec<Call>>,
+    /// How long `git pack-objects` works. The watch asks the stop every 10 ms meanwhile, as the real one does.
+    pack_time: Duration,
 }
 
 impl FakeProcesses {
@@ -58,7 +62,14 @@ impl FakeProcesses {
         Self {
             rules: rules.iter().map(|(text, ran)| ((*text).to_owned(), ran.clone())).collect(),
             calls: Mutex::default(),
+            pack_time: Duration::ZERO,
         }
+    }
+
+    /// The same processes with a `git pack-objects` that works for `time`.
+    pub(crate) const fn with_pack_time(mut self, time: Duration) -> Self {
+        self.pack_time = time;
+        self
     }
 
     pub(crate) fn calls(&self) -> Vec<Call> {
@@ -80,12 +91,12 @@ impl FakeProcesses {
 }
 
 impl Processes for FakeProcesses {
-    fn run(&self, call: &Call) -> Ran {
-        self.answer(call)
-    }
-
-    fn run_to_file(&self, call: &Call, stdout: &Path, stop: &(dyn Fn() -> bool + Sync)) -> Ran {
+    fn run(&self, call: &Call, stop: Stop<'_>) -> Ran {
         let ran = self.answer(call);
+        let working = std::time::Instant::now();
+        while call.text().contains("pack-objects") && working.elapsed() < self.pack_time && !stop() {
+            thread::sleep(Duration::from_millis(10));
+        }
         if stop() {
             return Ran {
                 stopped: Some(Stopped::Asked),
@@ -93,8 +104,7 @@ impl Processes for FakeProcesses {
                 ..Ran::default()
             };
         }
-        std::fs::write(stdout, &ran.stdout).expect("the stdout file");
-        Ran { stdout: Vec::new(), ..ran }
+        ran
     }
 }
 
@@ -111,8 +121,16 @@ pub(crate) struct FakeAgent {
 }
 
 impl FakeAgent {
-    /// An agent that accepts `client`, speaks `schema`, and answers each request with `script`.
-    pub(crate) fn start(client: &Identity, schema: u32, script: impl Fn(&Request, &mut Channel) + Send + Sync + 'static) -> Self {
+    /// An agent that accepts `client`, speaks `schema`, has the features `features` (none for an agent older than the
+    /// features), names the binary of `binary` in its hello, and answers each request with `script`.
+    pub(crate) fn start_with(
+        client: &Identity,
+        schema: u32,
+        features: &[&str],
+        binary: Arc<Mutex<Option<String>>>,
+        script: impl Fn(&Request, &mut Channel) + Send + Sync + 'static,
+    ) -> Self {
+        let features: Vec<String> = features.iter().map(|feature| (*feature).to_owned()).collect();
         let dir = tempfile::tempdir().expect("a temporary directory");
         let allow = dir.path().join("clients");
         let mut list = AllowList::default();
@@ -135,7 +153,8 @@ impl FakeAgent {
                     }
                     let Ok(socket) = socket else { continue };
                     let (tls, requests, script) = (tls.clone(), Arc::clone(&requests), Arc::clone(&script));
-                    thread::spawn(move || serve(socket, &tls, schema, &requests, &*script));
+                    let (features, binary) = (features.clone(), Arc::clone(&binary));
+                    thread::spawn(move || serve(socket, &tls, (schema, features, &binary), &requests, &*script));
                 }
             });
         }
@@ -167,7 +186,13 @@ impl Drop for FakeAgent {
     }
 }
 
-fn serve(socket: TcpStream, tls: &ServerTls, schema: u32, requests: &Mutex<Vec<Request>>, script: &Script) {
+fn serve(
+    socket: TcpStream,
+    tls: &ServerTls,
+    (schema, features, binary): (u32, Vec<String>, &Mutex<Option<String>>),
+    requests: &Mutex<Vec<Request>>,
+    script: &Script,
+) {
     let Ok(mut channel) = Channel::accept(socket, tls, Duration::from_secs(5)) else {
         return;
     };
@@ -179,6 +204,8 @@ fn serve(socket: TcpStream, tls: &ServerTls, schema: u32, requests: &Mutex<Vec<R
         agent_version: "0.1.0".to_owned(),
         os: "macos".to_owned(),
         arch: "aarch64".to_owned(),
+        features,
+        binary_sha256: binary.lock().unwrap_or_else(PoisonError::into_inner).clone(),
     };
     if channel.send(&hello).is_err() || schema != SCHEMA_VERSION {
         return;
@@ -204,10 +231,34 @@ impl Setup {
     }
 
     pub(crate) fn with_schema(schema: u32, script: impl Fn(&Request, &mut Channel) + Send + Sync + 'static) -> Self {
+        Self::with_agent(schema, &FEATURES, Arc::default(), script)
+    }
+
+    /// A setup whose agent has only `features`: none for an agent older than the features.
+    pub(crate) fn with_features(features: &[&str], script: impl Fn(&Request, &mut Channel) + Send + Sync + 'static) -> Self {
+        Self::with_agent(SCHEMA_VERSION, features, Arc::default(), script)
+    }
+
+    /// A setup whose agent has only `features`, and names the binary of `binary` in each hello. A script of an upgrade
+    /// changes it.
+    pub(crate) fn with_binary(
+        features: &[&str],
+        binary: Arc<Mutex<Option<String>>>,
+        script: impl Fn(&Request, &mut Channel) + Send + Sync + 'static,
+    ) -> Self {
+        Self::with_agent(SCHEMA_VERSION, features, binary, script)
+    }
+
+    fn with_agent(
+        schema: u32,
+        features: &[&str],
+        binary: Arc<Mutex<Option<String>>>,
+        script: impl Fn(&Request, &mut Channel) + Send + Sync + 'static,
+    ) -> Self {
         let dir = tempfile::tempdir().expect("a temporary directory");
         let config = Config::new(dir.path().join("config"));
         let client = config.identity().expect("the client identity");
-        let agent = FakeAgent::start(&client, schema, script);
+        let agent = FakeAgent::start_with(&client, schema, features, binary, script);
         config.write_host(&host_file(&agent, vec![agent.address])).expect("the host file");
         Self { dir, config, agent }
     }
@@ -228,6 +279,30 @@ pub(crate) fn host_file(agent: &FakeAgent, addresses: Vec<SocketAddr>) -> HostFi
         addresses,
         repo: "~/projects/idea-1".to_owned(),
     }
+}
+
+/// The variables of each real git of the tests: a test identity, and no configuration of the system or of the user.
+const TEST_GIT_ENV: [(&str, &str); 6] = [
+    ("GIT_CONFIG_NOSYSTEM", "1"),
+    ("GIT_CONFIG_GLOBAL", "/dev/null"),
+    ("GIT_AUTHOR_NAME", "t"),
+    ("GIT_AUTHOR_EMAIL", "t@t"),
+    ("GIT_COMMITTER_NAME", "t"),
+    ("GIT_COMMITTER_EMAIL", "t@t"),
+];
+
+/// Runs a real git in `dir` with [`TEST_GIT_ENV`], and answers its stdout without the trailing line end. A failed git
+/// fails the test.
+pub(crate) fn real_git(dir: &Path, args: &[&str]) -> String {
+    let ran = std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .envs(TEST_GIT_ENV)
+        .output();
+    let ran = ran.expect("git");
+    assert!(ran.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&ran.stderr));
+    String::from_utf8_lossy(&ran.stdout).trim_end().to_owned()
 }
 
 /// The lines that a client said, collected for a test.

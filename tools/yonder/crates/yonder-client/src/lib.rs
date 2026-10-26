@@ -3,10 +3,12 @@
 //! - [`config`]: the identity of the client and one host file per alias, under `~/.config/yonder/`.
 //! - [`host`]: the address choice and the hello of each connection to an agent.
 //! - [`process`]: the seam of the local git and ssh calls.
-//! - [`run`]: a run of a command of the committed HEAD on a host, the sync of its base, and the requests of one reply.
+//! - [`run`]: a run of a command of the committed HEAD or of the working tree on a host, the sync of its base, the
+//!   outputs and the changes that come back, and the requests of one reply.
 //! - [`phases_line`]: the durations of the steps of a run.
 //! - [`prepare`]: makes a host ready over ssh.
-//! - [`Client::build_agent`]: builds the agent with Bazel in a checkout of the monorepo, for `prepare`.
+//! - [`upgrade`]: updates the agent of a host over the link, without ssh.
+//! - [`Client::build_agent`]: builds the agent with Bazel in a checkout of the monorepo, for `prepare` and `upgrade`.
 //! - [`interrupt`]: Ctrl+C of the person at the terminal.
 //!
 //! Each failure is a [`Refusal`] with a stable code of [`code`], or the code of the agent. `API.md` lists them.
@@ -25,30 +27,42 @@ pub mod process;
 pub mod run;
 #[cfg(test)]
 mod testkit;
+pub mod upgrade;
 
 use std::path::Path;
 use std::time::Duration;
+
+use yonder_link::proto::{HEARTBEAT_SECONDS, UPGRADE_DRAIN_SECONDS, UPGRADE_WATCHDOG_SECONDS};
 
 pub use agent::{AGENT_BUILD_QUIET, AGENT_TARGET, agent_label, no_monorepo};
 pub use config::{Config, HostFile};
 pub use host::{AgentInfo, Host};
 pub use phases::{duration_text, phases_line, phases_short};
 pub use prepare::{PrepareRequest, Prepared};
-pub use process::{Call, Limit, OsProcesses, Processes, Ran, Stopped};
-pub use run::{Followed, Leased, RunOutcome, RunRequest};
+pub use process::{Call, Limit, OsProcesses, Processes, Ran, Stop, Stopped, never};
+pub use run::{Followed, Leased, RunOptions, RunOutcome, RunRequest};
+pub use upgrade::{UpgradeRequest, UpgradeWay, Upgraded};
 pub use yonder_link::DEFAULT_PORT;
 pub use yonder_link::proto::{Phase, RunInfo};
 
-/// The exit vocabulary of yonder. A refusal leaves by 255. A run leaves by the exit code of its command, which is no
-/// refusal.
+/// The exit vocabulary of yonder. A run leaves by the exit code of its command, which is no refusal. A refusal of a run
+/// tells whether the command ran.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Exit {
+    /// The host did not run the command: the caller can run it locally instead. 75, `EX_TEMPFAIL` of `sysexits.h`.
+    NotRun,
+    /// Ctrl+C stopped the run before its command, or a second Ctrl+C stopped the follow. 130.
+    Interrupted,
+    /// Any other refusal: the run can go on on the host after a lost link, its changes did not apply, or a request other
+    /// than a run failed. 255.
     Refused,
 }
 
 impl Exit {
     pub const fn code(self) -> u8 {
         match self {
+            Self::NotRun => 75,
+            Self::Interrupted => 130,
             Self::Refused => 255,
         }
     }
@@ -92,6 +106,12 @@ pub mod code {
     pub const INTERRUPTED: &str = "interrupted";
     /// Fetch did not copy every staged file of a run, so the run stays on the host.
     pub const FETCH_FAILED: &str = "fetch_failed";
+    /// The agent lacks a feature that the run needs, such as the changes of `--apply`: it is older than the client.
+    pub const OLD_AGENT: &str = "old_agent";
+    /// The changes of the command did not apply to the working tree. The patch stays in a file.
+    pub const APPLY_FAILED: &str = "apply_failed";
+    /// The new agent of an upgrade did not listen in time, and the watchdog brought back the previous agent.
+    pub const ROLLED_BACK: &str = "rolled_back";
 }
 
 pub(crate) fn refused(code: &'static str, message: impl Into<String>) -> Refusal {
@@ -115,8 +135,9 @@ pub(crate) struct Timing {
     pub(crate) connect: Duration,
     /// The lookup of the host name.
     pub(crate) resolve: Duration,
-    /// The wait for each frame of a reply. A request that waits gets a heartbeat every 15 s. A host that clones a new
-    /// slot can hold back its heartbeats for a minute, so only two quiet minutes are a lost link.
+    /// The wait for each frame of a reply, and the deadline of each write. A request that waits gets a heartbeat every
+    /// 15 s. A host that clones a new slot can hold back its heartbeats for a minute, so only two quiet minutes are a
+    /// lost link.
     pub(crate) read: Duration,
     /// How long `Follow` connects again after the last reply of the agent.
     pub(crate) reconnect_for: Duration,
@@ -125,6 +146,11 @@ pub(crate) struct Timing {
     pub(crate) max_backoff: Duration,
     /// How long `prepare` waits for the agent that `yonderd setup` started.
     pub(crate) agent_start: Duration,
+    /// How often the connection of a pack gets an empty chunk while git builds the pack.
+    pub(crate) keepalive: Duration,
+    /// How long `upgrade` waits for the hello of the new agent: the drain of the old agent, the wait of the watchdog,
+    /// and 30 s for launchd.
+    pub(crate) upgrade: Duration,
 }
 
 impl Timing {
@@ -136,6 +162,8 @@ impl Timing {
         first_backoff: Duration::from_secs(1),
         max_backoff: Duration::from_secs(30),
         agent_start: Duration::from_secs(60),
+        keepalive: Duration::from_secs(HEARTBEAT_SECONDS),
+        upgrade: Duration::from_secs(UPGRADE_DRAIN_SECONDS + UPGRADE_WATCHDOG_SECONDS + 30),
     };
 }
 
@@ -145,6 +173,8 @@ pub struct Client<'a> {
     config: Config,
     processes: &'a dyn Processes,
     say: &'a (dyn Fn(&str) + Sync),
+    /// The sink of the stdout lines of a run, or `None` to collect them into [`RunOutcome::stdout`].
+    stdout: Option<&'a (dyn Fn(&str) + Sync)>,
     presses: &'a (dyn Fn() -> u32 + Sync),
     timing: Timing,
 }
@@ -162,14 +192,27 @@ impl<'a> Client<'a> {
             config,
             processes,
             say,
+            stdout: None,
             presses,
             timing: Timing::DEFAULT,
         }
     }
 
+    /// Sends each stdout line of a run to `stdout` as it comes, instead of [`RunOutcome::stdout`] at the end.
+    #[must_use]
+    pub const fn with_stdout(mut self, stdout: &'a (dyn Fn(&str) + Sync)) -> Self {
+        self.stdout = Some(stdout);
+        self
+    }
+
     /// Whether the person pressed Ctrl+C.
     fn interrupted(&self) -> bool {
         (self.presses)() > 0
+    }
+
+    /// Runs a local child, which Ctrl+C stops.
+    fn child(&self, call: &Call) -> Ran {
+        self.processes.run(call, &|| self.interrupted())
     }
 
     pub const fn config(&self) -> &Config {

@@ -1,32 +1,18 @@
-use std::process::Command;
-
 use pretty_assertions::assert_eq;
 use yonder_link::proto::RunSpec;
 
 use super::*;
 use crate::run::{ExitRecord, KEEP};
-
-fn git_in(repo: &Path, args: &[&str]) -> String {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(repo)
-        .args(args)
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .env("GIT_AUTHOR_NAME", "t")
-        .env("GIT_AUTHOR_EMAIL", "t@t")
-        .env("GIT_COMMITTER_NAME", "t")
-        .env("GIT_COMMITTER_EMAIL", "t@t")
-        .output()
-        .expect("git");
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-    String::from_utf8_lossy(&output.stdout).trim().to_owned()
-}
+use crate::testing::git as git_in;
 
 /// A repository with one commit at `repo`. Answers the commit.
 fn repo_with_commit(repo: &Path) -> String {
     fs::create_dir_all(repo).expect("the repository directory");
     git_in(repo, &["init", "-q"]);
-    git_in(repo, &["commit", "-q", "--allow-empty", "-m", "first"]);
+    git_in(
+        repo,
+        &["-c", "maintenance.auto=false", "commit", "-q", "--allow-empty", "-m", "first"],
+    );
     git_in(repo, &["rev-parse", "HEAD"])
 }
 
@@ -40,6 +26,7 @@ fn spec(run: &str) -> RunSpec {
         command: vec!["true".to_owned()],
         fetch: vec![],
         idle_hours: 8,
+        ..RunSpec::default()
     }
 }
 
@@ -104,12 +91,23 @@ fn the_cleanup_repacks_a_listed_repository_whose_packs_piled_up() {
     let home = Home::new(dir.path().to_path_buf());
     let repo = dir.path().join("repo");
     repo_with_commit(&repo);
-    git_in(&repo, &["config", "gc.autoPackLimit", "2"]);
-    git_in(&repo, &["config", "maintenance.auto", "true"]);
     for index in 0..3 {
-        git_in(&repo, &["commit", "-q", "--allow-empty", "-m", &format!("run {index}")]);
+        git_in(
+            &repo,
+            &[
+                "-c",
+                "maintenance.auto=false",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                &format!("run {index}"),
+            ],
+        );
         git_in(&repo, &["repack", "-q"]);
     }
+    // A commit starts a maintenance of its own in the background, and its lock would make the cleanup skip the run.
+    git_in(&repo, &["config", "gc.autoPackLimit", "2"]);
     let packs = || {
         fs::read_dir(repo.join(".git/objects/pack"))
             .expect("the pack directory")

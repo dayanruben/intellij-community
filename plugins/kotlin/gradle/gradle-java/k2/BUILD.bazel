@@ -97,6 +97,7 @@ jvm_library(
         "//plugins/kotlin:kotlin-plugin-community-main",
         "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api",
         "//libraries/kotlinc/symbol-light-classes:libraries-kotlinc-symbol-light-classes",
+        "//plugins/kotlin/gradle/gradle-java/k2:kotlin-gradle-java",
         "//platform/problemsView/collector",
     ],
 )
@@ -112,15 +113,13 @@ jvm_library(
         ],
         allow_empty = True,
     ),
-    associates = [
-        "//plugins/kotlin/gradle/gradle-java/k2:kotlin-gradle-java",
-        "//plugins/kotlin/gradle/gradle-java/k2:kotlin-gradle-java_test_lib",
-    ],
+    module_name = "intellij.kotlin.gradle.java.tests",
     visibility = ["//visibility:public"],
     runtime_deps = [
         # do not sort,
         ":kotlin-gradle-java-tests",
         "//plugins/kotlin:kotlin-plugin-community-main_test_lib",
+        "//plugins/kotlin/gradle/gradle-java/k2:kotlin-gradle-java_test_lib",
         "//platform/ide-core:ide-core_test_lib",
         "//platform/problemsView/collector:collector_test_lib",
     ],

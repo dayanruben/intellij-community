@@ -7,27 +7,33 @@
 //!
 //! 1. Take the flock of the holder. A second run of the same holder waits for it, up to an hour.
 //! 2. Take the warm lease of the holder, or a new one from `bd lease get`.
-//! 3. Wait for the pack, up to `PACK_WAIT_SECONDS` of the protocol. A start can come before the pack of its reference,
-//!    so the lock and the lease go on while the pack travels. A commit that the main repository has already needs no
-//!    pack. Else the run waits for its reference, which the pack makes after its objects.
+//! 3. Wait for the pack, up to `PACK_WAIT_SECONDS` of the protocol, and up to `PACK_STALL_SECONDS` without a chunk
+//!    of it. A start can come before the pack of its reference, so the lock and the lease go on while the pack
+//!    travels. A commit that the main repository has already needs no pack. Else the run waits for the file `packed`,
+//!    which the pack writes after its ref. A watch of the run directory ends the wait at once.
 //! 4. Check out the commit in the slot. The slot belongs to the holder, so a file that the last run left changed is
 //!    discarded.
-//! 5. Run the command in the slot root, in its own process group, with stdin `/dev/null`. Its lines go to `events.log`.
-//!    When the command exits, the other processes of its group get SIGTERM, and SIGKILL 5 s later.
-//! 6. Move the new entries of each `fetch` directory to the stage.
+//! 5. Prepare: read `.yonder.toml` of the commit, build the environment (`run_env`, with the login environment of
+//!    `login_env`), and run each prepare step whose inputs changed (`prepare`). For a client that asks for them, remove
+//!    the outputs of the config, and scan the tree of the slot before the command.
+//! 6. Run the command in the slot root, in its own process group, with stdin `/dev/null`, the environment of step 5
+//!    and the niceness of the spec. Its lines go to `events.log`. When the command exits, the other processes of its
+//!    group get SIGTERM, and SIGKILL 5 s later.
+//! 7. Stage: the patch of the changes of the command, the outputs, and the new entries of each `fetch` directory.
 //!
-//! Each step is a phase: `lock`, `lease`, `pack_wait`, `checkout`, `command` and `stage`. At the end of each
+//! Each step is a phase: `lock`, `lease`, `pack_wait`, `checkout`, `prepare`, `command` and `stage`. At the end of each
 //! step, whatever its outcome, the supervisor rewrites `phases.json` with the steps that have ended.
 //!
 //! On every way out it writes the lease file, drops the lock of the holder, deletes the ref of the pack, and writes
 //! `exit.json` last. Then it drops the flock of the run, and returns the leases of the other holders that no run used
 //! for the idle hours of the run. That sweep can take minutes, so no run waits for it. Its lines go to
 //! `supervisor.log`. The `cancel` file of the run, or SIGINT, SIGTERM or SIGHUP, interrupts the run. Before the
-//! command starts, the run kills the bd or git child of the current step and ends with the exit code 130. After it
-//! started, the command group gets SIGINT, and SIGKILL after the grace time. Its progress lines go to `events.log` as
-//! stderr events with the prefix `yonder: `.
+//! command starts, the run kills the bd, git or prepare child of the current step and ends with the exit code 130.
+//! After it started, the command group gets SIGINT, and SIGKILL after the grace time. Its progress lines go to
+//! `events.log` as stderr events with the prefix `yonder: `. A prepare step writes both of its streams as stderr events,
+//! so the stdout of a run holds only the lines of its command.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::fs::{self, File, Permissions};
 use std::io::{self, BufRead, BufReader, Read};
@@ -40,17 +46,19 @@ use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use yonder_link::proto::{Phase, RunSpec, Stream};
 
-use crate::child::Stop;
-use crate::files::{FILE_MODE, open_private, private_dir, try_flock};
+use crate::child::{Stop, never};
+use crate::files::{FILE_MODE, open_private, private_dir, try_flock, write_private};
 use crate::home::Home;
 use crate::lease::{HolderLock, Lease, Leases, now_seconds};
-use crate::refused::{AGENT_ERROR, CHECKOUT_FAILED, PACK_MISSING, Refusal, SPAWN_FAILED, refused};
+use crate::login_env::LoginEnv;
+use crate::refused::{AGENT_ERROR, CHECKOUT_FAILED, PACK_MISSING, PREPARE_FAILED, Refusal, SPAWN_FAILED, refused};
 use crate::run::{EventLog, ExitRecord, MAX_EVENT_TEXT, RunDir};
-use crate::{git, tuning};
+use crate::watch::Watch;
+use crate::{config, git, login_env, prepare, run_env, tuning};
 
 /// How long a run waits for the other run of its holder.
 const LOCK_WAIT: Duration = Duration::from_secs(3600);
@@ -58,11 +66,9 @@ const LOCK_WAIT: Duration = Duration::from_secs(3600);
 /// How often the supervisor looks at the command and at the cancel request.
 const POLL: Duration = Duration::from_millis(100);
 
-/// The first pause between two looks for the reference of the run. Each pause doubles, up to [`PACK_POLL_MAX`].
-const PACK_POLL_FIRST: Duration = Duration::from_millis(50);
-
-/// The longest pause between two looks for the reference of the run.
-const PACK_POLL_MAX: Duration = Duration::from_secs(1);
+/// The longest wait of the pack wait for a change of the run directory. It bounds the time until the wait sees a stall
+/// or a stop.
+const PACK_RECHECK: Duration = Duration::from_secs(1);
 
 /// A wait for the pack that is longer than this gets a progress line.
 const PACK_WAIT_SAY: Duration = Duration::from_secs(1);
@@ -102,6 +108,9 @@ fn install_signal_handlers() {
 /// `serve` took. Without it, the supervisor takes the flock itself.
 pub(crate) fn supervise(home: &Home, run_dir: &Path, lock: Option<RawFd>) {
     install_signal_handlers();
+    if let Err(error) = run_env::raise_open_files() {
+        eprintln!("yonderd supervise: cannot raise the open-files limit: {error}");
+    }
     let run = RunDir::new(run_dir.to_path_buf());
     let lock = match adopt_lock(&run, lock) {
         Ok(lock) => lock,
@@ -177,7 +186,18 @@ fn run_to_end(home: &Home, run: &RunDir) -> Result<i32, Refusal> {
     let say = |message: &str| log.write(Stream::Stderr, &format!("yonder: {message}"));
     let stop = || SIGNALLED.load(Ordering::SeqCst) || run.cancel_requested();
     let mut held = Held::default();
-    let outcome = panic::catch_unwind(AssertUnwindSafe(|| steps(&spec, run, &repo, &leases, &log, &stop, &mut held)))
+    // Without its own binary the agent cannot ask the login shell, and a run gets the environment of the agent.
+    let exe = std::env::current_exe().ok();
+    let context = Context {
+        home,
+        exe: exe.as_deref(),
+        spec: &spec,
+        run,
+        repo: &repo,
+        leases: &leases,
+        log: &log,
+    };
+    let outcome = panic::catch_unwind(AssertUnwindSafe(|| steps(&context, &stop, &mut held)))
         .unwrap_or_else(|payload| Err(refused(AGENT_ERROR, format!("the supervisor failed: {}", panic_text(&*payload)))));
 
     if let Some(lease) = &held.lease
@@ -193,16 +213,39 @@ fn run_to_end(home: &Home, run: &RunDir) -> Result<i32, Refusal> {
     outcome
 }
 
-fn steps(
-    spec: &RunSpec,
-    run: &RunDir,
-    repo: &Path,
-    leases: &Leases,
-    log: &Arc<EventLog>,
-    stop: Stop<'_>,
-    held: &mut Held,
-) -> Result<i32, Refusal> {
-    let mut say = |message: &str| log.write(Stream::Stderr, &format!("yonder: {message}"));
+/// What the steps of a run share.
+struct Context<'a> {
+    home: &'a Home,
+    /// The binary of the agent, which the login shell runs for `dump-env`.
+    exe: Option<&'a Path>,
+    spec: &'a RunSpec,
+    run: &'a RunDir,
+    repo: &'a Path,
+    leases: &'a Leases,
+    log: &'a Arc<EventLog>,
+}
+
+impl Context<'_> {
+    fn say(&self, message: &str) {
+        self.log.write(Stream::Stderr, &format!("yonder: {message}"));
+    }
+}
+
+/// How the command of a run starts, from the prepare step.
+struct Launch {
+    env: BTreeMap<OsString, OsString>,
+    nice: Option<u8>,
+    /// The outputs of `.yonder.toml`, when the client asked for them.
+    outputs: Vec<String>,
+    /// The tree of the slot before the command, when the client asked for the changes.
+    before: Option<String>,
+    /// The login environment of the run, for its first line.
+    login: Option<LoginEnv>,
+}
+
+fn steps(context: &Context<'_>, stop: Stop<'_>, held: &mut Held) -> Result<i32, Refusal> {
+    let (spec, run, leases) = (context.spec, context.run, context.leases);
+    let mut say = |message: &str| context.say(message);
     let stage = run.stage_path();
     private_dir(&stage).map_err(|error| refused(AGENT_ERROR, format!("cannot make {}: {error}", stage.display())))?;
     let mut phases = Phases { run, ended: Vec::new() };
@@ -224,7 +267,11 @@ fn steps(
     if stop() {
         return Ok(INTERRUPTED);
     }
-    if !phases.time("pack_wait", || wait_for_pack(repo, spec, tuning::pack_wait(), stop, &mut say))? {
+    let limits = PackLimits {
+        deadline: tuning::pack_wait(),
+        stall: tuning::pack_stall(),
+    };
+    if !phases.time("pack_wait", || wait_for_pack(run, context.repo, spec, limits, stop, &mut say))? {
         return Ok(INTERRUPTED);
     }
     if let Err(error) = phases.time("checkout", || git::checkout(&slot, &spec.commit, stop)) {
@@ -239,12 +286,176 @@ fn steps(
     if stop() {
         return Ok(INTERRUPTED);
     }
+    let prepared = phases.time("prepare", || prepare_slot(context, &slot, stop, held));
+    let launch = match prepared {
+        Ok(Some(launch)) => launch,
+        Ok(None) => return Ok(INTERRUPTED),
+        Err(_) if stop() => return Ok(INTERRUPTED),
+        Err(refusal) => return Err(refusal),
+    };
+    if stop() {
+        return Ok(INTERRUPTED);
+    }
     let before: Vec<BTreeSet<OsString>> = spec.fetch.iter().map(|dir| entries(&slot.join(dir))).collect();
-    let code = phases.time("command", || run_command(spec, &slot, log, stop))?;
-    for error in phases.time("stage", || stage_new_entries(&slot, &spec.fetch, &before, &stage)) {
+    say(&start_line(&slot, &launch));
+    let code = phases.time("command", || {
+        run_group(&spec.command, &slot, &launch, context.log, stop, Stream::Stdout)
+    })?;
+    for error in phases.time("stage", || stage_run(context, &slot, &launch, &before)) {
         say(&error);
     }
     Ok(code)
+}
+
+/// The prepare step of a run: the config of the slot, the environment, the prepare steps, and for a client that asks
+/// for them the removal of the outputs and the tree before the command. Answers `None` when a cancel ended it.
+fn prepare_slot(context: &Context<'_>, slot: &Path, stop: Stop<'_>, held: &mut Held) -> Result<Option<Launch>, Refusal> {
+    let spec = context.spec;
+    let config = config::read(slot, &spec.commit)?;
+    let login = context
+        .exe
+        .and_then(|exe| login_env::for_run(context.home, exe, login_env::MAX_AGE, &mut |line| context.say(line)));
+    let env = run_env::run_env(login_env::applied(login.as_ref()), &config.env, context.home, spec, slot)?;
+    let launch = Launch {
+        env,
+        nice: spec.nice,
+        outputs: if spec.outputs { config.outputs.clone() } else { Vec::new() },
+        before: None,
+        login,
+    };
+    let Some(lease) = held.lease.as_mut() else {
+        return Err(refused(AGENT_ERROR, "the prepare step has no lease"));
+    };
+    for step in &config.prepare {
+        if stop() {
+            return Ok(None);
+        }
+        let ids = git::object_ids(slot, &spec.commit, &step.inputs).map_err(|error| {
+            refused(
+                AGENT_ERROR,
+                format!("cannot read the inputs of the prepare step {:?}: {error}", step.name),
+            )
+        })?;
+        let fingerprint = prepare::fingerprint(step, &ids);
+        let Some(why) = prepare::reason(step, &fingerprint, &lease.prepared, slot) else {
+            continue;
+        };
+        context.say(&format!("prepare: {} ({why})", step.name));
+        let code = run_group(&step.run, slot, &launch, context.log, stop, Stream::Stderr)?;
+        if stop() {
+            return Ok(None);
+        }
+        if code != 0 {
+            return Err(refused(
+                PREPARE_FAILED,
+                format!("the prepare step {:?} exited with {code}; its output is above", step.name),
+            ));
+        }
+        lease.prepared.insert(prepare::key(step), fingerprint);
+    }
+    for output in &launch.outputs {
+        if let Err(error) = remove_entry(&slot.join(output)) {
+            context.say(&format!("cannot remove the output {output} of the last run: {error}"));
+        }
+    }
+    let before = if spec.changes {
+        let before = git::worktree_tree(slot, &context.run.path().join("before.index"), stop)
+            .map_err(|error| refused(AGENT_ERROR, format!("cannot scan the files of {}: {error}", slot.display())))?;
+        Some(before)
+    } else {
+        None
+    };
+    Ok(Some(Launch { before, ..launch }))
+}
+
+/// The first line of the command: where and how it runs, and the load of the host.
+fn start_line(slot: &Path, launch: &Launch) -> String {
+    let load = run_env::load().map_or_else(|| "?".to_owned(), |load| format!("{load:.1}"));
+    let cores = thread::available_parallelism().map_or(0, std::num::NonZero::get);
+    let files = run_env::raise_open_files().map_or_else(|error| format!("? ({error})"), |limit| limit.to_string());
+    let login = launch.login.as_ref().map_or_else(
+        || "the environment of the agent".to_owned(),
+        |login| {
+            format!(
+                "the login environment of {} from {} ago",
+                login.shell,
+                login.age_text(SystemTime::now())
+            )
+        },
+    );
+    format!(
+        "running in {} (slot {}): load {load} on {cores} cores, nice {}, {files} open files, {login}",
+        slot.display(),
+        run_env::slot_number(slot),
+        launch.nice.unwrap_or(0)
+    )
+}
+
+/// The stage step: the changes of the command, the outputs, and the new entries of the fetch directories. Answers a
+/// message for each failure.
+fn stage_run(context: &Context<'_>, slot: &Path, launch: &Launch, before: &[BTreeSet<OsString>]) -> Vec<String> {
+    let run = context.run;
+    let mut errors = Vec::new();
+    if let Some(before) = &launch.before
+        && let Err(error) = stage_changes(slot, before, run)
+    {
+        errors.push(format!("cannot stage the changes of the command: {error}"));
+    }
+    if !launch.outputs.is_empty() {
+        errors.extend(stage_outputs(slot, &launch.outputs, run));
+    }
+    errors.extend(stage_new_entries(slot, &context.spec.fetch, before, &run.stage_path()));
+    errors
+}
+
+/// Writes the patch of the changes of the command to the run directory. The command changed nothing when the tree of
+/// the slot is the one before it, and then no patch is written.
+fn stage_changes(slot: &Path, before: &str, run: &RunDir) -> Result<(), String> {
+    let after = git::worktree_tree(slot, &run.path().join("after.index"), &never)?;
+    if after == before {
+        return Ok(());
+    }
+    let patch = git::tree_patch(slot, before, &after)?;
+    if patch.is_empty() {
+        return Ok(());
+    }
+    write_private(&run.changes_path(), &patch).map_err(|error| format!("cannot write {}: {error}", run.changes_path().display()))
+}
+
+/// Moves each output that the command made to the outputs of the run, and records the moved ones. Answers a message
+/// for each failure.
+fn stage_outputs(slot: &Path, outputs: &[String], run: &RunDir) -> Vec<String> {
+    let mut errors = Vec::new();
+    let mut staged = Vec::new();
+    for output in outputs {
+        let source = slot.join(output);
+        if fs::symlink_metadata(&source).is_err() {
+            continue;
+        }
+        let target = run.outputs_path().join(output);
+        let moved = target
+            .parent()
+            .map_or(Ok(()), private_dir)
+            .and_then(|()| move_entry(&source, &target));
+        match moved {
+            Ok(()) => staged.push(output.clone()),
+            Err(error) => errors.push(format!("cannot stage the output {output}: {error}")),
+        }
+    }
+    if let Err(error) = run.write_output_roots(&staged) {
+        errors.push(format!("cannot record the outputs of the run: {error}"));
+    }
+    errors
+}
+
+/// Removes a file, a link or a directory of the slot. A missing one is no failure: the output was never made.
+fn remove_entry(path: &Path) -> io::Result<()> {
+    match fs::symlink_metadata(path) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+        Ok(metadata) if metadata.file_type().is_dir() => fs::remove_dir_all(path),
+        Ok(_) => fs::remove_file(path),
+    }
 }
 
 /// The steps of a run that have ended, each with its duration.
@@ -272,11 +483,28 @@ impl Phases<'_> {
     }
 }
 
-/// Waits for the pack of the run, up to `deadline`. A commit that `repo` has already needs no pack, because the client
-/// sends none then. Else the wait ends when the reference of the run exists: the pack points it at the commit after
-/// the commit has landed, so the delete of the reference at the end of the run comes after it. Answers `false` when
-/// `stop` ended the wait. A wait longer than [`PACK_WAIT_SAY`] says so once.
-fn wait_for_pack(repo: &Path, spec: &RunSpec, deadline: Duration, stop: Stop<'_>, say: &mut dyn FnMut(&str)) -> Result<bool, Refusal> {
+/// The limits of the wait for a pack.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct PackLimits {
+    /// The whole wait.
+    pub(crate) deadline: Duration,
+    /// The wait for the first chunk, and from each chunk to the next.
+    pub(crate) stall: Duration,
+}
+
+/// Waits for the pack of the run. A commit that `repo` has already needs no pack, because the client sends none then.
+/// Else the wait ends when the pack wrote `packed` in the run directory, after the ref of the run: so the delete of the
+/// ref at the end of the run comes after it. The wait fails at the deadline of `limits`, or after its stall time
+/// without a chunk, which a client that is gone sends no more. Answers `false` when `stop` ended the wait. A wait
+/// longer than [`PACK_WAIT_SAY`] says so once.
+pub(crate) fn wait_for_pack(
+    run: &RunDir,
+    repo: &Path,
+    spec: &RunSpec,
+    limits: PackLimits,
+    stop: Stop<'_>,
+    say: &mut dyn FnMut(&str),
+) -> Result<bool, Refusal> {
     let look = |revision: &str| {
         git::has_commit(repo, revision)
             .map_err(|error| refused(AGENT_ERROR, format!("cannot look for {revision} in {}: {error}", repo.display())))
@@ -284,66 +512,91 @@ fn wait_for_pack(repo: &Path, spec: &RunSpec, deadline: Duration, stop: Stop<'_>
     if look(&spec.commit)? {
         return Ok(true);
     }
+    // The watch comes before the first look, so no change between a look and a wait is lost.
+    let mut watch = Watch::new(&[run.path()]);
     let started = Instant::now();
+    let started_at = SystemTime::now();
     let mut said = false;
-    let mut pause = PACK_POLL_FIRST;
     loop {
-        if look(&spec.reference)? {
+        if run.packed() {
             return Ok(true);
         }
-        if started.elapsed() >= deadline {
+        if stop() {
+            return Ok(false);
+        }
+        let quiet = run
+            .pack_progress()
+            .map_or(started_at, |noted| noted.max(started_at))
+            .elapsed()
+            .unwrap_or_default();
+        let failure = if started.elapsed() >= limits.deadline {
+            Some(format!("did not come in {} s", limits.deadline.as_secs_f64()))
+        } else if quiet >= limits.stall {
+            Some(format!("sent no chunk for {} s, so its client is gone", limits.stall.as_secs_f64()))
+        } else {
+            None
+        };
+        if let Some(failure) = failure {
+            // A pack whose mark could not be written leaves its commit and no mark.
+            if look(&spec.commit)? {
+                return Ok(true);
+            }
             return Err(refused(
                 PACK_MISSING,
                 format!(
-                    "the pack of {} did not come in {} s, and {} is missing in {}",
+                    "the pack of {} {failure}, and {} is missing in {}",
                     spec.reference,
-                    deadline.as_secs_f64(),
                     spec.commit,
                     repo.display()
                 ),
             ));
         }
-        let until = (Instant::now() + pause).min(started + deadline);
-        loop {
-            if stop() {
-                return Ok(false);
-            }
-            if !said && started.elapsed() > PACK_WAIT_SAY {
-                say(&format!("waiting for the pack of {}", spec.commit));
-                said = true;
-            }
-            let left = until.saturating_duration_since(Instant::now());
-            if left.is_zero() {
-                break;
-            }
-            thread::sleep(left.min(POLL));
+        if !said && started.elapsed() > PACK_WAIT_SAY {
+            say(&format!("waiting for the pack of {}", spec.commit));
+            said = true;
         }
-        pause = (pause * 2).min(PACK_POLL_MAX);
+        watch.wait(PACK_RECHECK.min(limits.stall).min(limits.deadline));
     }
 }
 
-/// Runs the command of the run in the slot root, in its own process group, and answers its exit code. The other
+/// Runs `argv` in the slot root, in its own process group, with the environment and the niceness of `launch`, and
+/// answers its exit code. Its stdout goes to `events.log` as `stdout` events, and its stderr as stderr events. The other
 /// processes of the group end before the answer.
-fn run_command(spec: &RunSpec, slot: &Path, log: &Arc<EventLog>, stop: Stop<'_>) -> Result<i32, Refusal> {
-    let Some((program, arguments)) = spec.command.split_first() else {
+fn run_group(argv: &[String], slot: &Path, launch: &Launch, log: &Arc<EventLog>, stop: Stop<'_>, stdout: Stream) -> Result<i32, Refusal> {
+    let Some((program, arguments)) = argv.split_first() else {
         return Err(refused(SPAWN_FAILED, "the run has no command"));
     };
-    let mut child = Command::new(program)
+    let mut command = Command::new(program);
+    command
         .args(arguments)
         .current_dir(slot)
+        .env_clear()
+        .envs(&launch.env)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .process_group(0)
+        .process_group(0);
+    if let Some(nice) = launch.nice {
+        let nice = libc::c_int::from(nice);
+        let lower = move || {
+            // SAFETY: setpriority takes plain integers and is async-signal-safe.
+            if unsafe { libc::setpriority(libc::PRIO_PROCESS, 0, nice) } == -1 {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(())
+        };
+        // SAFETY: the closure runs in the child between fork and exec, and calls only setpriority.
+        unsafe {
+            command.pre_exec(lower);
+        }
+    }
+    let mut child = command
         .spawn()
         .map_err(|error| refused(SPAWN_FAILED, format!("cannot start `{program}` in {}: {error}", slot.display())))?;
     let group = libc::pid_t::try_from(child.id()).map_err(|error| refused(AGENT_ERROR, error.to_string()))?;
     let (done, readers) = mpsc::channel();
     for (stream, pipe) in [
-        (
-            Stream::Stdout,
-            child.stdout.take().map(|pipe| Box::new(pipe) as Box<dyn Read + Send>),
-        ),
+        (stdout, child.stdout.take().map(|pipe| Box::new(pipe) as Box<dyn Read + Send>)),
         (
             Stream::Stderr,
             child.stderr.take().map(|pipe| Box::new(pipe) as Box<dyn Read + Send>),

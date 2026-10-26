@@ -8,8 +8,14 @@
 //! | `exit.json` | the [`ExitRecord`] and all the phases, when the run has ended; its time of change is the end of the run |
 //! | `lock` | the flock of the supervisor, held for its whole life |
 //! | `cancel` | the cancel request of a client, which the supervisor polls |
+//! | `packing` | written at most once a second while the pack of the run arrives; its time of change is the last chunk |
+//! | `packed` | written once the pack of the run has landed and its ref points at the commit |
 //! | `pid` | the pid of the supervisor, as information only |
 //! | `stage/` | the staged entries, under their paths relative to the slot root |
+//! | `outputs/` | the staged outputs of `.yonder.toml`, under their paths relative to the slot root |
+//! | `outputs.json` | the outputs in `outputs/`, as a JSON array of their paths |
+//! | `changes.patch` | the changes that the command made to the files of the slot, for `git apply` |
+//! | `before.index`, `after.index` | the index copies of the scans of the slot, while they run |
 //! | `supervisor.log` | the stderr of the supervisor, such as a panic |
 //!
 //! The supervisor writes the last event before `exit.json`, so a reader that sees `exit.json` and then reads the log to
@@ -36,7 +42,12 @@ const PHASES: &str = "phases.json";
 const PID: &str = "pid";
 const LOCK: &str = "lock";
 const CANCEL: &str = "cancel";
+const PACKING: &str = "packing";
+const PACKED: &str = "packed";
 const STAGE: &str = "stage";
+const OUTPUTS: &str = "outputs";
+const OUTPUT_ROOTS: &str = "outputs.json";
+const CHANGES: &str = "changes.patch";
 pub(crate) const SUPERVISOR_LOG: &str = "supervisor.log";
 
 /// The largest text of one event. A longer line becomes several events, so each reply stays far below the message
@@ -121,6 +132,32 @@ impl RunDir {
         self.path.join(STAGE)
     }
 
+    pub(crate) fn outputs_path(&self) -> PathBuf {
+        self.path.join(OUTPUTS)
+    }
+
+    pub(crate) fn changes_path(&self) -> PathBuf {
+        self.path.join(CHANGES)
+    }
+
+    /// Records the outputs that the run staged.
+    pub(crate) fn write_output_roots(&self, roots: &[String]) -> io::Result<()> {
+        if roots.is_empty() {
+            return Ok(());
+        }
+        let json = serde_json::to_vec(roots).map_err(io::Error::other)?;
+        write_private(&self.path.join(OUTPUT_ROOTS), &json)
+    }
+
+    /// The outputs that the run staged. A run without outputs has none.
+    pub(crate) fn output_roots(&self) -> io::Result<Vec<String>> {
+        match fs::read(self.path.join(OUTPUT_ROOTS)) {
+            Ok(json) => serde_json::from_slice(&json).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error)),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(Vec::new()),
+            Err(error) => Err(error),
+        }
+    }
+
     pub(crate) fn spec(&self) -> io::Result<RunSpec> {
         let path = self.path.join(SPEC);
         let text = fs::read(&path)?;
@@ -199,6 +236,25 @@ impl RunDir {
         self.path.join(CANCEL).exists()
     }
 
+    /// Notes that a chunk of the pack of the run came.
+    pub(crate) fn note_pack_progress(&self) -> io::Result<()> {
+        write_private(&self.path.join(PACKING), b"")
+    }
+
+    /// The time of the last chunk of the pack of the run, or `None` before the first one.
+    pub(crate) fn pack_progress(&self) -> Option<SystemTime> {
+        fs::metadata(self.path.join(PACKING)).and_then(|metadata| metadata.modified()).ok()
+    }
+
+    /// Notes that the pack of the run has landed and its ref points at the commit.
+    pub(crate) fn mark_packed(&self) -> io::Result<()> {
+        write_private(&self.path.join(PACKED), b"")
+    }
+
+    pub(crate) fn packed(&self) -> bool {
+        self.path.join(PACKED).exists()
+    }
+
     /// Writes the end of a run that lost its supervisor, such as after a kill or a reboot: no process holds its flock,
     /// and it has no `exit.json`. Answers whether it did.
     pub(crate) fn end_if_lost(&self) -> bool {
@@ -233,6 +289,7 @@ impl RunDir {
             holder: spec.holder,
             commit: spec.commit,
             command: spec.command,
+            fetch: spec.fetch,
             started_ms: self.started_ms(),
             exit: ended.as_ref().map(|(end, _)| end.code()),
             phases: ended.map_or_else(|| self.running_phases(), |(_, phases)| phases),

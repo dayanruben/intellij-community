@@ -145,6 +145,7 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         "//plugins/kotlin:kotlin-plugin-community-main",
+        "//plugins/kotlin/refactorings/rename.k2:kotlin-refactorings-rename",
         "//plugins/groovy-scripting",
     ],
 )
@@ -160,16 +161,14 @@ jvm_library(
         ],
         allow_empty = True,
     ),
-    associates = [
-        "//plugins/kotlin/refactorings/rename.k2:kotlin-refactorings-rename",
-        "//plugins/kotlin/refactorings/rename.k2:kotlin-refactorings-rename_test_lib",
-    ],
     kotlinc_opts = ":custom_kotlin-refactorings-rename-tests",
+    module_name = "intellij.kotlin.refactorings.rename.tests",
     visibility = ["//visibility:public"],
     runtime_deps = [
         # do not sort,
         ":kotlin-refactorings-rename-tests",
         "//plugins/kotlin:kotlin-plugin-community-main_test_lib",
+        "//plugins/kotlin/refactorings/rename.k2:kotlin-refactorings-rename_test_lib",
         "//plugins/groovy-scripting:groovy-scripting_test_lib",
     ],
     deps = [

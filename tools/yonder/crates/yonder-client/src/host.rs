@@ -1,16 +1,20 @@
 //! The connection to the agent of one host: the address choice, and the hello of each connection.
 //!
-//! The client tries the cached addresses of the host file first, each with a connect deadline of 5 s. Then it resolves
-//! the host name on a thread under a deadline of 5 s, IPv4 first, and tries each new address. The address that answers
-//! goes first in the host file. No step waits without a deadline, so a `.local` name that does not resolve costs 5 s.
+//! The client tries the cached addresses of the host file first, in their order, each with a connect deadline of 5 s.
+//! Then it resolves the host name on a thread under a deadline of 5 s, IPv4 first, and tries each new address. The
+//! address that answers goes first in the host file. A cached address that failed goes after the ones that did not, so
+//! the next connection tries it last. When only an address of the host name answers, every cached address failed, and
+//! the host file keeps the new address alone. No step waits without a deadline, so a `.local` name that does not
+//! resolve costs 5 s.
 
 use std::net::{SocketAddr, ToSocketAddrs};
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, PoisonError, mpsc};
 use std::thread;
 use std::time::Duration;
 
 use yonder_link::proto::{Reply, Request, SCHEMA_VERSION};
-use yonder_link::{Channel, ClientTls, LinkError};
+use yonder_link::{Channel, ClientTls, Closer, LinkError};
 
 use crate::config::{Config, HostFile};
 use crate::{Refusal, Timing, VERSION, code, prepare_hint, refused};
@@ -36,6 +40,47 @@ pub struct Host {
     /// The TLS configuration of the pin of the host and the identity of the client, built once for all connections.
     tls: ClientTls,
     timing: Timing,
+    /// Where each new connection leaves its closer, for a thread that ends the work of this host.
+    latest: Option<Arc<Latest>>,
+    /// The features of the agent from its last hello, see `yonder_link::proto::feature`.
+    features: Vec<String>,
+    /// The SHA-256 of the agent binary from its last hello.
+    binary_sha256: Option<String>,
+}
+
+/// The latest connection of a [`Host`], which another thread can close, see [`Host::watched`].
+#[derive(Debug, Default)]
+pub(crate) struct Latest {
+    closer: Mutex<Option<Closer>>,
+    closed: AtomicBool,
+}
+
+impl Latest {
+    /// Closes the latest connection, and each later one at once.
+    pub(crate) fn close(&self) {
+        self.closed.store(true, Ordering::SeqCst);
+        let closer = self.closer.lock().unwrap_or_else(PoisonError::into_inner).take();
+        if let Some(closer) = closer {
+            closer.close();
+        }
+    }
+
+    fn keep(&self, channel: &Channel) {
+        *self.closer.lock().unwrap_or_else(PoisonError::into_inner) = channel.closer().ok();
+        if self.closed.load(Ordering::SeqCst) {
+            self.close();
+        }
+    }
+}
+
+/// The failures of the addresses that one connection tried.
+#[derive(Default)]
+struct Tries {
+    /// Each address with what it said.
+    tried: Vec<String>,
+    /// What the first address with another certificate said.
+    untrusted: Option<String>,
+    failed: Vec<SocketAddr>,
 }
 
 /// Why one address gave no channel.
@@ -59,7 +104,29 @@ impl Host {
             file,
             tls,
             timing,
+            latest: None,
+            features: Vec::new(),
+            binary_sha256: None,
         })
+    }
+
+    /// A copy whose connections leave their closer in `latest`, so another thread can end its work at once.
+    pub(crate) fn watched(&self, latest: Arc<Latest>) -> Self {
+        Self {
+            latest: Some(latest),
+            ..self.clone()
+        }
+    }
+
+    /// The features of the agent of the last connection, see `yonder_link::proto::feature`. An agent older than the
+    /// features has none.
+    pub fn features(&self) -> &[String] {
+        &self.features
+    }
+
+    /// The SHA-256 of the agent binary of the last connection. An agent older than the upgrade names none.
+    pub fn binary_sha256(&self) -> Option<&str> {
+        self.binary_sha256.as_deref()
     }
 
     pub fn alias(&self) -> &str {
@@ -72,29 +139,17 @@ impl Host {
 
     /// A new connection after its hello.
     pub fn connect(&mut self) -> Result<(Channel, AgentInfo), Refusal> {
-        let mut tried: Vec<String> = Vec::new();
-        let mut untrusted: Option<String> = None;
-        let mut note = |address: SocketAddr, attempt: Attempt| match attempt {
-            Attempt::Failed(said) => {
-                tried.push(format!("{address} ({said})"));
-                None
-            }
-            Attempt::Untrusted(said) => {
-                tried.push(format!("{address} (untrusted)"));
-                untrusted.get_or_insert(said);
-                None
-            }
-            Attempt::Refused(refusal) => Some(refusal),
-        };
-        for address in self.file.addresses.clone() {
-            match self.attempt(address) {
-                Ok(connected) => return Ok(connected),
-                Err(attempt) => {
-                    if let Some(refusal) = note(address, attempt) {
-                        return Err(refusal);
-                    }
-                }
-            }
+        let connected = self.connect_once()?;
+        if let Some(latest) = &self.latest {
+            latest.keep(&connected.0);
+        }
+        Ok(connected)
+    }
+
+    fn connect_once(&mut self) -> Result<(Channel, AgentInfo), Refusal> {
+        let mut tries = Tries::default();
+        if let Some(answered) = self.try_each(self.file.addresses.clone(), &mut tries) {
+            return answered;
         }
         let resolved = resolve(&self.file.hostname, self.file.port, self.timing.resolve);
         let lookup = match &resolved {
@@ -106,22 +161,15 @@ impl Host {
             ),
             Err(said) => format!("{} did not resolve: {said}", self.file.hostname),
         };
-        for address in resolved.unwrap_or_default() {
-            if self.file.addresses.contains(&address) {
-                continue;
-            }
-            match self.attempt(address) {
-                Ok(connected) => {
-                    self.remember(address);
-                    return Ok(connected);
-                }
-                Err(attempt) => {
-                    if let Some(refusal) = note(address, attempt) {
-                        return Err(refusal);
-                    }
-                }
-            }
+        let fresh: Vec<SocketAddr> = resolved
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|address| !self.file.addresses.contains(address))
+            .collect();
+        if let Some(answered) = self.try_each(fresh, &mut tries) {
+            return answered;
         }
+        let Tries { tried, untrusted, .. } = tries;
         let alias = self.alias().to_owned();
         if let Some(said) = untrusted {
             return Err(refused(
@@ -197,13 +245,34 @@ impl Host {
         Refusal::new(code, crate::Exit::Refused, format!("{}: {message}", self.alias()))
     }
 
-    fn attempt(&self, address: SocketAddr) -> Result<(Channel, AgentInfo), Attempt> {
+    /// Tries each of `addresses` in turn, and notes each failure in `tries`. Answers the first channel, the refusal of
+    /// an agent that answered and refused, or `None` when no address answered.
+    fn try_each(&mut self, addresses: Vec<SocketAddr>, tries: &mut Tries) -> Option<Result<(Channel, AgentInfo), Refusal>> {
+        for address in addresses {
+            match self.attempt(address) {
+                Ok(connected) => {
+                    self.remember(address, &tries.failed);
+                    return Some(Ok(connected));
+                }
+                Err(Attempt::Refused(refusal)) => return Some(Err(refusal)),
+                Err(Attempt::Failed(said)) => tries.tried.push(format!("{address} ({said})")),
+                Err(Attempt::Untrusted(said)) => {
+                    tries.tried.push(format!("{address} (untrusted)"));
+                    tries.untrusted.get_or_insert(said);
+                }
+            }
+            tries.failed.push(address);
+        }
+        None
+    }
+
+    fn attempt(&mut self, address: SocketAddr) -> Result<(Channel, AgentInfo), Attempt> {
         let mut channel = match Channel::connect(address, &self.tls, self.timing.connect) {
             Ok(channel) => channel,
             Err(LinkError::Untrusted(said)) => return Err(Attempt::Untrusted(said)),
             Err(error) => return Err(Attempt::Failed(error.to_string())),
         };
-        let hello = channel.send(&Request::hello(VERSION)).and_then(|()| channel.recv::<Reply>());
+        let hello = channel.exchange::<_, Reply>(&Request::hello(VERSION));
         // The connect deadline is short, for a dead address. A write of a large pack to a slow link takes longer, so
         // each later write has the read deadline of a reply.
         let hello = hello.and_then(|reply| channel.set_write_deadline(self.timing.read).map(|()| reply));
@@ -213,15 +282,21 @@ impl Host {
                 agent_version,
                 os,
                 arch,
-            }) if schema_version == SCHEMA_VERSION => Ok((
-                channel,
-                AgentInfo {
-                    version: agent_version,
-                    os,
-                    arch,
-                    address,
-                },
-            )),
+                features,
+                binary_sha256,
+            }) if schema_version == SCHEMA_VERSION => {
+                self.features = features;
+                self.binary_sha256 = binary_sha256;
+                Ok((
+                    channel,
+                    AgentInfo {
+                        version: agent_version,
+                        os,
+                        arch,
+                        address,
+                    },
+                ))
+            }
             Ok(Reply::Hello {
                 schema_version,
                 agent_version,
@@ -248,11 +323,22 @@ impl Host {
         )
     }
 
-    /// Puts the address that answered first in the host file. A host file that cannot be written keeps the old
-    /// addresses, and the next connection resolves the host name again.
-    fn remember(&mut self, address: SocketAddr) {
+    /// Puts the address that answered first in the host file, then the cached addresses that did not fail, then the
+    /// ones in `failed`. An address of the host name answers only after every cached address failed, and the cached
+    /// ones then go. A host file that cannot be written keeps the old addresses.
+    fn remember(&mut self, address: SocketAddr, failed: &[SocketAddr]) {
+        let cached = self.file.addresses.contains(&address);
         let mut addresses = vec![address];
-        addresses.extend(self.file.addresses.iter().copied().filter(|known| *known != address));
+        addresses.extend(
+            self.file
+                .addresses
+                .iter()
+                .copied()
+                .filter(|known| *known != address && !failed.contains(known)),
+        );
+        if cached {
+            addresses.extend(failed.iter().copied().filter(|known| *known != address));
+        }
         addresses.truncate(KEPT_ADDRESSES);
         if addresses != self.file.addresses {
             self.file.addresses = addresses;

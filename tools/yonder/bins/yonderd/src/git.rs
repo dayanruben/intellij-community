@@ -18,6 +18,9 @@ pub(crate) const INDEX_PACK: Duration = Duration::from_secs(30 * 60);
 /// The namespace of the refs that a pack makes.
 pub(crate) const REF_PREFIX: &str = "refs/yonder/";
 
+/// The deadline of a scan of every file of a slot: `git add --all` into an index copy.
+pub(crate) const SCAN: Duration = Duration::from_secs(30 * 60);
+
 fn git(dir: &Path) -> Command {
     let mut command = Command::new("git");
     command.arg("-C").arg(dir).env("GIT_TERMINAL_PROMPT", "0");
@@ -33,9 +36,33 @@ fn checked(output: Result<Output, child::ChildError>) -> Result<Output, String> 
     }
 }
 
-/// Whether `repo` is a git repository.
-pub(crate) fn is_repo(repo: &Path) -> bool {
-    repo.is_dir() && child::run(git(repo).args(["rev-parse", "--git-dir"]), QUICK, &never).is_ok_and(|output| output.status.success())
+/// Why the agent cannot use a path as a repository.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum NotRepo {
+    /// The path is no directory, or git says that it is no repository. The text says which.
+    Missing(String),
+    /// The check itself failed, such as a git that cannot start on a host short of processes or descriptors.
+    Unchecked(String),
+}
+
+/// Checks that `repo` is a git repository. A checkout has `.git`, and a bare repository has `HEAD` and `objects`. A
+/// stat starts no child, so a loaded host answers too. Any other layout asks `git rev-parse --git-dir`.
+pub(crate) fn check_repo(repo: &Path) -> Result<(), NotRepo> {
+    if !repo.is_dir() {
+        return Err(NotRepo::Missing("it is no directory".to_owned()));
+    }
+    if repo.join(".git").exists() || (repo.join("HEAD").is_file() && repo.join("objects").is_dir()) {
+        return Ok(());
+    }
+    match child::run(git(repo).args(["rev-parse", "--git-dir"]), QUICK, &never) {
+        Ok(output) if output.status.success() => Ok(()),
+        Ok(output) => Err(NotRepo::Missing(format!(
+            "`git rev-parse --git-dir` says: {} ({})",
+            output.diagnostic(),
+            output.status
+        ))),
+        Err(error) => Err(NotRepo::Unchecked(error.to_string())),
+    }
 }
 
 /// Whether `text` is a full commit id: 40 or 64 lower-case hex digits.
@@ -136,6 +163,79 @@ pub(crate) fn maintenance(repo: &Path) -> Result<(), String> {
         "--auto",
     ]);
     checked(child::run(&mut command, MAINTENANCE, &never)).map(drop)
+}
+
+/// The object ids of `paths` in the tree of `commit`, in the order of `paths`: `None` for a path that the tree lacks.
+/// A directory answers its tree id, which covers its whole content.
+pub(crate) fn object_ids(dir: &Path, commit: &str, paths: &[String]) -> Result<Vec<Option<String>>, String> {
+    if paths.is_empty() {
+        return Ok(Vec::new());
+    }
+    let output = checked(child::run(
+        git(dir)
+            .args(["--literal-pathspecs", "ls-tree", "-z", "--full-tree", commit, "--"])
+            .args(paths),
+        QUICK,
+        &never,
+    ))?;
+    let mut found = std::collections::BTreeMap::new();
+    for entry in output.stdout.split(|&byte| byte == 0).filter(|entry| !entry.is_empty()) {
+        let entry = String::from_utf8_lossy(entry);
+        let Some((head, path)) = entry.split_once('\t') else {
+            return Err(format!("git ls-tree answered {entry:?}"));
+        };
+        let id = head.rsplit(' ').next().unwrap_or_default().to_owned();
+        found.insert(path.to_owned(), id);
+    }
+    Ok(paths.iter().map(|path| found.get(path.trim_end_matches('/')).cloned()).collect())
+}
+
+/// The bytes of the blob `id` in the repository of `dir`.
+pub(crate) fn blob(dir: &Path, id: &str) -> Result<Vec<u8>, String> {
+    checked(child::run(git(dir).args(["cat-file", "blob", id]), QUICK, &never)).map(|output| output.stdout)
+}
+
+/// The tree of the files of the worktree `dir` as `git add --all` sees them: tracked and untracked files that git does
+/// not ignore. The scan goes into `index`, a copy of the index of the worktree, so the index of the worktree stays as it
+/// is. The copy is removed on every way out. The scan runs without fsmonitor, which would start a daemon in the slot.
+pub(crate) fn worktree_tree(dir: &Path, index: &Path, stop: Stop<'_>) -> Result<String, String> {
+    let own = checked(child::run(
+        git(dir).args(["rev-parse", "--path-format=absolute", "--git-path", "index"]),
+        QUICK,
+        stop,
+    ))?
+    .stdout_text();
+    let _removed = RemoveOnDrop(index.to_path_buf());
+    std::fs::copy(&own, index).map_err(|error| format!("cannot copy the index {own} to {}: {error}", index.display()))?;
+    let scan = |args: &[&str]| {
+        let mut command = git(dir);
+        command.args(["-c", "core.fsmonitor=false"]).args(args).env("GIT_INDEX_FILE", index);
+        checked(child::run(&mut command, SCAN, stop))
+    };
+    scan(&["add", "--all"])?;
+    Ok(scan(&["write-tree"])?.stdout_text())
+}
+
+/// The patch from the tree `before` to the tree `after`, for `git apply`: binary, with full ids, without renames.
+pub(crate) fn tree_patch(dir: &Path, before: &str, after: &str) -> Result<Vec<u8>, String> {
+    checked(child::run(
+        git(dir).args(["diff-tree", "-r", "-p", "--binary", "--full-index", "--no-renames", before, after]),
+        SCAN,
+        &never,
+    ))
+    .map(|output| output.stdout)
+}
+
+/// A temporary file that goes with its guard, together with the lock file that git makes beside it.
+struct RemoveOnDrop(std::path::PathBuf);
+
+impl Drop for RemoveOnDrop {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+        let mut lock = self.0.clone().into_os_string();
+        lock.push(".lock");
+        let _ = std::fs::remove_file(lock);
+    }
 }
 
 /// Checks out `commit` detached in the worktree `dir`, and discards the local changes there. `stop` kills the call

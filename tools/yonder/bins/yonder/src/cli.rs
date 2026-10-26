@@ -1,21 +1,30 @@
-//! The command line of `yonder`. A run leaves by the exit code of its command. A refusal leaves by 255, with
-//! `yonder: <code>: <message>` on the stderr. A command line that clap refuses leaves by 255 too, because no command
-//! ran.
+//! The command line of `yonder`. A run leaves by the exit code of its command. A refusal says `yonder: <code>: <message>`
+//! on the stderr and leaves by the exit of its [`Exit`]: 75 when the host did not run the command, so the caller can
+//! run it locally instead, 130 after Ctrl+C before the command, and 255 for any other refusal. A command line that clap
+//! refuses leaves by 2.
 
 use std::ffi::OsString;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
 use clap::error::ErrorKind;
 use clap::{Parser, Subcommand};
 use yonder_client::{
-    Call, Client, Config, DEFAULT_PORT, Exit, PrepareRequest, Processes, Refusal, RunInfo, RunRequest, code, holder, interrupt,
-    no_monorepo, phases_line, phases_short,
+    Call, Client, Config, DEFAULT_PORT, Exit, PrepareRequest, Processes, Refusal, RunInfo, RunOptions, RunRequest, UpgradeRequest,
+    UpgradeWay, code, holder, interrupt, never, no_monorepo, phases_line, phases_short,
 };
 
 /// The holder prefix of a checkout when `--holder` names none.
 const HOLDER_PREFIX: &str = "yonder";
+
+/// The exit code of a command line that clap refuses.
+const USAGE_EXIT: u8 = 2;
+
+/// The niceness of a run when `--nice` names none: a run of `yonder` yields the CPU to the runs of `bt --host`, which
+/// run at the niceness of the agent.
+const DEFAULT_NICE: u8 = 10;
 
 /// The deadline of the local git call that finds the checkout root.
 const GIT_DEADLINE: Duration = Duration::from_secs(30);
@@ -24,7 +33,7 @@ const GIT_DEADLINE: Duration = Duration::from_secs(30);
 #[command(
     name = "yonder",
     version,
-    about = "Runs a command of the committed HEAD of this checkout on another machine, in a warm Branch Deck lease there"
+    about = "Runs a command of the working tree of this checkout on another machine, in a warm Branch Deck lease there"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -33,12 +42,14 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Runs a command of the committed HEAD of this checkout on the host. The stderr streams as it comes, the stdout
-    /// comes at the end, and the exit code is the one of the command. Ctrl+C cancels the run on the host.
+    /// Runs a command of the working tree of this checkout on the host: HEAD plus the tracked and untracked changes that
+    /// git does not ignore. The output streams as it comes, and the exit code is the one of the command, or 75 when the
+    /// host did not run it. Ctrl+C cancels the run on the host.
     Run {
         /// The alias of the host file, which `yonder prepare` writes.
         alias: String,
-        /// The main repository on the host (default: the one of the host file).
+        /// The main repository on the host (default: the one of the same name as this one beside the repository of the
+        /// host file, such as `~/projects/branch-deck`, else the one of the host file).
         #[arg(long)]
         repo: Option<String>,
         /// The lease holder on the host (default: `yonder-<hash of the checkout path>`).
@@ -50,6 +61,16 @@ enum Command {
         /// A lease of another holder that no run used for this many hours goes back to the pool after the run.
         #[arg(long, default_value_t = 8)]
         idle_hours: u32,
+        /// Run the committed HEAD only, and refuse a checkout with local changes.
+        #[arg(long)]
+        head: bool,
+        /// The niceness of the command on the host, 0 to 19. 0 runs it at the priority of `bt --host`.
+        #[arg(long, default_value_t = DEFAULT_NICE, value_parser = clap::value_parser!(u8).range(0..=19))]
+        nice: u8,
+        /// Apply the changes that the command made to the files, such as a formatter or new snapshots, to this working
+        /// tree. Without it, nothing changes here but the fetched files and the outputs of `.yonder.toml`.
+        #[arg(long)]
+        apply: bool,
         /// The command and its arguments, after `--`.
         #[arg(last = true, required = true)]
         command: Vec<String>,
@@ -62,8 +83,8 @@ enum Command {
     Fetch {
         alias: String,
         run: String,
-        /// A directory relative to the slot root that each file must be below. Repeatable; without it, any plain
-        /// relative path is accepted.
+        /// A directory relative to the slot root that each file must be below. Repeatable; without it, the fetch
+        /// directories of the run on the host.
         #[arg(long = "fetch", value_name = "DIR")]
         fetch: Vec<String>,
     },
@@ -71,7 +92,7 @@ enum Command {
     Forget { alias: String, run: String },
     /// Lists the runs that the agent keeps, each with the steps of the host that took 0.1 s or more.
     Runs { alias: String },
-    /// Takes the warm lease of this checkout without a run.
+    /// Takes the warm lease of this checkout without a run, in the repository that a run of this checkout takes.
     Lease {
         alias: String,
         #[arg(long)]
@@ -79,7 +100,7 @@ enum Command {
         #[arg(long)]
         holder: Option<String>,
     },
-    /// Returns the lease of this checkout.
+    /// Returns the lease of this checkout, in the repository that a run of this checkout takes.
     Release {
         alias: String,
         #[arg(long)]
@@ -105,6 +126,22 @@ enum Command {
         #[arg(long)]
         name: Option<String>,
     },
+    /// Updates the agent on the host over the link, without ssh. The agent installs the new binary and restarts, and a
+    /// watchdog there brings back the previous binary when the new one does not start. An agent that knows no upgrade
+    /// request gets a run that carries the binary in `yonder-upgrade/` of this working tree and installs it, once.
+    Upgrade {
+        alias: String,
+        /// A local `yonderd` binary for the host (default: the client builds `@community//tools/yonder:yonderd` with
+        /// `./bazel.cmd` in the root of this checkout of the monorepo).
+        #[arg(long)]
+        agent: Option<PathBuf>,
+        /// The lease holder of the run of an agent that knows no upgrade request.
+        #[arg(long)]
+        holder: Option<String>,
+        /// Send the binary that the agent runs already too, and let the agent take a binary of a lower version.
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 /// One invocation, with the program name first. Answers the exit code.
@@ -112,7 +149,7 @@ pub(crate) fn run<I, T>(
     argv: I,
     config: Result<Config, Refusal>,
     processes: &dyn Processes,
-    stdout: &mut dyn Write,
+    stdout: &mut (dyn Write + Send),
     say: &(dyn Fn(&str) + Sync),
 ) -> u8
 where
@@ -128,7 +165,7 @@ where
                 return 0;
             }
             say(text.trim_end());
-            return Exit::Refused.code();
+            return USAGE_EXIT;
         }
     };
     match config.and_then(|config| execute(cli.command, config, processes, stdout, say)) {
@@ -144,11 +181,21 @@ fn execute(
     command: Command,
     config: Config,
     processes: &dyn Processes,
-    stdout: &mut dyn Write,
+    stdout: &mut (dyn Write + Send),
     say: &(dyn Fn(&str) + Sync),
 ) -> Result<u8, Refusal> {
     let presses = interrupt::presses;
-    let client = Client::new(config, processes, say, &presses);
+    let stdout = Mutex::new(stdout);
+    // The stdout lines of a run go out as they come.
+    let line_out = |line: &str| {
+        let mut stdout = stdout.lock().unwrap_or_else(PoisonError::into_inner);
+        let _ = writeln!(stdout, "{line}").and_then(|()| stdout.flush());
+    };
+    let client = Client::new(config, processes, say, &presses).with_stdout(&line_out);
+    let answer = |text: &str| {
+        let _ = writeln!(stdout.lock().unwrap_or_else(PoisonError::into_inner), "{text}");
+        0
+    };
     match command {
         Command::Run {
             alias,
@@ -156,15 +203,14 @@ fn execute(
             holder: named,
             fetch,
             idle_hours,
+            head,
+            nice,
+            apply,
             command,
         } => {
             let checkout = checkout_root(processes)?;
             let holder = named.unwrap_or_else(|| holder(HOLDER_PREFIX, &checkout));
-            if let Err(said) = interrupt::install() {
-                say(&format!(
-                    "yonder: {said}; Ctrl+C ends this process, and the run goes on on the host"
-                ));
-            }
+            install_interrupt(say, "Ctrl+C ends this process, and the run goes on on the host");
             let request = RunRequest {
                 checkout: &checkout,
                 repo: repo.as_deref(),
@@ -173,8 +219,14 @@ fn execute(
                 fetch: &fetch,
                 idle_hours,
             };
-            let outcome = client.run(&alias, &request)?;
-            let _ = write!(stdout, "{}", outcome.stdout);
+            let options = RunOptions {
+                working_tree: !head,
+                nice: Some(nice),
+                outputs: true,
+                apply,
+                repo_by_name: repo.is_none(),
+            };
+            let outcome = client.run_with(&alias, &request, &options)?;
             if !outcome.fetched.is_empty() {
                 say(&format!(
                     "yonder: copied {} files of the run {} into {}",
@@ -188,29 +240,29 @@ fn execute(
         }
         Command::Attach { alias, run } => {
             let followed = client.attach(&alias, &run)?;
-            let _ = write!(stdout, "{}", followed.stdout);
             if !followed.phases.is_empty() {
                 say(&phases_line(&followed.phases));
             }
             Ok(exit_code(followed.code))
         }
-        Command::Cancel { alias, run } => Ok(answer(stdout, &client.cancel(&alias, &run)?)),
+        Command::Cancel { alias, run } => Ok(answer(&client.cancel(&alias, &run)?)),
         Command::Fetch { alias, run, fetch } => {
             let checkout = checkout_root(processes)?;
             let fetched = client.fetch(&alias, &run, &checkout, &fetch)?;
-            Ok(answer(
-                stdout,
-                &format!("copied {} files of the run {run} into {}", fetched.len(), checkout.display()),
-            ))
+            Ok(answer(&format!(
+                "copied {} files of the run {run} into {}",
+                fetched.len(),
+                checkout.display()
+            )))
         }
-        Command::Forget { alias, run } => Ok(answer(stdout, &client.forget(&alias, &run)?)),
+        Command::Forget { alias, run } => Ok(answer(&client.forget(&alias, &run)?)),
         Command::Runs { alias } => {
             let runs = client.runs(&alias)?;
             if runs.is_empty() {
-                let _ = writeln!(stdout, "no runs on {alias}");
+                answer(&format!("no runs on {alias}"));
             }
             for run in runs {
-                let _ = writeln!(stdout, "{}", run_line(&run));
+                answer(&run_line(&run));
             }
             Ok(0)
         }
@@ -219,21 +271,23 @@ fn execute(
             repo,
             holder: named,
         } => {
-            let holder = holder_of(named, processes)?;
-            let leased = client.lease(&alias, repo.as_deref(), &holder)?;
+            let checkout = checkout_root(processes)?;
+            let holder = holder_of(named, &checkout);
+            let leased = client.lease_for(&alias, &checkout, repo.as_deref(), &holder)?;
             let fresh = if leased.fresh { "new" } else { "warm" };
-            Ok(answer(
-                stdout,
-                &format!("the lease {} of {holder} is {} ({fresh})", leased.lease_id, leased.slot),
-            ))
+            Ok(answer(&format!(
+                "the lease {} of {holder} is {} ({fresh})",
+                leased.lease_id, leased.slot
+            )))
         }
         Command::Release {
             alias,
             repo,
             holder: named,
         } => {
-            let holder = holder_of(named, processes)?;
-            Ok(answer(stdout, &client.release(&alias, repo.as_deref(), &holder)?))
+            let checkout = checkout_root(processes)?;
+            let holder = holder_of(named, &checkout);
+            Ok(answer(&client.release_for(&alias, &checkout, repo.as_deref(), &holder)?))
         }
         Command::Prepare {
             alias,
@@ -242,6 +296,8 @@ fn execute(
             repo,
             name,
         } => {
+            // Each child runs in a group of its own, so only the client can stop the Bazel build and the ssh calls.
+            install_interrupt(say, "Ctrl+C ends this process, and a child such as the Bazel build goes on");
             let agent = if let Some(agent) = agent {
                 agent
             } else {
@@ -262,20 +318,62 @@ fn execute(
                 format!("{alias}:~/.local/bin/yonderd is current")
             };
             let info = &prepared.agent;
-            Ok(answer(
-                stdout,
-                &format!(
-                    "{copied}\nlaunchd: {}\nyonderd {} answers on {} ({} {})\nhost file {}",
-                    prepared.launchd,
-                    info.version,
-                    info.address,
-                    info.os,
-                    info.arch,
-                    prepared.host_file.display()
-                ),
-            ))
+            Ok(answer(&format!(
+                "{copied}\nlaunchd: {}\nyonderd {} answers on {} ({} {})\nhost file {}",
+                prepared.launchd,
+                info.version,
+                info.address,
+                info.os,
+                info.arch,
+                prepared.host_file.display()
+            )))
+        }
+        Command::Upgrade {
+            alias,
+            agent,
+            holder: named,
+            force,
+        } => {
+            install_interrupt(say, "Ctrl+C ends this process, and a child such as the Bazel build goes on");
+            let checkout = checkout_root(processes).ok();
+            let holder = named.unwrap_or_else(|| {
+                checkout
+                    .as_deref()
+                    .map_or_else(|| HOLDER_PREFIX.to_owned(), |root| holder(HOLDER_PREFIX, root))
+            });
+            let upgraded = client.upgrade(&UpgradeRequest {
+                alias: &alias,
+                agent: agent.as_deref(),
+                checkout: checkout.as_deref(),
+                holder: &holder,
+                force,
+            })?;
+            Ok(answer(&upgraded_text(&alias, &upgraded)))
         }
     }
+}
+
+/// The answer of `yonder upgrade`.
+fn upgraded_text(alias: &str, upgraded: &yonder_client::Upgraded) -> String {
+    let short = |sha256: &str| sha256.get(..12).unwrap_or(sha256).to_owned();
+    let info = &upgraded.agent;
+    let answers = format!(
+        "yonderd {} answers on {} ({} {})",
+        upgraded.version, info.address, info.os, info.arch
+    );
+    let how = match &upgraded.way {
+        UpgradeWay::Current => return format!("yonderd {} on {alias} is current\n{answers}", short(&upgraded.sha256)),
+        UpgradeWay::Request => "over the link".to_owned(),
+        UpgradeWay::Bootstrap(run) => format!("through the run {run}"),
+    };
+    let previous = upgraded
+        .previous_sha256
+        .as_deref()
+        .map_or_else(|| "an older build".to_owned(), short);
+    format!(
+        "upgraded yonderd on {alias} from {previous} to {} {how}\n{answers}",
+        short(&upgraded.sha256)
+    )
 }
 
 /// One run of `yonder runs`: its id, its state, its holder, its commit, its command, and the steps that took 0.1 s or
@@ -291,9 +389,11 @@ fn run_line(run: &RunInfo) -> String {
     line
 }
 
-fn answer(stdout: &mut dyn Write, text: &str) -> u8 {
-    let _ = writeln!(stdout, "{text}");
-    0
+/// Installs the Ctrl+C handler, and says `without` when it cannot.
+fn install_interrupt(say: &(dyn Fn(&str) + Sync), without: &str) {
+    if let Err(said) = interrupt::install() {
+        say(&format!("yonder: {said}; {without}"));
+    }
 }
 
 /// The exit code of a command as an exit code of this process. A code outside 0 to 255 leaves by 255.
@@ -301,16 +401,14 @@ fn exit_code(code: i32) -> u8 {
     u8::try_from(code).unwrap_or(Exit::Refused.code())
 }
 
-fn holder_of(named: Option<String>, processes: &dyn Processes) -> Result<String, Refusal> {
-    match named {
-        Some(holder) => Ok(holder),
-        None => Ok(holder(HOLDER_PREFIX, &checkout_root(processes)?)),
-    }
+/// The holder of `--holder`, or the one of the checkout.
+fn holder_of(named: Option<String>, checkout: &Path) -> String {
+    named.unwrap_or_else(|| holder(HOLDER_PREFIX, checkout))
 }
 
 /// The root of the checkout of the working directory.
 fn checkout_root(processes: &dyn Processes) -> Result<PathBuf, Refusal> {
-    let ran = processes.run(&Call::new("git", &["rev-parse", "--show-toplevel"], GIT_DEADLINE));
+    let ran = processes.run(&Call::new("git", &["rev-parse", "--show-toplevel"], GIT_DEADLINE), &never);
     let root = ran.stdout_text().trim().to_owned();
     if !ran.ok() || root.is_empty() {
         return Err(Refusal::new(
@@ -324,7 +422,7 @@ fn checkout_root(processes: &dyn Processes) -> Result<PathBuf, Refusal> {
 
 /// The host name of this machine for the allow list of the agent, or `client`.
 fn local_name(processes: &dyn Processes) -> String {
-    let ran = processes.run(&Call::new("hostname", &[] as &[&str], GIT_DEADLINE));
+    let ran = processes.run(&Call::new("hostname", &[] as &[&str], GIT_DEADLINE), &never);
     let name = ran.stdout_text().trim().to_owned();
     if ran.ok() && !name.is_empty() { name } else { "client".to_owned() }
 }

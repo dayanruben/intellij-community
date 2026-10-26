@@ -37,7 +37,7 @@
     <orderEntry type="module" module-name="intellij.platform.testFramework.junit5" scope="TEST" />
     <orderEntry type="module" module-name="intellij.kotlin.projectConfiguration" scope="TEST" />
     <orderEntry type="module" module-name="kotlin.fir.testFramework" scope="TEST" />
-    <orderEntry type="module" module-name="intellij.kotlin.gradle.java" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.kotlin.gradle.java" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.platform.jps.model" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.ide.core" scope="TEST" />
     <orderEntry type="module" module-name="intellij.gradle.toolingExtension.tests" scope="TEST" />
@@ -69,5 +69,4 @@
     <orderEntry type="module" module-name="intellij.platform.problemView.collector" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.platform.scratch.plugin" scope="TEST" />
   </component>
-  <component name="TestModuleProperties" production-module="intellij.kotlin.gradle.java" />
 </module>

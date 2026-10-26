@@ -84,6 +84,7 @@ jvm_library(
     ),
     module_name = "intellij.maven.proofreading.tests",
     visibility = ["//visibility:public"],
+    runtime_deps = ["//plugins/maven/proofreading"],
 )
 
 jvm_library(
@@ -97,12 +98,13 @@ jvm_library(
         ],
         allow_empty = True,
     ),
-    associates = [
-        "//plugins/maven/proofreading",
+    module_name = "intellij.maven.proofreading.tests",
+    visibility = ["//visibility:public"],
+    runtime_deps = [
+        # do not sort,
+        ":proofreading-tests",
         "//plugins/maven/proofreading:proofreading_test_lib",
     ],
-    visibility = ["//visibility:public"],
-    runtime_deps = [":proofreading-tests"],
     deps = [
         # do not sort,
         "@lib//:kotlin-stdlib",

@@ -1,7 +1,7 @@
 use std::sync::{Mutex, PoisonError};
 
 use pretty_assertions::assert_eq;
-use yonder_client::{Phase, Ran};
+use yonder_client::{Phase, Ran, Stop};
 
 use super::*;
 
@@ -9,7 +9,7 @@ use super::*;
 struct Checkout;
 
 impl Processes for Checkout {
-    fn run(&self, call: &Call) -> Ran {
+    fn run(&self, call: &Call, _: Stop<'_>) -> Ran {
         let stdout = if call.text().contains("--show-toplevel") {
             b"/c\n".to_vec()
         } else {
@@ -20,12 +20,6 @@ impl Processes for Checkout {
             stdout,
             ..Ran::default()
         }
-    }
-
-    fn run_to_file(&self, call: &Call, stdout: &Path, _: &(dyn Fn() -> bool + Sync)) -> Ran {
-        let ran = self.run(call);
-        std::fs::write(stdout, &ran.stdout).expect("the stdout file");
-        ran
     }
 }
 
@@ -71,11 +65,38 @@ fn a_run_takes_its_command_after_the_separator() {
 }
 
 #[test]
-fn a_run_without_a_command_is_refused_with_255() {
+fn a_run_without_a_command_is_a_usage_error() {
     let (code, stdout, said) = invoke(&["run", "studio"]);
-    assert_eq!(code, 255);
+    assert_eq!(code, 2);
     assert_eq!(stdout, "");
     assert!(said.join("\n").contains("<COMMAND>"), "{said:?}");
+}
+
+#[test]
+fn a_run_ships_the_working_tree_at_niceness_10_unless_told_otherwise() {
+    let parse = |args: &[&str]| {
+        let cli = Cli::try_parse_from(std::iter::once("yonder").chain(args.iter().copied())).expect("parsed");
+        let Command::Run { head, nice, apply, .. } = cli.command else {
+            panic!("{cli:?}")
+        };
+        (head, nice, apply)
+    };
+    assert_eq!(parse(&["run", "studio", "--", "true"]), (false, 10, false));
+    assert_eq!(
+        parse(&["run", "studio", "--head", "--nice", "0", "--apply", "--", "true"]),
+        (true, 0, true)
+    );
+    let (code, _, said) = invoke(&["run", "studio", "--nice", "20", "--", "true"]);
+    assert_eq!(code, 2);
+    assert!(said.join("\n").contains("20"), "{said:?}");
+}
+
+#[test]
+fn a_run_that_the_host_did_not_take_leaves_by_75() {
+    let (code, stdout, said) = invoke(&["run", "studio", "--", "true"]);
+    assert_eq!(code, 75);
+    assert_eq!(stdout, "");
+    assert!(said[0].starts_with("yonder: no_host: "), "{said:?}");
 }
 
 #[test]
@@ -104,11 +125,8 @@ fn an_exit_code_outside_a_byte_leaves_by_255() {
 
 #[test]
 fn the_default_holder_is_the_one_of_the_checkout() {
-    assert_eq!(
-        holder_of(None, &Checkout).expect("a holder"),
-        holder(HOLDER_PREFIX, Path::new("/c"))
-    );
-    assert_eq!(holder_of(Some("h".to_owned()), &Checkout).expect("a holder"), "h");
+    assert_eq!(holder_of(None, Path::new("/c")), holder(HOLDER_PREFIX, Path::new("/c")));
+    assert_eq!(holder_of(Some("h".to_owned()), Path::new("/c")), "h");
 }
 
 /// A run of `yonder runs` shows its steps in the short form, and a run without long steps shows none.
@@ -128,6 +146,7 @@ fn a_listed_run_shows_its_long_steps() {
             step("checkout", 41_000),
             step("command", 3_909_000),
         ],
+        fetch: Vec::new(),
     };
     assert_eq!(
         run_line(&run),
@@ -152,7 +171,7 @@ struct Preparing {
 }
 
 impl Processes for Preparing {
-    fn run(&self, call: &Call) -> Ran {
+    fn run(&self, call: &Call, _: Stop<'_>) -> Ran {
         let text = call.text();
         self.calls.lock().unwrap_or_else(PoisonError::into_inner).push(text.clone());
         let answer = |code: i32, stdout: String, stderr: &str| Ran {
@@ -177,12 +196,6 @@ impl Processes for Preparing {
             return answer(255, String::new(), "ssh: connect to host studio port 22: Connection refused");
         }
         answer(0, String::new(), "")
-    }
-
-    fn run_to_file(&self, call: &Call, stdout: &Path, _: &(dyn Fn() -> bool + Sync)) -> Ran {
-        let ran = self.run(call);
-        std::fs::write(stdout, &ran.stdout).expect("the stdout file");
-        ran
     }
 }
 
@@ -273,4 +286,54 @@ fn fetch_and_forget_name_a_run() {
     );
     let cli = Cli::try_parse_from(["yonder", "forget", "studio", "1-2"]).expect("parsed");
     assert!(matches!(cli.command, Command::Forget { .. }), "{cli:?}");
+}
+
+#[test]
+fn upgrade_takes_the_alias_an_agent_and_a_holder_and_refuses_an_unprepared_host() {
+    let cli = Cli::try_parse_from(["yonder", "upgrade", "studio", "--agent", "/tmp/yonderd", "--force"]).expect("parsed");
+    let Command::Upgrade {
+        alias,
+        agent,
+        holder,
+        force,
+    } = cli.command
+    else {
+        panic!("{cli:?}")
+    };
+    assert_eq!(
+        (alias.as_str(), agent, holder, force),
+        ("studio", Some(PathBuf::from("/tmp/yonderd")), None, true)
+    );
+    let (code, _, said) = invoke(&["upgrade", "studio"]);
+    assert_eq!(code, 255);
+    assert!(said[0].starts_with("yonder: no_host: "), "{said:?}");
+}
+
+#[test]
+fn an_upgrade_says_how_the_binary_came_and_which_agent_answers() {
+    let upgraded = |way| yonder_client::Upgraded {
+        way,
+        previous_sha256: Some("a".repeat(64)),
+        sha256: "b".repeat(64),
+        version: "0.1.0".to_owned(),
+        agent: yonder_client::AgentInfo {
+            version: "0.1.0".to_owned(),
+            os: "macos".to_owned(),
+            arch: "aarch64".to_owned(),
+            address: "192.168.1.24:7741".parse().expect("an address"),
+        },
+    };
+    let answers = "yonderd 0.1.0 answers on 192.168.1.24:7741 (macos aarch64)";
+    assert_eq!(
+        upgraded_text("studio", &upgraded(UpgradeWay::Request)),
+        format!("upgraded yonderd on studio from aaaaaaaaaaaa to bbbbbbbbbbbb over the link\n{answers}")
+    );
+    assert_eq!(
+        upgraded_text("studio", &upgraded(UpgradeWay::Bootstrap("1-2".to_owned()))),
+        format!("upgraded yonderd on studio from aaaaaaaaaaaa to bbbbbbbbbbbb through the run 1-2\n{answers}")
+    );
+    assert_eq!(
+        upgraded_text("studio", &upgraded(UpgradeWay::Current)),
+        format!("yonderd bbbbbbbbbbbb on studio is current\n{answers}")
+    );
 }

@@ -14,11 +14,12 @@ use std::net::{SocketAddr, TcpStream};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::rc::Rc;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 
 use pretty_assertions::assert_eq;
-use yonder_link::proto::{Phase, Reply, Request, RunSpec, SCHEMA_VERSION, Stream};
+use yonder_link::proto::{FileKind, Phase, Reply, Request, RunSpec, SCHEMA_VERSION, Stream};
 use yonder_link::{AllowList, Channel, ClientTls, Fingerprint, Identity, LinkError};
 
 /// The deadline of each connect and read of the test client.
@@ -27,7 +28,10 @@ const DEADLINE: Duration = Duration::from_secs(30);
 const HOLDER: &str = "yonder-0123456789ab";
 
 /// The phases of a run that ran its command, in their order.
-const ALL_PHASES: [&str; 6] = ["lock", "lease", "pack_wait", "checkout", "command", "stage"];
+const ALL_PHASES: [&str; 7] = ["lock", "lease", "pack_wait", "checkout", "prepare", "command", "stage"];
+
+/// The start of the line that the agent writes right before the command.
+const START_LINE: &str = "yonder: running in ";
 
 fn agent_binary() -> PathBuf {
     let path = std::env::var_os("CARGO_BIN_EXE_yonderd")
@@ -110,33 +114,23 @@ fn write_script(path: &Path, text: &str) {
     fs::set_permissions(path, fs::Permissions::from_mode(0o755)).expect("executable");
 }
 
-/// Runs git in `dir` and answers its stdout.
-fn git(dir: &Path, args: &[&str]) -> String {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(args)
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .env("GIT_AUTHOR_NAME", "t")
-        .env("GIT_AUTHOR_EMAIL", "t@t")
-        .env("GIT_COMMITTER_NAME", "t")
-        .env("GIT_COMMITTER_EMAIL", "t@t")
-        .output()
-        .expect("git");
-    assert!(output.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&output.stderr));
-    String::from_utf8_lossy(&output.stdout).trim().to_owned()
-}
+#[path = "../src/testing.rs"]
+mod testing;
 
-/// A temporary home with a main repository, the fake bd, and the identity of a client in the allow list.
+use testing::git;
+
+/// A temporary home with a main repository, the fake bd, and the identity of a client in the allow list. A clone shares
+/// the directory, so a second `serve` of the same home can start.
+#[derive(Clone)]
 struct World {
-    dir: tempfile::TempDir,
+    dir: Rc<tempfile::TempDir>,
     client: Identity,
     commit: String,
 }
 
 impl World {
     fn new() -> Self {
-        let dir = tempfile::tempdir().expect("a temporary directory");
+        let dir = Rc::new(tempfile::tempdir().expect("a temporary directory"));
         let world = Self {
             dir,
             client: Identity::generate().expect("the client identity"),
@@ -193,13 +187,20 @@ impl World {
 
     /// The agent binary with the environment of the world only.
     fn command(&self) -> Command {
-        let mut command = Command::new(agent_binary());
+        self.command_of(&agent_binary())
+    }
+
+    /// The agent binary `program` with the environment of the world only.
+    fn command_of(&self, program: &Path) -> Command {
+        let mut command = Command::new(program);
         command
             .env_clear()
             .env("HOME", self.home())
             .env("PATH", format!("{}:/usr/bin:/bin", self.bin().display()))
             .env("FAKE_BD_DIR", self.bd_dir())
-            .env("GIT_CONFIG_NOSYSTEM", "1");
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            // The login shell of the developer stays out of the tests; a test that needs one names its own.
+            .env("YONDERD_TEST_SHELL", "none");
         command
     }
 
@@ -213,6 +214,7 @@ impl World {
             command: vec!["/bin/sh".to_owned(), "-c".to_owned(), script.to_owned()],
             fetch: vec!["out/bt-runs".to_owned()],
             idle_hours: 8,
+            ..RunSpec::default()
         }
     }
 
@@ -223,13 +225,19 @@ impl World {
 
     /// Starts `serve` on a loopback port with more environment, such as a test duration of `tuning.rs`.
     fn serve_with(self, env: &[(&str, &str)]) -> Agent {
+        self.serve_program(&agent_binary(), 0, &[], env)
+    }
+
+    /// Starts `serve` of the binary `program` on the loopback `port` (0: any) with more arguments and more environment.
+    fn serve_program(self, program: &Path, port: u16, args: &[&str], env: &[(&str, &str)]) -> Agent {
         let log = fs::File::create(self.dir.path().join("serve.log")).expect("the serve log");
-        let mut command = self.command();
+        let mut command = self.command_of(program);
         for (name, value) in env {
             command.env(name, value);
         }
         let mut child = command
-            .args(["serve", "--bind", "127.0.0.1", "--port", "0"])
+            .args(["serve", "--bind", "127.0.0.1", "--port", &port.to_string()])
+            .args(args)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(log)
@@ -293,16 +301,32 @@ impl Followed {
             .ms
     }
 
+    /// The lines of the run, less the start line of its command, which [`Followed::start_line`] answers.
     fn texts(&self) -> Vec<&str> {
-        self.lines.iter().map(|(_, text, _)| text.as_str()).collect()
+        self.lines
+            .iter()
+            .map(|(_, text, _)| text.as_str())
+            .filter(|text| !text.starts_with(START_LINE))
+            .collect()
     }
 
+    /// The lines of one stream, less the start line of the command.
     fn of(&self, stream: Stream) -> Vec<&str> {
         self.lines
             .iter()
             .filter(|(of, _, _)| *of == stream)
             .map(|(_, text, _)| text.as_str())
+            .filter(|text| !text.starts_with(START_LINE))
             .collect()
+    }
+
+    /// The line that the agent writes right before the command.
+    fn start_line(&self) -> &str {
+        self.lines
+            .iter()
+            .map(|(_, text, _)| text.as_str())
+            .find(|text| text.starts_with(START_LINE))
+            .unwrap_or_else(|| panic!("no start line: {self:?}"))
     }
 }
 
@@ -323,11 +347,17 @@ impl Agent {
 
     /// The last reply of `request`. Any request that waits can get heartbeats first, so they are skipped.
     fn reply(&self, request: &Request) -> Reply {
+        self.reply_after_heartbeats(request).1
+    }
+
+    /// The last reply of `request`, and the count of the heartbeats before it.
+    fn reply_after_heartbeats(&self, request: &Request) -> (u32, Reply) {
         let mut channel = self.ask(request);
+        let mut heartbeats = 0;
         loop {
             match channel.recv().expect("the reply") {
-                Reply::Heartbeat { .. } => {}
-                reply => return reply,
+                Reply::Heartbeat { .. } => heartbeats += 1,
+                reply => return (heartbeats, reply),
             }
         }
     }
@@ -423,14 +453,16 @@ fn hello_answers_the_schema_and_another_schema_or_request_is_refused() {
     let agent = World::new().serve();
     let mut channel = agent.connect_as(&agent.world.client).expect("connected");
     channel.send(&Request::hello("test")).expect("sent");
-    assert_eq!(
-        channel.recv::<Reply>().expect("the reply"),
-        Reply::Hello {
-            schema_version: SCHEMA_VERSION,
-            agent_version: env!("CARGO_PKG_VERSION").to_owned(),
-            os: std::env::consts::OS.to_owned(),
-            arch: std::env::consts::ARCH.to_owned(),
-        }
+    let hello = channel.recv::<Reply>().expect("the reply");
+    let sha256 = yonder_link::digest::sha256_file(&agent_binary()).expect("the SHA-256 of the agent");
+    assert_eq!(hello, Reply::hello(env!("CARGO_PKG_VERSION"), Some(sha256)));
+    assert!(
+        matches!(&hello, Reply::Hello { schema_version, os, .. } if *schema_version == SCHEMA_VERSION && os == std::env::consts::OS),
+        "{hello:?}"
+    );
+    assert!(
+        matches!(&hello, Reply::Hello { features, .. } if *features == yonder_link::proto::features()),
+        "{hello:?}"
     );
 
     let mut channel = agent.connect_as(&agent.world.client).expect("connected");
@@ -456,14 +488,17 @@ fn hello_answers_the_schema_and_another_schema_or_request_is_refused() {
 fn a_stranger_certificate_is_refused() {
     let agent = World::new().serve();
     let stranger = Identity::generate().expect("a stranger");
-    let outcome = agent.connect_as(&stranger).and_then(|mut channel| {
-        channel.send(&Request::hello("test"))?;
-        channel.recv::<Reply>()
+    let outcome = agent
+        .connect_as(&stranger)
+        .and_then(|mut channel| channel.exchange::<_, Reply>(&Request::hello("test")));
+    // The agent refuses the certificate: the client gets no reply, and neither a deadline nor a closed port ends it.
+    let Err(error) = outcome else {
+        panic!("the agent answered a stranger: {outcome:?}");
+    };
+    assert!(!matches!(error, LinkError::TimedOut | LinkError::Unreachable(_)), "{error:?}");
+    eventually("the refusal in the log of serve", || {
+        fs::read_to_string(agent.world.dir.path().join("serve.log")).is_ok_and(|log| log.contains("refused a connection from"))
     });
-    assert!(
-        matches!(outcome, Err(LinkError::Untrusted(_) | LinkError::Protocol(_))),
-        "{outcome:?}"
-    );
 }
 
 #[test]
@@ -608,13 +643,25 @@ fn a_run_streams_its_output_to_the_exit_code_stages_its_files_and_is_forgotten()
         "{lease}"
     );
     assert!(world.bd_calls().lines().all(|call| call.starts_with("/|")), "{}", world.bd_calls());
+    let start = followed.start_line();
+    assert!(start.starts_with(&format!("{START_LINE}{} (slot ", slot.display())), "{start}");
+    assert!(
+        start.contains(", nice 0, ") && start.contains(" open files, the environment of the agent"),
+        "{start}"
+    );
 
     // The staged files come with their paths, sizes and modes; the slot keeps none of them.
     let mut channel = agent.ask(&Request::Fetch { run: "1-1".to_owned() });
     let mut files = Vec::new();
     loop {
         match channel.recv::<Reply>().expect("a reply") {
-            Reply::File { path, size, executable } => {
+            Reply::File {
+                path,
+                size,
+                executable,
+                kind,
+            } => {
+                assert_eq!(kind, FileKind::Staged);
                 let mut bytes = Vec::new();
                 channel.recv_stream(&mut bytes).expect("the bytes");
                 assert_eq!(bytes.len() as u64, size);
@@ -737,7 +784,7 @@ fn a_follow_from_an_offset_in_the_middle_of_a_run_goes_on_from_there() {
         panic!("not runs");
     };
     let names: Vec<&str> = runs[0].phases.iter().map(|phase| phase.name.as_str()).collect();
-    assert_eq!(names, ALL_PHASES[..4]);
+    assert_eq!(names, ALL_PHASES[..5]);
     assert_eq!(runs[0].exit, None);
 
     fs::write(&gate, "").expect("the gate");
@@ -961,6 +1008,9 @@ fn version_prints_the_version_and_the_schema() {
     let line: serde_json::Value = serde_json::from_slice(&output.stdout).expect("json");
     assert_eq!(line["schema_version"], SCHEMA_VERSION);
     assert_eq!(line["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(line["features"], serde_json::json!(yonder_link::proto::features()));
+    let sha256 = yonder_link::digest::sha256_file(&agent_binary()).expect("the SHA-256 of the agent");
+    assert_eq!(line["sha256"], sha256, "the build id");
 }
 
 #[test]
@@ -1257,17 +1307,10 @@ fn a_lease_sends_heartbeats_while_bd_works() {
     let agent = World::new().serve_with(&[("YONDERD_TEST_HEARTBEAT_MS", "100")]);
     let world = &agent.world;
     fs::write(world.bd_dir().join("slow-get"), "").expect("the flag");
-    let mut channel = agent.ask(&Request::Lease {
+    let (heartbeats, last) = agent.reply_after_heartbeats(&Request::Lease {
         repo: "~/repo".to_owned(),
         holder: HOLDER.to_owned(),
     });
-    let mut heartbeats = 0;
-    let last = loop {
-        match channel.recv::<Reply>().expect("a reply") {
-            Reply::Heartbeat { .. } => heartbeats += 1,
-            other => break other,
-        }
-    };
     assert!(matches!(last, Reply::Leased { fresh: true, .. }), "{last:?}");
     assert!(heartbeats >= 3, "{heartbeats} heartbeats");
 }
@@ -1384,6 +1427,62 @@ fn a_start_whose_pack_never_comes_ends_with_pack_missing() {
     };
     assert_eq!(runs[0].exit, Some(255));
     assert_eq!(runs[0].phases, followed.phases.expect("the phases"));
+}
+
+/// A client that builds its pack sends empty chunks, and they keep the wait of its run alive past the stall time. A
+/// start whose pack connection never comes ends with `pack_missing` after the stall time, long before the deadline.
+#[test]
+fn the_chunks_of_a_pack_keep_its_run_waiting_and_a_start_without_them_ends_at_the_stall() {
+    // The agent notes the chunks once a second, so the stall time is a few times that.
+    let agent = World::new().serve_with(&[("YONDERD_TEST_PACK_STALL_MS", "3000")]);
+    let world = &agent.world;
+    let (head, pack) = local_commit(world);
+    agent.start(RunSpec {
+        commit: head.clone(),
+        ..world.spec("25-1", HOLDER, "cat b.txt; echo")
+    });
+    let mut channel = agent.ask(&Request::Pack {
+        repo: "~/repo".to_owned(),
+        commit: head,
+        reference: "refs/yonder/25-1".to_owned(),
+    });
+    let building = Instant::now();
+    while building.elapsed() < Duration::from_millis(5000) {
+        channel.send_keepalive().expect("an empty chunk");
+        thread::sleep(Duration::from_millis(150));
+    }
+    channel.send_stream(&mut &pack[..], &mut |_| {}).expect("the pack sent");
+    assert_eq!(channel.recv::<Reply>().expect("the reply"), Reply::Packed);
+    let followed = agent.follow("25-1", 0);
+    assert_eq!(followed.end, Reply::Exit { code: 0 }, "{}", agent.dump("25-1"));
+    assert_eq!(followed.of(Stream::Stdout), vec!["b"]);
+    // The wait starts after the lease, and it outlived the stall time.
+    assert!(followed.phase_ms("pack_wait") >= 3000, "{followed:?}");
+
+    let started = Instant::now();
+    agent.start(RunSpec {
+        commit: "1".repeat(40),
+        ..world.spec("25-2", HOLDER, "true")
+    });
+    let stalled = agent.follow("25-2", 0);
+    assert!(
+        matches!(&stalled.end, Reply::Refused { code, message } if code == "pack_missing" && message.contains("sent no chunk")),
+        "{stalled:?}"
+    );
+    assert!(started.elapsed() < Duration::from_secs(20), "{:?}", started.elapsed());
+}
+
+/// A pack that comes after the end of its run makes no ref, because no run is left to delete it.
+#[test]
+fn a_pack_after_the_end_of_its_run_leaves_no_ref() {
+    let agent = World::new().serve();
+    let world = &agent.world;
+    agent.start(world.spec("26-1", HOLDER, "true"));
+    assert_eq!(agent.follow("26-1", 0).end, Reply::Exit { code: 0 });
+    let (head, pack) = local_commit(world);
+    assert_eq!(agent.pack(&head, "refs/yonder/26-1", &pack), Reply::Packed);
+    assert_eq!(git(&world.repo(), &["for-each-ref", "refs/yonder/"]), "");
+    assert_eq!(git(&world.repo(), &["cat-file", "-t", &head]), "commit", "the objects land");
 }
 
 #[test]
@@ -1527,17 +1626,10 @@ fn a_have_sends_heartbeats_while_git_works() {
     ]);
     let world = &agent.world;
     fs::write(world.bd_dir().join("slow-cat-file"), "").expect("the flag");
-    let mut channel = agent.ask(&Request::Have {
+    let (heartbeats, last) = agent.reply_after_heartbeats(&Request::Have {
         repo: "~/repo".to_owned(),
         commits: vec![world.commit.clone()],
     });
-    let mut heartbeats = 0;
-    let last = loop {
-        match channel.recv::<Reply>().expect("a reply") {
-            Reply::Heartbeat { .. } => heartbeats += 1,
-            other => break other,
-        }
-    };
     assert_eq!(
         last,
         Reply::Have {
@@ -1545,4 +1637,502 @@ fn a_have_sends_heartbeats_while_git_works() {
         }
     );
     assert!(heartbeats >= 3, "{heartbeats} heartbeats");
+}
+
+/// A login shell for the tests: it sets `FROM_PROFILE` and puts `/profile/bin` first on `PATH`, then runs the script
+/// of `-c`, its last argument, as a real login shell would after its profile.
+const LOGIN_SHELL: &str = r#"#!/bin/sh
+for script; do :; done
+FROM_PROFILE=yes PATH="/profile/bin:$PATH"
+export FROM_PROFILE PATH
+exec /bin/sh -c "$script"
+"#;
+
+/// Commits `files` in the main repository of the world, and answers the commit.
+fn commit_files(world: &World, files: &[(&str, &str)]) -> String {
+    let repo = world.repo();
+    for (path, text) in files {
+        let path = repo.join(path);
+        fs::create_dir_all(path.parent().expect("a parent")).expect("the parent directory");
+        fs::write(path, text).expect("a file");
+    }
+    git(&repo, &["add", "--all"]);
+    git(&repo, &["commit", "-q", "-m", "files"]);
+    git(&repo, &["rev-parse", "HEAD"])
+}
+
+/// The files of a fetch: path, kind and text.
+fn fetch_files(agent: &Agent, run: &str) -> Vec<(String, FileKind, String)> {
+    let mut channel = agent.ask(&Request::Fetch { run: run.to_owned() });
+    let mut files = Vec::new();
+    loop {
+        match channel.recv::<Reply>().expect("a reply") {
+            Reply::File { path, kind, .. } => {
+                let mut bytes = Vec::new();
+                channel.recv_stream(&mut bytes).expect("the bytes");
+                files.push((path, kind, String::from_utf8(bytes).expect("text")));
+            }
+            Reply::Fetched { .. } => return files,
+            other => panic!("{other:?}"),
+        }
+    }
+}
+
+#[test]
+fn a_run_gets_the_login_environment_a_raised_open_files_limit_and_its_niceness() {
+    let world = World::new();
+    let shell = world.dir.path().join("login-shell");
+    write_script(&shell, LOGIN_SHELL);
+    let agent = world.serve_with(&[("YONDERD_TEST_SHELL", &shell.to_string_lossy())]);
+    let world = &agent.world;
+    agent.start(RunSpec {
+        nice: Some(7),
+        ..world.spec(
+            "20-1",
+            HOLDER,
+            r#"echo "$FROM_PROFILE"; echo "$PATH" | cut -d: -f1; ulimit -n; ps -o nice= -p $$"#,
+        )
+    });
+    let followed = agent.follow("20-1", 0);
+    assert_eq!(followed.end, Reply::Exit { code: 0 }, "{}", agent.dump("20-1"));
+    let stdout = followed.of(Stream::Stdout);
+    assert_eq!(stdout[..2], ["yes", "/profile/bin"], "{followed:?}");
+    let limit: u64 = stdout[2].trim().parse().expect("a limit");
+    assert!(limit >= 4096, "{limit}");
+    assert_eq!(stdout[3].trim(), "7");
+    let start = followed.start_line();
+    assert!(start.contains(", nice 7, "), "{start}");
+    assert!(
+        start.contains(&format!("the login environment of {} -l -i from ", shell.display())),
+        "{start}"
+    );
+    let kept = fs::read_to_string(world.home().join(".cache/yonderd/login-env.json")).expect("the capture");
+    assert!(kept.contains("FROM_PROFILE") && !kept.contains("\"PWD\""), "{kept}");
+}
+
+#[test]
+fn the_config_of_the_commit_sets_the_environment_and_runs_a_prepare_step_only_when_its_inputs_change() {
+    let agent = World::new().serve();
+    let world = &agent.world;
+    let config = r#"
+[env]
+GREETING = "hi"
+PATH = { prepend = ["~/tools"] }
+PORT = { port = 24000 }
+FAKE_BD_DIR = { unset = true }
+DIR = { prepend = ["~/a"], append = ["/b"] }
+
+[[prepare]]
+name = "deps"
+run = ["/bin/sh", "-c", "echo preparing >&1; echo once >>prepared.log; mkdir -p deps"]
+inputs = ["lock.txt"]
+creates = ["deps"]
+"#;
+    let first = commit_files(world, &[(".yonder.toml", config), ("lock.txt", "1")]);
+    let script = r#"echo "$GREETING $DIR $FAKE_BD_DIR"; echo "$PATH" | cut -d: -f1; echo "$PORT"; echo "$YONDER_RUN""#;
+    let run = |id: &str, commit: &str| {
+        agent.start(RunSpec {
+            commit: commit.to_owned(),
+            ..world.spec(id, HOLDER, script)
+        });
+        agent.follow(id, 0)
+    };
+    let slot = world.slot(HOLDER);
+    let prepared = || fs::read_to_string(slot.join("prepared.log")).unwrap_or_default().lines().count();
+
+    let followed = run("21-1", &first);
+    assert_eq!(followed.end, Reply::Exit { code: 0 }, "{}", agent.dump("21-1"));
+    assert_eq!(followed.phase_names(), ALL_PHASES);
+    let home = world.home();
+    let stdout = followed.of(Stream::Stdout);
+    assert_eq!(stdout[0], format!("hi {}/a:/b ", home.display()), "{followed:?}");
+    assert_eq!(stdout[1], format!("{}/tools", home.display()));
+    let port: u16 = stdout[2].parse().expect("a port");
+    assert!((24_000..24_200).contains(&port), "{port}");
+    assert_eq!(stdout[3], "21-1");
+    // The output of a prepare step goes to the stderr of the run, so the stdout holds only the command.
+    let stderr = followed.of(Stream::Stderr);
+    assert!(stderr.contains(&"yonder: prepare: deps (deps is missing)"), "{stderr:?}");
+    assert!(stderr.contains(&"preparing"), "{stderr:?}");
+    assert_eq!(prepared(), 1);
+    let lease = fs::read_to_string(world.lease_file(HOLDER)).expect("the lease file");
+    assert!(lease.contains("\nprepared."), "{lease}");
+
+    assert_eq!(run("21-2", &first).end, Reply::Exit { code: 0 });
+    assert_eq!(prepared(), 1, "the inputs did not change");
+
+    let second = commit_files(world, &[("lock.txt", "2")]);
+    let followed = run("21-3", &second);
+    assert!(
+        followed.texts().contains(&"yonder: prepare: deps (lock.txt changed)"),
+        "{followed:?}"
+    );
+    assert_eq!(prepared(), 2);
+
+    fs::remove_dir_all(slot.join("deps")).expect("deps removed");
+    assert_eq!(run("21-4", &second).end, Reply::Exit { code: 0 });
+    assert_eq!(prepared(), 3, "a missing created path runs the step again");
+
+    let failing = commit_files(
+        world,
+        &[(
+            ".yonder.toml",
+            "[[prepare]]\nname = \"broken\"\nrun = [\"/bin/sh\", \"-c\", \"echo cannot; exit 4\"]\n",
+        )],
+    );
+    let followed = run("21-5", &failing);
+    assert!(
+        matches!(&followed.end, Reply::Refused { code, message } if code == "prepare_failed" && message.contains("exited with 4")),
+        "{followed:?}"
+    );
+    assert_eq!(followed.phase_names(), ALL_PHASES[..5]);
+    assert!(followed.texts().contains(&"cannot"), "{followed:?}");
+    assert!(followed.of(Stream::Stdout).is_empty(), "the command did not run: {followed:?}");
+
+    let typo = commit_files(world, &[(".yonder.toml", "[[prepar]]\nrun = [\"true\"]\n")]);
+    let followed = run("21-6", &typo);
+    assert!(
+        matches!(&followed.end, Reply::Refused { code, message } if code == "bad_config" && message.contains("prepar")),
+        "{followed:?}"
+    );
+}
+
+#[test]
+fn the_outputs_of_the_config_come_back_only_to_a_client_that_asks_for_them() {
+    let agent = World::new().serve();
+    let world = &agent.world;
+    let commit = commit_files(
+        world,
+        &[
+            (".gitignore", "results/\nci/\n"),
+            (".yonder.toml", "outputs = [\"results\", \"ci/junit.xml\"]\n"),
+        ],
+    );
+    let script = "mkdir -p results ci; echo new >results/new.txt; echo '<x/>' >ci/junit.xml";
+    agent.start(RunSpec {
+        commit: commit.clone(),
+        outputs: true,
+        ..world.spec("22-1", HOLDER, script)
+    });
+    assert_eq!(agent.follow("22-1", 0).end, Reply::Exit { code: 0 }, "{}", agent.dump("22-1"));
+    let results = FileKind::Output {
+        root: "results".to_owned(),
+    };
+    let junit = FileKind::Output {
+        root: "ci/junit.xml".to_owned(),
+    };
+    assert_eq!(
+        fetch_files(&agent, "22-1"),
+        vec![
+            ("results/new.txt".to_owned(), results.clone(), "new\n".to_owned()),
+            ("ci/junit.xml".to_owned(), junit, "<x/>\n".to_owned()),
+        ]
+    );
+
+    // An output of an earlier run is gone before the command, so it never comes back.
+    let slot = world.slot(HOLDER);
+    fs::create_dir_all(slot.join("results")).expect("results");
+    fs::write(slot.join("results/stale.txt"), "stale").expect("a stale output");
+    agent.start(RunSpec {
+        commit: commit.clone(),
+        outputs: true,
+        ..world.spec("22-2", HOLDER, "mkdir -p results; echo fresh >results/fresh.txt")
+    });
+    assert_eq!(agent.follow("22-2", 0).end, Reply::Exit { code: 0 });
+    assert_eq!(
+        fetch_files(&agent, "22-2"),
+        vec![("results/fresh.txt".to_owned(), results, "fresh\n".to_owned())]
+    );
+
+    // An older client asks for no outputs: the agent leaves them alone and sends none.
+    fs::create_dir_all(slot.join("results")).expect("results");
+    fs::write(slot.join("results/kept.txt"), "kept").expect("an output of the slot");
+    agent.start(RunSpec {
+        commit,
+        ..world.spec("22-3", HOLDER, "echo '<y/>' >ci/junit.xml")
+    });
+    assert_eq!(agent.follow("22-3", 0).end, Reply::Exit { code: 0 });
+    assert_eq!(fetch_files(&agent, "22-3"), Vec::new());
+    assert!(slot.join("results/kept.txt").is_file());
+    assert!(slot.join("ci/junit.xml").is_file());
+}
+
+#[test]
+fn the_changes_of_the_command_come_back_as_a_patch_without_the_files_it_found() {
+    let agent = World::new().serve();
+    let world = &agent.world;
+    // The first run makes the slot; a file that no commit has stays there for the next run.
+    agent.start(world.spec("23-1", HOLDER, "echo junk >junk.txt"));
+    assert_eq!(agent.follow("23-1", 0).end, Reply::Exit { code: 0 });
+    agent.start(RunSpec {
+        changes: true,
+        ..world.spec("23-2", HOLDER, "echo changed >a.txt; echo new >new.txt; chmod +x new.txt")
+    });
+    let followed = agent.follow("23-2", 0);
+    assert_eq!(followed.end, Reply::Exit { code: 0 }, "{}", agent.dump("23-2"));
+    let files = fetch_files(&agent, "23-2");
+    assert_eq!(files.len(), 1, "{files:?}");
+    let (path, kind, patch) = &files[0];
+    assert_eq!((path.as_str(), kind), ("changes.patch", &FileKind::Changes));
+    assert!(!patch.contains("junk"), "{patch}");
+
+    // The patch applies to a clone at the commit of the run.
+    let clone = world.dir.path().join("clone");
+    git(
+        world.dir.path(),
+        &["clone", "-q", &world.repo().to_string_lossy(), &clone.to_string_lossy()],
+    );
+    fs::write(world.dir.path().join("changes.patch"), patch).expect("the patch");
+    git(&clone, &["apply", &world.dir.path().join("changes.patch").to_string_lossy()]);
+    assert_eq!(fs::read_to_string(clone.join("a.txt")).expect("a.txt"), "changed\n");
+    assert_eq!(fs::read_to_string(clone.join("new.txt")).expect("new.txt"), "new\n");
+    let mode = fs::metadata(clone.join("new.txt")).expect("the metadata").permissions().mode();
+    assert_eq!(mode & 0o111, 0o111, "the executable bit comes along");
+
+    // A command that changes nothing brings no patch.
+    agent.start(RunSpec {
+        changes: true,
+        ..world.spec("23-3", HOLDER, "true")
+    });
+    assert_eq!(agent.follow("23-3", 0).end, Reply::Exit { code: 0 });
+    assert_eq!(fetch_files(&agent, "23-3"), Vec::new());
+}
+
+/// Copies the agent binary to the binary of a LaunchAgent of the world on a free port, and lets `setup` of that binary
+/// write the plist with the fake launchctl. Answers the binary of the LaunchAgent and its port; the calls of `setup` to
+/// the fake launchctl are gone.
+fn launch_agent(world: &World) -> (PathBuf, u16) {
+    let target = world.dir.path().join("agent/yonderd");
+    fs::create_dir_all(target.parent().expect("a parent")).expect("the agent directory");
+    fs::copy(agent_binary(), &target).expect("the binary of the LaunchAgent");
+    write_script(&world.launchctl(), FAKE_LAUNCHCTL);
+    fs::create_dir_all(world.launchctl_dir()).expect("the launchctl directory");
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .and_then(|listener| listener.local_addr())
+        .expect("a free port")
+        .port();
+    let output = world
+        .command_of(&target)
+        .args(["setup", "--client", &world.client.fingerprint().to_string(), "--name", "test"])
+        .args(["--port", &port.to_string(), "--listen-wait-ms", "0", "--launchctl"])
+        .arg(world.launchctl())
+        .env("FAKE_LAUNCHCTL_DIR", world.launchctl_dir())
+        .output()
+        .expect("setup");
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let _ = fs::remove_file(world.launchctl_dir().join("calls"));
+    (target, port)
+}
+
+impl World {
+    fn launchctl(&self) -> PathBuf {
+        self.bin().join("launchctl")
+    }
+
+    fn launchctl_dir(&self) -> PathBuf {
+        self.dir.path().join("launchctl")
+    }
+
+    fn launchctl_calls(&self) -> String {
+        fs::read_to_string(self.launchctl_dir().join("calls")).unwrap_or_default()
+    }
+
+    /// The log of the agent under launchd, which the watchdog writes.
+    fn agent_log(&self) -> String {
+        fs::read_to_string(self.home().join("Library/Logs/yonderd.log")).unwrap_or_default()
+    }
+
+    fn upgrade_outcome(&self) -> Option<serde_json::Value> {
+        serde_json::from_slice(&fs::read(self.home().join(".cache/yonderd/upgrade.json")).ok()?).ok()
+    }
+
+    /// Starts `serve` of the binary of the LaunchAgent on its port with no drain and a watchdog that waits `wait_ms`.
+    fn serve_upgradable(self, (target, port): &(PathBuf, u16), wait_ms: &str) -> Agent {
+        let (launchctl, launchctl_dir) = (self.launchctl(), self.launchctl_dir());
+        let launchctl_dir = launchctl_dir.to_string_lossy().into_owned();
+        let env = [
+            ("YONDERD_TEST_UPGRADE_DRAIN_MS", "0"),
+            ("YONDERD_TEST_UPGRADE_WAIT_MS", wait_ms),
+            ("FAKE_LAUNCHCTL_DIR", launchctl_dir.as_str()),
+        ];
+        self.serve_program(target, *port, &["--launchctl", &launchctl.to_string_lossy()], &env)
+    }
+}
+
+impl Agent {
+    /// Sends `binary` as an upgrade of `size` bytes with `sha256`, and answers the last reply.
+    fn upgrade(&self, binary: &[u8], size: u64, sha256: &str) -> Reply {
+        let mut channel = self.ask(&Request::Upgrade {
+            size,
+            sha256: sha256.to_owned(),
+            force: false,
+        });
+        channel.send_stream(&mut &binary[..], &mut |_| {}).expect("the binary");
+        loop {
+            match channel.recv().expect("the reply") {
+                Reply::Heartbeat { .. } => {}
+                reply => return reply,
+            }
+        }
+    }
+
+    /// Waits up to 30 s for the end of `serve`.
+    fn wait_for_exit(&mut self) -> std::process::ExitStatus {
+        let started = Instant::now();
+        loop {
+            if let Some(status) = self.child.try_wait().expect("the status of serve") {
+                return status;
+            }
+            assert!(started.elapsed() < Duration::from_secs(30), "serve did not exit in 30 s");
+            thread::sleep(Duration::from_millis(50));
+        }
+    }
+}
+
+fn inode(path: &Path) -> u64 {
+    std::os::unix::fs::MetadataExt::ino(&fs::metadata(path).expect("the metadata"))
+}
+
+#[test]
+#[cfg_attr(not(target_os = "macos"), ignore = "only an agent under launchd upgrades itself")]
+fn an_upgrade_swaps_the_binary_and_ends_serve_and_a_run_and_the_watchdog_see_the_next_serve() {
+    let world = World::new();
+    let launch = launch_agent(&world);
+    let target = launch.0.clone();
+    let mut agent = world.clone().serve_upgradable(&launch, "30000");
+    let binary = fs::read(agent_binary()).expect("the agent binary");
+    let sha256 = yonder_link::digest::sha256_file(&target).expect("the SHA-256");
+    let hello = agent.ask(&Request::Runs).recv::<Reply>().expect("the runs");
+    assert!(matches!(hello, Reply::Runs { .. }), "{hello:?}");
+
+    let refused = agent.upgrade(&binary, binary.len() as u64, &"0".repeat(64));
+    assert!(
+        matches!(&refused, Reply::Refused { code, .. } if code == "bad_binary"),
+        "{refused:?}"
+    );
+    let refused = agent.upgrade(b"short", 5, &sha256);
+    assert!(
+        matches!(&refused, Reply::Refused { code, .. } if code == "bad_binary"),
+        "{refused:?}"
+    );
+    let names = |dir: &Path| -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(dir)
+            .expect("the directory")
+            .map(|entry| entry.expect("an entry").file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    };
+    let agent_dir = target.parent().expect("a parent").to_path_buf();
+    assert_eq!(names(&agent_dir), ["yonderd"], "a refused binary leaves no file");
+
+    // A LaunchAgent that the new binary would write in another way stays with `yonder prepare`.
+    let plist = world.home().join("Library/LaunchAgents/com.jetbrains.yonderd.plist");
+    let text = fs::read_to_string(&plist).expect("the plist");
+    fs::write(
+        &plist,
+        text.replace("<key>RunAtLoad</key>\n  <true/>", "<key>RunAtLoad</key>\n  <false/>"),
+    )
+    .expect("another plist");
+    let refused = agent.upgrade(&binary, binary.len() as u64, &sha256);
+    assert!(
+        matches!(&refused, Reply::Refused { code, .. } if code == "plist_changed"),
+        "{refused:?}"
+    );
+    fs::write(&plist, text).expect("the plist of setup");
+    assert_eq!(names(&agent_dir), ["yonderd"]);
+
+    // The run streams through the upgrade: its follow breaks with the old serve and goes on with the new one.
+    let gate = world.dir.path().join("gate");
+    agent.start(world.spec("1-upgrade", HOLDER, &format!("echo before; {}; echo after", wait_for(&gate))));
+    let mut streaming = agent.ask(&Request::Follow {
+        run: "1-upgrade".to_owned(),
+        offset: 0,
+    });
+    let offset = loop {
+        match streaming.recv::<Reply>().expect("a reply of the follow") {
+            Reply::Output { text, end, .. } if text == "before" => break end,
+            Reply::Output { .. } | Reply::Heartbeat { .. } => {}
+            end => panic!("the run ended before its first line: {end:?}"),
+        }
+    };
+
+    let before = inode(&target);
+    let upgraded = agent.upgrade(&binary, binary.len() as u64, &sha256);
+    assert_eq!(
+        upgraded,
+        Reply::Upgraded {
+            previous_sha256: sha256.clone(),
+            sha256: sha256.clone(),
+            version: env!("CARGO_PKG_VERSION").to_owned(),
+        }
+    );
+    assert!(agent.wait_for_exit().success(), "{}", agent.dump("1-upgrade"));
+    assert!(
+        loop {
+            match streaming.recv::<Reply>() {
+                Ok(Reply::Heartbeat { .. }) => {}
+                Ok(reply) => panic!("the old serve answered after its exit: {reply:?}"),
+                Err(error) => break error,
+            }
+        }
+        .to_string()
+        .contains("closed"),
+        "the follow breaks with the old serve"
+    );
+    assert_eq!(names(&agent_dir), ["yonderd", "yonderd.previous"]);
+    assert_eq!(inode(&previous_path(&target)), before);
+    assert_ne!(inode(&target), before);
+    assert!(!world.home().join(".cache/yonderd/listening.json").exists());
+
+    // launchd would start the binary again.
+    let renewed = world.clone().serve_upgradable(&launch, "30000");
+    let short = &sha256[..12];
+    eventually("the watchdog sees the new serve", || {
+        world
+            .agent_log()
+            .contains(&format!("watchdog: the binary {short} listens with the pid"))
+    });
+    assert_eq!(world.upgrade_outcome().expect("the outcome")["outcome"], "listened");
+    fs::write(&gate, "").expect("the gate");
+    let followed = renewed.follow("1-upgrade", offset);
+    assert_eq!(followed.end, Reply::Exit { code: 0 }, "{followed:?}");
+    assert_eq!(followed.of(Stream::Stdout), ["after"]);
+    assert_eq!(world.launchctl_calls(), "");
+}
+
+#[test]
+#[cfg_attr(not(target_os = "macos"), ignore = "only an agent under launchd upgrades itself")]
+fn the_watchdog_restores_the_previous_binary_and_restarts_the_agent_when_no_serve_of_the_new_one_listens() {
+    let world = World::new();
+    let launch = launch_agent(&world);
+    let target = launch.0.clone();
+    let mut agent = world.clone().serve_upgradable(&launch, "500");
+    let binary = fs::read(agent_binary()).expect("the agent binary");
+    let sha256 = yonder_link::digest::sha256_file(&target).expect("the SHA-256");
+    let before = inode(&target);
+    let upgraded = agent.upgrade(&binary, binary.len() as u64, &sha256);
+    assert!(matches!(upgraded, Reply::Upgraded { .. }), "{upgraded:?}");
+    assert!(agent.wait_for_exit().success());
+
+    eventually("the watchdog restarts the agent", || world.launchctl_calls().contains("kickstart"));
+    let calls = world.launchctl_calls();
+    assert!(
+        calls.starts_with("kickstart -k gui/") && calls.ends_with("/com.jetbrains.yonderd\n"),
+        "{calls}"
+    );
+    assert_eq!(inode(&target), before, "the previous binary is back");
+    assert!(!previous_path(&target).exists());
+    let log = world.agent_log();
+    assert!(log.contains("so the previous binary comes back"), "{log}");
+    // The fake launchctl starts no agent, so the port stays closed, and the outcome says so.
+    eventually("the watchdog writes its outcome", || world.upgrade_outcome().is_some());
+    assert_eq!(
+        world.upgrade_outcome().expect("the outcome")["outcome"],
+        "rolled_back_not_listening"
+    );
+}
+
+fn previous_path(target: &Path) -> PathBuf {
+    PathBuf::from(format!("{}.previous", target.display()))
 }

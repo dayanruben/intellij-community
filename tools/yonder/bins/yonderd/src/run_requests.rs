@@ -9,14 +9,13 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read};
 use std::os::fd::{AsRawFd, RawFd};
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 
-use yonder_link::proto::{Reply, RunSpec, is_run_id};
+use yonder_link::proto::{FileKind, Reply, RunSpec, is_run_id};
 use yonder_link::{Channel, LinkError};
 
 use crate::files::append_private;
@@ -24,7 +23,7 @@ use crate::refused::{AGENT_ERROR, BAD_REQUEST, BAD_RUN_ID, RUN_EXISTS, Refusal, 
 use crate::run::{ExitRecord, RunDir, SUPERVISOR_LOG, epoch_ms, is_line_start, read_events};
 use crate::serve::{Agent, check_holder, is_inner_path, log};
 use crate::watch::Watch;
-use crate::{git, tuning};
+use crate::{child, git, tuning};
 
 /// The longest wait of a follow for a change of the run files. A run that lost its supervisor changes no file, so this
 /// bounds the time until the follow ends it.
@@ -51,7 +50,7 @@ impl Agent {
             && spec.reference == run_ref(&spec.run)
         {
             let repo = self.home.expand(&spec.repo);
-            if git::is_repo(&repo)
+            if git::check_repo(&repo).is_ok()
                 && let Err(error) = git::delete_ref(&repo, &spec.reference)
             {
                 log(&format!("cannot delete {} in {}: {error}", spec.reference, repo.display()));
@@ -108,22 +107,7 @@ impl Agent {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(stderr);
-        let prepare = move || {
-            // SAFETY: setsid takes no arguments and is async-signal-safe.
-            if unsafe { libc::setsid() } == -1 {
-                return Err(io::Error::last_os_error());
-            }
-            // SAFETY: fcntl takes plain integers and is async-signal-safe. The cleared flag keeps the lock open across
-            // the exec.
-            if unsafe { libc::fcntl(descriptor, libc::F_SETFD, 0) } == -1 {
-                return Err(io::Error::last_os_error());
-            }
-            Ok(())
-        };
-        // SAFETY: the closure runs in the child between fork and exec, and calls only setsid and fcntl.
-        unsafe {
-            command.pre_exec(prepare);
-        }
+        child::detach(&mut command, Some(descriptor));
         let mut child = command.spawn().map_err(spawn_failed)?;
         if let Err(error) = run.write_pid(child.id()) {
             log(&format!(
@@ -208,10 +192,10 @@ impl Agent {
             }
             Err(error) => return channel.send(&Reply::refused(AGENT_ERROR, format!("cannot read the end of the run: {error}"))),
         }
-        let mut files = Vec::new();
-        if let Err(error) = staged_files(&run.stage_path(), "", &mut files) {
-            return channel.send(&Reply::refused(AGENT_ERROR, format!("cannot read the stage: {error}")));
-        }
+        let files = match run_files(&run) {
+            Ok(files) => files,
+            Err(error) => return channel.send(&Reply::refused(AGENT_ERROR, format!("cannot read the stage: {error}"))),
+        };
         channel.set_write_deadline(WRITE_DEADLINE)?;
         let (mut count, mut bytes) = (0u64, 0u64);
         for staged in files {
@@ -228,6 +212,7 @@ impl Agent {
                 path: staged.relative,
                 size,
                 executable: staged.executable,
+                kind: staged.kind,
             })?;
             let sent = channel.send_stream(&mut file.take(size), &mut |_| {})?;
             if sent != size {
@@ -425,11 +410,44 @@ pub(crate) struct StagedFile {
     pub(crate) relative: String,
     pub(crate) path: PathBuf,
     pub(crate) executable: bool,
+    pub(crate) kind: FileKind,
 }
 
-/// Adds each regular file under `dir` to `files`, in name order. A missing stage has no files. A link and any other
-/// entry that is neither a file nor a directory is skipped.
-pub(crate) fn staged_files(dir: &Path, prefix: &str, files: &mut Vec<StagedFile>) -> io::Result<()> {
+/// The files that a fetch sends, in this order: the staged entries of the fetch directories, the files of each output,
+/// and the patch of the changes.
+pub(crate) fn run_files(run: &RunDir) -> io::Result<Vec<StagedFile>> {
+    let mut files = Vec::new();
+    staged_files(&run.stage_path(), "", &FileKind::Staged, &mut files)?;
+    for root in run.output_roots()? {
+        let path = run.outputs_path().join(&root);
+        let kind = FileKind::Output { root: root.clone() };
+        let metadata = fs::symlink_metadata(&path)?;
+        if metadata.is_dir() {
+            staged_files(&path, &root, &kind, &mut files)?;
+        } else if metadata.is_file() {
+            files.push(StagedFile {
+                relative: root,
+                path,
+                executable: metadata.permissions().mode() & 0o111 != 0,
+                kind,
+            });
+        }
+    }
+    let changes = run.changes_path();
+    if changes.is_file() {
+        files.push(StagedFile {
+            relative: "changes.patch".to_owned(),
+            path: changes,
+            executable: false,
+            kind: FileKind::Changes,
+        });
+    }
+    Ok(files)
+}
+
+/// Adds each regular file under `dir` to `files` as a file of `kind`, in name order. A missing stage has no files. A
+/// link and any other entry that is neither a file nor a directory is skipped.
+pub(crate) fn staged_files(dir: &Path, prefix: &str, kind: &FileKind, files: &mut Vec<StagedFile>) -> io::Result<()> {
     let entries = match fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(error) if error.kind() == io::ErrorKind::NotFound && prefix.is_empty() => return Ok(()),
@@ -442,12 +460,13 @@ pub(crate) fn staged_files(dir: &Path, prefix: &str, files: &mut Vec<StagedFile>
         let relative = if prefix.is_empty() { name } else { format!("{prefix}/{name}") };
         let metadata = fs::symlink_metadata(entry.path())?;
         if metadata.is_dir() {
-            staged_files(&entry.path(), &relative, files)?;
+            staged_files(&entry.path(), &relative, kind, files)?;
         } else if metadata.is_file() {
             files.push(StagedFile {
                 relative,
                 path: entry.path(),
                 executable: metadata.permissions().mode() & 0o111 != 0,
+                kind: kind.clone(),
             });
         }
     }

@@ -170,6 +170,7 @@ jvm_library(
     ),
     module_name = "intellij.maven.testFramework.tests",
     visibility = ["//visibility:public"],
+    runtime_deps = ["//plugins/maven/testFramework"],
 )
 
 jvm_library(
@@ -183,12 +184,13 @@ jvm_library(
         ],
         allow_empty = True,
     ),
-    associates = [
-        "//plugins/maven/testFramework",
+    module_name = "intellij.maven.testFramework.tests",
+    visibility = ["//visibility:public"],
+    runtime_deps = [
+        # do not sort,
+        ":testFramework-tests",
         "//plugins/maven/testFramework:testFramework_test_lib",
     ],
-    visibility = ["//visibility:public"],
-    runtime_deps = [":testFramework-tests"],
     deps = [
         # do not sort,
         "//plugins/maven",

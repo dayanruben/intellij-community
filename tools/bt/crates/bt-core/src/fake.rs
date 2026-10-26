@@ -182,7 +182,7 @@ impl FakeRuntime {
             .spawned
             .push(command.iter().map(|part| part.to_string_lossy().into_owned()).collect());
         state.clock += 5000;
-        let joined = command.iter().map(|part| part.to_string_lossy()).collect::<Vec<_>>().join(" ");
+        let joined = crate::os_runtime::command_line(command);
         if let Some((_, result)) = state.spawn_rules.iter().find(|(text, _)| joined.contains(text.as_str())) {
             return result.clone();
         }
@@ -514,6 +514,16 @@ pub fn refusal<T: std::fmt::Debug>(result: Result<T, Refusal>) -> Refusal {
         Ok(value) => panic!("expected a refusal, got {value:?}"),
         Err(refusal) => refusal,
     }
+}
+
+/// The `lane/class` of each affected suite, joined by commas.
+pub fn classes_of(affected: &crate::suites::Affected) -> String {
+    affected
+        .suites
+        .iter()
+        .map(|suite| format!("{}/{}", suite.lane, suite.class))
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 // --- the suite catalog -----------------------------------------------------------------------------------------

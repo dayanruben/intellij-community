@@ -2,38 +2,57 @@
 //!
 //! A run:
 //!
-//! 1. Refuses a checkout with local changes, because only the commit reaches the host.
-//! 2. Asks the host which of the candidate commits it has (`Have`), and builds a thin pack of the rest into a file.
-//!    The candidates include the base that the last base sync of the holder recorded. `pack.rs` builds the pack.
-//! 3. Starts the run (`Start`). The run lives on the agent, not on the connection. Ctrl+C before this step stops the
-//!    local work, and nothing runs on the host.
-//! 4. Sends the pack (`Pack`) to `refs/yonder/<run>` on a connection of its own, while the host takes the lock and the
-//!    lease. When the upload fails, the client cancels the run and refuses with the code of the upload.
-//! 5. Follows the output (`Follow`). Each stderr line goes to the stderr sink as it comes, and the stdout lines are
-//!    collected. A connection that is quiet for 60 s is lost: the client connects again from the last offset, with a
-//!    backoff, for up to 10 min after the last reply of the agent. The first Ctrl+C sends `Cancel` on a thread of its
-//!    own, and the output follows up to its end. The second Ctrl+C stops the follow at once. `Reply::Phases` before
-//!    the end gives the steps of the host. Meanwhile a thread syncs the base of the next packs, see `base.rs`.
-//! 6. Copies the staged files of the `fetch` directories into the local checkout (`Fetch`), then removes the run on
-//!    the agent (`Forget`). The client removes the run only when it saw the end of the run and every file came.
-//!    Otherwise the run stays on the agent, and the client names `yonder fetch` and `yonder forget`.
-//! 7. Waits for the base sync, and answers the steps of the run with their durations.
+//! 1. Reads the commit of HEAD. Then it refuses a checkout with local changes, because only the commit reaches the
+//!    host, and meanwhile it asks the host which of the candidate commits it has (`Have`). The candidates include the
+//!    base that the last base sync of the holder recorded. A host that has none of them refuses with `behind` here.
+//!    With [`RunOptions::working_tree`] it takes the commit of the working tree instead, which `git.rs` writes through
+//!    a copy of the index, and asks the host after it. With [`RunOptions::repo_by_name`] the first `Have` goes to the
+//!    repository of the same name as the local one beside the repository of the host file, and to the one of the host
+//!    file when the host lacks it. The hello of the agent names its features: a run that needs one that the agent
+//!    lacks refuses here, and an option that the agent would ignore gets a warning.
+//! 2. Starts the run (`Start`). The run lives on the agent, not on the connection. Ctrl+C before this step stops the
+//!    local work, and nothing runs on the host. A start whose reply does not come is cancelled, so the host does not
+//!    wait for its pack.
+//! 3. Follows the output (`Follow`) on a thread of its own from the start on, so the steps of the host show while the
+//!    pack builds. Each stderr line goes to the stderr sink as it comes, and the stdout lines are collected. A
+//!    connection that is quiet for 120 s is lost: the client connects again from the last offset, with a backoff, for
+//!    up to 10 min after the last reply of the agent. `Reply::Phases` before the end gives the steps of the host.
+//! 4. Meanwhile it builds the thin pack of the commits that the host lacks, while the host takes the lock and the
+//!    lease, and sends it (`Pack`) to `refs/yonder/<run>` on a connection of its own. `pack.rs` builds and sends it.
+//!    When the pack fails, the client cancels the run, stops the follow, and refuses with the code of the pack.
+//! 5. After the pack, a thread syncs the base of the next packs, see `base.rs`.
+//! 6. Copies the staged files of the `fetch` directories and the outputs into the local checkout (`Fetch`), then
+//!    removes the run on the agent (`Forget`). An output replaces the local copy of its path. The client removes the run
+//!    only when it saw the end of the run and every file came. Otherwise the run stays on the agent, and the client
+//!    names `yonder fetch` and `yonder forget`.
+//! 7. Waits for the base sync. With [`RunOptions::apply`], it applies the patch of the changes of the command to the
+//!    working tree (`git apply`, the files only, not the index); the patch stays in `yonder/<run>.patch` of the git
+//!    directory of the checkout. Then it answers the steps of the run with their durations.
+//!
+//! A refusal tells by its [`crate::Exit`] whether the command ran: a refusal before the command is
+//! [`crate::Exit::NotRun`], so the caller can run it locally instead.
+//!
+//! Ctrl+C after the start, the build of the pack included, cancels the run on the host. The first press sends `Cancel`
+//! on a thread of its own and stops the pack, and the output follows up to its end. The second press stops the follow
+//! at once. A press after the end of the run closes the connection of the base sync.
 
-use std::path::Path;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, mpsc};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use yonder_link::Closer;
-use yonder_link::proto::{Phase, Reply, Request, RunInfo, RunSpec, Stream};
+use yonder_link::proto::{Phase, Reply, Request, RunInfo, RunSpec, Stream, feature};
 
 use crate::base::BaseSync;
-use crate::git::{add_candidate, candidates, clean_head};
-use crate::host::{AgentInfo, Host};
+use crate::git::{FARTHEST, NEAR, Snapshot, add_candidate, candidates, check_clean, head_commit, repo_name, working_tree_commit};
+use crate::host::{AgentInfo, Host, Latest};
 use crate::pack::PackTarget;
 use crate::phases::{phase, phases_line};
-use crate::{Client, Refusal, Timing, code, refused};
+use crate::process::{Call, Processes, Ran, Stop};
+use crate::{Client, Exit, Refusal, Timing, code, refused};
 
 /// How often the watch of a run asks whether the person pressed Ctrl+C.
 const INTERRUPT_POLL: Duration = Duration::from_millis(100);
@@ -46,6 +65,15 @@ const CANCEL_GRACE: Duration = Duration::from_millis(500);
 
 /// How many times the cancel of a run whose pack did not reach the host tries.
 const ABANDON_TRIES: u32 = 3;
+
+/// The deadline of `git apply` of the changes of a run.
+const APPLY_DEADLINE: Duration = Duration::from_secs(300);
+
+/// How long the patches of the changes stay in the git directory of a checkout.
+const PATCH_KEEP: Duration = Duration::from_secs(7 * 24 * 3600);
+
+/// The file in the root of a checkout that asks the agent for prepare steps, an environment and outputs.
+const CONFIG_FILE: &str = ".yonder.toml";
 
 /// What a run does, from the side of the client.
 #[derive(Clone, Copy, Debug)]
@@ -61,6 +89,28 @@ pub struct RunRequest<'a> {
     /// Directories relative to the slot root, such as `out/bt-runs`, whose new entries come back.
     pub fetch: &'a [String],
     pub idle_hours: u32,
+}
+
+/// What a run adds to a [`RunRequest`]. The default is the run of `bt --host`: the committed HEAD of a checkout without
+/// local changes, the niceness of the agent, the repository of the host file, no outputs and no changes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each bool is one option of a run that no other option depends on, as the flags of the CLI are"
+)]
+pub struct RunOptions {
+    /// Run the working tree: HEAD plus the tracked and untracked changes that git does not ignore, as one commit.
+    /// Without it, a checkout with local changes is refused.
+    pub working_tree: bool,
+    /// The niceness of the prepare steps and the command on the host, 0 to 19.
+    pub nice: Option<u8>,
+    /// Bring back the outputs that `.yonder.toml` of the commit names.
+    pub outputs: bool,
+    /// Bring back the changes of the command and apply them to the working tree.
+    pub apply: bool,
+    /// When [`RunRequest::repo`] names none: try the repository of the same name as the local one beside the
+    /// repository of the host file first, such as `~/projects/branch-deck` beside `~/projects/idea-1`.
+    pub repo_by_name: bool,
 }
 
 /// The end of a run.
@@ -122,45 +172,102 @@ struct Watch {
     finished: Arc<AtomicBool>,
     /// The connection of the follow, which a second Ctrl+C closes.
     current: Mutex<Option<Closer>>,
-    /// A second Ctrl+C came: the follow stops.
+    /// A second Ctrl+C came, or the pack of the run failed: the follow stops.
     abandoned: AtomicBool,
 }
 
+impl Watch {
+    fn new() -> Self {
+        Self {
+            finished: Arc::new(AtomicBool::new(false)),
+            current: Mutex::new(None),
+            abandoned: AtomicBool::new(false),
+        }
+    }
+
+    /// Stops the follow at once: it closes the connection of the follow, and no new one comes.
+    fn stop_follow(&self) {
+        if !self.abandoned.swap(true, Ordering::AcqRel)
+            && let Some(closer) = self.current.lock().unwrap_or_else(PoisonError::into_inner).take()
+        {
+            closer.close();
+        }
+    }
+}
+
+/// A followed run whose files came.
+struct Finished {
+    followed: Followed,
+    fetched: Fetched,
+    /// The step `fetch`, when the run names fetch directories, outputs or changes.
+    fetch: Option<Phase>,
+}
+
 impl Client<'_> {
-    /// Runs a command of the committed HEAD of the local checkout on the host of `alias`.
+    /// Runs a command of the committed HEAD of the local checkout on the host of `alias`, as `bt --host` does.
     pub fn run(&self, alias: &str, request: &RunRequest<'_>) -> Result<RunOutcome, Refusal> {
+        self.run_with(alias, request, &RunOptions::default())
+    }
+
+    /// Runs a command on the host of `alias` with `options`. A refusal before the command is [`Exit::NotRun`], and Ctrl+C
+    /// before the command is [`Exit::Interrupted`].
+    pub fn run_with(&self, alias: &str, request: &RunRequest<'_>, options: &RunOptions) -> Result<RunOutcome, Refusal> {
         if request.command.is_empty() {
-            return Err(refused(code::USAGE, "a run needs a command"));
+            return Err(not_run(refused(code::USAGE, "a run needs a command")));
         }
         let started = Instant::now();
-        let mut host = self.host(alias)?;
-        let repo = request.repo.unwrap_or(&host.file().repo).to_owned();
-        let commit = clean_head(self.processes, request.checkout)?;
-        self.refuse_interrupt()?;
+        let mut host = self.host(alias).map_err(not_run)?;
+        let stop = || self.interrupted();
         let run = run_id();
         let reference = format!("refs/yonder/{run}");
-
         let recorded = self.config.base(alias, request.holder);
-        let mut candidates = candidates(self.processes, request.checkout, &commit);
-        add_candidate(&mut candidates, recorded.as_deref());
-        let present = self.have(&mut host, &repo, candidates)?;
-        self.refuse_interrupt()?;
+        let (snapshot, (repo, present, features)) = if options.working_tree {
+            let snapshot = working_tree_commit(self.processes, request.checkout, &stop).map_err(not_run)?;
+            self.refuse_interrupt().map_err(not_run)?;
+            let found = self
+                .present_in_repo(&mut host, request, options, &snapshot.commit, recorded.as_deref())
+                .map_err(not_run)?;
+            (snapshot, found)
+        } else {
+            let commit = head_commit(self.processes, request.checkout, &stop).map_err(not_run)?;
+            self.refuse_interrupt().map_err(not_run)?;
+            // A checkout with local changes refuses at once: its refusal closes the connection of the `Have`.
+            let asked = Arc::new(Latest::default());
+            let (clean, found) = thread::scope(|scope| {
+                let mut asking = host.watched(Arc::clone(&asked));
+                let (commit, recorded) = (&commit, recorded.as_deref());
+                let found = scope.spawn(move || self.present_in_repo(&mut asking, request, options, commit, recorded));
+                let clean = check_clean(self.processes, request.checkout, &stop);
+                if clean.is_err() {
+                    asked.close();
+                }
+                let found = found
+                    .join()
+                    .unwrap_or_else(|_| Err(refused(code::LINK, "the question about the commits of the host failed")));
+                (clean, found)
+            });
+            clean.map_err(not_run)?;
+            let snapshot = Snapshot {
+                commit: commit.clone(),
+                head: commit,
+                changed: Vec::new(),
+            };
+            (snapshot, found.map_err(not_run)?)
+        };
+        self.check_features(alias, &features, request.checkout, options).map_err(not_run)?;
+        let commit = snapshot.commit.clone();
         let target = PackTarget {
             checkout: request.checkout,
             repo: &repo,
             commit: &commit,
             reference: &reference,
         };
-        let mut phases = Vec::new();
-        let pack = if present.contains(&commit) {
+        let plan = if present.contains(&commit) {
             None
         } else {
-            let building = Instant::now();
-            let pack = self.build_pack(alias, &target, &present, self.say)?;
-            phases.push(phase("pack", building.elapsed()));
-            Some(pack)
+            Some(self.plan_pack(alias, &target, &present).map_err(not_run)?)
         };
-        self.refuse_interrupt()?;
+        self.refuse_interrupt().map_err(not_run)?;
         let spec = RunSpec {
             run: run.clone(),
             repo: repo.clone(),
@@ -170,22 +277,12 @@ impl Client<'_> {
             command: request.command.to_vec(),
             fetch: request.fetch.to_vec(),
             idle_hours: request.idle_hours,
+            nice: options.nice,
+            outputs: options.outputs,
+            changes: options.apply,
         };
-        match host.request(&Request::Start(spec), self.timing.read)? {
-            (_, Reply::Started { .. }) => {}
-            (_, Reply::Refused { code, message }) => return Err(host.agent_refusal(code, &message)),
-            (_, reply) => return Err(host.unexpected(&reply)),
-        }
-        (self.say)(&format!("yonder: run {run} of {} on {alias}", short(&commit)));
-
-        // The host takes the lock and the lease while the pack travels, and waits for the reference before the checkout.
-        if let Some(pack) = pack {
-            let sending = Instant::now();
-            if let Err(refusal) = self.upload(&mut host, &target, &pack, self.say) {
-                return Err(self.abandon(&mut host, &run, refusal));
-            }
-            phases.push(phase("upload", sending.elapsed()));
-        }
+        self.start(&mut host, spec).map_err(not_run)?;
+        (self.say)(&run_line(&run, alias, &snapshot, &repo, &host.file().repo));
 
         let sync = BaseSync {
             checkout: request.checkout,
@@ -194,79 +291,273 @@ impl Client<'_> {
             commit: &commit,
             recorded: recorded.as_deref(),
         };
-        let (followed, fetched) = thread::scope(|scope| {
-            let mut synced = host.clone();
+        let watch = Watch::new();
+        let mut phases = Vec::new();
+        let ended = thread::scope(|scope| {
+            let mut followed = host.clone();
+            let (run, watch) = (&run, &watch);
+            let following = scope.spawn(move || self.follow_and_fetch(&mut followed, run, request, options, watch));
+            if let Some(plan) = &plan {
+                match self.send_pack(&mut host, &target, plan, self.say) {
+                    Ok(steps) => {
+                        phases.push(phase("pack", steps.build));
+                        phases.push(phase("upload", steps.upload));
+                    }
+                    // The watch of the follow sent the cancel of the press, and the output follows up to its end.
+                    Err(_) if self.interrupted() => {}
+                    Err(refusal) => {
+                        let refusal = self.abandon(&mut host, run, &format!("the pack did not reach {alias}"), refusal);
+                        watch.stop_follow();
+                        let _ = following.join();
+                        // The checkout waits for the pack, so the command never started.
+                        return Err((not_run(refusal), Vec::new()));
+                    }
+                }
+            }
+            let latest = Arc::new(Latest::default());
+            let mut synced = host.watched(Arc::clone(&latest));
             let syncing = scope.spawn(move || self.sync_base(&mut synced, &sync));
-            let ended = self.follow_and_fetch(&mut host, &run, request, &mut phases);
+            let finished = following
+                .join()
+                .unwrap_or_else(|_| Err((refused(code::LINK, "the follow of the run failed"), Vec::new())));
             if !syncing.is_finished() {
                 (self.say)(&format!(
                     "> {alias}: the sync of the base of the next packs goes on; Ctrl+C stops it"
                 ));
             }
+            while !syncing.is_finished() {
+                if self.interrupted() {
+                    latest.close();
+                }
+                thread::sleep(INTERRUPT_POLL);
+            }
             let _ = syncing.join();
-            ended
-        })?;
+            finished
+        });
+        let finished = match ended {
+            Ok(finished) => finished,
+            Err((refusal, steps)) => {
+                // A run that the agent refused has no outcome, so the client says its steps here.
+                if !steps.is_empty() {
+                    phases.extend(steps);
+                    (self.say)(&phases_line(&phases));
+                }
+                return Err(refusal);
+            }
+        };
+        if options.apply {
+            self.apply_changes(alias, request.checkout, &run, &finished.fetched, finished.followed.code)?;
+        }
+        phases.extend(finished.followed.phases.iter().cloned());
+        phases.extend(finished.fetch);
         phases.push(phase("total", started.elapsed()));
         Ok(RunOutcome {
             run,
             commit,
-            code: followed.code,
-            stdout: followed.stdout,
-            fetched,
+            code: finished.followed.code,
+            stdout: finished.followed.stdout,
+            fetched: finished.fetched.files,
             phases,
         })
     }
 
-    /// Follows a started run to its end, then copies its files and removes it on the host. Adds the steps of the host
-    /// and `fetch` to `phases`. A run that the agent refused says its steps here, because no outcome carries them.
+    /// The repository of the run on the host, the candidates of `commit` that it has, and the features of the agent.
+    /// With [`RunOptions::repo_by_name`], a host that lacks the repository of the local name gets the repository of the
+    /// host file instead.
+    fn present_in_repo(
+        &self,
+        host: &mut Host,
+        request: &RunRequest<'_>,
+        options: &RunOptions,
+        commit: &str,
+        recorded: Option<&str>,
+    ) -> Result<(String, Vec<String>, Vec<String>), Refusal> {
+        let default = host.file().repo.clone();
+        let stop = || self.interrupted();
+        let named = match request.repo {
+            Some(repo) => Some(repo.to_owned()),
+            None if options.repo_by_name => repo_name(self.processes, request.checkout, &stop)
+                .and_then(|name| sibling(&default, &name))
+                .filter(|repo| *repo != default),
+            None => None,
+        };
+        let asked = match &named {
+            Some(named) => match self.present(host, named, request.checkout, commit, &[recorded]) {
+                Err(refusal) if refusal.code == "repo_missing" && request.repo.is_none() => {
+                    (self.say)(&format!(
+                        "yonder: {} has no {named}; the run goes to {default}, the repository of its host file. --repo names another one",
+                        host.alias()
+                    ));
+                    None
+                }
+                found => Some(found.map(|present| (named.clone(), present))),
+            },
+            None => None,
+        };
+        let (repo, present) = match asked {
+            Some(found) => found?,
+            None => (
+                default.clone(),
+                self.present(host, &default, request.checkout, commit, &[recorded])?,
+            ),
+        };
+        Ok((repo, present, host.features().to_vec()))
+    }
+
+    /// Refuses a run that needs a feature that the agent lacks, and warns about an option that the agent would ignore.
+    fn check_features(&self, alias: &str, features: &[String], checkout: &Path, options: &RunOptions) -> Result<(), Refusal> {
+        let has = |feature: &str| features.iter().any(|known| known == feature);
+        if options.apply && !has(feature::CHANGES) {
+            return Err(refused(
+                code::OLD_AGENT,
+                format!(
+                    "the agent on {alias} cannot bring back the changes of a run (--apply): it is older than this client. `yonder upgrade {alias}` updates it"
+                ),
+            ));
+        }
+        let mut ignored = Vec::new();
+        if options.nice.is_some_and(|nice| nice > 0) && !has(feature::NICE) {
+            ignored.push("--nice");
+        }
+        if checkout.join(CONFIG_FILE).is_file() && !has(feature::CONFIG) {
+            ignored.push(CONFIG_FILE);
+        }
+        if !has(feature::LOGIN_ENV) {
+            ignored.push("the login environment");
+        }
+        if !ignored.is_empty() {
+            (self.say)(&format!(
+                "yonder: warning: the agent on {alias} is older than this client and ignores {}. `yonder upgrade {alias}` updates it",
+                ignored.join(", ")
+            ));
+        }
+        Ok(())
+    }
+
+    /// Applies the patch of the changes of the command to the working tree. A patch that does not apply stays, and the
+    /// refusal names it. Changes that did not come refuse too, and name the fetch that copies them.
+    fn apply_changes(&self, alias: &str, checkout: &Path, run: &str, fetched: &Fetched, code_of_command: i32) -> Result<(), Refusal> {
+        if !fetched.complete {
+            return Err(Refusal::new(
+                code::APPLY_FAILED,
+                Exit::Refused,
+                format!(
+                    "the command of the run {run} exited with {code_of_command}, and its changes did not come: `yonder fetch {alias} {run}` copies them into the git directory of this checkout"
+                ),
+            ));
+        }
+        let Some(patch) = &fetched.changes else {
+            (self.say)("yonder: the command changed no file");
+            return Ok(());
+        };
+        let stop = || self.interrupted();
+        let git = |args: &[&str]| -> Ran {
+            self.processes
+                .run(&Call::new("git", args, APPLY_DEADLINE).in_dir(checkout.to_path_buf()), &stop)
+        };
+        let patch_text = patch.to_string_lossy();
+        let files = git(&["apply", "--numstat", &patch_text])
+            .stdout_text()
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .count();
+        let applied = git(&["apply", "--whitespace=nowarn", &patch_text]);
+        if applied.ok() {
+            (self.say)(&format!(
+                "yonder: applied the changes of the command to {files} files of this working tree; `git apply -R {patch_text}` undoes them"
+            ));
+            return Ok(());
+        }
+        Err(Refusal::new(
+            code::APPLY_FAILED,
+            Exit::Refused,
+            format!(
+                "the command of the run {run} exited with {code_of_command}, and its changes of {files} files do not apply to this working tree: {}. The patch is {patch_text}",
+                applied.said()
+            ),
+        ))
+    }
+
+    /// Sends `Start`. A reply that does not come can still leave the run on the agent, so the client cancels it then.
+    fn start(&self, host: &mut Host, spec: RunSpec) -> Result<(), Refusal> {
+        let run = spec.run.clone();
+        let (mut channel, _) = host.connect()?;
+        channel.send(&Request::Start(spec)).map_err(|error| host.link_refusal(&error))?;
+        match host.recv(&mut channel, self.timing.read) {
+            Ok(Reply::Started { .. }) => Ok(()),
+            Ok(Reply::Refused { code, message }) => Err(host.agent_refusal(code, &message)),
+            Ok(reply) => Err(host.unexpected(&reply)),
+            Err(refusal) if is_link(&refusal) => {
+                let what = format!("the start of the run {run} got no reply from {}", host.alias());
+                Err(self.abandon(host, &run, &what, refusal))
+            }
+            Err(refusal) => Err(refusal),
+        }
+    }
+
+    /// Follows a started run to its end, then copies its files and removes it on the host. A run that the agent refused
+    /// is removed too, and its failure carries the steps of the host. A refusal whose steps have no `command` is
+    /// [`Exit::NotRun`].
     fn follow_and_fetch(
         &self,
         host: &mut Host,
         run: &str,
         request: &RunRequest<'_>,
-        phases: &mut Vec<Phase>,
-    ) -> Result<(Followed, Vec<String>), Refusal> {
+        options: &RunOptions,
+        watch: &Watch,
+    ) -> Result<Finished, (Refusal, Vec<Phase>)> {
         let alias = host.alias().to_owned();
-        let followed = match self.follow(host, run, true) {
+        let followed = match self.follow(host, run, true, watch) {
             Ended::Exit(followed) => followed,
             Ended::Refused(refusal, steps) => {
-                if !steps.is_empty() {
-                    phases.extend(steps);
-                    (self.say)(&phases_line(phases));
-                }
                 self.forget_or_say(host, run);
-                return Err(refusal);
+                let ran = steps.iter().any(|step| step.name == "command");
+                return Err((if ran { refusal } else { not_run(refusal) }, steps));
             }
-            Ended::Unseen(refusal) => return Err(refusal),
+            Ended::Unseen(refusal) if refusal.code == code::INTERRUPTED => {
+                return Err((Refusal::new(refusal.code, Exit::Interrupted, refusal.message), Vec::new()));
+            }
+            Ended::Unseen(refusal) => return Err((refusal, Vec::new())),
         };
-        phases.extend(followed.phases.iter().cloned());
-        let fetched = if request.fetch.is_empty() {
-            Ok(Vec::new())
+        if request.fetch.is_empty() && !options.outputs && !options.apply {
+            self.forget_or_say(host, run);
+            return Ok(Finished {
+                followed,
+                fetched: Fetched {
+                    complete: true,
+                    ..Fetched::default()
+                },
+                fetch: None,
+            });
+        }
+        let fetching = Instant::now();
+        let changes = if options.apply {
+            patch_path(self.processes, request.checkout, run)
         } else {
-            let fetching = Instant::now();
-            let fetched = self.fetch_from(host, run, request.checkout, request.fetch);
-            phases.push(phase("fetch", fetching.elapsed()));
-            fetched
+            None
         };
+        let fetched = self.fetch_run(host, run, request.checkout, request.fetch, changes.as_deref());
+        let fetch = Some(phase("fetch", fetching.elapsed()));
         let fetched = match fetched {
             Ok(fetched) => {
                 self.forget_or_say(host, run);
                 fetched
             }
             Err(refusal) => {
+                let dirs: String = request.fetch.iter().map(|dir| format!(" --fetch {dir}")).collect();
                 (self.say)(&format!(
-                    "yonder: cannot copy the files of the run {run} from {alias}: {}. The run stays on {alias}: `yonder fetch {alias} {run}` copies its files again, and `yonder forget {alias} {run}` removes it",
+                    "yonder: cannot copy the files of the run {run} from {alias}: {}. The run stays on {alias}: `yonder fetch {alias} {run}{dirs}` copies its files again, and `yonder forget {alias} {run}` removes it",
                     refusal.message
                 ));
-                Vec::new()
+                Fetched::default()
             }
         };
-        Ok((followed, fetched))
+        Ok(Finished { followed, fetched, fetch })
     }
 
-    /// Cancels a started run whose pack did not reach the host, so its supervisor does not wait for the pack. Answers
-    /// the refusal of the upload with its code, and with what became of the run.
-    fn abandon(&self, host: &mut Host, run: &str, refusal: Refusal) -> Refusal {
+    /// Cancels a started run whose start or pack failed, so its supervisor does not wait for the pack. Answers the
+    /// refusal with its code, the failed step `what`, and what became of the run.
+    fn abandon(&self, host: &mut Host, run: &str, what: &str, refusal: Refusal) -> Refusal {
         let alias = host.alias().to_owned();
         let mut backoff = self.timing.first_backoff;
         let mut tries = 1;
@@ -287,17 +578,13 @@ impl Client<'_> {
                 failed.message
             ),
         };
-        Refusal::new(
-            refusal.code,
-            crate::Exit::Refused,
-            format!("the pack did not reach {alias}: {}; {fate}", refusal.message),
-        )
+        Refusal::new(refusal.code, Exit::Refused, format!("{what}: {}; {fate}", refusal.message))
     }
 
     /// Follows a run from its first line, as [`Client::run`] does. Ctrl+C here cancels nothing.
     pub fn attach(&self, alias: &str, run: &str) -> Result<Followed, Refusal> {
         let mut host = self.host(alias)?;
-        match self.follow(&mut host, run, false) {
+        match self.follow(&mut host, run, false, &Watch::new()) {
             Ended::Exit(followed) => Ok(followed),
             Ended::Refused(refusal, _) | Ended::Unseen(refusal) => Err(refusal),
         }
@@ -346,12 +633,78 @@ impl Client<'_> {
         done(&mut host, &request, self.timing.read)
     }
 
+    /// [`Client::lease`] for the checkout `checkout`: without `repo`, the repository of the same name as the local one
+    /// beside the repository of the host file, or the one of the host file when the host lacks it, as a run with
+    /// [`RunOptions::repo_by_name`] takes it.
+    pub fn lease_for(&self, alias: &str, checkout: &Path, repo: Option<&str>, holder: &str) -> Result<Leased, Refusal> {
+        self.by_name(alias, checkout, repo, |repo| self.lease(alias, repo, holder))
+    }
+
+    /// [`Client::release`] for the checkout `checkout`, with the repository of [`Client::lease_for`].
+    pub fn release_for(&self, alias: &str, checkout: &Path, repo: Option<&str>, holder: &str) -> Result<String, Refusal> {
+        self.by_name(alias, checkout, repo, |repo| self.release(alias, repo, holder))
+    }
+
+    /// Calls `call` with `repo`, or without it with the repository of the local name, and with the one of the host file
+    /// when the host lacks that.
+    fn by_name<T>(
+        &self,
+        alias: &str,
+        checkout: &Path,
+        repo: Option<&str>,
+        call: impl Fn(Option<&str>) -> Result<T, Refusal>,
+    ) -> Result<T, Refusal> {
+        if repo.is_some() {
+            return call(repo);
+        }
+        let default = self.host(alias)?.file().repo.clone();
+        let stop = || self.interrupted();
+        let named = repo_name(self.processes, checkout, &stop)
+            .and_then(|name| sibling(&default, &name))
+            .filter(|named| *named != default);
+        let Some(named) = named else {
+            return call(None);
+        };
+        match call(Some(&named)) {
+            Err(refusal) if refusal.code == "repo_missing" => {
+                (self.say)(&format!(
+                    "yonder: {alias} has no {named}; the request goes to {default}, the repository of its host file. --repo names another one"
+                ));
+                call(None)
+            }
+            other => other,
+        }
+    }
+
     /// The hello of the agent: its version and platform, and the address that answered.
     pub fn hello(&self, alias: &str) -> Result<AgentInfo, Refusal> {
         let mut host = self.host(alias)?;
         let (channel, info) = host.connect()?;
         channel.close();
         Ok(info)
+    }
+
+    /// The candidates of `commit` that the host has, with the commits of `extra`. The first `Have` names the near
+    /// candidates, which git finds at once. Only a host that has none of them gets a second `Have` with the first-parent
+    /// walk up to [`FARTHEST`], which reads up to 65537 commits.
+    pub(crate) fn present(
+        &self,
+        host: &mut Host,
+        repo: &str,
+        checkout: &Path,
+        commit: &str,
+        extra: &[Option<&str>],
+    ) -> Result<Vec<String>, Refusal> {
+        let stop = || self.interrupted();
+        let ask = |farthest: usize, host: &mut Host| {
+            let mut found = candidates(self.processes, checkout, commit, farthest, &stop);
+            for extra in extra {
+                add_candidate(&mut found, *extra);
+            }
+            self.have(host, repo, found)
+        };
+        let present = ask(NEAR, host)?;
+        if present.is_empty() { ask(FARTHEST, host) } else { Ok(present) }
     }
 
     /// The commits of `candidates` that the host has.
@@ -390,19 +743,14 @@ impl Client<'_> {
     }
 
     /// Follows the output of a run up to its end. With `cancel_on_interrupt`, the first Ctrl+C sends `Cancel`, and the
-    /// second one stops the follow.
-    fn follow(&self, host: &mut Host, run: &str, cancel_on_interrupt: bool) -> Ended {
-        let watch = Watch {
-            finished: Arc::new(AtomicBool::new(false)),
-            current: Mutex::new(None),
-            abandoned: AtomicBool::new(false),
-        };
+    /// second one stops the follow. [`Watch::stop_follow`] stops it from another thread.
+    fn follow(&self, host: &mut Host, run: &str, cancel_on_interrupt: bool, watch: &Watch) -> Ended {
         let watched = host.clone();
         thread::scope(|scope| {
             if cancel_on_interrupt {
-                scope.spawn(|| self.watch_interrupts(&watched, run, &watch));
+                scope.spawn(|| self.watch_interrupts(&watched, run, watch));
             }
-            let ended = self.follow_loop(host, run, &watch);
+            let ended = self.follow_loop(host, run, watch);
             watch.finished.store(true, Ordering::Release);
             ended
         })
@@ -421,11 +769,8 @@ impl Client<'_> {
                 ));
                 cancel = Some(start_cancel(host.clone(), run.to_owned(), self.timing, Arc::clone(&watch.finished)));
             }
-            if presses >= 2
-                && !watch.abandoned.swap(true, Ordering::AcqRel)
-                && let Some(closer) = watch.current.lock().unwrap_or_else(PoisonError::into_inner).take()
-            {
-                closer.close();
+            if presses >= 2 {
+                watch.stop_follow();
             }
             if let Some(said) = &cancel {
                 while let Ok(line) = said.try_recv() {
@@ -477,7 +822,7 @@ impl Client<'_> {
                     if state.last_reply.elapsed() >= self.timing.reconnect_for {
                         return Ended::Unseen(Refusal::new(
                             refusal.code.clone(),
-                            crate::Exit::Refused,
+                            Exit::Refused,
                             format!(
                                 "{}; no reply for {} s. The run can go on on the host: `yonder attach {} {run}` follows it",
                                 refusal.message,
@@ -525,6 +870,11 @@ impl Client<'_> {
                         state.offset = end;
                         match stream {
                             Stream::Stderr => (self.say)(&text),
+                            Stream::Stdout if self.stdout.is_some() => {
+                                if let Some(stdout) = self.stdout {
+                                    stdout(&text);
+                                }
+                            }
                             Stream::Stdout => {
                                 state.stdout.push_str(&text);
                                 state.stdout.push('\n');
@@ -644,6 +994,84 @@ fn classify(refusal: Refusal) -> Broken {
 }
 
 /// The id of a new run: `<epoch ms>-<pid>`.
+/// The files of a run that came back.
+#[derive(Debug, Default)]
+pub(crate) struct Fetched {
+    /// The staged files and the files of the outputs, relative to the checkout root with `/` separators.
+    pub(crate) files: Vec<String>,
+    /// The patch of the changes of the command, when it came.
+    pub(crate) changes: Option<PathBuf>,
+    /// Every file came. A fetch that failed keeps the run on the host.
+    pub(crate) complete: bool,
+}
+
+/// A refusal before the command of a run: the host did not run it. Ctrl+C keeps its own exit.
+fn not_run(refusal: Refusal) -> Refusal {
+    let exit = if refusal.code == code::INTERRUPTED {
+        Exit::Interrupted
+    } else {
+        Exit::NotRun
+    };
+    Refusal::new(refusal.code, exit, refusal.message)
+}
+
+/// The line of a started run: `yonder: run <id> of <commit> on <alias>`, then the repository when it is not the one of
+/// the host file, and what the commit holds beyond HEAD.
+fn run_line(run: &str, alias: &str, snapshot: &Snapshot, repo: &str, default_repo: &str) -> String {
+    let mut line = format!("yonder: run {run} of {} on {alias}", short(&snapshot.commit));
+    if repo != default_repo {
+        line.push_str(&format!(" in {repo}"));
+    }
+    if !snapshot.changed.is_empty() {
+        line.push_str(&format!(
+            ": the working tree, HEAD {} and {} changed paths",
+            short(&snapshot.head),
+            snapshot.changed.len()
+        ));
+    }
+    line
+}
+
+/// The repository `name` beside `repo` on the host: `~/projects/branch-deck` beside `~/projects/idea-1`.
+fn sibling(repo: &str, name: &str) -> Option<String> {
+    let parent = repo.trim_end_matches('/').rsplit_once('/')?.0;
+    (!parent.is_empty()).then(|| format!("{parent}/{name}"))
+}
+
+/// The file of the patch of the changes of a run: `yonder/<run>.patch` in the git directory of the checkout. The patches
+/// older than [`PATCH_KEEP`] go. `None` when git cannot name the directory or it cannot be made.
+pub(crate) fn patch_path(processes: &dyn Processes, checkout: &Path, run: &str) -> Option<PathBuf> {
+    let never: Stop<'_> = &crate::process::never;
+    let ran = processes.run(
+        &Call::new(
+            "git",
+            &["rev-parse", "--path-format=absolute", "--git-path", "yonder"],
+            APPLY_DEADLINE,
+        )
+        .in_dir(checkout.to_path_buf()),
+        never,
+    );
+    if !ran.ok() {
+        return None;
+    }
+    let dir = PathBuf::from(ran.stdout_text().trim());
+    fs::create_dir_all(&dir).ok()?;
+    if let Ok(entries) = fs::read_dir(&dir) {
+        for entry in entries.filter_map(Result::ok) {
+            let old = entry
+                .metadata()
+                .and_then(|metadata| metadata.modified())
+                .ok()
+                .and_then(|modified| modified.elapsed().ok())
+                .is_some_and(|age| age >= PATCH_KEEP);
+            if old && entry.file_name().to_string_lossy().ends_with(".patch") {
+                let _ = fs::remove_file(entry.path());
+            }
+        }
+    }
+    Some(dir.join(format!("{run}.patch")))
+}
+
 fn run_id() -> String {
     let millis = SystemTime::now()
         .duration_since(UNIX_EPOCH)

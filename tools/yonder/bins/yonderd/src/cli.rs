@@ -8,12 +8,16 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use clap::{Parser, Subcommand};
-use yonder_link::proto::SCHEMA_VERSION;
+use yonder_link::digest::sha256_file;
+use yonder_link::proto::{SCHEMA_VERSION, features};
 use yonder_link::{DEFAULT_PORT, Fingerprint};
 
 use crate::home::Home;
-use crate::refused::{AGENT_ERROR, Refusal, refused};
+use crate::refused::{AGENT_ERROR, Refusal, UPGRADE_FAILED, refused};
 use crate::run::{ExitRecord, RunDir};
+use crate::serve::log;
+use crate::tuning;
+use crate::upgrade::{self, Watched};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -36,6 +40,9 @@ enum Commands {
         /// The address to listen on. A test listens on the loopback address.
         #[arg(long, default_value_t = IpAddr::V4(Ipv4Addr::UNSPECIFIED), hide = true)]
         bind: IpAddr,
+        /// The launchctl program of the watchdog of an upgrade. A test gives a fake one.
+        #[arg(long, default_value = "launchctl", hide = true)]
+        launchctl: PathBuf,
     },
     /// Runs one run to its end. `serve` starts it for each start request.
     #[command(hide = true)]
@@ -66,6 +73,48 @@ enum Commands {
     },
     /// Prints the version and the protocol schema as one JSON line.
     Version,
+    /// Installs a new agent binary over the one of the LaunchAgent, starts the watchdog, and restarts the agent. A run
+    /// of `yonder upgrade` starts it on a host whose agent knows no upgrade request.
+    #[command(hide = true)]
+    Upgrade {
+        /// The new binary.
+        binary: PathBuf,
+        /// Take a binary of a lower version too.
+        #[arg(long)]
+        force: bool,
+        /// The launchctl program. A test gives a fake one.
+        #[arg(long, default_value = "launchctl", hide = true)]
+        launchctl: PathBuf,
+    },
+    /// Prints the line of `version` with the state of the LaunchAgent `--plist` for this build: `same`, `changed` or
+    /// `unknown`. An upgrade runs it on the new binary before the swap.
+    #[command(hide = true)]
+    Check {
+        #[arg(long)]
+        plist: PathBuf,
+    },
+    /// Waits for a `serve` of the new binary to listen, and else restores the previous binary and restarts the agent.
+    /// An upgrade starts it.
+    #[command(hide = true)]
+    Watchdog {
+        /// The binary of the LaunchAgent.
+        binary: PathBuf,
+        /// The SHA-256 of the new binary.
+        #[arg(long)]
+        sha256: String,
+        /// How long to wait, in milliseconds.
+        #[arg(long)]
+        wait_ms: u64,
+        #[arg(long, default_value = "launchctl")]
+        launchctl: PathBuf,
+    },
+    /// Writes the environment of this process into a file as JSON. The login shell of the user runs it, see
+    /// `login_env.rs`.
+    #[command(hide = true)]
+    DumpEnv {
+        /// The file to write.
+        file: PathBuf,
+    },
 }
 
 /// Runs the command of `args`, the first of which is the program name. Answers the exit code.
@@ -91,7 +140,7 @@ pub(crate) fn run(args: impl IntoIterator<Item = OsString>, stdout: &mut dyn Wri
 
 fn execute(command: Commands, stdout: &mut dyn Write) -> Result<(), Refusal> {
     match command {
-        Commands::Serve { port, bind } => crate::serve::serve(Home::from_env()?, bind, port, stdout),
+        Commands::Serve { port, bind, launchctl } => crate::serve::serve(Home::from_env()?, bind, port, launchctl, stdout),
         Commands::Supervise { run_dir, lock_fd } => {
             match Home::from_env() {
                 Ok(home) => crate::supervise::supervise(&home, &run_dir, lock_fd),
@@ -122,8 +171,47 @@ fn execute(command: Commands, stdout: &mut dyn Write) -> Result<(), Refusal> {
             crate::setup::setup(&Home::from_env()?, &setup, stdout)
         }
         Commands::Version => {
-            let line = serde_json::json!({"version": env!("CARGO_PKG_VERSION"), "schema_version": SCHEMA_VERSION});
+            writeln!(stdout, "{}", version_line(None)).map_err(|error| refused(AGENT_ERROR, format!("cannot write stdout: {error}")))
+        }
+        Commands::Check { plist } => writeln!(stdout, "{}", version_line(Some(upgrade::plist_state(&plist))))
+            .map_err(|error| refused(AGENT_ERROR, format!("cannot write stdout: {error}"))),
+        Commands::Upgrade { binary, force, launchctl } => {
+            let upgraded = upgrade::upgrade_from_file(&Home::from_env()?, &binary, &launchctl, tuning::upgrade_wait(), force)?;
+            let line = serde_json::to_string(&upgraded).map_err(|error| refused(AGENT_ERROR, error.to_string()))?;
             writeln!(stdout, "{line}").map_err(|error| refused(AGENT_ERROR, format!("cannot write stdout: {error}")))
         }
+        Commands::Watchdog {
+            binary,
+            sha256,
+            wait_ms,
+            launchctl,
+        } => {
+            let home = Home::from_env()?;
+            match upgrade::watchdog(&home, &binary, &sha256, Duration::from_millis(wait_ms), &launchctl, &mut |line| {
+                log(line);
+            })? {
+                Watched::Listened(_) => Ok(()),
+                Watched::RolledBack { .. } => Err(refused(UPGRADE_FAILED, format!("no serve of the binary {sha256} listened"))),
+            }
+        }
+        Commands::DumpEnv { file } => {
+            crate::login_env::dump_env(&file).map_err(|error| refused(AGENT_ERROR, format!("cannot write {}: {error}", file.display())))
+        }
     }
+}
+
+/// The line of `version`: the version, the schema, the features, and the SHA-256 of this binary as its build id, since
+/// the version is the same for each build. `check` adds the state of the LaunchAgent.
+fn version_line(plist: Option<&str>) -> serde_json::Value {
+    let sha256 = std::env::current_exe().and_then(|exe| sha256_file(&exe)).ok();
+    let mut line = serde_json::json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "schema_version": SCHEMA_VERSION,
+        "features": features(),
+        "sha256": sha256,
+    });
+    if let Some(plist) = plist {
+        line["plist"] = plist.into();
+    }
+    line
 }

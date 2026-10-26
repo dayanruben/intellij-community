@@ -4,28 +4,14 @@ use pretty_assertions::assert_eq;
 
 use super::*;
 use crate::child::never;
+use crate::testing;
 
 /// A repository with one commit. Answers the directory and the commit.
 fn repo() -> (tempfile::TempDir, PathBuf, String) {
     let dir = tempfile::tempdir().expect("a temporary directory");
     let repo = dir.path().join("repo");
     std::fs::create_dir(&repo).expect("the repository directory");
-    let run = |args: &[&str]| {
-        let output = Command::new("git")
-            .arg("-C")
-            .arg(&repo)
-            .args(args)
-            .env("GIT_CONFIG_NOSYSTEM", "1")
-            .env("HOME", dir.path())
-            .env("GIT_AUTHOR_NAME", "t")
-            .env("GIT_AUTHOR_EMAIL", "t@t")
-            .env("GIT_COMMITTER_NAME", "t")
-            .env("GIT_COMMITTER_EMAIL", "t@t")
-            .output()
-            .expect("git");
-        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-        String::from_utf8_lossy(&output.stdout).trim().to_owned()
-    };
+    let run = |args: &[&str]| testing::git(&repo, args);
     run(&["init", "-q"]);
     std::fs::write(repo.join("a.txt"), "a").expect("a file");
     run(&["add", "a.txt"]);
@@ -61,7 +47,7 @@ fn a_pack_ref_is_a_run_ref_or_a_base_ref() {
 #[test]
 fn have_answers_the_commits_that_the_repository_has() {
     let (_dir, repo, commit) = repo();
-    assert!(is_repo(&repo));
+    assert_eq!(check_repo(&repo), Ok(()));
     let missing = "1".repeat(40);
     assert_eq!(have(&repo, &[missing, commit.clone()]).expect("the answer"), vec![commit.clone()]);
     assert_eq!(head(&repo, &never).expect("HEAD"), commit);
@@ -80,9 +66,32 @@ fn a_ref_is_made_and_deleted() {
     assert!(error.contains("exit status"), "{error}");
 }
 
+/// A path that is no repository says why, with the words of git.
 #[test]
-fn a_directory_without_git_is_no_repository() {
+fn a_directory_without_git_is_no_repository_and_says_why() {
     let dir = tempfile::tempdir().expect("a temporary directory");
-    assert!(!is_repo(dir.path()));
-    assert!(!is_repo(&dir.path().join("missing")));
+    let Err(NotRepo::Missing(why)) = check_repo(dir.path()) else {
+        panic!("{:?}", check_repo(dir.path()));
+    };
+    assert!(
+        why.starts_with("`git rev-parse --git-dir` says: fatal: not a git repository"),
+        "{why}"
+    );
+    assert_eq!(
+        check_repo(&dir.path().join("missing")),
+        Err(NotRepo::Missing("it is no directory".to_owned()))
+    );
+}
+
+/// A checkout and a bare repository pass by their files, without a git call.
+#[test]
+fn a_checkout_and_a_bare_repository_pass_by_their_files() {
+    let (dir, repo, _) = repo();
+    assert_eq!(check_repo(&repo), Ok(()));
+    let bare = dir.path().join("bare.git");
+    testing::git(
+        dir.path(),
+        &["clone", "-q", "--bare", &repo.to_string_lossy(), &bare.to_string_lossy()],
+    );
+    assert_eq!(check_repo(&bare), Ok(()));
 }
