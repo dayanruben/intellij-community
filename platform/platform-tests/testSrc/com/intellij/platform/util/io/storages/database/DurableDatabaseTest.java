@@ -13,6 +13,8 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static com.intellij.platform.util.io.storages.CommonKeyDescriptors.stringAsUTF8;
+import static com.intellij.platform.util.io.storages.database.DurableMapImplementation.KEY_VALUE_SEPARATELY;
+import static com.intellij.platform.util.io.storages.database.DurableMapImplementation.KEY_VALUE_TOGETHER;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -32,6 +34,79 @@ public class DurableDatabaseTest {
       assertSame(first, second);
       first.put("key", "value");
       assertEquals("value", second.get("key"));
+    }
+  }
+
+  @Test
+  public void oldOverloadUsesKeyValueTogether(@TempDir Path databaseDirectory) throws Exception {
+    try (var database = new DurableDatabaseFactory(CHUNK_SIZE).open(databaseDirectory)) {
+      var implicit = openStringMap(database, 1);
+      var explicit = openStringMap(database, KEY_VALUE_TOGETHER);
+
+      assertSame(implicit, explicit, "The old overload must select the existing map implementation");
+    }
+  }
+
+  @Test
+  public void selectedImplementationsCreateIndependentMaps(@TempDir Path databaseDirectory) throws Exception {
+    try (var database = new DurableDatabaseFactory(CHUNK_SIZE).open(databaseDirectory)) {
+      var together = openStringMap(database, "together", KEY_VALUE_TOGETHER);
+      var separately = openStringMap(database, "separately", KEY_VALUE_SEPARATELY);
+      together.put("key", "together");
+      separately.put("key", "separately");
+
+      assertEquals("together", together.get("key"));
+      assertEquals("separately", separately.get("key"));
+      assertEquals(List.of("together", "separately"), database.mapNames());
+    }
+  }
+
+  @Test
+  public void openMapCacheRejectsAnotherImplementation(@TempDir Path databaseDirectory) throws Exception {
+    try (var database = new DurableDatabaseFactory(CHUNK_SIZE).open(databaseDirectory)) {
+      var map = openStringMap(database, KEY_VALUE_TOGETHER);
+
+      assertThrows(
+        UnsupportedFormatException.class,
+        () -> openStringMap(database, KEY_VALUE_SEPARATELY)
+      );
+      assertSame(map, openStringMap(database, 1), "A rejected selector must preserve the cached map");
+    }
+  }
+
+  @Test
+  public void metadataSelectsKeyValueTogether(@TempDir Path databaseDirectory) throws Exception {
+    var factory = new DurableDatabaseFactory(CHUNK_SIZE);
+    try (var database = factory.open(databaseDirectory)) {
+      openStringMap(database, 1).put("key", "value");
+    }
+
+    try (var database = factory.open(databaseDirectory)) {
+      assertThrows(
+        UnsupportedFormatException.class,
+        () -> openStringMap(database, KEY_VALUE_SEPARATELY)
+      );
+      assertEquals(
+        "value",
+        openStringMap(database, KEY_VALUE_TOGETHER).get("key"),
+        "A rejected selector must not change metadata or map data"
+      );
+    }
+  }
+
+  @Test
+  public void metadataSelectsKeyValueSeparately(@TempDir Path databaseDirectory) throws Exception {
+    var factory = new DurableDatabaseFactory(CHUNK_SIZE);
+    try (var database = factory.open(databaseDirectory)) {
+      openStringMap(database, KEY_VALUE_SEPARATELY).put("key", "value");
+    }
+
+    try (var database = factory.open(databaseDirectory)) {
+      assertThrows(
+        UnsupportedFormatException.class,
+        () -> openStringMap(database, KEY_VALUE_TOGETHER)
+      );
+      assertEquals("value", openStringMap(database, KEY_VALUE_SEPARATELY).get("key"));
     }
   }
 
@@ -154,5 +229,17 @@ public class DurableDatabaseTest {
                                                                    int dataVersion) throws IOException {
     KeyDescriptorEx<String> descriptor = stringAsUTF8();
     return database.openMap(name, dataVersion, descriptor, descriptor);
+  }
+
+  private static @NotNull DurableMap<String, String> openStringMap(@NotNull DurableDatabase database,
+                                                                   @NotNull DurableMapImplementation implementation) throws IOException {
+    return openStringMap(database, "map", implementation);
+  }
+
+  private static @NotNull DurableMap<String, String> openStringMap(@NotNull DurableDatabase database,
+                                                                   @NotNull String name,
+                                                                   @NotNull DurableMapImplementation implementation) throws IOException {
+    KeyDescriptorEx<String> descriptor = stringAsUTF8();
+    return database.openMap(name, 1, implementation, descriptor, descriptor);
   }
 }

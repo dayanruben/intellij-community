@@ -36,18 +36,21 @@ import java.util.function.BiPredicate;
 import java.util.function.BooleanSupplier;
 
 import static com.intellij.diagnostic.ControlFlowExceptionsKt.rethrowControlFlowException;
-import static com.intellij.platform.util.io.storages.database.storages.durablemap.DurableMapBlockCatalog.DurableMapBlockRole.DATA;
+import static com.intellij.platform.util.io.storages.database.DurableMapImplementation.KEY_VALUE_TOGETHER;
+import static com.intellij.platform.util.io.storages.database.storages.durablemap.DurableMapBlockCatalog.DurableMapBlockRole.ENTRIES;
 import static com.intellij.platform.util.io.storages.database.storages.extendiblehashmap.ExtendibleHashMapStorageOverLookupBlocks.IMPLEMENTATION_ID;
 import static com.intellij.platform.util.io.storages.intmultimaps.IntToMultiLongMap.NO_VALUE;
 import static com.intellij.platform.util.io.storages.intmultimaps.extendiblehashmap.ExtendibleHashMapInt32ToInt64.DEFAULT_SEGMENT_SIZE;
 import static com.intellij.util.io.IOUtil.KiB;
 
 /// Stores
-/// - key-value entries in `DATA` blocks
+/// - key-value entries in `ENTRIES` blocks
 /// - `key.hash -> RecordRef` index in `LOOKUP` blocks
 @ApiStatus.Internal
-public class DurableMapOverBlocks<K, V> implements DurableMap<K, V> {
-  public static final int DEFAULT_DATA_BLOCK_CONTENT_LENGTH = 64 * KiB;
+public class DurableMapOverBlocks<K, V> implements DurableMap<K, V>, UnusedBlocksRetirement {
+  static final int IMPLEMENTATION_VERSION = 1;
+
+  public static final int DEFAULT_ENTRIES_BLOCK_CONTENT_LENGTH = 64 * KiB;
 
   /// 32K is not enough for indexes
   public static final int SEGMENT_SIZE = DEFAULT_SEGMENT_SIZE * 2;
@@ -131,11 +134,18 @@ public class DurableMapOverBlocks<K, V> implements DurableMap<K, V> {
     var storeMetadata = blocksStore.storeMetadata();
     DurableMapMetadata mapMetadata;
     if (storeMetadata.version() == 0) {//'not set'
-      mapMetadata = DurableMapMetadata.initial();
+      mapMetadata = DurableMapMetadata.initial(KEY_VALUE_TOGETHER);
       blocksStore.updateStoreMetadata(mapMetadata.toStoreMetadata());
     }
     else {
       mapMetadata = DurableMapMetadata.fromStoreMetadata(storeMetadata);
+    }
+
+    if (mapMetadata.mapImplementation() != KEY_VALUE_TOGETHER) {
+      throw new CorruptedException("Unexpected durable map implementation " + mapMetadata.mapImplementation());
+    }
+    if (mapMetadata.mapFormatVersion() != IMPLEMENTATION_VERSION) {
+      throw new UnsupportedFormatException("durable map", IMPLEMENTATION_VERSION, mapMetadata.mapFormatVersion());
     }
 
     if (mapMetadata.lookupImplementationId() != IMPLEMENTATION_ID) {
@@ -191,7 +201,7 @@ public class DurableMapOverBlocks<K, V> implements DurableMap<K, V> {
   }
 
   /// Opens the map with the specified recordRefIndex.
-  /// The caller explicitly selects whether to rebuild the recordRefIndex from committed DATA records.
+  /// The caller explicitly selects whether to rebuild the recordRefIndex from committed ENTRIES records.
   public static <K, V> @NotNull DurableMapOverBlocks<K, V> open(@NotNull BlocksStore store,
                                                                 int preferredBlockContentLength,
                                                                 @NotNull RecordRefIndex recordRefIndex,
@@ -202,7 +212,7 @@ public class DurableMapOverBlocks<K, V> implements DurableMap<K, V> {
   }
 
   /// Opens the map with the specified recordRefIndex.
-  /// The caller explicitly selects whether to rebuild the recordRefIndex from committed DATA records.
+  /// The caller explicitly selects whether to rebuild the recordRefIndex from committed ENTRIES records.
   public static <K, V> @NotNull DurableMapOverBlocks<K, V> open(@NotNull BlocksStore blocksStore,
                                                                 int preferredBlockContentLength,
                                                                 @NotNull RecordRefIndex recordRefIndex,
@@ -255,18 +265,23 @@ public class DurableMapOverBlocks<K, V> implements DurableMap<K, V> {
       throw new IllegalArgumentException("The recordRefIndex must be empty before recovery");
     }
     var mapEntries = RecordStorageOverBlocks.open(blockCatalog, preferredBlockContentLength);
-    DurableMapOverBlocks<K, V> durableMapImpl = (patchExternalizer == null) ?
-                                                new DurableMapOverBlocks<>(blockCatalog, blocksStore, mapEntries, recordRefIndex,
-                                                                           keyEquality,
-                                                                           valueEquality, entryExternalizer) :
-                                                new PatchableMap<>(blocksStore, blockCatalog, mapEntries, recordRefIndex, keyEquality,
-                                                                     valueEquality, entryExternalizer, patchExternalizer);
+    DurableMapOverBlocks<K, V> durableMapImpl;
+    if (patchExternalizer == null) {
+      durableMapImpl = new DurableMapOverBlocks<>(
+        blockCatalog, blocksStore, mapEntries, recordRefIndex, keyEquality, valueEquality, entryExternalizer
+      );
+    }
+    else {
+      durableMapImpl = new PatchableMap<>(
+        blocksStore, blockCatalog, mapEntries, recordRefIndex, keyEquality, valueEquality, entryExternalizer, patchExternalizer
+      );
+    }
     if (rebuildLookup) {
       durableMapImpl.rebuildLookupFromRecords();
     }
     if (blocksStore instanceof HousekeeperInstaller installer) {// not every BlocksStore supports HousekeeperInstaller!
       durableMapImpl.housekeeperRegistration = installer.installHousekeeper(
-        new RetireUnusedBlockInDurableMapHousekeeper(durableMapImpl)
+        new RetireUnusedBlocksHousekeeper(durableMapImpl)
       );
     }
     return durableMapImpl;
@@ -493,7 +508,8 @@ public class DurableMapOverBlocks<K, V> implements DurableMap<K, V> {
 
   /// Find store's blocks that are [BlocksStore.Block.LifecycleState#SEALED] and not used by any currently alive records;
   /// => retire those blocks.
-  void retireUnusedBlocks(@NotNull BooleanSupplier cancelled) throws IOException {
+  @Override
+  public void retireUnusedBlocks(@NotNull BooleanSupplier cancelled) throws IOException {
     DeadBlocksSweepSnapshot snapshot;
     synchronized (lock) {
       if (closed || cancelled.getAsBoolean()) {
@@ -505,7 +521,7 @@ public class DurableMapOverBlocks<K, V> implements DurableMap<K, V> {
         return true;
       });
       //TODO RC: check is it needed to be done under the lock -- there are some races, but seems like it could be worked around
-      var blocksToCheckForRetirement = blockCatalog.blocks(DATA).stream()
+      var blocksToCheckForRetirement = blockCatalog.blocks(ENTRIES).stream()
         .filter(block -> block.state() == BlocksStore.Block.LifecycleState.SEALED)
         .toList();
       snapshot = new DeadBlocksSweepSnapshot(headRefs, blocksToCheckForRetirement);
@@ -583,7 +599,7 @@ public class DurableMapOverBlocks<K, V> implements DurableMap<K, V> {
             // both records shouldn't be reachable at all from LOOKUP -- but on recovery we scan all
             // the records.
             orphanedPatchRefs.add(recordRef);
-            return;
+            return true;
           }
           throw new CorruptedException("The patch does not continue the current chain: " + recordRef);
         }
@@ -592,7 +608,7 @@ public class DurableMapOverBlocks<K, V> implements DurableMap<K, V> {
         }
         publishHead(previous.hash(), previousRef, recordRef);
         heads.put(recordRef, previous);
-        return;
+        return true;
       }
 
       var key = entryExternalizer.readKey(record.payload().asByteBuffer());
@@ -618,6 +634,7 @@ public class DurableMapOverBlocks<K, V> implements DurableMap<K, V> {
       if (!deleted) {
         heads.put(recordRef, new HeadState(keyHash, recordRef));
       }
+      return true;
     });
   }
 

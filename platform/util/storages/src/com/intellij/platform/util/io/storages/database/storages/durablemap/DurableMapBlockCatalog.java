@@ -202,9 +202,13 @@ public final class DurableMapBlockCatalog {
   @ApiStatus.Internal
   public enum DurableMapBlockRole {
     /** Blocks with key-value records */
-    DATA(1),
+    ENTRIES(1),
     /** Blocks with persistent lookup structures */
-    LOOKUP(2);
+    LOOKUP(2),
+    /** Blocks with (unique) key records */
+    KEYS(3),
+    /** Blocks with value & patches records */
+    VALUES(4);
 
     private final int persistentCode;
 
@@ -218,8 +222,10 @@ public final class DurableMapBlockCatalog {
 
     private static @NotNull DurableMapBlockRole fromPersistentCode(int persistentCode) throws CorruptedException {
       return switch (persistentCode) {
-        case 1 -> DATA;
+        case 1 -> ENTRIES;
         case 2 -> LOOKUP;
+        case 3 -> KEYS;
+        case 4 -> VALUES;
         default -> throw new CorruptedException("Unknown durable map block role " + persistentCode);
       };
     }

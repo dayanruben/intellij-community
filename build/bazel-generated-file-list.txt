@@ -1057,6 +1057,10 @@ platform/service-container
 platform/settings
 platform/settings-local
 platform/settings-sync-core
+platform/settings.v2
+platform/settings.v2/backend
+platform/settings.v2/shared
+platform/settings.v2/test
 platform/smRunner
 platform/smRunner/dashboard
 platform/smRunner/vcs
@@ -1919,6 +1923,7 @@ python/python-black
 python/python-black/common
 python/python-black/frontend
 python/python-black/tests
+python/python-code-insight
 python/python-copyright
 python/python-core-impl
 python/python-exec-service
@@ -2018,6 +2023,12 @@ spellchecker
 spellchecker/vcs
 spellchecker/xml
 spellchecker/xml/backend
+standalone-analysis/java-api
+standalone-analysis/java-impl
+standalone-analysis/java-smoke
+standalone-analysis/platform-api
+standalone-analysis/platform-impl
+standalone-analysis/platform-smoke
 tools/apiDump
 tools/apiDump/testData
 tools/intellij.ide.starter.allure.annotations.scanner

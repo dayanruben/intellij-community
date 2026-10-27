@@ -36,6 +36,14 @@ launchd starts the new one. A watchdog there brings back the old binary when the
 goes on. An agent that knows no upgrade request gets one run that carries the binary in `yonder-upgrade/` of the
 working tree, and the binary installs itself there. `bins/yonderd/API.md` has the steps, and `crates/yonder-client/API.md` the refusals.
 
+## Sleep
+
+A Mac that a connection woke sleeps again when it is idle, and a running build does not count as activity. So `serve`
+holds the power assertions of `caffeinate -i -s` while a client has a connection after its hello (a follow sends a
+heartbeat every 15 s, so a gone client loses its connection and lets the host sleep), and each supervisor holds them
+for its whole life, so a command runs to its end without its client. `-w` ends each `caffeinate` with the process it
+watches. Elsewhere than on macOS nothing holds them.
+
 ## The warm lease
 
 The lease holder of a run is one per local checkout path (`yonder-<hash>`, or `--holder`), so the runs of a checkout
@@ -49,6 +57,11 @@ The agent listens on TCP port 7741. Each end has a self-signed certificate in it
 of the certificate is its fingerprint. A client checks that the agent shows the fingerprint of its host file. The
 agent checks that the client shows a fingerprint of its allow list, and it reads the list at each handshake. TLS 1.3
 only, on the ring provider. Every read and every write has a deadline, so no call waits for ever.
+
+On macOS, Local Network privacy refuses a connection with `EHOSTUNREACH` when the responsible app of the client has no
+permission. The client then connects through `/usr/bin/nc`, which it starts responsible for itself, so the connection
+works from any terminal app or IDE. TLS stays end to end. The `relay` and `disclaim` modules of `yonder-link` have the
+details.
 
 One connection carries one request. A run lives on the agent, not on the connection: a client that lost its
 connection follows the output again from the last offset it saw.

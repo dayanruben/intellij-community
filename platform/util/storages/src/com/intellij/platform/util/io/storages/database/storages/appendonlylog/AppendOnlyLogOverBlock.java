@@ -67,7 +67,7 @@ public final class AppendOnlyLogOverBlock {
     var content = block.content();
     var committedTail = AppendOnlyLogOverBlockHeaderLayout.readValidatedCommittedTail(block.id(), content);
     var log = new AppendOnlyLogOverBlock(block, content);
-    log.scanCommittedRecords(committedTail, (_, _) -> { });
+    log.scanCommittedRecords(committedTail, (_, _) -> true);
     return log;
   }
 
@@ -141,30 +141,52 @@ public final class AppendOnlyLogOverBlock {
       throw new IllegalStateException("Block " + block.id() + " is retired");
     }
     var committedTail = AppendOnlyLogOverBlockHeaderLayout.committedTail(content);
+    var header = readCommittedHeader(recordOffset, committedTail);
+    return record(recordOffset, header);
+  }
+
+  /// Updates a committed payload without changing its size or record header
+  ///
+  /// BEWARE: updating records denies the guarantees append-only-log normally gives -- i.e. that committed records
+  /// are crash-safe (in a way)
+  public void updatePayload(int recordOffset, @NotNull RecordWriter updater) throws IOException {
+    if (block.state() == BlocksStore.Block.LifecycleState.RETIRED) {
+      throw new IllegalStateException("Block " + block.id() + " is retired");
+    }
+    var committedTail = AppendOnlyLogOverBlockHeaderLayout.committedTail(content);
+    var header = readCommittedHeader(recordOffset, committedTail);
+    updater.writeTo(payload(recordOffset, header));
+  }
+
+  private @NotNull RecordHeader readCommittedHeader(int recordOffset, int committedTail) throws CorruptedException {
     if (recordOffset < AppendOnlyLogOverBlockHeaderLayout.HEADER_SIZE ||
         recordOffset % RecordHeaderLayout.RECORD_ALIGNMENT != 0 ||
         (long)recordOffset + RecordHeaderLayout.HEADER_SIZE > committedTail) {
       throw new CorruptedException("Invalid record offset " + recordOffset + " in block " + block.id());
     }
     var recordHeader = content.asSlice(recordOffset, RecordHeaderLayout.HEADER_SIZE);
-    var header = RecordHeader.readCommitted(block.id(), recordOffset, recordHeader, committedTail);
-    return record(recordOffset, header);
+    return RecordHeader.readCommitted(block.id(), recordOffset, recordHeader, committedTail);
   }
 
-  public void forEachCommittedRecord(@NotNull RecordReader reader) throws IOException {
-    forEachCommittedRecordWithLinks((offset, record) -> reader.process(offset, record.payload()));
+  /// @return `true` if all records were processed, or `false` if the reader stopped the traversal.
+  public boolean forEachCommittedRecord(@NotNull RecordReader reader) throws IOException {
+    return forEachCommittedRecordWithLinks((offset, record) -> reader.process(offset, record.payload()));
   }
 
-  public void forEachCommittedRecordWithLinks(@NotNull LinkedRecordReader reader) throws IOException {
-    scanCommittedRecords(AppendOnlyLogOverBlockHeaderLayout.committedTail(content), reader);
+  /// @return `true` if all records were processed, or `false` if the reader stopped the traversal.
+  public boolean forEachCommittedRecordWithLinks(@NotNull LinkedRecordReader reader) throws IOException {
+    return scanCommittedRecords(AppendOnlyLogOverBlockHeaderLayout.committedTail(content), reader);
   }
 
-  private void scanCommittedRecords(int committedTail, @NotNull LinkedRecordReader reader) throws IOException {
+  private boolean scanCommittedRecords(int committedTail, @NotNull LinkedRecordReader reader) throws IOException {
     var recordOffset = AppendOnlyLogOverBlockHeaderLayout.HEADER_SIZE;
     while (recordOffset < committedTail) {
       var recordHeader = content.asSlice(recordOffset, RecordHeaderLayout.HEADER_SIZE);
       var header = RecordHeader.readCommitted(block.id(), recordOffset, recordHeader, committedTail);
-      reader.process(recordOffset, record(recordOffset, header));
+      Record record = record(recordOffset, header);
+      if (!reader.process(recordOffset, record)) {
+        return false;
+      }
       recordOffset += header.totalLength();
     }
     if (recordOffset != committedTail) {
@@ -172,6 +194,7 @@ public final class AppendOnlyLogOverBlock {
         "Invalid append-only log block " + block.id() + ": the committed tail does not end at a record boundary"
       );
     }
+    return true;
   }
 
   private @NotNull MemorySegment payload(int recordOffset, @NotNull RecordHeader header) {
@@ -200,7 +223,8 @@ public final class AppendOnlyLogOverBlock {
 
   @FunctionalInterface
   public interface LinkedRecordReader {
-    void process(int recordOffset, @NotNull Record record) throws IOException;
+    /// @return `true` to process the next record, or `false` to stop the traversal.
+    boolean process(int recordOffset, @NotNull Record record) throws IOException;
   }
 
   /// Writes one payload into a segment with the requested payload length
@@ -212,6 +236,7 @@ public final class AppendOnlyLogOverBlock {
   /// Processes one committed payload
   @FunctionalInterface
   public interface RecordReader {
-    void process(int recordOffset, @NotNull MemorySegment payload) throws IOException;
+    /// @return `true` to process the next record, or `false` to stop the traversal.
+    boolean process(int recordOffset, @NotNull MemorySegment payload) throws IOException;
   }
 }

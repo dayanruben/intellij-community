@@ -40,13 +40,19 @@ public class DurableMapBlockCatalogTest {
     try (var database = new BlocksDatabaseFactory(CHUNK_SIZE).open(databaseDirectory)) {
       var store = database.openStore("map", 1);
       var blockCatalog = DurableMapBlockCatalog.open(store);
-      var dataBlock = blockCatalog.allocateBlock(DurableMapBlockCatalog.DurableMapBlockRole.DATA, BLOCK_CONTENT_LENGTH);
-      dataBlock.activate();
+      var entriesBlock = blockCatalog.allocateBlock(DurableMapBlockCatalog.DurableMapBlockRole.ENTRIES, BLOCK_CONTENT_LENGTH);
+      entriesBlock.activate();
       var lookupBlock = blockCatalog.allocateBlock(DurableMapBlockCatalog.DurableMapBlockRole.LOOKUP, BLOCK_CONTENT_LENGTH);
+      var keysBlock = blockCatalog.allocateBlock(DurableMapBlockCatalog.DurableMapBlockRole.KEYS, BLOCK_CONTENT_LENGTH);
+      var valuesBlock = blockCatalog.allocateBlock(DurableMapBlockCatalog.DurableMapBlockRole.VALUES, BLOCK_CONTENT_LENGTH);
 
-      assertEquals(List.of(dataBlock, lookupBlock), blockCatalog.blocks());
-      assertEquals(List.of(dataBlock), blockCatalog.blocks(DurableMapBlockCatalog.DurableMapBlockRole.DATA));
+      assertEquals(3, DurableMapBlockCatalog.DurableMapBlockRole.KEYS.persistentCode());
+      assertEquals(4, DurableMapBlockCatalog.DurableMapBlockRole.VALUES.persistentCode());
+      assertEquals(List.of(entriesBlock, lookupBlock, keysBlock, valuesBlock), blockCatalog.blocks());
+      assertEquals(List.of(entriesBlock), blockCatalog.blocks(DurableMapBlockCatalog.DurableMapBlockRole.ENTRIES));
       assertEquals(List.of(lookupBlock), blockCatalog.blocks(DurableMapBlockCatalog.DurableMapBlockRole.LOOKUP));
+      assertEquals(List.of(keysBlock), blockCatalog.blocks(DurableMapBlockCatalog.DurableMapBlockRole.KEYS));
+      assertEquals(List.of(valuesBlock), blockCatalog.blocks(DurableMapBlockCatalog.DurableMapBlockRole.VALUES));
       assertEquals(blockCatalog.blocks(), store.blocks());
     }
   }
@@ -54,15 +60,15 @@ public class DurableMapBlockCatalogTest {
   @Test
   public void lookupBlocksAreScopedByImplementationAndGeneration(@TempDir Path databaseDirectory) throws Exception {
     var factory = new BlocksDatabaseFactory(CHUNK_SIZE);
-    int dataBlockId;
+    int entriesBlockId;
     int implementationOneGenerationOneBlockId;
     int implementationOneGenerationTwoBlockId;
     int implementationTwoGenerationOneBlockId;
     try (var database = factory.open(databaseDirectory)) {
       var store = database.openStore("map", 1);
       var blockCatalog = DurableMapBlockCatalog.open(store);
-      var dataBlock = blockCatalog.allocateBlock(DurableMapBlockCatalog.DurableMapBlockRole.DATA, BLOCK_CONTENT_LENGTH);
-      dataBlock.activate();
+      var entriesBlock = blockCatalog.allocateBlock(DurableMapBlockCatalog.DurableMapBlockRole.ENTRIES, BLOCK_CONTENT_LENGTH);
+      entriesBlock.activate();
       var implementationOneGenerationOne = blockCatalog.lookupBlocks(1, 1);
       var implementationOneGenerationTwo = blockCatalog.lookupBlocks(1, 2);
       var implementationTwoGenerationOne = blockCatalog.lookupBlocks(2, 1);
@@ -84,7 +90,7 @@ public class DurableMapBlockCatalogTest {
       assertEquals(List.of(implementationTwoGenerationOneBlock), implementationTwoGenerationOne.blocks());
       assertEquals(3, blockCatalog.blocks(DurableMapBlockCatalog.DurableMapBlockRole.LOOKUP).size());
 
-      dataBlockId = dataBlock.id();
+      entriesBlockId = entriesBlock.id();
       implementationOneGenerationOneBlockId = implementationOneGenerationOneBlock.id();
       implementationOneGenerationTwoBlockId = implementationOneGenerationTwoBlock.id();
       implementationTwoGenerationOneBlockId = implementationTwoGenerationOneBlock.id();
@@ -108,9 +114,9 @@ public class DurableMapBlockCatalogTest {
 
       implementationOneGenerationOne.retireAll();
 
-      assertEquals(dataBlockId, blockCatalog.blocks(DurableMapBlockCatalog.DurableMapBlockRole.DATA).getFirst().id());
-      assertEquals(ACTIVE, blockCatalog.blocks(DurableMapBlockCatalog.DurableMapBlockRole.DATA).getFirst().state(),
-                   "Retiring one lookup scope must preserve DATA blocks");
+      assertEquals(entriesBlockId, blockCatalog.blocks(DurableMapBlockCatalog.DurableMapBlockRole.ENTRIES).getFirst().id());
+      assertEquals(ACTIVE, blockCatalog.blocks(DurableMapBlockCatalog.DurableMapBlockRole.ENTRIES).getFirst().state(),
+                   "Retiring one lookup scope must preserve ENTRIES blocks");
       assertEquals(RETIRED, implementationOneGenerationOne.blocks().getFirst().state());
       assertEquals(ACTIVE, implementationOneGenerationTwo.blocks().getFirst().state(),
                    "Retiring one generation must preserve other generations");
@@ -120,15 +126,16 @@ public class DurableMapBlockCatalogTest {
   }
 
   @Test
-  public void openingRebuildsTheCatalogFromStoreBlocks(@TempDir Path databaseDirectory) throws Exception {
+  public void openingMapsPreRenameRoleCodeToEntries(@TempDir Path databaseDirectory) throws Exception {
     var factory = new BlocksDatabaseFactory(CHUNK_SIZE);
-    long dataBlockId;
+    var preRenameEntriesRoleCode = 1;
+    long entriesBlockId;
     long lookupBlockId;
     try (var database = factory.open(databaseDirectory)) {
       var store = database.openStore("map", 1);
-      var dataBlock = store.allocateBlock(DurableMapBlockCatalog.DurableMapBlockRole.DATA.persistentCode(), BLOCK_CONTENT_LENGTH);
-      dataBlock.activate();
-      dataBlockId = dataBlock.id();
+      var entriesBlock = store.allocateBlock(preRenameEntriesRoleCode, BLOCK_CONTENT_LENGTH);
+      entriesBlock.activate();
+      entriesBlockId = entriesBlock.id();
       var lookupBlock = store.allocateBlock(DurableMapBlockCatalog.DurableMapBlockRole.LOOKUP.persistentCode(), BLOCK_CONTENT_LENGTH);
       lookupBlock.activate();
       lookupBlockId = lookupBlock.id();
@@ -140,8 +147,10 @@ public class DurableMapBlockCatalogTest {
       assertNotNull(store);
       var blockCatalog = DurableMapBlockCatalog.open(store);
 
-      assertEquals(dataBlockId, blockCatalog.blocks().get(0).id());
+      assertEquals(entriesBlockId, blockCatalog.blocks().get(0).id());
       assertEquals(lookupBlockId, blockCatalog.blocks().get(1).id());
+      assertEquals(entriesBlockId, blockCatalog.blocks(DurableMapBlockCatalog.DurableMapBlockRole.ENTRIES).getFirst().id(),
+                   "The pre-rename role code must open as ENTRIES");
     }
   }
 

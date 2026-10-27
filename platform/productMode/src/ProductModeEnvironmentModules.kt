@@ -29,10 +29,9 @@ object ProductModeEnvironmentModules {
                                   "intellij.rd.client", "intellij.cwm.plugin.common")) {
           this[moduleName] = false
         }
+        this["intellij.platform.debugger"] = false
         // the property is temporary
-        this["intellij.platform.debugger"] = getBooleanProperty("intellij.platform.light.mode.enable.debugger", false)
-        // the property is temporary
-        this["intellij.platform.execution"] = getBooleanProperty("intellij.platform.light.mode.enable.execution", true)
+        this["intellij.platform.execution"] = getBooleanProperty("intellij.platform.light.mode.enable.execution", false)
         this["intellij.platform.split.connection"] = mode == ProductMode.LIGHT_WITH_RD_CONNECTION
       }
       else {

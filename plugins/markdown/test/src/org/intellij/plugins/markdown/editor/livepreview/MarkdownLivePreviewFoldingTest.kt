@@ -1,11 +1,15 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.intellij.plugins.markdown.editor.livepreview
 
+import com.intellij.ide.ui.LafManager
+import com.intellij.ide.ui.LafManagerListener
 import com.intellij.markdown.backend.editor.livepreview.computeLivePreviewSpecs
 import com.intellij.markdown.frontend.editor.livepreview.MarkdownBlockQuotePainter
 import com.intellij.markdown.frontend.editor.livepreview.MarkdownLivePreviewCheckboxInlayRenderer
 import com.intellij.markdown.frontend.editor.livepreview.MarkdownLivePreviewImageInlayRenderer
 import com.intellij.markdown.frontend.editor.livepreview.MarkdownLivePreviewReconciler
+import com.intellij.markdown.frontend.editor.livepreview.CodeFencePainter
+import com.intellij.markdown.frontend.editor.livepreview.CodeFenceRenderingService
 import com.intellij.openapi.actionSystem.IdeActions
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.command.WriteCommandAction.writeCommandAction
@@ -26,6 +30,8 @@ import com.intellij.openapi.editor.ex.FoldingListener
 import com.intellij.openapi.editor.impl.EditorImpl
 import com.intellij.openapi.editor.impl.FoldingKeys
 import com.intellij.openapi.editor.impl.view.IterationState
+import com.intellij.openapi.editor.markup.HighlighterLayer
+import com.intellij.openapi.editor.markup.HighlighterTargetArea
 import com.intellij.openapi.editor.markup.RangeHighlighter
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.util.Disposer
@@ -44,12 +50,15 @@ import com.intellij.util.ui.JBUI
 import org.intellij.plugins.markdown.MarkdownBundle
 import org.intellij.plugins.markdown.highlighting.MarkdownHighlighterColors
 import org.intellij.plugins.markdown.publishSpecsAndWait
-import java.awt.Rectangle
 import java.awt.Color
 import java.awt.Font
+import java.awt.Graphics2D
+import java.awt.Rectangle
 import java.awt.geom.Rectangle2D
 import java.awt.image.BufferedImage
 import java.io.ByteArrayOutputStream
+import java.util.Base64
+import java.util.concurrent.atomic.AtomicInteger
 import javax.imageio.ImageIO
 
 class MarkdownLivePreviewFoldingTest : BasePlatformTestCase() {
@@ -1217,26 +1226,24 @@ class MarkdownLivePreviewFoldingTest : BasePlatformTestCase() {
     assertEquals(Color.BLUE.rgb, bitmap.getRGB(editor.offsetToXY(rule.startOffset).x, editor.lineHeight / 2))
   }
 
-  fun testBlockquoteRuleFillsThePlaceholdersOfItsQuoteWithTheQuoteBackground() {
+  fun testPlaceholdersShowTheBackgroundOfTheirText() {
     configure("- > - item\n\ntail<caret>")
     val editor = myFixture.editor
     editor.colorsScheme.setAttributes(MarkdownHighlighterColors.BLOCK_QUOTE, TextAttributes(null, Color.RED, null, null, Font.PLAIN))
-    val rule = blockQuoteRules().single()
-    val bitmap = BufferedImage(1000, editor.lineHeight, BufferedImage.TYPE_INT_ARGB)
-    val graphics = bitmap.createGraphics()
-    try {
-      rule.customRenderer!!.paint(editor, rule, graphics)
-    }
-    finally {
-      graphics.dispose()
-    }
+    val (listBullet, marker, quotedBullet) = concealedLivePreviewRegions(editor)
 
-    val (listBullet, marker, quotedBullet) = concealedLivePreviewRegions(editor).map {
-      bitmap.getRGB(editor.offsetToXY(it.endOffset).x - 1, editor.lineHeight / 2)
+    var image = paintEditor()
+    assertFalse("A bullet before the quote must keep the editor background", Color.RED.rgb == placeholderBackground(image, listBullet))
+    assertEquals(Color.RED.rgb, placeholderBackground(image, marker))
+    assertEquals(Color.RED.rgb, placeholderBackground(image, quotedBullet))
+
+    // A diff change paints its lines above the quote background.
+    val change = TextAttributes(null, Color.GREEN, null, null, Font.PLAIN)
+    editor.markupModel.addRangeHighlighter(0, 1, HighlighterLayer.SELECTION - 1, change, HighlighterTargetArea.LINES_IN_RANGE)
+    image = paintEditor()
+    for (region in listOf(listBullet, marker, quotedBullet)) {
+      assertEquals("The placeholder at ${region.startOffset} must show the change", Color.GREEN.rgb, placeholderBackground(image, region))
     }
-    assertEquals("A bullet before the quote must keep the editor background", 0, listBullet ushr 24)
-    assertEquals(Color.RED.rgb, marker)
-    assertEquals(Color.RED.rgb, quotedBullet)
   }
 
   fun testRevealedMarkersMoveOnlyTheRulesOfTheirLine() {
@@ -1345,9 +1352,26 @@ class MarkdownLivePreviewFoldingTest : BasePlatformTestCase() {
     )
     configureProjectFile("![alt](image.svg)\n\ntail")
 
-    val source = waitForImageInlay().renderer.source
+    val source = waitForImageInlay().renderer.source!!
     assertEquals(90, source.width)
     assertEquals(45, source.height)
+  }
+
+  fun testDataUriImageRendersWithTheSizeFromTheImageEngine() {
+    val svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"90\" height=\"45\"><rect width=\"90\" height=\"45\"/></svg>"
+    val imageSource = "![alt](data:image/svg+xml;base64,${Base64.getEncoder().encodeToString(svg.toByteArray())})"
+    configureProjectFile("$imageSource\n\ntail")
+    EditorTestUtil.setEditorVisibleSize(myFixture.editor, 80, 12)
+
+    val inlay = waitForImageInlay()
+    assertNull("The backend loads no browser-owned image", inlay.renderer.source)
+    assertEquals(listOf(imageSource to "alt"), concealedWithPlaceholders())
+    PlatformTestUtil.waitWithEventsDispatching(
+      "The inlay did not take the size of the loaded image",
+      { inlay.heightInPixels == 45 + 2 * JBUI.scale(2) },
+      10,
+    )
+    assertSame(inlay, imageInlays().single())
   }
 
   fun testCachedAttachmentImageRendersFromProjectRoot() {
@@ -1396,6 +1420,27 @@ class MarkdownLivePreviewFoldingTest : BasePlatformTestCase() {
     myFixture.checkResult("![broken](broken.png)\n\n![missing](missing.png)\n\ntail")
   }
 
+  fun testMermaidFenceShowsItsDiagramBelowTheFence() {
+    val service = FixedCodeFenceRenderingService()
+    CodeFenceRenderingService.EP_NAME.point.registerExtension(service, testRootDisposable)
+    val fence = "```mermaid\ngraph LR\n  A --> B\n```"
+    configure("$fence\n\ntail<caret>")
+
+    PlatformTestUtil.waitWithEventsDispatching("The diagram did not arrive", { (mermaidInlays().singleOrNull()?.heightInPixels ?: 0) > 0 }, 10)
+    val inlay = mermaidInlays().single()
+    assertEquals(fence.length, inlay.offset)
+    assertEquals(fence, visibleText().substringBefore("\n\n"))
+
+    myFixture.type("!")
+    myFixture.doHighlighting()
+    waitForCurrentSpecs()
+    assertSame(inlay, mermaidInlays().single())
+    assertEquals(1, service.renders.get())
+
+    ApplicationManager.getApplication().messageBus.syncPublisher(LafManagerListener.TOPIC).lookAndFeelChanged(LafManager.getInstance())
+    PlatformTestUtil.waitWithEventsDispatching("A new theme did not render the diagram again", { service.renders.get() == 2 }, 10)
+  }
+
   fun testImageRefreshesAfterVfsChange() {
     val image = addPng(100, 40)
     configureProjectFile("![alt](image.png)\n\ntail")
@@ -1414,8 +1459,8 @@ class MarkdownLivePreviewFoldingTest : BasePlatformTestCase() {
     val refreshed = imageInlays().single()
     assertNotSame("A refresh replaces the inlay, because its renderer is immutable", inlay, refreshed)
     assertFalse(inlay.isValid)
-    assertEquals(image.modificationStamp, refreshed.renderer.source.stamp)
-    assertEquals(90, refreshed.renderer.source.height)
+    assertEquals(image.modificationStamp, refreshed.renderer.source!!.stamp)
+    assertEquals(90, refreshed.renderer.source!!.height)
     PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue()
     assertEquals("The source stays concealed across the refresh", listOf("![alt](image.png)"), concealed())
   }
@@ -1971,7 +2016,7 @@ class MarkdownLivePreviewFoldingTest : BasePlatformTestCase() {
     return imageInlays().single()
   }
 
-  /** Waits until [count] image inlays exist. Every inlay has a loaded source by construction. */
+  /** Waits until [count] image inlays exist. A local image has a loaded source by construction. */
   private fun waitForImageInlays(count: Int) {
     PlatformTestUtil.waitWithEventsDispatching(
       "Image inlays were not added",
@@ -2046,6 +2091,26 @@ class MarkdownLivePreviewFoldingTest : BasePlatformTestCase() {
     return result.toString()
   }
 
+  private fun paintEditor(): BufferedImage {
+    val component = myFixture.editor.contentComponent
+    component.size = component.preferredSize
+    val image = BufferedImage(component.width, component.height, BufferedImage.TYPE_INT_RGB)
+    val graphics = image.createGraphics()
+    try {
+      component.paint(graphics)
+    }
+    finally {
+      graphics.dispose()
+    }
+    return image
+  }
+
+  /** Returns the pixel at the top right of a placeholder, clear of its glyph and of a blockquote rule. */
+  private fun placeholderBackground(image: BufferedImage, region: FoldRegion): Int {
+    val end = myFixture.editor.offsetToXY(region.endOffset)
+    return image.getRGB(end.x - 1, end.y + 1)
+  }
+
   private fun concealedLivePreviewRegions(editor: Editor): List<FoldRegion> =
     editor.foldingModel.allFoldRegions
       .filter { it.isValid && it.shouldNeverExpand() }
@@ -2090,5 +2155,23 @@ class MarkdownLivePreviewFoldingTest : BasePlatformTestCase() {
     return editor.inlayModel
       .getBlockElementsInRange(0, editor.document.textLength, MarkdownLivePreviewImageInlayRenderer::class.java)
       .filter { it.isValid }
+  }
+
+  private fun mermaidInlays(): List<Inlay<*>> =
+    myFixture.editor.inlayModel.getBlockElementsInRange(0, myFixture.editor.document.textLength).filter { it.isValid }
+}
+
+/** Renders every source as the same empty 40 by 20 diagram. */
+private class FixedCodeFenceRenderingService : CodeFenceRenderingService {
+  val renders = AtomicInteger()
+
+  override suspend fun render(language: String, source: String): CodeFencePainter {
+    renders.incrementAndGet()
+    return object : CodeFencePainter {
+      override val width: Float = 40f
+      override val height: Float = 20f
+
+      override fun paint(graphics: Graphics2D, bounds: Rectangle) = Unit
+    }
   }
 }
