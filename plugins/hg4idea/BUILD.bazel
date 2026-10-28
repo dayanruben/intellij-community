@@ -117,13 +117,15 @@ jvm_library(
         "//platform/lvcs-impl:lvcs-impl_test_lib",
     ],
 )
+### auto-generated section `build intellij.vcs.hg` end
 
+### auto-generated section `plugin intellij.vcs.hg` start
 ij_plugin(
     name = "vcs-hg_plugin",
     descriptor_module = ":vcs-hg",
     visibility = ["//visibility:public"],
 )
-### auto-generated section `build intellij.vcs.hg` end
+### auto-generated section `plugin intellij.vcs.hg` end
 
 ### auto-generated section `iml intellij.vcs.hg` start
 exports_files(
@@ -148,6 +150,8 @@ jvm_library(
         # do not sort,
         "//platform/vcs/plugin",
         "//xml/plugin",
+        "//platform/main/intellij.platform.monolith.main:monolith-main",
+        "//community-resources:customization",
     ],
 )
 
@@ -172,6 +176,8 @@ jvm_library(
         "//platform/platform-util-io:ide-util-io_test_lib",
         "//platform/vcs/plugin:plugin_test_lib",
         "//xml/plugin:plugin_test_lib",
+        "//platform/main/intellij.platform.monolith.main:monolith-main_test_lib",
+        "//community-resources:customization_test_lib",
     ],
     deps = [
         # do not sort,

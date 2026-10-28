@@ -13,11 +13,15 @@ jps_test(
 
 ### auto-generated section `dev intellij.jsonpath` start
 dev_dist_plugin(
+    content_modules = ["intellij.jsonpath.scratch"],
     descriptor = "resources/META-INF/plugin.xml",
     jars = {
         "lib/jsonpath.jar": ["intellij.jsonpath"],
     },
     main_module = "intellij.jsonpath",
+    mode_refused_content_modules = {
+        "frontend": ["intellij.jsonpath.scratch"],
+    },
 )
 ### auto-generated section `dev intellij.jsonpath` end
 
@@ -60,7 +64,6 @@ jvm_library(
         "//libraries/fastutil",
         "//libraries/guava",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable",
-        "//platform/scratch",
     ],
 )
 
@@ -93,16 +96,18 @@ jvm_library(
         "//libraries/fastutil:fastutil_test_lib",
         "//libraries/guava:guava_test_lib",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
-        "//platform/scratch:scratch_test_lib",
     ],
 )
+### auto-generated section `build intellij.jsonpath` end
 
+### auto-generated section `plugin intellij.jsonpath` start
 ij_plugin(
     name = "jsonpath_plugin",
     descriptor_module = ":jsonpath",
+    content_modules = ["//plugins/jsonpath/scratch"],
     visibility = ["//visibility:public"],
 )
-### auto-generated section `build intellij.jsonpath` end
+### auto-generated section `plugin intellij.jsonpath` end
 
 ### auto-generated section `iml intellij.jsonpath` start
 exports_files(
@@ -126,6 +131,8 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         "//libraries/byte-buddy",
+        "//platform/main/intellij.platform.monolith.main:monolith-main",
+        "//community-resources:customization",
         "//xml/plugin",
     ],
 )
@@ -150,6 +157,8 @@ jvm_library(
         # do not sort,
         ":jsonpath-tests",
         "//libraries/byte-buddy:byte-buddy_test_lib",
+        "//platform/main/intellij.platform.monolith.main:monolith-main_test_lib",
+        "//community-resources:customization_test_lib",
         "//xml/plugin:plugin_test_lib",
     ],
     deps = [

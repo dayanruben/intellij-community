@@ -84,13 +84,15 @@ jvm_library(
         "//platform/lang-api:lang_test_lib",
     ],
 )
+### auto-generated section `build intellij.remoteControl` end
 
+### auto-generated section `plugin intellij.remoteControl` start
 ij_plugin(
     name = "remote-control_plugin",
     descriptor_module = ":remote-control",
     visibility = ["//visibility:public"],
 )
-### auto-generated section `build intellij.remoteControl` end
+### auto-generated section `plugin intellij.remoteControl` end
 
 ### auto-generated section `iml intellij.remoteControl` start
 exports_files(
@@ -111,6 +113,11 @@ jvm_library(
     ),
     module_name = "intellij.remoteControl.tests",
     visibility = ["//visibility:public"],
+    runtime_deps = [
+        # do not sort,
+        "//platform/main/intellij.platform.monolith.main:monolith-main",
+        "//community-resources:customization",
+    ],
 )
 
 jvm_library(
@@ -130,6 +137,8 @@ jvm_library(
         # do not sort,
         ":remoteControl-tests",
         "//platform/platform-impl:ide-impl_test_lib",
+        "//platform/main/intellij.platform.monolith.main:monolith-main_test_lib",
+        "//community-resources:customization_test_lib",
     ],
     deps = [
         # do not sort,

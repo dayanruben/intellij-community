@@ -119,13 +119,15 @@ jvm_library(
         "//platform/util:util-ui_test_lib",
     ],
 )
+### auto-generated section `build intellij.java.rareRefactorings` end
 
+### auto-generated section `plugin intellij.java.rareRefactorings` start
 ij_plugin(
     name = "java-rareRefactorings_plugin",
     descriptor_module = ":java-rareRefactorings",
     visibility = ["//visibility:public"],
 )
-### auto-generated section `build intellij.java.rareRefactorings` end
+### auto-generated section `plugin intellij.java.rareRefactorings` end
 
 ### auto-generated section `iml intellij.java.rareRefactorings` start
 exports_files(
@@ -151,6 +153,8 @@ jvm_library(
         "//xml/plugin",
         "//platform/structure-view-impl/plugin",
         "//aether-dependency-resolver/plugin",
+        "//platform/main/intellij.platform.monolith.main:monolith-main",
+        "//community-resources:customization",
     ],
 )
 
@@ -174,6 +178,8 @@ jvm_library(
         "//xml/plugin:plugin_test_lib",
         "//platform/structure-view-impl/plugin:plugin_test_lib",
         "//aether-dependency-resolver/plugin:plugin_test_lib",
+        "//platform/main/intellij.platform.monolith.main:monolith-main_test_lib",
+        "//community-resources:customization_test_lib",
     ],
     deps = [
         # do not sort,

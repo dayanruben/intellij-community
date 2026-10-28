@@ -6,6 +6,7 @@ import com.intellij.platform.util.io.storages.database.spi.BlocksDatabaseFactory
 import com.intellij.platform.util.io.storages.database.spi.BlocksStore.Block.LifecycleState.ACTIVE
 import com.intellij.platform.util.io.storages.database.spi.BlocksStore.Block.LifecycleState.RETIRED
 import com.intellij.platform.util.io.storages.database.spi.BlocksStore.Block.LifecycleState.SEALED
+import com.intellij.platform.util.io.storages.database.storages.appenablerecords.RecordStorageOverBlocks
 import com.intellij.platform.util.io.storages.database.storages.durablemap.DurableMapBlockCatalog.DurableMapBlockRole.ENTRIES
 import com.intellij.platform.util.io.storages.durablemap.DefaultEntryExternalizer
 import com.intellij.platform.util.io.storages.intmultimaps.InMemoryIntToMultiLongMap
@@ -23,7 +24,12 @@ class DurableMapOverBlocksHousekeeperTest {
   fun `sweep keeps every block in a live patch chain`(@TempDir directory: Path) {
     BlocksDatabaseFactory(CHUNK_SIZE).open(directory).use { database ->
       val store = database.openStore("map", 1)
-      val records = RecordStorageOverBlocks.open(DurableMapBlockCatalog.open(store), ENTRIES_BLOCK_SIZE)
+      val blockCatalog = DurableMapBlockCatalog.open(store)
+      val records = RecordStorageOverBlocks.open(
+        blockCatalog.appendableRecordBlocks(ENTRIES),
+        /*appendOnly: */ true,
+        ENTRIES_BLOCK_SIZE,
+      )
       records.append(2 * ENTRIES_BLOCK_SIZE) { payload -> payload.fill(0) }
 
       val descriptor = stringAsUTF8()

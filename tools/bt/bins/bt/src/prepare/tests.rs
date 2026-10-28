@@ -9,7 +9,7 @@ use bt_core::fake::{FakeRuntime, HOME_DIR, refusal};
 use crate::execute::execute_with;
 use crate::remote::fake::{FakeLink, agent_info, yonder_refusal};
 use crate::ssh::SSH_OPTIONS;
-use yonder_client::{Leased, Prepared};
+use yonder_client::Prepared;
 
 const LOCAL_MASTER: &str = "1111111111111111111111111111111111111111";
 const HOST_MASTER: &str = "2222222222222222222222222222222222222222";
@@ -56,6 +56,7 @@ fn ready() -> FakeRuntime {
         ("tools/yonder:yonderd", answered(0, "")),
         ("LogLevel=ERROR studio true", answered(0, "")),
         ("if [ -d", answered(0, &format!("{LOCAL_MASTER}\n"))),
+        ("config --type=bool --get core.fsmonitor", answered(0, "true\n")),
         (
             "git rev-parse --verify -q refs/heads/master",
             answered(0, &format!("{LOCAL_MASTER}\n")),
@@ -144,6 +145,7 @@ fn a_ready_host_reports_ok_for_each_step_and_changes_nothing() {
         [
             "ok      ssh: studio answers in batch mode",
             "ok      repository: master of ~/projects/idea-1 is at 111111111111",
+            "ok      repository: core.fsmonitor is on in ~/projects/idea-1",
             "ok      bd: bd 0.29.0 (e2fdb7dcbca3)",
             "ok      PATH: ~/.local/bin is on the PATH of the login shell",
             "ok      tool: git is there",
@@ -208,7 +210,11 @@ fn a_missing_repository_is_created_and_given_the_master_history() {
     );
     assert_spawned(
         &fake,
-        "config core.untrackedCache true && git -C ~/'projects/idea-1' config core.fsmonitor false",
+        "config core.untrackedCache true && git -C ~/'projects/idea-1' config core.fsmonitor true",
+    );
+    assert!(
+        !spawned_text(&fake).iter().any(|command| command.contains("--get core.fsmonitor")),
+        "a new repository is not read again"
     );
     assert_spawned(
         &fake,
@@ -217,6 +223,38 @@ fn a_missing_repository_is_created_and_given_the_master_history() {
     assert_spawned(&fake, "git -C ~/'projects/idea-1' checkout -q -B master sync");
     let warned = fake.state().stderr.join("\n");
     assert!(warned.contains("about 2048 MiB"), "{warned}");
+}
+
+#[test]
+fn an_existing_repository_without_fsmonitor_gets_it_and_a_dry_run_only_says_so() {
+    let fake = ready();
+    answer_first(&fake, "--get core.fsmonitor", answered(0, "false\n"));
+    let outcome = prepare(&[], &fake);
+    assert!(
+        outcome
+            .text
+            .contains("done    repository: turned on core.fsmonitor in ~/projects/idea-1 on studio (it was false)"),
+        "{}",
+        outcome.text
+    );
+    assert_spawned(&fake, "git -C ~/'projects/idea-1' config core.fsmonitor true");
+
+    let unset = ready();
+    answer_first(&unset, "--get core.fsmonitor", answered(1, ""));
+    let outcome = prepare(&["--dry-run"], &unset);
+    assert!(
+        outcome
+            .text
+            .contains("missing repository: core.fsmonitor is unset in ~/projects/idea-1; --prepare turns it on"),
+        "{}",
+        outcome.text
+    );
+    assert_eq!(outcome.exit_code, exit::INFRA);
+    assert!(
+        !spawned_text(&unset)
+            .iter()
+            .any(|command| command.contains("config core.fsmonitor true"))
+    );
 }
 
 #[test]
@@ -444,27 +482,6 @@ fn a_missing_local_entry_is_reported_by_name() {
         outcome.text
     );
     assert_eq!(fake.state().inputs, ["fake-token-secret"], "no file was written");
-}
-
-#[test]
-fn take_lease_takes_the_warm_lease_of_this_checkout_through_yonder() {
-    let fake = ready();
-    let link = ready_link();
-    link.answer_lease(Ok(Leased {
-        slot: "/pool/1/idea-1".to_owned(),
-        lease_id: "L1".to_owned(),
-        fresh: true,
-    }));
-    let outcome = prepare_with(&["--take-lease"], &fake, &link);
-    let holder = holder(&fake);
-    assert!(
-        outcome
-            .text
-            .ends_with(&format!("done    lease: the lease L1 of {holder} is /pool/1/idea-1 (new)")),
-        "{}",
-        outcome.text
-    );
-    assert!(link.calls().contains(&format!("lease studio None {holder}")), "{:?}", link.calls());
 }
 
 /// The agent step builds `yonderd` with the Bazel launcher of bt and gives the built binary to `yonder prepare`.

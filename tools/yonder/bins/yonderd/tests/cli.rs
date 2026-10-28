@@ -29,7 +29,7 @@ const DEADLINE: Duration = Duration::from_secs(30);
 const HOLDER: &str = "yonder-0123456789ab";
 
 /// The phases of a run that ran its command, in their order.
-const ALL_PHASES: [&str; 7] = ["lock", "lease", "pack_wait", "checkout", "prepare", "command", "stage"];
+const ALL_PHASES: [&str; 6] = ["slot", "pack_wait", "checkout", "prepare", "command", "stage"];
 
 /// The start of the line that the agent writes right before the command.
 const START_LINE: &str = "yonder: running in ";
@@ -42,23 +42,105 @@ fn agent_binary() -> PathBuf {
     std::path::absolute(path).expect("an absolute path")
 }
 
-/// The fake `bd`. It records each call as `<cwd>|<args>` in `$FAKE_BD_DIR/calls`, keeps the live lease ids in
-/// `$FAKE_BD_DIR/alive`, and makes each slot a worktree of the main repository. `$FAKE_BD_DIR/fail-get` makes
-/// `lease get` fail, `slow-get` makes it take a second, and `fail-return` makes `lease return` fail.
+/// The fake `bd`. It records each call as `<cwd>|<args>` in `$FAKE_BD_DIR/calls`.
+///
+/// `lease host` lends the slots `$FAKE_BD_DIR/slots/<n>`, each a worktree of the main repository made at its first
+/// lend, `slot-count` of them (1 by default): `lent-<n>` names the run that has slot `n`, `used-<n>` the holder that
+/// used it last and `generation-<n>` the generation of its files. A lend of a run that has no slot and finds every slot
+/// lent queues; `give-back` frees the slot of the run, and with `discard` it answers that count of discarded changes
+/// and moves the generation of the slot. `checkout` moves the slot of the run with `git reset --merge` (so the slow git
+/// below waits in it too) and answers `switched`, or `kept` at the commit. `fill` and `reclaim` answer nothing to do.
+/// `schema` names `lease_host_lend` unless `old-bd` exists, and `lease_host_checkout` unless `old-bd` or
+/// `no-host-checkout` exists.
+///
+/// `lease status` and `lease return` serve the return of the leases of holders: `alive` keeps the live lease ids, and
+/// `fail-return` makes a return fail.
 const FAKE_BD: &str = r#"#!/bin/sh
 state=$FAKE_BD_DIR
 printf '%s|%s\n' "$PWD" "$*" >>"$state/calls"
-if [ "$1" = lease ] && [ "$2" = get ]; then
-  holder=$4 repo=$6
-  if [ -e "$state/fail-get" ]; then echo "no pool for $repo" >&2; exit 1; fi
-  if [ -e "$state/slow-get" ]; then sleep 1; fi
-  slot=$state/slots/$holder
-  if [ ! -d "$slot" ]; then
-    mkdir -p "$state/slots"
-    git -C "$repo" worktree add -q --detach "$slot" >&2 || exit 1
-  fi
-  echo "lease-$holder" >>"$state/alive"
-  printf '{"schema":2,"repository":"%s","path":"%s","lease_id":"lease-%s","holder":"%s","slot":"s","reused":false}\n' "$repo" "$slot" "$holder" "$holder"
+if [ "$1" = schema ]; then
+  if [ -e "$state/old-bd" ]; then echo '{"schema":2,"commands":{"lease":["lease_get"]}}'
+  elif [ -e "$state/no-host-checkout" ]; then echo '{"schema":2,"commands":{"lease":["lease_get","lease_host_lend"]}}'
+  else echo '{"schema":2,"commands":{"lease":["lease_get","lease_host_lend","lease_host_checkout"]}}'; fi
+  exit 0
+fi
+if [ "$1" = lease ] && [ "$2" = host ]; then
+  verb=$3; shift 3
+  run= affinity= repo= commit=
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --run) run=$2; shift 2 ;;
+      --commit) commit=$2; shift 2 ;;
+      --affinity) affinity=$2; shift 2 ;;
+      --pid) shift 2 ;;
+      -C) repo=$2; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+  count=1; [ -e "$state/slot-count" ] && count=$(cat "$state/slot-count")
+  case $verb in
+    lend)
+      n=1
+      while [ "$n" -le "$count" ]; do
+        if [ -e "$state/lent-$n" ] && [ "$(cat "$state/lent-$n")" = "$run" ]; then break; fi
+        n=$((n + 1))
+      done
+      if [ "$n" -gt "$count" ]; then
+        n=1
+        while [ "$n" -le "$count" ] && [ -e "$state/lent-$n" ]; do n=$((n + 1)); done
+      fi
+      if [ "$n" -gt "$count" ]; then
+        printf '{"schema":2,"state":"queued","ahead":0,"slots":%s,"lent":[{"n":1,"run":"%s"}]}\n' "$count" "$(cat "$state/lent-1")"
+        exit 0
+      fi
+      slot=$state/slots/$n
+      if [ ! -d "$slot" ]; then
+        mkdir -p "$state/slots"
+        git -C "$repo" worktree add -q --detach "$slot" >&2 || exit 1
+      fi
+      echo "$run" >"$state/lent-$n"
+      used=
+      if [ -e "$state/used-$n" ] && [ "$(cat "$state/used-$n")" = "$affinity" ]; then used=",\"last_used_by_affinity_ms\":$(($(date +%s) * 1000))"; fi
+      echo "$affinity" >"$state/used-$n"
+      generation=0; [ -e "$state/generation-$n" ] && generation=$(cat "$state/generation-$n")
+      printf '{"schema":2,"state":"lent","slot":{"n":%s,"path":"%s","lease_id":"lease-%s","cleaned_at":0,"generation":%s%s}}\n' "$n" "$slot" "$n" "$generation" "$used"
+      ;;
+    give-back)
+      n=1
+      while [ "$n" -le "$count" ]; do
+        if [ -e "$state/lent-$n" ] && [ "$(cat "$state/lent-$n")" = "$run" ]; then
+          discarded=0
+          if [ -e "$state/discard" ]; then
+            discarded=$(cat "$state/discard")
+            generation=0; [ -e "$state/generation-$n" ] && generation=$(cat "$state/generation-$n")
+            echo $((generation + 1)) >"$state/generation-$n"
+          fi
+          rm "$state/lent-$n"
+          printf '{"schema":2,"n":%s,"left_queue":false,"discarded":%s,"processes_checked":true}\n' "$n" "$discarded"
+          exit 0
+        fi
+        n=$((n + 1))
+      done
+      echo '{"schema":2,"left_queue":true,"discarded":0,"processes_checked":false}'
+      ;;
+    checkout)
+      n=1
+      while [ "$n" -le "$count" ]; do
+        if [ -e "$state/lent-$n" ] && [ "$(cat "$state/lent-$n")" = "$run" ]; then
+          slot=$state/slots/$n
+          moved=switched
+          if [ "$(git -C "$slot" rev-parse HEAD)" = "$commit" ]; then moved=kept; else git -C "$slot" reset -q --merge "$commit" >&2 || exit 1; fi
+          printf '{"schema":2,"n":%s,"path":"%s","commit":"%s","moved":"%s"}\n' "$n" "$slot" "$commit" "$moved"
+          exit 0
+        fi
+        n=$((n + 1))
+      done
+      echo '{"schema":2,"error":{"code":"no_lease","message":"no slot"}}'; exit 2
+      ;;
+    fill) echo '{"schema":2,"filled":[]}' ;;
+    reclaim) echo '{"schema":2,"reclaimed":[]}' ;;
+    *) echo "fake bd: unknown host call: $verb" >&2; exit 2 ;;
+  esac
   exit 0
 fi
 if [ "$1" = lease ] && [ "$2" = status ]; then
@@ -86,11 +168,11 @@ echo "fake bd: unknown call: $*" >&2
 exit 2
 "#;
 
-/// A git in front of the real one, `$REAL_GIT`. With `$FAKE_BD_DIR/slow-checkout`, a checkout writes
+/// A git in front of the real one, `$REAL_GIT`. With `$FAKE_BD_DIR/slow-checkout`, a checkout or a reset writes
 /// `checkout-started` and waits up to 60 s before it goes on, so a test can cancel a run during its checkout. With
 /// `$FAKE_BD_DIR/slow-cat-file`, a `cat-file` takes a second.
 const SLOW_GIT: &str = r#"#!/bin/sh
-if [ "$3" = checkout ] && [ -e "$FAKE_BD_DIR/slow-checkout" ]; then
+if { [ "$3" = checkout ] || [ "$3" = reset ]; } && [ -e "$FAKE_BD_DIR/slow-checkout" ]; then
   : >"$FAKE_BD_DIR/checkout-started"
   i=0; while [ $i -lt 600 ]; do sleep 0.1; i=$((i + 1)); done
 fi
@@ -170,16 +252,13 @@ impl World {
         self.dir.path().join("bd")
     }
 
-    fn slot(&self, holder: &str) -> PathBuf {
-        self.bd_dir().join("slots").join(holder)
+    /// The host slot `n` of the fake bd.
+    fn slot(&self, n: u32) -> PathBuf {
+        self.bd_dir().join("slots").join(n.to_string())
     }
 
     fn run_dir(&self, run: &str) -> PathBuf {
         self.home().join(".cache/yonderd/runs").join(run)
-    }
-
-    fn lease_file(&self, holder: &str) -> PathBuf {
-        self.home().join(".cache/yonderd/leases").join(format!("{holder}.lease"))
     }
 
     fn bd_calls(&self) -> String {
@@ -203,7 +282,11 @@ impl World {
             // The login shell of the developer stays out of the tests; a test that needs one names its own.
             .env("YONDERD_TEST_SHELL", "none")
             // The power assertions of the developer's Mac stay out of the tests; a test that checks them names a fake.
-            .env("YONDERD_TEST_CAFFEINATE", "none");
+            .env("YONDERD_TEST_CAFFEINATE", "none")
+            // Any git of the developer passes, and the Homebrew of the developer stays out of the tests; a test that
+            // checks the upgrade names a minimum and a fake Homebrew.
+            .env("YONDERD_TEST_GIT_MINIMUM", "0.0.0")
+            .env("YONDERD_TEST_BREW", "none");
         command
     }
 
@@ -621,14 +704,13 @@ fn a_run_streams_its_output_to_the_exit_code_stages_its_files_and_is_forgotten()
     let followed = agent.follow("1-1", 0);
     assert_eq!(followed.end, Reply::Exit { code: 3 }, "{}", agent.dump("1-1"));
     assert_eq!(followed.phase_names(), ALL_PHASES);
-    let slot = world.slot(HOLDER);
+    let slot = world.slot(1);
     // The two pipes of the command have no order between them, so each stream is checked by itself.
     assert_eq!(followed.of(Stream::Stdout), vec!["out-1", "a"], "{}", agent.dump("1-1"));
     assert_eq!(
         followed.of(Stream::Stderr),
         vec![
-            format!("yonder: taking a new lease of {HOLDER} (bd lease get)").as_str(),
-            format!("yonder: lease {} (new)", slot.display()).as_str(),
+            format!("yonder: slot 1 of repo: {} (new to this checkout)", slot.display()).as_str(),
             "err-1"
         ],
         "{}",
@@ -637,19 +719,32 @@ fn a_run_streams_its_output_to_the_exit_code_stages_its_files_and_is_forgotten()
     let log_size = fs::metadata(world.run_dir("1-1").join("events.log")).expect("the log").len();
     assert_eq!(followed.lines.last().map(|(_, _, end)| *end), Some(log_size));
 
-    // The ref is gone, the lease file names the slot, and bd ran in `/`.
+    // The ref is gone, the slot goes back after the end of the run, and bd ran in `/`.
     let refs = git(&world.repo(), &["for-each-ref", "refs/yonder/"]);
     assert_eq!(refs, "");
-    let lease = fs::read_to_string(world.lease_file(HOLDER)).expect("the lease file");
+    eventually("the give-back of the slot", || !world.bd_dir().join("lent-1").exists());
     assert!(
-        lease.starts_with(&format!("lease_id=lease-{HOLDER}\nslot={}\nused=", slot.display())),
-        "{lease}"
+        world.bd_calls().contains("lease host give-back --run 1-1 -C "),
+        "{}",
+        world.bd_calls()
+    );
+    assert!(
+        world.bd_calls().contains("lease host lend --run 1-1 --pid ") && world.bd_calls().contains(&format!("--affinity {HOLDER} -C ")),
+        "{}",
+        world.bd_calls()
+    );
+    assert!(
+        world
+            .bd_calls()
+            .contains(&format!("lease host checkout --run 1-1 --commit {} -C ", world.commit)),
+        "Branch Deck moves the slot: {}",
+        world.bd_calls()
     );
     assert!(world.bd_calls().lines().all(|call| call.starts_with("/|")), "{}", world.bd_calls());
     let start = followed.start_line();
     assert!(start.starts_with(&format!("{START_LINE}{} (slot ", slot.display())), "{start}");
     assert!(
-        start.contains(", nice 0, ") && start.contains(" open files, the environment of the agent"),
+        start.contains(", nice 0, ") && start.contains(" open files, git ") && start.ends_with(", the environment of the agent"),
         "{start}"
     );
 
@@ -686,12 +781,15 @@ fn a_run_streams_its_output_to_the_exit_code_stages_its_files_and_is_forgotten()
     );
     assert!(!slot.join("out/bt-runs/run-a").exists());
 
-    // A second run of the holder takes the warm lease.
+    // A second run of the holder gets the slot it used last.
     git(&world.repo(), &["update-ref", "refs/yonder/1-2", &world.commit]);
     agent.start(world.spec("1-2", HOLDER, "exit 0"));
     let second = agent.follow("1-2", 0);
     assert_eq!(second.end, Reply::Exit { code: 0 });
-    assert_eq!(second.texts(), vec![format!("yonder: lease {} (warm)", slot.display()).as_str()]);
+    assert_eq!(
+        second.texts(),
+        vec![format!("yonder: slot 1 of repo: {} (last used by this checkout 0 min ago)", slot.display()).as_str()]
+    );
 
     let Reply::Runs { runs } = agent.reply(&Request::Runs) else {
         panic!("not runs");
@@ -787,7 +885,7 @@ fn a_follow_from_an_offset_in_the_middle_of_a_run_goes_on_from_there() {
         panic!("not runs");
     };
     let names: Vec<&str> = runs[0].phases.iter().map(|phase| phase.name.as_str()).collect();
-    assert_eq!(names, ALL_PHASES[..5]);
+    assert_eq!(names, ALL_PHASES[..4]);
     assert_eq!(runs[0].exit, None);
 
     fs::write(&gate, "").expect("the gate");
@@ -840,17 +938,17 @@ fn a_cancel_interrupts_the_command_group() {
 }
 
 #[test]
-fn a_second_run_of_the_holder_waits_for_the_first() {
+fn with_one_host_slot_a_second_run_waits_for_the_give_back_of_the_first() {
     let agent = World::new().serve();
     let world = &agent.world;
     let gate = world.dir.path().join("gate");
     let script = format!("echo holding; {}", wait_for(&gate));
     agent.start(world.spec("5-1", HOLDER, &script));
     agent.follow_until("5-1", 0, "holding");
-    agent.start(world.spec("5-2", HOLDER, "echo second"));
-    let waiting = format!("yonder: waiting for the other run of {HOLDER} on this host");
+    agent.start(world.spec("5-2", "yonder-other", "echo second"));
+    let waiting = "yonder: waiting for a host slot of repo: 1 of 1 lent (5-1), 0 run(s) ahead";
     eventually("the wait of the second run", || {
-        fs::read_to_string(world.run_dir("5-2").join("events.log")).is_ok_and(|log| log.contains(&waiting))
+        fs::read_to_string(world.run_dir("5-2").join("events.log")).is_ok_and(|log| log.contains(waiting))
     });
     assert_eq!(fs::read_to_string(world.run_dir("5-2").join("exit.json")).ok(), None);
 
@@ -861,116 +959,232 @@ fn a_second_run_of_the_holder_waits_for_the_first() {
     assert_eq!(
         second.texts(),
         vec![
-            waiting.as_str(),
-            format!("yonder: lease {} (warm)", world.slot(HOLDER).display()).as_str(),
+            waiting,
+            format!("yonder: slot 1 of repo: {} (new to this checkout)", world.slot(1).display()).as_str(),
             "second"
         ]
     );
 }
 
 #[test]
-fn a_run_returns_the_idle_lease_of_another_holder() {
+fn two_runs_of_two_checkouts_run_at_once_in_two_host_slots() {
     let agent = World::new().serve();
     let world = &agent.world;
-    // The fake bd gives the idle holder its slot and its live lease.
-    let got = Command::new(world.bin().join("bd"))
-        .args(["lease", "get", "--holder", "idle", "-C"])
-        .arg(world.repo())
-        .env("FAKE_BD_DIR", world.bd_dir())
-        .output()
-        .expect("the fake bd");
-    assert!(got.status.success(), "{}", String::from_utf8_lossy(&got.stderr));
-    let idle_slot = world.slot("idle");
-    fs::create_dir_all(world.lease_file("idle").parent().expect("the parent")).expect("the leases directory");
-    fs::write(
-        world.lease_file("idle"),
-        format!("lease_id=lease-idle\nslot={}\nused=1\n", idle_slot.display()),
-    )
-    .expect("the idle lease file");
-    // A holder that a run used a moment ago stays.
-    fs::write(
-        world.lease_file("recent"),
-        format!("lease_id=lease-recent\nslot=/nowhere\nused={}\n", now_seconds()),
-    )
-    .expect("the recent lease file");
+    fs::write(world.bd_dir().join("slot-count"), "2").expect("two slots");
+    let gate = world.dir.path().join("gate");
+    let script = format!("echo holding; {}", wait_for(&gate));
+    agent.start(world.spec("6-1", HOLDER, &script));
+    agent.follow_until("6-1", 0, "holding");
+    agent.start(world.spec("6-2", "yonder-other", "echo beside"));
+    let beside = agent.follow("6-2", 0);
+    assert_eq!(beside.end, Reply::Exit { code: 0 }, "{}", agent.dump("6-2"));
+    assert_eq!(
+        beside.texts(),
+        vec![
+            format!("yonder: slot 2 of repo: {} (new to this checkout)", world.slot(2).display()).as_str(),
+            "beside"
+        ]
+    );
+    fs::write(&gate, "").expect("the gate");
+    assert_eq!(agent.follow("6-1", 0).end, Reply::Exit { code: 0 });
+}
 
-    agent.start(RunSpec {
-        idle_hours: 1,
-        ..world.spec("6-1", HOLDER, "true")
-    });
-    let followed = agent.follow("6-1", 0);
-    assert_eq!(followed.end, Reply::Exit { code: 0 }, "{}", agent.dump("6-1"));
-    // The sweep comes after the end of the run, so the run waits for no other lease.
-    assert_eq!(followed.phase_names(), ALL_PHASES);
-    eventually("the return of the idle lease", || !world.lease_file("idle").exists());
-    let returned = format!("yonderd supervise: returned the idle lease lease-idle of {}", idle_slot.display());
-    eventually("the line of the sweep", || {
-        fs::read_to_string(world.run_dir("6-1").join("supervisor.log")).is_ok_and(|log| log.contains(&returned))
-    });
-    assert!(world.lease_file("recent").exists());
+/// The keeper returns each lease that a holder kept before the host slots, once its holder is free, and adds slots only
+/// once none is left
+#[test]
+fn the_keeper_returns_the_leases_that_holders_kept_and_then_fills() {
+    let world = World::new();
+    let leases = world.home().join(".cache/yonderd/leases");
+    fs::create_dir_all(&leases).expect("the leases directory");
+    let repo = world.repo();
+    for holder in ["old", "busy"] {
+        fs::write(
+            leases.join(format!("{holder}.lease")),
+            format!("lease_id=lease-{holder}\nslot=/pool/{holder}\nused=1\nrepo={}\n", repo.display()),
+        )
+        .expect("a lease file");
+    }
+    fs::write(world.bd_dir().join("alive"), "lease-old\nlease-busy\n").expect("the live leases");
+    // An old supervisor that runs across the upgrade holds the lock of its holder; another one has not written the
+    // lease file of its holder yet, which comes only at its end.
+    let lock = fs::File::create(leases.join("busy.lock")).expect("the lock file");
+    lock.try_lock().expect("locked");
+    let ghost = fs::File::create(leases.join("ghost.lock")).expect("the lock file");
+    ghost.try_lock().expect("locked");
+    let agent = world.serve_with(&[("YONDERD_TEST_KEEPER_MS", "100")]);
+    let world = &agent.world;
+    eventually("the return of the free holder", || !leases.join("old.lease").exists());
     assert!(
         world
             .bd_calls()
-            .contains(&format!("/|-C {} lease return --lease-id lease-idle\n", idle_slot.display())),
+            .contains("/|-C /pool/old lease return --lease-id lease-old --confirm-preserved\n"),
         "{}",
         world.bd_calls()
     );
-    let alive = fs::read_to_string(world.bd_dir().join("alive")).expect("the live leases");
-    assert!(!alive.contains("lease-idle"), "{alive}");
+    assert!(leases.join("busy.lease").exists(), "a held holder keeps its lease");
+    assert!(
+        !world.bd_calls().contains("lease host fill"),
+        "no fill beside the old leases: {}",
+        world.bd_calls()
+    );
+
+    drop(lock);
+    eventually("the return of the other holder", || !leases.join("busy.lease").exists());
+    let reclaims = || world.bd_calls().matches("lease host reclaim -C ").count();
+    let seen = reclaims();
+    eventually("a later tick", || reclaims() > seen);
+    assert!(
+        !world.bd_calls().contains("lease host fill"),
+        "no fill while a lock is held: {}",
+        world.bd_calls()
+    );
+    drop(ghost);
+    // A supervisor of before the host slots that still waits for the lock of its holder: a live run without the mark
+    let legacy = world.home().join(".cache/yonderd/runs/99-1");
+    fs::create_dir_all(&legacy).expect("the run directory");
+    fs::write(
+        legacy.join("spec.json"),
+        serde_json::to_vec(&world.spec("99-1", "yonder-old", "true")).expect("the spec"),
+    )
+    .expect("the spec");
+    let legacy_lock = fs::File::create(legacy.join("lock")).expect("the lock of the run");
+    legacy_lock.try_lock().expect("locked");
+    let seen = reclaims();
+    eventually("a tick with the waiting supervisor", || reclaims() > seen + 1);
+    assert!(
+        !world.bd_calls().contains("lease host fill"),
+        "no fill while a supervisor of before lives: {}",
+        world.bd_calls()
+    );
+    drop(legacy_lock);
+    eventually("the first fill", || world.bd_calls().contains("lease host fill -C "));
+    assert!(world.bd_calls().contains("lease host reclaim -C "), "{}", world.bd_calls());
 }
 
 #[test]
-fn a_failed_lease_ends_the_run_with_a_refusal_and_deletes_the_ref() {
+fn a_bd_without_lease_host_checkout_has_the_slot_checked_out_by_the_agent() {
     let agent = World::new().serve();
     let world = &agent.world;
-    fs::write(world.bd_dir().join("fail-get"), "").expect("the flag");
+    fs::write(world.bd_dir().join("no-host-checkout"), "").expect("the flag");
+    agent.start(world.spec("7-2", HOLDER, "cat a.txt"));
+    let followed = agent.follow("7-2", 0);
+    assert_eq!(followed.end, Reply::Exit { code: 0 }, "{}", agent.dump("7-2"));
+    assert!(!world.bd_calls().contains("lease host checkout"), "{}", world.bd_calls());
+    assert_eq!(git(&world.slot(1), &["rev-parse", "HEAD"]), world.commit);
+}
+
+#[test]
+fn a_bd_without_lease_host_refuses_the_run_and_deletes_the_ref() {
+    let agent = World::new().serve();
+    let world = &agent.world;
+    fs::write(world.bd_dir().join("old-bd"), "").expect("the flag");
     git(&world.repo(), &["update-ref", "refs/yonder/7-1", &world.commit]);
     agent.start(world.spec("7-1", HOLDER, "true"));
     let followed = agent.follow("7-1", 0);
     assert!(
-        matches!(&followed.end, Reply::Refused { code, message } if code == "lease_failed" && message.contains("no pool")),
+        matches!(&followed.end, Reply::Refused { code, message } if code == "lease_failed" && message.contains("`bd lease host`")),
         "{followed:?}"
     );
-    assert_eq!(followed.phase_names(), ["lock", "lease"]);
+    assert_eq!(followed.phase_names(), ["slot"]);
     assert_eq!(git(&world.repo(), &["for-each-ref", "refs/yonder/"]), "");
-    assert!(!world.lease_file(HOLDER).exists());
     let Reply::Runs { runs } = agent.reply(&Request::Runs) else {
         panic!("not runs");
     };
     assert_eq!(runs[0].exit, Some(255));
 }
 
+/// A host whose git is older than the minimum and that has no Homebrew refuses each start, and says what to install.
 #[test]
-fn a_lease_is_taken_reused_and_released() {
-    let agent = World::new().serve();
+fn a_host_with_an_old_git_and_no_homebrew_refuses_the_start_with_old_git() {
+    let agent = World::new().serve_with(&[("YONDERD_TEST_GIT_MINIMUM", "99.0.0")]);
     let world = &agent.world;
-    let lease = |fresh: bool| Reply::Leased {
-        slot: world.slot(HOLDER).display().to_string(),
-        lease_id: format!("lease-{HOLDER}"),
-        fresh,
+    let reply = agent.reply(&Request::Start(world.spec("8-1", HOLDER, "true")));
+    let install = if cfg!(target_os = "macos") {
+        "Then run `brew install git`"
+    } else {
+        "with the package manager of the host"
     };
-    let request = Request::Lease {
-        repo: "~/repo".to_owned(),
-        holder: HOLDER.to_owned(),
-    };
-    assert_eq!(agent.reply(&request), lease(true));
-    assert_eq!(agent.reply(&request), lease(false));
-    let release = Request::Release {
-        repo: "~/repo".to_owned(),
-        holder: HOLDER.to_owned(),
-    };
-    assert_eq!(
-        agent.reply(&release),
-        Reply::Done {
-            message: format!("released the lease lease-{HOLDER} of {}", world.slot(HOLDER).display())
-        }
+    assert!(
+        matches!(&reply, Reply::Refused { code, message } if code == "old_git" && message.contains("older than 99.0.0") && message.contains(install)),
+        "{reply:?}"
     );
-    assert!(world.bd_calls().contains("--confirm-preserved"), "{}", world.bd_calls());
-    assert_eq!(
-        agent.reply(&release),
-        Reply::Done {
-            message: format!("{HOLDER} holds no lease on this host")
-        }
+    assert!(!world.run_dir("8-1").exists());
+}
+
+/// `serve` installs git with Homebrew when its git is too old. A run that starts meanwhile waits for the install, and
+/// then its command finds the git of Homebrew first.
+#[test]
+fn serve_installs_git_with_homebrew_and_a_run_waits_for_it() {
+    let world = World::new();
+    let brew_bin = world.dir.path().join("homebrew/bin");
+    fs::create_dir_all(&brew_bin).expect("the Homebrew directory");
+    let real_git = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+        .map(|dir| dir.join("git"))
+        .find(|git| git.is_file())
+        .expect("a git on the PATH of the test");
+    let gate = world.dir.path().join("brew-gate");
+    // The fake Homebrew records its arguments, waits for the gate, and installs a git that answers a high version.
+    write_script(
+        &brew_bin.join("brew"),
+        &format!(
+            r#"#!/bin/sh
+bin=$(dirname "$0")
+echo "$*" >>"$bin/calls"
+{}
+printf '#!/bin/sh
+if [ "$1" = --version ]; then echo "git version 99.0.0"; exit 0; fi
+exec {} "$@"
+' >"$bin/git"
+chmod 755 "$bin/git"
+"#,
+            wait_for(&gate),
+            real_git.display()
+        ),
+    );
+    let brew = brew_bin.join("brew");
+    let agent = world.serve_with(&[
+        ("YONDERD_TEST_GIT_MINIMUM", "99.0.0"),
+        ("YONDERD_TEST_BREW", brew.to_str().expect("UTF-8")),
+    ]);
+    let world = &agent.world;
+    agent.start(world.spec("9-1", HOLDER, "command -v git"));
+    let waiting = "yonder: waiting for the upgrade of git on the host: `brew install git` ";
+    eventually("the wait of the run", || {
+        fs::read_to_string(world.run_dir("9-1").join("events.log")).is_ok_and(|log| log.contains(waiting))
+    });
+
+    fs::write(&gate, "").expect("the gate");
+    let followed = agent.follow("9-1", 0);
+    assert_eq!(followed.end, Reply::Exit { code: 0 }, "{}", agent.dump("9-1"));
+    assert_eq!(followed.of(Stream::Stdout), [brew_bin.join("git").to_str().expect("UTF-8")]);
+    assert!(followed.start_line().contains(" open files, git 99.0.0, "), "{followed:?}");
+    let mut phases = vec!["git"];
+    phases.extend(ALL_PHASES);
+    assert_eq!(followed.phase_names(), phases);
+    assert_eq!(fs::read_to_string(brew_bin.join("calls")).expect("the calls"), "install git\n");
+    let state = fs::read_to_string(world.home().join(".cache/yonderd/git.json")).expect("the state");
+    assert!(state.contains(r#""state":"ready""#), "{state}");
+}
+
+/// An older client asks for the lease of its holder, or releases it: there is none, slots are lent per run
+#[test]
+fn a_lease_or_a_release_of_a_holder_answers_that_slots_are_lent_per_run() {
+    let agent = World::new().serve();
+    let lease = agent.reply(&Request::Lease {
+        repo: "~/repo".to_owned(),
+        holder: HOLDER.to_owned(),
+    });
+    assert!(
+        matches!(&lease, Reply::Refused { code, message } if code == "bad_request" && message.contains("lent per run")),
+        "{lease:?}"
+    );
+    let release = agent.reply(&Request::Release {
+        repo: "~/repo".to_owned(),
+        holder: HOLDER.to_owned(),
+    });
+    assert!(
+        matches!(&release, Reply::Done { message } if message.contains("lent per run")),
+        "{release:?}"
     );
 }
 
@@ -1017,11 +1231,8 @@ fn version_prints_the_version_and_the_schema() {
 }
 
 #[test]
-fn setup_adds_the_client_moves_the_leases_of_bt_and_starts_the_agent() {
+fn setup_adds_the_client_and_starts_the_agent() {
     let world = World::new();
-    let old_leases = world.home().join(".cache/bt-remote/leases");
-    fs::create_dir_all(&old_leases).expect("the leases of remote.sh");
-    fs::write(old_leases.join("bt-remote-0123.lease"), "lease_id=a\nslot=/s\nused=1\n").expect("a lease file");
     let launchctl_dir = world.dir.path().join("launchctl");
     fs::create_dir_all(&launchctl_dir).expect("the launchctl directory");
     write_script(&world.bin().join("launchctl"), FAKE_LAUNCHCTL);
@@ -1060,11 +1271,6 @@ fn setup_adds_the_client_moves_the_leases_of_bt_and_starts_the_agent() {
     assert_eq!(allow.name(&world.client.fingerprint()), Some("test"), "the old client stays");
     assert_eq!(mode(&world.home().join(".config/yonderd/clients")), 0o600);
     assert_eq!(mode(&world.home().join(".config/yonderd")), 0o700);
-    assert_eq!(
-        fs::read_to_string(world.lease_file("bt-remote-0123")).expect("the moved lease file"),
-        "lease_id=a\nslot=/s\nused=1\n"
-    );
-    assert!(!old_leases.join("bt-remote-0123.lease").exists());
 
     if cfg!(target_os = "macos") {
         assert_eq!(first["launchd"], "bootstrapped");
@@ -1093,13 +1299,6 @@ fn a_refusal_of_a_command_is_one_json_line_on_stderr() {
     assert_eq!(output.status.code(), Some(1));
     let line: serde_json::Value = serde_json::from_slice(&output.stderr).expect("json");
     assert_eq!(line["refused"]["code"], "agent_error");
-}
-
-fn now_seconds() -> u64 {
-    SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .expect("after the epoch")
-        .as_secs()
 }
 
 /// The path of `git` on the PATH of this test, outside the bin directory of a world.
@@ -1158,23 +1357,26 @@ fn a_killed_supervisor_ends_the_run_for_cancel_and_follow() {
 }
 
 #[test]
-fn a_cancel_during_the_lock_wait_ends_the_run_before_its_command() {
+fn a_cancel_in_the_queue_of_the_host_slots_ends_the_run_before_its_command_and_leaves_the_queue() {
     let agent = World::new().serve();
     let world = &agent.world;
     let gate = world.dir.path().join("gate");
     let marker = world.dir.path().join("ran");
     agent.start(world.spec("11-1", HOLDER, &format!("echo holding; {}", wait_for(&gate))));
     agent.follow_until("11-1", 0, "holding");
-    agent.start(world.spec("11-2", HOLDER, &format!("touch '{}'", marker.display())));
+    agent.start(world.spec("11-2", "yonder-other", &format!("touch '{}'", marker.display())));
     eventually("the wait of the second run", || {
-        fs::read_to_string(world.run_dir("11-2").join("events.log")).is_ok_and(|log| log.contains("waiting for the other run"))
+        fs::read_to_string(world.run_dir("11-2").join("events.log")).is_ok_and(|log| log.contains("waiting for a host slot"))
     });
     let done = agent.reply(&Request::Cancel { run: "11-2".to_owned() });
     assert!(matches!(done, Reply::Done { .. }), "{done:?}");
     let cancelled = agent.follow("11-2", 0);
     assert_eq!(cancelled.end, Reply::Exit { code: 130 }, "{}", agent.dump("11-2"));
-    assert_eq!(cancelled.phase_names(), ["lock"]);
+    assert_eq!(cancelled.phase_names(), ["slot"]);
     assert!(!marker.exists(), "the command ran");
+    eventually("the give-back that leaves the queue", || {
+        world.bd_calls().contains("lease host give-back --run 11-2 -C ")
+    });
     fs::write(&gate, "").expect("the gate");
     assert_eq!(agent.follow("11-1", 0).end, Reply::Exit { code: 0 });
 }
@@ -1187,15 +1389,21 @@ fn a_cancel_during_the_checkout_kills_git_and_ends_the_run_before_its_command() 
     let agent = world.serve_with(&[("REAL_GIT", real.to_str().expect("a text path"))]);
     let world = &agent.world;
     let marker = world.dir.path().join("ran");
+    // The slot starts at the first commit of the world, so the run must move it to the second.
+    let second = commit_files(world, &[("b.txt", "b")]);
+    git(&world.repo(), &["reset", "-q", "--hard", &world.commit]);
     fs::write(world.bd_dir().join("slow-checkout"), "").expect("the flag");
-    git(&world.repo(), &["update-ref", "refs/yonder/12-1", &world.commit]);
-    agent.start(world.spec("12-1", HOLDER, &format!("touch '{}'", marker.display())));
+    git(&world.repo(), &["update-ref", "refs/yonder/12-1", &second]);
+    agent.start(RunSpec {
+        commit: second,
+        ..world.spec("12-1", HOLDER, &format!("touch '{}'", marker.display()))
+    });
     eventually("the start of the checkout", || world.bd_dir().join("checkout-started").exists());
     let started = Instant::now();
     agent.reply(&Request::Cancel { run: "12-1".to_owned() });
     let cancelled = agent.follow("12-1", 0);
     assert_eq!(cancelled.end, Reply::Exit { code: 130 }, "{}", agent.dump("12-1"));
-    assert_eq!(cancelled.phase_names(), ALL_PHASES[..4]);
+    assert_eq!(cancelled.phase_names(), ALL_PHASES[..3]);
     assert!(
         started.elapsed() < Duration::from_secs(20),
         "the checkout was not killed: {:?}",
@@ -1306,40 +1514,6 @@ fn a_slow_handshake_is_cut_at_the_deadline_and_a_socket_over_the_cap_closes_at_o
 }
 
 #[test]
-fn a_lease_sends_heartbeats_while_bd_works() {
-    let agent = World::new().serve_with(&[("YONDERD_TEST_HEARTBEAT_MS", "100")]);
-    let world = &agent.world;
-    fs::write(world.bd_dir().join("slow-get"), "").expect("the flag");
-    let (heartbeats, last) = agent.reply_after_heartbeats(&Request::Lease {
-        repo: "~/repo".to_owned(),
-        holder: HOLDER.to_owned(),
-    });
-    assert!(matches!(last, Reply::Leased { fresh: true, .. }), "{last:?}");
-    assert!(heartbeats >= 3, "{heartbeats} heartbeats");
-}
-
-#[test]
-fn a_failed_release_keeps_the_lease_file() {
-    let agent = World::new().serve();
-    let world = &agent.world;
-    let lease = agent.reply(&Request::Lease {
-        repo: "~/repo".to_owned(),
-        holder: HOLDER.to_owned(),
-    });
-    assert!(matches!(lease, Reply::Leased { .. }), "{lease:?}");
-    fs::write(world.bd_dir().join("fail-return"), "").expect("the flag");
-    let refused = agent.reply(&Request::Release {
-        repo: "~/repo".to_owned(),
-        holder: HOLDER.to_owned(),
-    });
-    assert!(
-        matches!(&refused, Reply::Refused { code, message } if code == "lease_failed" && message.contains("local changes")),
-        "{refused:?}"
-    );
-    assert!(world.lease_file(HOLDER).is_file());
-}
-
-#[test]
 fn the_files_of_the_agent_are_private() {
     let agent = World::new().serve();
     let world = &agent.world;
@@ -1352,7 +1526,7 @@ fn the_files_of_the_agent_are_private() {
         ".cache/yonderd",
         ".cache/yonderd/runs",
         ".cache/yonderd/runs/16-1",
-        ".cache/yonderd/leases",
+        ".cache/yonderd/slots",
     ] {
         assert_eq!(mode(&home.join(dir)), 0o700, "{dir}");
     }
@@ -1365,7 +1539,7 @@ fn the_files_of_the_agent_are_private() {
         ".cache/yonderd/runs/16-1/pid",
         ".cache/yonderd/runs/16-1/lock",
         ".cache/yonderd/runs/16-1/supervisor.log",
-        &format!(".cache/yonderd/leases/{HOLDER}.lease"),
+        ".cache/yonderd/slots/lease-1.prepared",
     ] {
         assert_eq!(mode(&home.join(file)), 0o600, "{file}");
     }
@@ -1388,12 +1562,12 @@ fn a_start_before_its_pack_takes_the_lease_waits_and_goes_on_when_the_pack_comes
     });
     let waiting = format!("yonder: waiting for the pack of {head}");
     eventually("the wait for the pack", || events(world, "20-1").contains(&waiting));
-    assert!(world.slot(HOLDER).is_dir(), "the lease comes before the pack");
+    assert!(world.slot(1).is_dir(), "the lend comes before the pack");
     let Reply::Runs { runs } = agent.reply(&Request::Runs) else {
         panic!("not runs");
     };
     let names: Vec<&str> = runs[0].phases.iter().map(|phase| phase.name.as_str()).collect();
-    assert_eq!(names, ["lock", "lease"]);
+    assert_eq!(names, ["slot"]);
 
     assert_eq!(agent.pack(&head, "refs/yonder/20-1", &pack), Reply::Packed);
     let followed = agent.follow("20-1", 0);
@@ -1419,7 +1593,7 @@ fn a_start_whose_pack_never_comes_ends_with_pack_missing() {
         matches!(&followed.end, Reply::Refused { code, message } if code == "pack_missing" && message.contains("refs/yonder/21-1")),
         "{followed:?}"
     );
-    assert_eq!(followed.phase_names(), ["lock", "lease", "pack_wait"]);
+    assert_eq!(followed.phase_names(), ["slot", "pack_wait"]);
     assert!(
         !followed.texts().iter().any(|line| line.contains("waiting for the pack")),
         "a wait under a second says nothing: {followed:?}"
@@ -1504,7 +1678,7 @@ fn a_cancel_during_the_pack_wait_ends_the_run_before_its_command() {
     let followed = agent.follow("22-1", 0);
     assert_eq!(followed.end, Reply::Exit { code: 130 }, "{}", agent.dump("22-1"));
     assert!(started.elapsed() < Duration::from_secs(10), "{:?}", started.elapsed());
-    assert_eq!(followed.phase_names(), ["lock", "lease", "pack_wait"]);
+    assert_eq!(followed.phase_names(), ["slot", "pack_wait"]);
     assert!(!marker.exists(), "the command ran");
 }
 
@@ -1733,14 +1907,15 @@ creates = ["deps"]
 "#;
     let first = commit_files(world, &[(".yonder.toml", config), ("lock.txt", "1")]);
     let script = r#"echo "$GREETING $DIR $FAKE_BD_DIR"; echo "$PATH" | cut -d: -f1; echo "$PORT"; echo "$YONDER_RUN""#;
-    let run = |id: &str, commit: &str| {
+    let run_as = |id: &str, commit: &str, holder: &str| {
         agent.start(RunSpec {
             commit: commit.to_owned(),
-            ..world.spec(id, HOLDER, script)
+            ..world.spec(id, holder, script)
         });
         agent.follow(id, 0)
     };
-    let slot = world.slot(HOLDER);
+    let run = |id: &str, commit: &str| run_as(id, commit, HOLDER);
+    let slot = world.slot(1);
     let prepared = || fs::read_to_string(slot.join("prepared.log")).unwrap_or_default().lines().count();
 
     let followed = run("21-1", &first);
@@ -1758,11 +1933,35 @@ creates = ["deps"]
     assert!(stderr.contains(&"yonder: prepare: deps (deps is missing)"), "{stderr:?}");
     assert!(stderr.contains(&"preparing"), "{stderr:?}");
     assert_eq!(prepared(), 1);
-    let lease = fs::read_to_string(world.lease_file(HOLDER)).expect("the lease file");
-    assert!(lease.contains("\nprepared."), "{lease}");
+    let fingerprints =
+        fs::read_to_string(world.home().join(".cache/yonderd/slots/lease-1.prepared")).expect("the fingerprints of the slot");
+    assert!(fingerprints.starts_with("generation=0\nprepared."), "{fingerprints}");
 
     assert_eq!(run("21-2", &first).end, Reply::Exit { code: 0 });
     assert_eq!(prepared(), 1, "the inputs did not change");
+    assert_eq!(run_as("21-11", &first, "yonder-other").end, Reply::Exit { code: 0 });
+    assert_eq!(prepared(), 1, "another checkout in the same slot needs no step either");
+    fs::write(world.bd_dir().join("generation-1"), "5").expect("a clean of the slot");
+    let cleaned = run("21-12", &first);
+    assert!(
+        cleaned.texts().contains(&"yonder: prepare: deps (the first run in this slot)"),
+        "{cleaned:?}"
+    );
+    assert_eq!(prepared(), 2, "a clean can delete what the step made");
+    // A give-back that discarded changes can have discarded what a step made too
+    eventually("the give-back of 21-12", || !world.bd_dir().join("lent-1").exists());
+    fs::write(world.bd_dir().join("discard"), "3").expect("a give-back that discards");
+    assert_eq!(run("21-13", &first).end, Reply::Exit { code: 0 });
+    eventually("the give-back of 21-13", || !world.bd_dir().join("lent-1").exists());
+    fs::remove_file(world.bd_dir().join("discard")).expect("no more discards");
+    let after_discard = run("21-14", &first);
+    assert!(
+        after_discard
+            .texts()
+            .contains(&"yonder: prepare: deps (the first run in this slot)"),
+        "{after_discard:?}"
+    );
+    assert_eq!(prepared(), 3);
 
     let second = commit_files(world, &[("lock.txt", "2")]);
     let followed = run("21-3", &second);
@@ -1770,11 +1969,11 @@ creates = ["deps"]
         followed.texts().contains(&"yonder: prepare: deps (lock.txt changed)"),
         "{followed:?}"
     );
-    assert_eq!(prepared(), 2);
+    assert_eq!(prepared(), 4);
 
     fs::remove_dir_all(slot.join("deps")).expect("deps removed");
     assert_eq!(run("21-4", &second).end, Reply::Exit { code: 0 });
-    assert_eq!(prepared(), 3, "a missing created path runs the step again");
+    assert_eq!(prepared(), 5, "a missing created path runs the step again");
 
     let failing = commit_files(
         world,
@@ -1788,7 +1987,7 @@ creates = ["deps"]
         matches!(&followed.end, Reply::Refused { code, message } if code == "prepare_failed" && message.contains("exited with 4")),
         "{followed:?}"
     );
-    assert_eq!(followed.phase_names(), ALL_PHASES[..5]);
+    assert_eq!(followed.phase_names(), ALL_PHASES[..4]);
     assert!(followed.texts().contains(&"cannot"), "{followed:?}");
     assert!(followed.of(Stream::Stdout).is_empty(), "the command did not run: {followed:?}");
 
@@ -1833,7 +2032,7 @@ fn the_outputs_of_the_config_come_back_only_to_a_client_that_asks_for_them() {
     );
 
     // An output of an earlier run is gone before the command, so it never comes back.
-    let slot = world.slot(HOLDER);
+    let slot = world.slot(1);
     fs::create_dir_all(slot.join("results")).expect("results");
     fs::write(slot.join("results/stale.txt"), "stale").expect("a stale output");
     agent.start(RunSpec {

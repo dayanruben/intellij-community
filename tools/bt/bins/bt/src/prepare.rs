@@ -4,7 +4,8 @@
 //!
 //! 1. ssh: the alias answers in batch mode.
 //! 2. The main repository on the host: created and given the master history when it is missing, and moved to the
-//!    local master when its master is clean and an ancestor.
+//!    local master when its master is clean and an ancestor. Its `core.fsmonitor` is on, also in a repository that
+//!    an older prepare created with it off.
 //! 3. `bd`: the local binary, copied when the host has another build, and `~/.local/bin` on the PATH of `~/.zshenv`.
 //!    The SHA-256 of the binary tells the build, because a new build can keep its version.
 //! 4. Tools: git, Xcode, rustup, docker, tmux. Reported only, never installed.
@@ -15,7 +16,6 @@
 //!    expiry marker of the token of each server, which `IJPrivatePackagesAuthorizer` reads. An expired or missing local
 //!    marker asks for a renewed local token first. The copy needs a yes at the terminal or `--yes`, and it
 //!    refuses without a terminal, so an agent cannot start it. Then the remote cache must answer 404, not 401.
-//! 7. With `--take-lease`, the warm lease of this checkout, so the first run does not wait for `bd lease get`.
 
 use std::ffi::OsString;
 use std::fmt::Write as _;
@@ -33,7 +33,7 @@ use crate::credentials::{
 };
 use crate::digest::tail_lines;
 use crate::execute::Outcome;
-use crate::remote::{DEFAULT_HOST_REPO, Host, HostLink, holder};
+use crate::remote::{DEFAULT_HOST_REPO, Host, HostLink};
 use crate::ssh::{COPY_IDLE, host_path_word, host_repo, push_url, remote_call, scp, ssh, ssh_git_config, watched_git};
 
 /// What `--prepare` may do.
@@ -42,8 +42,6 @@ pub(crate) struct Prepare {
     pub(crate) change: bool,
     /// `--yes`: copy the credentials without the question.
     pub(crate) yes: bool,
-    /// `--take-lease`.
-    pub(crate) take_lease: bool,
 }
 
 /// The outcome of one step.
@@ -121,9 +119,6 @@ pub(crate) fn prepare_host(host: &Host<'_>, prepare: &Prepare, runtime: &dyn Run
         check_tools(runtime, host.alias, &mut report);
         prepare_agent(runtime, host, prepare, link, &mut report);
         prepare_credentials(runtime, host.alias, prepare, &mut report);
-        if prepare.take_lease {
-            take_lease(runtime, host, prepare, link, &mut report);
-        }
     }
     Outcome {
         exit_code: if report.has_missing() { exit::INFRA } else { exit::GREEN },
@@ -180,12 +175,58 @@ fn prepare_repository(runtime: &dyn Runtime, host: &Host<'_>, prepare: &Prepare,
             STEP,
             format!("{} on {} has no master branch", host_repo(host), host.alias),
         ),
-        _ if host_master == local_master => report.add(
-            Status::Ok,
+        _ if host_master == local_master => {
+            report.add(
+                Status::Ok,
+                STEP,
+                format!("master of {} is at {}", host_repo(host), short(&local_master)),
+            );
+            prepare_fsmonitor(runtime, host, &repo, prepare, report);
+        }
+        _ => {
+            move_master(runtime, host, &repo, host_master, &local_master, prepare, report);
+            prepare_fsmonitor(runtime, host, &repo, prepare, report);
+        }
+    }
+}
+
+/// Turns on `core.fsmonitor` in an existing repository on the host. The give-back of a host slot (`bd lease host`)
+/// runs one `status` after each run. Without fsmonitor that status reads every file of the slot: 18-19 s and about
+/// 240 s of system CPU on the Studio for 1.4M files, against 2.5 s with it. The setting goes into the repository, not
+/// onto one command, because a git without fsmonitor that writes the index drops the fsmonitor token of the index.
+fn prepare_fsmonitor(runtime: &dyn Runtime, host: &Host<'_>, repo: &str, prepare: &Prepare, report: &mut Report) {
+    const STEP: &str = "repository";
+    let read = remote_call(
+        runtime,
+        &ssh(host.alias, &format!("git -C {repo} config --type=bool --get core.fsmonitor")),
+    );
+    let value = read.output.trim();
+    if read.exit_code == 0 && value == "true" {
+        report.add(Status::Ok, STEP, format!("core.fsmonitor is on in {}", host_repo(host)));
+        return;
+    }
+    let was = if read.exit_code == 0 && !value.is_empty() { value } else { "unset" };
+    if !prepare.change {
+        report.add(
+            Status::Missing,
             STEP,
-            format!("master of {} is at {}", host_repo(host), short(&local_master)),
-        ),
-        _ => move_master(runtime, host, &repo, host_master, &local_master, prepare, report),
+            format!("core.fsmonitor is {was} in {}; --prepare turns it on", host_repo(host)),
+        );
+        return;
+    }
+    let set = remote_call(runtime, &ssh(host.alias, &format!("git -C {repo} config core.fsmonitor true")));
+    if set.exit_code == 0 {
+        report.add(
+            Status::Done,
+            STEP,
+            format!("turned on core.fsmonitor in {} on {} (it was {was})", host_repo(host), host.alias),
+        );
+    } else {
+        report.add(
+            Status::Missing,
+            STEP,
+            format!("cannot turn on core.fsmonitor in {}: {}", host_repo(host), set.output.trim()),
+        );
     }
 }
 
@@ -210,7 +251,7 @@ fn create_repository(runtime: &dyn Runtime, host: &Host<'_>, repo: &str, local_m
             host.alias,
             &format!(
                 "git init -q {repo} && git -C {repo} config feature.manyFiles true && git -C {repo} config core.untrackedCache true \
-                 && git -C {repo} config core.fsmonitor false"
+                 && git -C {repo} config core.fsmonitor true"
             ),
         ),
     );
@@ -744,30 +785,6 @@ fn copy_markers(runtime: &dyn Runtime, alias: &str, markers: &[String]) -> Strin
         format!("copied {} token expiry markers", markers.len())
     } else {
         "cannot copy the token expiry markers".to_owned()
-    }
-}
-
-fn take_lease(runtime: &dyn Runtime, host: &Host<'_>, prepare: &Prepare, link: &dyn HostLink, report: &mut Report) {
-    const STEP: &str = "lease";
-    if !prepare.change {
-        report.add(
-            Status::Missing,
-            STEP,
-            "--take-lease takes the warm lease of this checkout without --dry-run",
-        );
-        return;
-    }
-    let holder = holder(runtime);
-    match link.lease(host.alias, host.repo, &holder) {
-        Ok(leased) => {
-            let fresh = if leased.fresh { "new" } else { "warm" };
-            report.add(
-                Status::Done,
-                STEP,
-                format!("the lease {} of {holder} is {} ({fresh})", leased.lease_id, leased.slot),
-            );
-        }
-        Err(refusal) => report.add(Status::Missing, STEP, format!("cannot take the lease: {}", refusal.message)),
     }
 }
 

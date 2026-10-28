@@ -45,11 +45,6 @@ impl Home {
         self.dir.join(".cache/yonderd")
     }
 
-    /// The lease files of `remote.sh` of BT, which `setup` moves: `~/.cache/bt-remote/leases/`.
-    pub(crate) fn bt_remote_leases_dir(&self) -> PathBuf {
-        self.dir.join(".cache/bt-remote/leases")
-    }
-
     /// The parent of each run directory: `~/.cache/yonderd/runs/`.
     pub(crate) fn runs_dir(&self) -> PathBuf {
         self.dir.join(".cache/yonderd/runs")
@@ -80,9 +75,30 @@ impl Home {
         self.dir.join(".cache/yonderd/upgrade.lock")
     }
 
-    /// The lease file and the lock of each holder: `~/.cache/yonderd/leases/`.
+    /// The last state of the git of the host (`host_git`): `~/.cache/yonderd/git.json`.
+    pub(crate) fn git_file(&self) -> PathBuf {
+        self.dir.join(".cache/yonderd/git.json")
+    }
+
+    /// The flock that `serve` holds while Homebrew installs or upgrades git: `~/.cache/yonderd/git.lock`.
+    pub(crate) fn git_lock_file(&self) -> PathBuf {
+        self.dir.join(".cache/yonderd/git.lock")
+    }
+
+    /// The flock that each user of git holds shared, and an upgrade of git exclusive: `~/.cache/yonderd/git-users.lock`.
+    pub(crate) fn git_users_lock_file(&self) -> PathBuf {
+        self.dir.join(".cache/yonderd/git-users.lock")
+    }
+
+    /// The lease file and the lock of each holder of before the host slots, which the keeper returns:
+    /// `~/.cache/yonderd/leases/`.
     pub(crate) fn leases_dir(&self) -> PathBuf {
         self.dir.join(".cache/yonderd/leases")
+    }
+
+    /// The fingerprints of the prepare steps per host slot (`slots::Prepared`).
+    pub(crate) fn slots_dir(&self) -> PathBuf {
+        self.dir.join(".cache/yonderd/slots")
     }
 
     /// The plist of the LaunchAgent.

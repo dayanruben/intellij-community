@@ -12,13 +12,24 @@ const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
 /// A green payload as the host writes it with `--json`.
 const PAYLOAD: &str = r#"{"status":"PASS","exitCode":0,"durationMs":5,"cachedTargets":0,"ranTargets":1,"targets":[],"failures":[],"flaky":[],"errors":[],"degraded":false}"#;
 
-/// A checkout with `bt.json`.
+/// The tree of [`COMMIT`].
+const TREE: &str = "fedcba9876543210fedcba9876543210fedcba98";
+
+/// Where the check records of the fake checkout go.
+const RECORDS: &str = "/repo/.git/bd-checks.jsonl";
+
+/// A checkout with `bt.json`, whose git knows the tree of [`COMMIT`].
 fn checkout() -> FakeRuntime {
     let fake = FakeRuntime::new([]);
     for (path, text) in area_files() {
         fake.put(&path, &text);
     }
+    fake.state().commit_trees.insert(COMMIT.to_owned(), TREE.to_owned());
     fake
+}
+
+fn records(fake: &FakeRuntime) -> Option<String> {
+    fake.state().files.get(RECORDS).cloned()
 }
 
 /// A link whose run ends with `code`, `stdout` and the fetched files.
@@ -47,7 +58,7 @@ fn the_flags_of_the_host_stay_here_and_the_rest_goes_to_the_host() {
         .collect();
     assert_eq!(host_args(&argv), ["FooTest", "--json", "--", "--host", "x"]);
 
-    let after: Vec<OsString> = ["--lane", "fast", "--host=studio", "--host-idle-hours", "2"]
+    let after: Vec<OsString> = ["--lane", "fast", "--host=studio", "--host-repo", "~/r"]
         .into_iter()
         .map(OsString::from)
         .collect();
@@ -84,7 +95,6 @@ fn a_run_goes_to_yonder_with_the_wrapper_and_answers_its_payload() {
                 .map(str::to_owned)
                 .to_vec(),
             fetch: vec!["out/bt-runs".to_owned()],
-            idle_hours: 8,
         }]
     );
     assert!(fake.spawned().is_empty(), "bt starts no child for a run: {:#?}", fake.spawned());
@@ -130,16 +140,12 @@ fn the_steps_of_a_run_go_to_the_stderr_and_the_payload_stays_alone_on_the_stdout
 }
 
 #[test]
-fn the_repository_and_the_idle_hours_of_the_command_line_reach_yonder() {
+fn the_repository_of_the_command_line_reaches_yonder() {
     let fake = checkout();
     let link = link_ending(0, "PASS\n", &[]);
-    outcome(
-        &["--host", "studio", "--host-repo", "/w/idea", "--host-idle-hours", "2", "FooTest"],
-        &fake,
-        &link,
-    );
+    outcome(&["--host", "studio", "--host-repo", "/w/idea", "FooTest"], &fake, &link);
     let run = &link.runs()[0];
-    assert_eq!((run.repo.as_deref(), run.idle_hours), (Some("/w/idea"), 2));
+    assert_eq!(run.repo.as_deref(), Some("/w/idea"));
     assert_eq!(run.command, ["./community/tools/bt.cmd", "FooTest"]);
 }
 
@@ -211,20 +217,19 @@ fn host_without_a_selector_is_a_usage_failure() {
     assert!(link.calls().is_empty());
 }
 
-/// A release needs no clean checkout: it only returns the lease of this checkout on the host.
+/// The host lends a slot per run, so the flags of the warm lease of a checkout are gone and refused
 #[test]
-fn a_release_returns_the_lease_of_this_checkout_and_runs_nothing_else() {
-    let fake = checkout();
-    let link = FakeLink::default();
-    link.answer_release(Ok("released the lease L1 of /pool/1/idea-1".to_owned()));
-    let answer = outcome(&["--host", "studio", "--release"], &fake, &link);
-    assert_eq!(answer.exit_code, exit::GREEN);
-    assert_eq!(answer.text, "released the lease L1 of /pool/1/idea-1");
-    assert_eq!(link.calls(), [format!("release studio None {}", holder(&fake))]);
-    assert!(fake.spawned().is_empty());
-
-    let failure = refusal(execute_with(["--release"], &checkout(), &FakeLink::default()));
-    assert_eq!(failure.exit, exit::USAGE);
+fn the_flags_of_the_warm_lease_are_refused() {
+    for flags in [
+        &["--host", "studio", "--release"][..],
+        &["--host", "studio", "--host-idle-hours", "2", "FooTest"],
+        &["--host", "studio", "--prepare", "--take-lease"],
+    ] {
+        let link = FakeLink::default();
+        let failure = refusal(execute_with(flags.iter().copied(), &checkout(), &link));
+        assert_eq!(failure.exit, exit::USAGE, "{flags:?}");
+        assert!(link.calls().is_empty(), "{flags:?}");
+    }
 }
 
 /// One holder per checkout, named as the leases of the runs over ssh were.
@@ -259,6 +264,56 @@ fn a_second_ctrl_c_is_infrastructure_with_a_json_payload() {
 
     let failure = refusal(execute_with(["--host", "studio", "FooTest"], &fake, &link));
     assert_eq!((failure.code.as_ref(), failure.exit), ("host_interrupted", exit::INFRA));
+}
+
+/// A green run on the host records the tree of the commit that the host ran, with the arguments of bt there.
+#[test]
+fn a_green_run_on_a_host_records_the_tree_of_the_commit_it_ran() {
+    let fake = checkout();
+    let link = link_ending(0, "PASS  12 tests\n", &[]);
+    outcome(&["--host", "studio", "--lane", "fast"], &fake, &link);
+    assert_eq!(
+        records(&fake).as_deref(),
+        Some(
+            format!(
+                r#"{{"schema":1,"tree":"{TREE}","head":"{COMMIT}","tool":"bt","command":"test","patterns":["--lane","fast"],"exit":0,"at":1000,"host":"studio"}}
+"#
+            )
+            .as_str()
+        )
+    );
+
+    let fake = checkout();
+    let link = link_ending(0, "BUILD OK  //plugins/air/...  3.0s\n", &[]);
+    outcome(&["build", "//plugins/air/...", "--host", "studio"], &fake, &link);
+    assert_eq!(link.runs()[0].command, ["./community/tools/bt.cmd", "build", "//plugins/air/..."]);
+    let text = records(&fake).expect("a record of the build");
+    assert!(text.contains(r#""command":"build","patterns":["//plugins/air/..."]"#), "{text}");
+}
+
+/// A red run records nothing, and neither does a run whose commit yonder does not name.
+#[test]
+fn a_red_run_on_a_host_or_one_without_a_commit_records_nothing() {
+    let fake = checkout();
+    outcome(
+        &["--host", "studio", "FooTest"],
+        &fake,
+        &link_ending(3, "FAIL  1 of 3 tests failed\n", &[]),
+    );
+    assert_eq!(records(&fake), None);
+
+    let fake = checkout();
+    let link = FakeLink::default();
+    link.answer_run(Ok(RunOutcome {
+        run: "1000-1".to_owned(),
+        commit: String::new(),
+        code: 0,
+        stdout: "PASS\n".to_owned(),
+        fetched: Vec::new(),
+        phases: Vec::new(),
+    }));
+    outcome(&["--host", "studio", "FooTest"], &fake, &link);
+    assert_eq!(records(&fake), None);
 }
 
 #[test]

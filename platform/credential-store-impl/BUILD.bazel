@@ -124,6 +124,11 @@ jvm_library(
     ),
     module_name = "intellij.platform.credentialStore.impl.tests",
     visibility = ["//visibility:public"],
+    runtime_deps = [
+        # do not sort,
+        "//platform/main/intellij.platform.monolith.main:monolith-main",
+        "//community-resources:customization",
+    ],
 )
 
 jvm_library(
@@ -147,6 +152,8 @@ jvm_library(
         ":credentialStore-impl-tests",
         "//platform/ide-core:ide-core_test_lib",
         "//platform/platform-util-io:ide-util-io_test_lib",
+        "//platform/main/intellij.platform.monolith.main:monolith-main_test_lib",
+        "//community-resources:customization_test_lib",
     ],
     deps = [
         # do not sort,
@@ -177,12 +184,6 @@ jvm_library(
         "//platform/analysis-api:analysis_test_lib",
         "//platform/platform-api:ide",
         "//platform/platform-api:ide_test_lib",
-        "//images:images-tests",
-        "//images:images-tests_test_lib",
-        "//RegExpSupport:regexp-tests",
-        "//RegExpSupport:regexp-tests_test_lib",
-        "//platform/xdebugger-impl:debugger-impl-tests",
-        "//platform/xdebugger-impl:debugger-impl-tests_test_lib",
         "//libraries/junit6",
         "//libraries/junit6:junit6_test_lib",
     ],

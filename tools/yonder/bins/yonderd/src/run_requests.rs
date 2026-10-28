@@ -83,12 +83,14 @@ impl Agent {
             ));
         }
         self.repo(&spec.repo)?;
+        self.git.check()?;
         let (run, lock) = self.runs().create(spec)?;
         if let Err(refusal) = self.spawn_supervisor(&run, &lock) {
             let _ = fs::remove_dir_all(run.path());
             return Err(refusal);
         }
         log(&format!("started the run {} of {}", spec.run, spec.holder));
+        self.wake_keeper(self.home.expand(&spec.repo));
         Ok(Reply::Started { run: spec.run.clone() })
     }
 

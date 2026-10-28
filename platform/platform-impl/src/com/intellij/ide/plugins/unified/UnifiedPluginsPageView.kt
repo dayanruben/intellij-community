@@ -80,7 +80,7 @@ import javax.swing.border.Border
 import javax.swing.event.DocumentEvent
 import org.jetbrains.annotations.Nls
 
-internal class UnifiedPluginsPageView @RequiresEdt(generateAssertion = false /* IJPL-115548 */) constructor(
+internal class UnifiedPluginsPageView @RequiresEdt constructor(
   private val onSearchChanged: (String) -> Unit,
   private val onSelectionChanged: (List<PluginOccurrenceId>) -> Unit,
   private val onSectionExpansionChanged: (PluginSectionId, Boolean) -> Unit,
@@ -527,7 +527,7 @@ internal class UnifiedPluginsPageView @RequiresEdt(generateAssertion = false /* 
     stickyHeaderHost.showGradient = stickyY == viewportOrigin.y &&
                                         stickySection.hasItemsBehindHeader(sectionsPanel, viewRect.y, headerHeight)
     val stickyX = headerBounds.x - viewRect.x + viewportOrigin.x
-    val stickyWidth = headerBounds.width
+    val stickyWidth = viewRect.width
     stickyHeaderHost.updateOverflow(headerHeight)
     val stickyBounds = Rectangle(
       stickyX,

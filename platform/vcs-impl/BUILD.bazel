@@ -109,8 +109,6 @@ jvm_library(
         "//platform/platform-impl/rpc",
         "//fleet/rpc",
         "//platform/progress/shared:ide-progress",
-        "//platform/polySymbols/shared:polySymbols",
-        "//platform/polySymbols/backend",
         "//platform/execution",
         "//platform/execution-impl",
         "//platform/consoleView",
@@ -202,8 +200,6 @@ jvm_library(
         "//platform/platform-impl/rpc:rpc_test_lib",
         "//fleet/rpc:rpc_test_lib",
         "//platform/progress/shared:ide-progress_test_lib",
-        "//platform/polySymbols/shared:polySymbols_test_lib",
-        "//platform/polySymbols/backend:backend_test_lib",
         "//platform/execution:execution_test_lib",
         "//platform/execution-impl:execution-impl_test_lib",
         "//platform/consoleView:consoleView_test_lib",
@@ -237,7 +233,12 @@ jvm_library(
     ),
     module_name = "intellij.platform.vcs.impl.tests",
     visibility = ["//visibility:public"],
-    runtime_deps = ["//platform/vcs/plugin"],
+    runtime_deps = [
+        # do not sort,
+        "//platform/vcs/plugin",
+        "//platform/main/intellij.platform.monolith.main:monolith-main",
+        "//community-resources:customization",
+    ],
 )
 
 jvm_library(
@@ -263,6 +264,8 @@ jvm_library(
         "//platform/ide-core-impl:ide-core-impl_test_lib",
         "//platform/ide-core:ide-core_test_lib",
         "//platform/vcs/plugin:plugin_test_lib",
+        "//platform/main/intellij.platform.monolith.main:monolith-main_test_lib",
+        "//community-resources:customization_test_lib",
     ],
     deps = [
         # do not sort,

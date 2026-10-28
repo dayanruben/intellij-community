@@ -184,9 +184,6 @@
     <orderEntry type="module" module-name="intellij.libraries.jetcheck" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.jediterm.core" scope="TEST" />
     <orderEntry type="library" scope="TEST" name="jetbrains.kotlinx.lincheck.jvm" level="project" />
-    <orderEntry type="module" module-name="intellij.platform.images.tests" scope="TEST" />
-    <orderEntry type="module" module-name="intellij.regexp.tests" scope="TEST" />
-    <orderEntry type="module" module-name="intellij.platform.debugger.impl.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.vcs.impl.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.serviceContainer.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.workspace.storage.testEntities" scope="TEST" />
@@ -205,6 +202,8 @@
     <orderEntry type="module" module-name="intellij.platform.testRunner.plugin" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.todo.plugin" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.bazel.runfiles" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.monolith.main" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.idea.community.customization" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.platform.eel.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.util.concurrency.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.scratch.plugin" scope="TEST" />

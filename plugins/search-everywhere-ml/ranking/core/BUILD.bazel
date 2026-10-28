@@ -76,7 +76,6 @@ jvm_library(
         "//platform/execution",
         "//platform/searchEverywhere/frontend",
         "//platform/util:util-ui",
-        "//platform/scratch",
     ],
 )
 
@@ -123,7 +122,6 @@ jvm_library(
         "//platform/execution:execution_test_lib",
         "//platform/searchEverywhere/frontend:frontend_test_lib",
         "//platform/util:util-ui_test_lib",
-        "//platform/scratch:scratch_test_lib",
     ],
 )
 ### auto-generated section `build intellij.searchEverywhereMl.ranking.core` end
@@ -147,6 +145,11 @@ jvm_library(
     ),
     module_name = "intellij.searchEverywhereMl.ranking.core.tests",
     visibility = ["//visibility:public"],
+    runtime_deps = [
+        # do not sort,
+        "//platform/main/intellij.platform.monolith.main:monolith-main",
+        "//community-resources:customization",
+    ],
 )
 
 jvm_library(
@@ -170,6 +173,8 @@ jvm_library(
         ":searchEverywhereMl-ranking-core-tests",
         "//platform/platform-impl:ide-impl_test_lib",
         "//platform/platform-impl/internal:internal_test_lib",
+        "//platform/main/intellij.platform.monolith.main:monolith-main_test_lib",
+        "//community-resources:customization_test_lib",
     ],
     deps = [
         # do not sort,

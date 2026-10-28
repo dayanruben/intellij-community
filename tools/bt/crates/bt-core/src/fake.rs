@@ -17,7 +17,7 @@ use refusal::Refusal;
 
 use crate::areas::{AREAS_FILE, Area, Areas};
 use crate::lanes::Lanes;
-use crate::runtime::{DirEntry, Heartbeat, Platform, Runtime, SpawnResult};
+use crate::runtime::{CheckoutTree, DirEntry, Heartbeat, Platform, Runtime, SpawnResult};
 
 pub const REPO_ROOT: &str = "/repo";
 
@@ -98,6 +98,15 @@ pub struct State {
     pub forbidden: bool,
     /// The files of the tree the checkout ignores; see [`FakeRuntime::ignore`].
     pub ignored: BTreeSet<String>,
+    /// The files of each revision the checkout holds, by repo-relative path; see [`FakeRuntime::put_revision`].
+    pub revisions: BTreeMap<String, BTreeMap<String, String>>,
+    /// The answer of [`Runtime::upstream_base`]: `None` stands for a checkout without an upstream.
+    pub upstream_base: Option<String>,
+    /// The answers of the next [`Runtime::checkout_tree`] calls, in order. A call takes the first one, and answers
+    /// `None`, a checkout that is no linked work tree, when none is left.
+    pub checkout_trees: VecDeque<CheckoutTree>,
+    /// The tree of each commit, for [`Runtime::commit_tree`].
+    pub commit_trees: BTreeMap<String, String>,
 }
 
 pub struct FakeRuntime {
@@ -169,6 +178,27 @@ impl FakeRuntime {
 
     pub fn reads(&self) -> Vec<String> {
         self.state().reads.clone()
+    }
+
+    /// Makes the checkout hold `revision`, with the repo-relative file `relative` at `text`. A revision with no file
+    /// at all is [`FakeRuntime::add_revision`].
+    pub fn put_revision(&self, revision: &str, relative: &str, text: &str) {
+        self.state()
+            .revisions
+            .entry(revision.to_owned())
+            .or_default()
+            .insert(relative.to_owned(), text.to_owned());
+    }
+
+    /// Makes the checkout hold `revision`, with no file that [`FakeRuntime::put_revision`] did not put.
+    pub fn add_revision(&self, revision: &str) {
+        self.state().revisions.entry(revision.to_owned()).or_default();
+    }
+
+    /// Makes `revision` the answer of [`Runtime::upstream_base`], and a revision that the checkout holds.
+    pub fn set_upstream_base(&self, revision: &str) {
+        self.add_revision(revision);
+        self.state().upstream_base = Some(revision.to_owned());
     }
 
     pub fn spawned(&self) -> Vec<Vec<String>> {
@@ -273,11 +303,44 @@ impl Runtime for FakeRuntime {
             .collect())
     }
 
+    /// A revision that [`FakeRuntime::put_revision`] or [`FakeRuntime::add_revision`] did not name is one the checkout
+    /// does not hold.
+    fn revision_text(&self, revision: &str, path: &str) -> io::Result<Option<String>> {
+        self.note("revision", &format!("{revision}:{path}"))?;
+        let state = self.state();
+        let files = state.revisions.get(revision).ok_or_else(|| not_found(revision))?;
+        Ok(files.get(path).cloned())
+    }
+
+    fn upstream_base(&self) -> io::Result<String> {
+        self.state()
+            .upstream_base
+            .clone()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "the checkout has no upstream"))
+    }
+
     fn exists(&self, path: &Path) -> bool {
         let path = key(path);
         let prefix = format!("{path}/");
         let state = self.state();
         state.files.contains_key(&path) || state.files.keys().any(|held| held.starts_with(&prefix))
+    }
+
+    fn checkout_tree(&self) -> io::Result<Option<CheckoutTree>> {
+        Ok(self.state().checkout_trees.pop_front())
+    }
+
+    fn commit_tree(&self, commit: &str) -> io::Result<String> {
+        self.state()
+            .commit_trees
+            .get(commit)
+            .cloned()
+            .ok_or_else(|| io::Error::other(format!("fatal: Needed a single revision: {commit}^{{tree}}")))
+    }
+
+    /// The spelling of a main checkout: the git directory is `.git` of the root.
+    fn git_path(&self, name: &str) -> io::Result<PathBuf> {
+        Ok(self.root.join(".git").join(name))
     }
 
     /// Records the argv, beats once as a 30 s run would, and answers the scripted result.

@@ -108,14 +108,16 @@ jvm_library(
         "//platform/execution:execution_test_lib",
     ],
 )
+### auto-generated section `build intellij.configurationScript` end
 
+### auto-generated section `plugin intellij.configurationScript` start
 ij_plugin(
     name = "configuration-script_plugin",
     descriptor_module = ":configuration-script",
     content_modules = ["//plugins/configuration-script/backend"],
     visibility = ["//visibility:public"],
 )
-### auto-generated section `build intellij.configurationScript` end
+### auto-generated section `plugin intellij.configurationScript` end
 
 ### auto-generated section `iml intellij.configurationScript` start
 exports_files(
@@ -207,7 +209,12 @@ jvm_library(
     ),
     module_name = "intellij.configurationScript.tests",
     visibility = ["//visibility:public"],
-    runtime_deps = ["//xml/plugin"],
+    runtime_deps = [
+        # do not sort,
+        "//platform/main/intellij.platform.monolith.main:monolith-main",
+        "//community-resources:customization",
+        "//xml/plugin",
+    ],
 )
 
 jvm_library(
@@ -230,6 +237,8 @@ jvm_library(
         # do not sort,
         ":configurationScript-tests",
         "//platform/platform-impl:ide-impl_test_lib",
+        "//platform/main/intellij.platform.monolith.main:monolith-main_test_lib",
+        "//community-resources:customization_test_lib",
         "//xml/plugin:plugin_test_lib",
     ],
     deps = [

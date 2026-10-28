@@ -8,6 +8,7 @@ import com.intellij.platform.settings.v2.SettingsValue.MapValue
 import com.intellij.platform.settings.v2.impl.JsonSettingsCodec
 import com.intellij.platform.settings.v2.impl.SettingsDecodingException
 import java.nio.file.Files
+import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 
 /** Reads and writes a settings [MapValue] as a JSON file at a file system [Path]. The calls block, so call them off the EDT. */
@@ -18,9 +19,15 @@ object JsonConfigFile {
    *
    * @throws SettingsDecodingException when the file exists but does not parse
    */
-  fun read(path: Path): MapValue =
-    if (!Files.exists(path)) MapValue(emptyMap())
-    else JsonSettingsCodec.decode(Files.readString(path))
+  fun read(path: Path): MapValue {
+    val text = try {
+      Files.readString(path)
+    }
+    catch (_: NoSuchFileException) {
+      return MapValue(emptyMap())
+    }
+    return JsonSettingsCodec.decode(text)
+  }
 
   /** Returns the JSON text that [write] stores for [map]. */
   fun toJson(map: MapValue): String = JsonSettingsCodec.encode(map)
@@ -35,13 +42,13 @@ object JsonConfigFile {
   /**
    * Makes the file at [path] known to the VFS, or its absence when the file is missing. A VFS event fires only for a
    * file that the VFS tracks, and a refresh of a partly loaded directory checks only the names that the VFS knows. So
-   * after this call, a later VFS refresh reports a change of the file, and also its creation.
+   * after the asynchronous refresh ends, a later VFS refresh reports a change of the file, and also its creation.
    */
   internal fun refreshInVfs(path: Path) {
     val vfm = VirtualFileManager.getInstance()
     // Refresh the parent's children first: a bare file-path refresh leaves a just-created file "absent" when the
     // directory's child list is already cached, so the new config would never become VFS-visible.
-    vfm.refreshAndFindFileByNioPath(path.parent)?.refresh(false, false)
-    vfm.refreshAndFindFileByNioPath(path)
+    // The finish callback runs on the EDT under the write lock, so its synchronous lookup runs inline.
+    vfm.refreshAndFindFileByNioPath(path.parent)?.refresh(true, false) { vfm.refreshAndFindFileByNioPath(path) }
   }
 }

@@ -166,6 +166,7 @@ jvm_library(
     ),
     module_name = "intellij.lombok.tests",
     visibility = ["//visibility:public"],
+    runtime_deps = ["//platform/main/intellij.platform.monolith.main:monolith-main"],
 )
 
 jvm_library(
@@ -193,6 +194,7 @@ jvm_library(
         # do not sort,
         ":lombok-tests",
         "//platform/platform-impl:ide-impl_test_lib",
+        "//platform/main/intellij.platform.monolith.main:monolith-main_test_lib",
     ],
     deps = [
         # do not sort,
@@ -251,12 +253,6 @@ jvm_library(
         "//java/java-tests:tests_test_lib",
         "//java/java-frontback-psi-api:frontback-psi",
         "//java/java-frontback-psi-api:frontback-psi_test_lib",
-        "//images:images-tests",
-        "//images:images-tests_test_lib",
-        "//RegExpSupport:regexp-tests",
-        "//RegExpSupport:regexp-tests_test_lib",
-        "//platform/xdebugger-impl:debugger-impl-tests",
-        "//platform/xdebugger-impl:debugger-impl-tests_test_lib",
         "//platform/code-style-api:codeStyle",
         "//platform/code-style-api:codeStyle_test_lib",
         "//platform/util:util-ui",

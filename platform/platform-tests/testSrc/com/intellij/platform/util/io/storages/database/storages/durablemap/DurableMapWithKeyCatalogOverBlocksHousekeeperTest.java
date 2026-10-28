@@ -5,6 +5,7 @@ import com.intellij.openapi.util.Ref;
 import com.intellij.platform.util.io.storages.DataExternalizerEx;
 import com.intellij.platform.util.io.storages.database.spi.BlocksDatabaseFactory;
 import com.intellij.platform.util.io.storages.database.spi.BlocksStore;
+import com.intellij.platform.util.io.storages.database.storages.appenablerecords.RecordStorageOverBlocks;
 import com.intellij.platform.util.io.storages.durablemap.PatchableDurableMap;
 import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.api.Test;
@@ -186,7 +187,11 @@ public class DurableMapWithKeyCatalogOverBlocksHousekeeperTest {
   }
 
   private static long headForKey(@NotNull DurableMapBlockCatalog blockCatalog, @NotNull String expectedKey) throws IOException {
-    var keys = RecordStorageOverBlocks.open(blockCatalog, KEYS, RECORD_BLOCK_SIZE);
+    var keys = RecordStorageOverBlocks.open(
+      blockCatalog.appendableRecordBlocks(KEYS),
+      /*appendOnly: */ false,
+      RECORD_BLOCK_SIZE
+    );
     var descriptor = stringAsUTF8();
     var result = new Ref<>(NO_VALUE);
     keys.forEachCommittedRecord((_, record) -> {

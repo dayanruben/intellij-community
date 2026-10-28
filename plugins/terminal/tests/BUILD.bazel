@@ -57,6 +57,8 @@ jvm_library(
         "//libraries/junit4",
         "//libraries/kotlinx/serialization/core",
         "//libraries/kotlinx/serialization/json",
+        "//platform/main/intellij.platform.monolith.main:monolith-main",
+        "//community-resources:customization",
     ],
 )
 
@@ -90,6 +92,8 @@ jvm_library(
         "//platform/platform-util-io:ide-util-io_test_lib",
         "//platform/platform-impl/internal:internal_test_lib",
         "//platform/platform-impl/eel:ide-impl-wsl_test_lib",
+        "//platform/main/intellij.platform.monolith.main:monolith-main_test_lib",
+        "//community-resources:customization_test_lib",
     ],
     deps = [
         # do not sort,
@@ -182,12 +186,6 @@ jvm_library(
         "//libraries/kotlinx/serialization/core:core_test_lib",
         "//libraries/kotlinx/serialization/json",
         "//libraries/kotlinx/serialization/json:json_test_lib",
-        "//images:images-tests",
-        "//images:images-tests_test_lib",
-        "//RegExpSupport:regexp-tests",
-        "//RegExpSupport:regexp-tests_test_lib",
-        "//platform/xdebugger-impl:debugger-impl-tests",
-        "//platform/xdebugger-impl:debugger-impl-tests_test_lib",
         "//libraries/mockito",
         "//libraries/mockito:mockito_test_lib",
         "//libraries/mockito-kotlin",

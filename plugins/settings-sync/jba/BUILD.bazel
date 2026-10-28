@@ -26,6 +26,7 @@ jvm_library(
         ["resources/**/*"],
     ),
     visibility = ["//visibility:public"],
+    runtime_deps = ["//platform/backend"],
     deps = [
         # do not sort,
         "@lib//:kotlin-stdlib",
@@ -74,6 +75,7 @@ jvm_library(
         "//platform/statistics:statistics_test_lib",
         "//platform/util/progress:progress_test_lib",
         "//platform/util:util-ui_test_lib",
+        "//platform/backend:backend_test_lib",
     ],
 )
 ### auto-generated section `build intellij.settingsSync` end
@@ -97,7 +99,12 @@ jvm_library(
     ),
     module_name = "intellij.settingsSync.tests",
     visibility = ["//visibility:public"],
-    runtime_deps = ["//platform/vcs/plugin"],
+    runtime_deps = [
+        # do not sort,
+        "//platform/vcs/plugin",
+        "//platform/main/intellij.platform.monolith.main:monolith-main",
+        "//community-resources:customization",
+    ],
 )
 
 jvm_library(
@@ -122,6 +129,8 @@ jvm_library(
         "//platform/ide-core:ide-core_test_lib",
         "//platform/platform-impl:ide-impl_test_lib",
         "//platform/vcs/plugin:plugin_test_lib",
+        "//platform/main/intellij.platform.monolith.main:monolith-main_test_lib",
+        "//community-resources:customization_test_lib",
     ],
     deps = [
         # do not sort,

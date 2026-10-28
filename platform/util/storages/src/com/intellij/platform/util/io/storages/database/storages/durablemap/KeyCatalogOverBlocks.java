@@ -2,6 +2,7 @@
 package com.intellij.platform.util.io.storages.database.storages.durablemap;
 
 import com.intellij.platform.util.io.storages.KeyDescriptorEx;
+import com.intellij.platform.util.io.storages.database.storages.appenablerecords.RecordStorageOverBlocks;
 import com.intellij.platform.util.io.storages.intmultimaps.HashUtils;
 import com.intellij.platform.util.io.storages.intmultimaps.RecordRefIndex;
 import com.intellij.util.Processor;
@@ -13,6 +14,7 @@ import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.nio.ByteBuffer;
 
+import static com.intellij.platform.util.io.storages.database.DurableDatabaseFactory.ENABLE_SELF_CHECKS;
 import static com.intellij.platform.util.io.storages.database.storages.durablemap.DurableMapBlockCatalog.DurableMapBlockRole.KEYS;
 import static com.intellij.platform.util.io.storages.intmultimaps.IntToMultiLongMap.NO_VALUE;
 
@@ -39,7 +41,11 @@ public final class KeyCatalogOverBlocks<K> {
                                                           int preferredBlockContentLength,
                                                           @NotNull RecordRefIndex keyHashToRecordRefIndex,
                                                           @NotNull KeyDescriptorEx<K> keyDescriptor) throws IOException {
-    var keys = RecordStorageOverBlocks.open(blockCatalog, KEYS, preferredBlockContentLength);
+    var keys = RecordStorageOverBlocks.open(
+      blockCatalog.appendableRecordBlocks(KEYS),
+      /*appendOnly: */ false,
+      preferredBlockContentLength
+    );
     return new KeyCatalogOverBlocks<>(keys, keyHashToRecordRefIndex, keyDescriptor);
   }
 
@@ -138,12 +144,13 @@ public final class KeyCatalogOverBlocks<K> {
   private long findRecordRef(@NotNull K key, int keyHash) throws IOException {
     return keyHashToRecordRefIndex.lookup(keyHash, candidateRef -> {
       var record = keys.read(candidateRef);
-      var storedKeyHash = KeyRecordLayout.keyHash(record);
-      if (storedKeyHash != keyHash) {
-        throw new CorruptedException(
-          "LOOKUP hash " + keyHash + " does not match key record " + candidateRef + " hash " + storedKeyHash
-        );
+      if (ENABLE_SELF_CHECKS) {
+        var storedKeyHash = KeyRecordLayout.keyHash(record);
+        if (storedKeyHash != keyHash) {
+          throw new CorruptedException("LOOKUP hash " + keyHash + " does not match key record " + candidateRef + " hash " + storedKeyHash);
+        }
       }
+
       return keyDescriptor.isEqual(key, readKey(record));
     });
   }

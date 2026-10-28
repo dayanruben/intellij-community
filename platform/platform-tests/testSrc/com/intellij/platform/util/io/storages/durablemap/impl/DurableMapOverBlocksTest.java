@@ -7,7 +7,7 @@ import com.intellij.platform.util.io.storages.database.spi.BlocksDatabase;
 import com.intellij.platform.util.io.storages.database.spi.BlocksStore;
 import com.intellij.platform.util.io.storages.database.storages.durablemap.DurableMapBlockCatalog;
 import com.intellij.platform.util.io.storages.database.storages.durablemap.DurableMapOverBlocks;
-import com.intellij.platform.util.io.storages.database.storages.durablemap.RecordStorageOverBlocks;
+import com.intellij.platform.util.io.storages.database.storages.appenablerecords.RecordStorageOverBlocks;
 import com.intellij.platform.util.io.storages.durablemap.DefaultEntryExternalizer;
 import com.intellij.platform.util.io.storages.intmultimaps.InMemoryIntToMultiLongMap;
 import com.intellij.platform.util.io.storages.intmultimaps.RecordRefIndex;
@@ -20,6 +20,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 
 import static com.intellij.platform.util.io.storages.CommonKeyDescriptors.stringAsUTF8;
+import static com.intellij.platform.util.io.storages.database.storages.durablemap.DurableMapBlockCatalog.DurableMapBlockRole.ENTRIES;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -66,7 +67,12 @@ public class DurableMapOverBlocksTest {
       }
 
       var recordRefs = new ArrayList<Long>();
-      var records = RecordStorageOverBlocks.open(DurableMapBlockCatalog.open(store), ENTRIES_BLOCK_CONTENT_LENGTH);
+      var blockCatalog = DurableMapBlockCatalog.open(store);
+      var records = RecordStorageOverBlocks.open(
+        blockCatalog.appendableRecordBlocks(ENTRIES),
+        /*appendOnly: */ true,
+        ENTRIES_BLOCK_CONTENT_LENGTH
+      );
       records.forEachCommittedRecord((recordRef, _) -> {
         recordRefs.add(recordRef);
         return true;
@@ -136,7 +142,12 @@ public class DurableMapOverBlocksTest {
         map.put("stable", "value");
       }
 
-      var records = RecordStorageOverBlocks.open(DurableMapBlockCatalog.open(store), ENTRIES_BLOCK_CONTENT_LENGTH);
+      var blockCatalog = DurableMapBlockCatalog.open(store);
+      var records = RecordStorageOverBlocks.open(
+        blockCatalog.appendableRecordBlocks(ENTRIES),
+        /*appendOnly: */ true,
+        ENTRIES_BLOCK_CONTENT_LENGTH
+      );
       assertThrows(IOException.class, () -> records.append(16, _ -> {
         throw new IOException("simulated write failure");
       }));

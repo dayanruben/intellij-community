@@ -17,6 +17,8 @@ mod config;
 mod files;
 mod git;
 mod home;
+mod host_git;
+mod keeper;
 mod lease;
 mod login_env;
 mod prepare;
@@ -26,6 +28,7 @@ mod run_env;
 mod run_requests;
 mod serve;
 mod setup;
+mod slots;
 mod supervise;
 #[cfg(test)]
 mod testing;

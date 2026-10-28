@@ -34,7 +34,11 @@ The host-side provider, layout-plan, fragment and composition flow is documented
 in [Dev-build architecture](../../../../build/docs/guides/dev-build-architecture.md). The guest consumes a
 self-contained Bazel distribution, and it needs no checkout of its own. Nothing caches a guest run,
 so an iteration runs every suite it selects again. On 2026-09-30 the `ui` lane was 71 tests in 40
-classes, and it took 750 s of test time on a Tart Linux worker with a cold daemon. Ask `vm.cmd suites <paths>` what your change reaches, then run `run --changed <paths>`. To
+classes, and it took 750 s of test time on a Tart Linux worker with a cold daemon. Ask `vm.cmd suites <paths>` what your change reaches, then run `run --changed <paths>`.
+A Kotlin file of the test bridge reaches only the suites whose requests reach the declarations that the change
+changed, against the commit where `HEAD` meets its upstream. `suites --base <rev>` compares with another revision.
+Only a bridge declaration that every suite reaches, such as the state reset or the HTTP service, reaches the whole lane
+set. On 2026-10-27 one changed bridge function selected 86 suites in three lanes before, and 4 suites after. To
 test one flow, run `vm.cmd run flow-rename-session`: it selects every generated suite that tells or
 walks the flow. `vm.cmd run rename-session` selects one suite by its id. A suite is the smallest unit,
 because its scenarios share one managed-agent chain
@@ -861,6 +865,7 @@ that could not be pulled leaves a green run green.
 | launcher | where the bundles land | who cleans up |
 | --- | --- | --- |
 | the lane daemon on a worker | `$AIR_VM_DATA/daemon/iterations/<iterationId>/air-traces` in the guest, then pulled after each test to `<runtime root>/runs/<runId>/traces/<iterationId>/<NNN>.zip` | the guest's iteration retention; the run directory on the host |
+| a `vm.cmd` run with `AIR_VM_EXPORT`, such as a run on the Mac Studio through yonder | a copy of the run's journal, its reports and the zips of the scenarios that did not pass (`all`: every zip) in `out/air/vm-export/runs/<runId>/` of the checkout. `.yonder.toml` sets the variable and names the directory in its `outputs`, so yonder copies it back. Under `failed`, a run that failed nothing exports nothing | the next yonder run with an export, which replaces the directory |
 | a Bazel test, host `bt.cmd` included | `air-traces/` in the target's `bazel-testlogs/.../test.outputs/`, with `lane/` beside it for a run that is not green. A local Bazel packs them into `outputs.zip` there, and the TeamCity build keeps them as files in `bazel.logs.zip` | Bazel |
 
 A bundle is `<root>/<runId>/<TestClass>/<scenario>/`. A second attempt of the same scenario in one run is
@@ -903,8 +908,8 @@ site:
 ./community/tools/trace.cmd serve --detach  # one server for this machine, in the background
 ```
 
-It looks in the Air lanes' `bazel-testlogs`, in every pulled zip, and in the journal of
-each run under `<runtime root>/runs`. It serves zips by byte range without unpacking them, and it tells the page
+It looks in the Air lanes' `bazel-testlogs`, in the export of the checkout, in every pulled zip, and in the
+journal of each run under `<runtime root>/runs`. It serves zips by byte range without unpacking them, and it tells the page
 when a run appears or a run's journal grows. It listens on 127.0.0.1 only. `--root DIR` adds a place to look.
 `pnpm dev` in `plugins/air/docs` proxies `/__air` to it, so the viewer under development reads the same runs.
 A root can be a zip that holds zips: discovery extracts an inner zip once into `out/air-traces-cache`. So

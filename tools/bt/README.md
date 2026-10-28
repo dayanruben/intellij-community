@@ -1,6 +1,7 @@
 # bt: the Bazel test wrapper
 
-This Cargo workspace holds BT, the agent-facing wrapper over `bazel test` that `community/tools/bt.cmd` runs. Bazel
+This Cargo workspace holds BT, the agent-facing wrapper over `bazel test` and `bazel build` that `community/tools/bt.cmd`
+runs. Bazel
 builds every crate through `rules_rs` (repository `@bt`, declared in `community/MODULE.bazel`), from the community
 root and from the ultimate root. `cargo` serves the edit-test loop and rust-analyzer.
 
@@ -61,6 +62,41 @@ checkout. `tests.cmd` reads the same list. bt refuses every other module with ex
 label for an explicit run. A module without a target of its own gets the code `module_without_test_target` and the same
 `tests.cmd` command. `--filter` takes an FQN, `FQN#method` or a package, as for a label.
 
+## Builds
+
+`bt build <pattern>...` runs `bazel build -k` over target patterns that start with `//` or `@`, with the UI of bazel
+silenced. The digest is `BUILD OK`, or `BUILD FAILED` with the compile errors and the targets that did not build.
+`bins/bt/src/build.rs` holds it. The exit code is 0, 5 for a build failure, or 6 for any other exit of bazel.
+`--json`, `--dry-run`, `--verbose` and `--host` work as for a test run.
+
+## The check record
+
+A green run records the tree of the checkout that it saw, for `bd lease pick` of Branch Deck. A repository whose
+`.branchdeck.toml` sets `pick_requires_check` in `[lease]` lands a lease only when a record names the tree of its HEAD.
+bt is the only writer. `bins/bt/src/check.rs` holds the rules:
+
+1. Only a linked work tree records, such as a lease of Branch Deck: its `.git` is a file. The main checkout pays one
+   stat and records nothing, because no pick lands it.
+2. The tree is `HEAD^{tree}` of a clean work tree. With local changes, it is the tree that `git add -A` would give,
+   which `Runtime::checkout_tree` writes from a copy of the index. The index of the work tree stays as it was. An
+   untracked nested checkout is left out, and a directory replaced by a symbolic link gives a warning and no record.
+3. A local run reads the tree before its first bazel spawn and again after a green result. It records only when both
+   are the same tree. A red run, a dry run and a run during which the files changed record nothing.
+4. A record of a tree with local changes names those paths on the stderr. The pick finds the record only for a commit
+   of the same files, so commit or delete scratch files before the last check.
+5. A `--host` run records the tree of the commit that yonder names as the one that ran.
+6. The file is `bd-checks.jsonl` in the git directory (`git rev-parse --git-path bd-checks.jsonl`), so each linked work
+   tree has its own. Each write replaces the file in one step. It keeps the last 100 records, one JSON object a line:
+
+```json
+{"schema":1,"tree":"<tree>","head":"<commit>","tool":"bt","command":"test","patterns":["//plugins/air/..."],"exit":0,"at":1793112160851}
+```
+
+`command` is `test` or `build`. `patterns` holds the target patterns of bazel, then `--filter <value>` for a test run
+that took only some classes. For a `--host` run it holds the arguments of bt on the host, and that record also has
+`"host":"<alias>"`. `at` is in milliseconds since the epoch. A raw
+`./bazel.cmd` run records nothing, because `bazel.cmd` gives the process to bazelisk.
+
 ## Runs on another machine
 
 `--host <alias>` runs the same command on another machine, such as `bt --host studio --lane fast`. The flag can stand
@@ -81,13 +117,12 @@ agent `yonderd` on the host does the rest. No step of a run uses ssh.
 6. A host that has none of the commits near HEAD would need the whole history. bt refuses that with `host_behind`,
    and `--prepare` moves the master of the host.
 
-### The warm lease
+### The host slots
 
-Each local checkout is one lease holder on the host, `bt-remote-<hash of the checkout path>`. Its first run takes a
-lease with `bd lease get`. Each later run checks out its commit in the same slot, so the Bazel server and the output
-base of the slot stay warm. Two checkouts take two leases. A second run of the same checkout waits until the first one
-ends. `bt --host <alias> --release` returns the lease. Each run also returns the lease of every other checkout that no
-run used for 8 hours (`--host-idle-hours`, `BT_HOST_IDLE_HOURS`).
+The host lends each run a host slot of Branch Deck for that run only (`bd lease host`, the yonder README): the slot
+that this checkout (`bt-remote-<hash of the checkout path>`) used last, else the one used longest ago, else the run
+waits in a queue, one line a minute. The host keeps a fixed set of warm slots, so two checkouts never make it clone
+and nothing returns a slot by hand.
 
 ### Prepare a host
 
@@ -98,9 +133,11 @@ nothing. `bins/bt/src/prepare.rs` holds the steps, and `bins/bt/src/ssh.rs` boun
 1. ssh: the alias answers in batch mode. Otherwise the step names the `~/.ssh/config` settings to check
    (`AddressFamily inet`, and `IdentitiesOnly yes` only with an `IdentityFile`), and the other steps do not run.
 2. The repository (`--host-repo`): a missing one is created with `feature.manyFiles`, `core.untrackedCache` and
-   `core.fsmonitor=false`. Then the local master goes to `refs/heads/sync` there, and `checkout -B master sync` makes
+   `core.fsmonitor=true`. Then the local master goes to `refs/heads/sync` there, and `checkout -B master sync` makes
    it the master. The step warns about the size first, because the whole history crosses the network. An existing
-   master moves to the local master only when it is clean and an ancestor.
+   master moves to the local master only when it is clean and an ancestor. An existing repository without
+   `core.fsmonitor=true` gets it, and the step says what the value was. The give-back of a host slot runs one
+   `status` after each run, and without fsmonitor it reads every file: 18-19 s on the Studio, against 2.5 s.
 3. `bd`: the local `~/.local/bin/bd` replaces another build on a host of the same platform. The SHA-256 of the binary
    tells the build, so a new build with the same version also goes over. `~/.local/bin` goes on the PATH in `~/.zshenv`.
 4. Tools: git, Xcode, rustup, docker and tmux. The step only reports them, and it never installs one.
@@ -117,8 +154,6 @@ nothing. `bins/bt/src/prepare.rs` holds the steps, and `bins/bt/src/ssh.rs` boun
    Without a terminal it refuses, so an agent cannot start the copy. `credentials.rs` merges each entry into the host
    file and writes the file through the stdin of ssh, atomically and with mode 600. Then the remote cache must answer
    404, not 401.
-7. `--take-lease` takes the warm lease of this checkout through the agent, so that the first run does not wait for
-   `bd lease get`.
 
 A run without `--prepare` copies no credential.
 

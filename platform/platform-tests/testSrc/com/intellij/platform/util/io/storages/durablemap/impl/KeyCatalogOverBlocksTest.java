@@ -4,7 +4,7 @@ package com.intellij.platform.util.io.storages.durablemap.impl;
 import com.intellij.platform.util.io.storages.database.spi.BlocksDatabaseFactory;
 import com.intellij.platform.util.io.storages.database.storages.durablemap.DurableMapBlockCatalog;
 import com.intellij.platform.util.io.storages.database.storages.durablemap.KeyCatalogOverBlocks;
-import com.intellij.platform.util.io.storages.database.storages.durablemap.RecordStorageOverBlocks;
+import com.intellij.platform.util.io.storages.database.storages.appenablerecords.RecordStorageOverBlocks;
 import com.intellij.platform.util.io.storages.intmultimaps.InMemoryIntToMultiLongMap;
 import com.intellij.platform.util.io.storages.intmultimaps.RecordRefIndex;
 import org.jetbrains.annotations.NotNull;
@@ -56,7 +56,12 @@ public class KeyCatalogOverBlocksTest {
       assertEquals(41, catalog.valueRecordRef(keyRecordRef));
 
       var recordRefs = new ArrayList<Long>();
-      var records = RecordStorageOverBlocks.open(DurableMapBlockCatalog.open(store), KEYS, BLOCK_SIZE);
+      var blockCatalog = DurableMapBlockCatalog.open(store);
+      var records = RecordStorageOverBlocks.open(
+        blockCatalog.appendableRecordBlocks(KEYS),
+        /*appendOnly: */ false,
+        BLOCK_SIZE
+      );
       records.forEachCommittedRecord((recordRef, _) -> {
         recordRefs.add(recordRef);
         return true;

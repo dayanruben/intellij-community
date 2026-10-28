@@ -86,6 +86,7 @@
     <module name="intellij.platform.testRunner"/>
     <module name="intellij.platform.usageView"/>
     <module name="intellij.platform.usageView.impl"/>
+    <module name="intellij.platform.util.annotations"/>
     <module name="intellij.platform.util.coroutines"/>
     <module name="intellij.platform.util.ex"/>
     <module name="intellij.platform.util.progress"/>
@@ -110,9 +111,11 @@
     <module name="intellij.python.community.impl.poetry.backend"/>
     <module name="intellij.python.community.impl.poetry.common"/>
     <module name="intellij.python.community.services.systemPython"/>
+    <module name="intellij.python.console"/>
     <module name="intellij.python.externalIndex"/>
     <module name="intellij.python.hatch"/>
     <module name="intellij.python.hatch.common"/>
+    <module name="intellij.python.navigation"/>
     <module name="intellij.python.processOutput.common"/>
     <module name="intellij.python.pydev"/>
     <module name="intellij.python.pyproject"/>
@@ -123,7 +126,10 @@
     <module name="intellij.python.requirements.backend"/>
     <module name="intellij.python.sdk.backend"/>
     <module name="intellij.python.sdk.common"/>
+    <module name="intellij.python.sourceRoots"/>
+    <module name="intellij.python.spellchecker"/>
     <module name="intellij.python.syntax"/>
+    <module name="intellij.python.testing.codeInsight"/>
     <module name="intellij.python.uv.backend"/>
     <module name="intellij.python.uv.common"/>
     <module name="intellij.python.venv"/>
@@ -221,7 +227,6 @@
     <projectSettings service="com.jetbrains.python.debugger.PyDebuggerOptionsProvider"/>
     <applicationSettings service="com.jetbrains.python.debugger.variablesview.usertyperenderers.PyUserTypeRenderersSettings"/>
     <applicationSettings service="com.jetbrains.python.sdk.add.v2.poetry.PoetryConfigService"/>
-    <projectSettings service="com.jetbrains.python.module.PySourceRootDetectionService"/>
     <applicationSettings service="com.jetbrains.python.packaging.repository.PyPackageRepositories"/>
     <projectSettings service="com.jetbrains.python.statistics.PyPackageUsageStatistics"/>
 
@@ -262,17 +267,12 @@
                  description="Enable pyi stubs for Django (django-stubs package)"
                  key="django.enable.pyi.stubs"/>
     <library.type implementation="com.jetbrains.python.library.PythonLibraryType"/>
-    <renameHandler implementation="com.jetbrains.python.magicLiteral.PyMagicLiteralRenameHandler"/>
 
-    <lang.findUsagesProvider language="Python" implementationClass="com.jetbrains.python.findUsages.PythonFindUsagesProvider"/>
-    <lang.psiStructureViewFactory language="Python" implementationClass="com.jetbrains.python.structureView.PyStructureViewFactory"/>
     <lang.documentationProvider language="Python" implementationClass="com.jetbrains.python.console.PydevDocumentationProvider"/>
 
     <editorActionHandler action="EditorCopy" implementationClass="com.intellij.execution.console.ConsoleHistoryCopyHandler"/>
 
     <sdkType implementation="com.jetbrains.python.sdk.PythonSdkType"/>
-    <completion.contributor language="Python"
-                            implementationClass="com.jetbrains.python.testing.PyTestParameterCompletionContributor"/>
     <completion.contributor language="Python" id="pythonConsoleCompletionBlocking" order="first"
                             implementationClass="com.jetbrains.python.console.completion.PythonConsoleCompletionBlockingContributor"/>
 
@@ -333,9 +333,6 @@
                 canCloseContents="true"
                 factoryClass="com.jetbrains.python.console.PythonConsoleToolWindowFactory" secondary="false"/>
 
-    <typeHierarchyProvider language="Python" implementationClass="com.jetbrains.python.hierarchy.PyTypeHierachyProvider"/>
-    <callHierarchyProvider language="Python" implementationClass="com.jetbrains.python.hierarchy.call.PyCallHierarchyProvider"/>
-
     <testFinder implementation="com.jetbrains.python.codeInsight.testIntegration.PyTestFinder"/>
     <testCreator language="Python" implementationClass="com.jetbrains.python.codeInsight.testIntegration.PyTestCreator"/>
 
@@ -354,26 +351,6 @@
                      groupPathKey="INSP.GROUP.python" groupKey="INSP.GROUP.python.unused.symbols"
                      enabledByDefault="true" level="WARNING" runForWholeFile="true"
                      implementationClass="com.jetbrains.python.inspections.PyUnusedImportsInspection"/>
-    <localInspection language="Python" shortName="PyTestParametrizedInspection" suppressId="PyTestParametrized"
-                     bundle="messages.PyPsiBundle" key="INSP.NAME.pytest-parametrized"
-                     groupPathKey="INSP.GROUP.python" groupKey="INSP.GROUP.python.test.frameworks"
-                     enabledByDefault="true" level="WARNING"
-                     implementationClass="com.jetbrains.python.testing.pyTestParametrized.PyTestParametrizedInspection"/>
-    <localInspection language="Python" shortName="PyTestUnpassedFixtureInspection" suppressId="PyTestUnpassedFixture"
-                     bundle="messages.PyPsiBundle" key="INSP.NAME.pytest.unpassed.fixture"
-                     groupPathKey="INSP.GROUP.python" groupKey="INSP.GROUP.python.test.frameworks"
-                     enabledByDefault="true" level="WARNING"
-                     implementationClass="com.jetbrains.python.testing.pyTestFixtures.PyTestUnpassedFixtureInspection"/>
-    <localInspection language="Python" shortName="PyMockPatchArgumentCountInspection" suppressId="PyMockPatchArgumentCount"
-                     bundle="messages.PyPsiBundle"
-                     groupPathKey="INSP.GROUP.python" groupKey="INSP.GROUP.python.test.frameworks"
-                     key="INSP.NAME.mock-patch-argument-count" enabledByDefault="true" level="WARNING"
-                     implementationClass="com.jetbrains.python.testing.pyMock.PyMockPatchArgumentCountInspection"/>
-    <localInspection language="Python" shortName="PyMockPatchTargetInspection" suppressId="PyMockPatchTarget"
-                     bundle="messages.PyPsiBundle" key="INSP.NAME.mock-patch-target"
-                     groupPathKey="INSP.GROUP.python" groupKey="INSP.GROUP.python.test.frameworks"
-                     enabledByDefault="true" level="WARNING"
-                     implementationClass="com.jetbrains.python.testing.pyMock.PyMockPatchTargetInspection"/>
     <localInspection shortName="PyPackageRequirementsInspection" suppressId="PyPackageRequirements"
                      bundle="messages.PyPsiBundle" key="INSP.NAME.requirements"
                      groupPathKey="INSP.GROUP.python" groupKey="INSP.GROUP.python.packaging"
@@ -391,11 +368,6 @@
                      groupPathKey="INSP.GROUP.python" groupKey="INSP.GROUP.python.type.hinting"
                      enabledByDefault="true" level="WARNING"
                      implementationClass="com.jetbrains.python.codeInsight.stubs.PyStubPackagesAdvertiser"/>
-    <localInspection language="Python" shortName="PyRelativeImportInspection" suppressId="PyPackages"
-                     bundle="messages.PyPsiBundle" key="INSP.NAME.relative.import"
-                     groupPathKey="INSP.GROUP.python" groupKey="INSP.GROUP.python.general"
-                     enabledByDefault="true" level="WEAK WARNING"
-                     implementationClass="com.jetbrains.python.inspections.PyRelativeImportInspection"/>
     <localInspection language="CommandLine" shortName="CommandLineInspection" bundle="messages.CommandInterfaceBundle"
                      key="commandLine.inspection.name"
                      enabledByDefault="true" level="WARNING"
@@ -403,24 +375,9 @@
                      groupBundle="messages.PyBundle"
                      implementationClass="com.intellij.commandInterface.commandLine.CommandLineInspection"/>
 
-    <elementDescriptionProvider implementation="com.jetbrains.python.findUsages.PyElementDescriptionProvider"/>
-    <elementDescriptionProvider implementation="com.jetbrains.python.magicLiteral.PyMagicLiteralElementDescriptionProvider"/>
-    <fileStructureGroupRuleProvider implementation="com.jetbrains.python.findUsages.PyFunctionGroupingRuleProvider" id="py-function"/>
-    <usageTypeProvider implementation="com.jetbrains.python.findUsages.PyUsageTypeProvider"/>
-    <usageTargetProvider implementation="com.jetbrains.python.magicLiteral.PyMagicLiteralUsageTargetProvider"/>
-    <importFilteringRule implementation="com.jetbrains.python.findUsages.PyImportFilteringRule"/>
-
     <completion.confidence language="Python" implementationClass="com.jetbrains.python.codeInsight.completion.PyCompletionConfidence"/>
     <typedHandler implementation="com.jetbrains.python.console.completion.PythonConsoleAutopopupBlockingHandler" id="pydevBlockAutoPopup"
                   order="first, before completionAutoPopup"/>
-
-    <referencesSearch implementation="com.jetbrains.python.magicLiteral.PyMagicLiteralReferenceSearcher"/>
-
-    <findUsagesHandlerFactory implementation="com.jetbrains.python.findUsages.PyFindUsagesHandlerFactory" id="Python"
-                              order="last, before default"/>
-    <findUsagesHandlerFactory implementation="com.jetbrains.python.magicLiteral.PyMagicLiteralFindUsagesHandlerFactory"/>
-
-    <renamePsiElementProcessor implementation="com.jetbrains.python.magicLiteral.PyMagicLiteralRenameProcessor" order="before pyvar"/>
 
     <analyzeStacktraceFilter implementation="com.jetbrains.python.run.PythonTracebackFilter"/>
 
@@ -428,14 +385,6 @@
 
     <psi.referenceContributor implementation="com.jetbrains.python.codeInsight.PyConsoleFileReferenceContributor" language="Python"
                               order="before filePath"/>
-    <psi.referenceContributor implementation="com.jetbrains.python.testing.pyTestFixtures.PyTestFixtureReferenceContributor"
-                              language="Python"/>
-    <psi.referenceContributor implementation="com.jetbrains.python.testing.pyTestParametrized.PyTestParametrizedContributor"
-                              language="Python"/>
-    <psi.referenceContributor implementation="com.jetbrains.python.testing.pyMock.PyMockReferenceContributor"
-                              language="Python"/>
-    <psi.referenceContributor implementation="com.jetbrains.python.testing.pyMonkeypatch.PyMonkeypatchReferenceContributor"
-                              language="Python"/>
 
     <applicationConfigurable groupId="reference.idesettings.debugger.python"
                              id="debugger.dataViews.python.type.renderers"
@@ -450,8 +399,6 @@
                          groupWeight="20"/>
 
     <search.optionContributor implementation="com.jetbrains.python.PySearchableOptionContributor"/>
-
-    <treeStructureProvider implementation="com.jetbrains.python.projectView.PyTreeStructureProvider"/>
 
     <projectConfigurable groupId="build" dynamic="true" id="pyconsole" instance="com.jetbrains.python.console.PyConsoleOptionsConfigurable"
                          bundle="messages.PyBundle"
@@ -472,8 +419,6 @@
                          instance="com.jetbrains.python.debugger.PyDebuggerConfigurable"
                          bundle="messages.PyBundle"
                          key="configurable.PyDebuggerConfigurable.display.name"/> <!--id is used in PyCharmProjectConfigurableStartupActivity-->
-
-    <iconProvider implementation="com.jetbrains.python.PyDirectoryIconProvider" id="pyDirectoryDefault"/>
 
     <applicationService serviceInterface="com.jetbrains.python.packaging.PyPackageManagers"
                         serviceImplementation="com.jetbrains.python.packaging.PyPackageManagersImpl"/>
@@ -497,6 +442,8 @@
 
     <!-- TestRunnerService -->
     <applicationService serviceImplementation="com.jetbrains.python.testing.TestRunnerService$AppService"/>
+    <applicationService serviceInterface="com.jetbrains.python.testing.PyModuleTestRunnerQuery"
+                        serviceImplementation="com.jetbrains.python.testing.PyModuleTestRunnerQueryImpl"/>
     <workspaceModel.customImlComponentNameContributor
       implementation="com.jetbrains.python.testing.TestRunnerServiceImlComponentNameContributor"/>
 
@@ -504,10 +451,6 @@
     <applicationService serviceImplementation="com.jetbrains.python.packaging.PyPackageRequirementsSettings$AppService"/>
     <workspaceModel.customImlComponentNameContributor
       implementation="com.jetbrains.python.packaging.PyPackageRequirementsSettingsImlComponentNameContributor"/>
-
-    <!-- Namespace packages -->
-    <registryKey key="python.create.namespace.package.action" defaultValue="false"
-                 description="Possibility to create namespace packages from New | Python Package"/>
 
     <!-- asyncio REPL -->
     <registryKey key="python.console.asyncio.repl" defaultValue="true" restartRequired="false"
@@ -540,8 +483,6 @@
                  description="Minimum scroll-bar distance (px) from the bottom that triggers loading the next page of search results in the Install Package dialog."
                  restartRequired="false" key="python.packaging.install.dialog.results.list.load.more.threshold.px"/>
 
-    <breadcrumbsInfoProvider implementation="com.jetbrains.python.breadcrumbs.PyBreadcrumbsInfoProvider"/>
-
     <createFromTemplateHandler implementation="com.jetbrains.python.packaging.setupPy.PyCreateSetupPyFromTemplateHandler"/>
 
     <consoleHistoryModelProvider implementation="com.jetbrains.python.console.PyConsoleHistoryModelProvider"/>
@@ -565,7 +506,6 @@
     <statistics.projectUsagesCollector implementation="com.jetbrains.python.statistics.PyInterpreterUsagesCollector"/>
     <statistics.projectUsagesCollector implementation="com.jetbrains.python.statistics.PyPackageVersionUsagesCollector"/>
     <statistics.projectUsagesCollector implementation="com.jetbrains.python.statistics.PyPackageInEditorUsageCollector"/>
-    <statistics.counterUsagesCollector implementationClass="com.jetbrains.python.namespacePackages.PyNamespacePackagesStatisticsCollector"/>
     <statistics.counterUsagesCollector
       implementationClass="com.jetbrains.python.newProjectWizard.collector.PythonNewProjectWizardCollector"/>
     <statistics.validation.customValidationRule
@@ -629,14 +569,6 @@
     <notificationGroup id="Python interpreter installation" displayType="STICKY_BALLOON" isLogByDefault="true" bundle="messages.PyBundle"
                        key="python.sdk.installation.notification.group"/>
     <statistics.notificationIdsHolder implementation="com.jetbrains.python.statistics.PythonInterpreterInstallationIdsHolder"/>
-
-    <!-- Source root detection -->
-    <registryKey key="python.source.root.suggest.quickfix" defaultValue="true"
-                 description="Suggests to mark a detected source root via quick-fix for the red import"/>
-    <registryKey key="python.source.root.suggest.quickfix.auto.apply" defaultValue="true"
-                 description="Automatically applies suggested source root quick-fix"/>
-    <notificationGroup id="Python source root detection" displayType="STICKY_BALLOON" isLogByDefault="true" bundle="messages.PyBundle"
-                       key="python.source.root.detection.confirm.notification.group"/>
 
     <toolWindow id="Python Packages" anchor="right" secondary="false"
                 icon="com.jetbrains.python.icons.PythonIcons.Python.PythonPackages"
@@ -713,8 +645,6 @@
     <extensionPoint qualifiedName="com.jetbrains.python.console.runnerFactory"
                     interface="com.jetbrains.python.console.PythonConsoleRunnerFactory"
                     dynamic="true"/>
-    <extensionPoint qualifiedName="Pythonid.pyTestFixtureExtension"
-                    interface="com.jetbrains.python.testing.pyTestFixtures.PyTestFixtureExtension" dynamic="true"/>
     <extensionPoint qualifiedName="Pythonid.pyTestConfigurationSelector"
                     interface="com.jetbrains.python.testing.PyTestConfigurationSelector" dynamic="true"/>
     <extensionPoint qualifiedName="Pythonid.pythonCommandLineEnvironmentProvider"
@@ -723,9 +653,6 @@
                     interface="com.jetbrains.python.run.target.PythonCommandLineTargetEnvironmentProvider" dynamic="true"/>
     <extensionPoint qualifiedName="Pythonid.pyLaunchPreparer"
                     interface="com.jetbrains.python.run.PyLaunchPreparer" dynamic="true"/>
-    <extensionPoint qualifiedName="Pythonid.magicLiteral"
-                    interface="com.jetbrains.python.magicLiteral.PyMagicLiteralExtensionPoint"
-                    dynamic="true"/>
     <extensionPoint qualifiedName="Pythonid.runnableScriptFilter" interface="com.jetbrains.python.run.RunnableScriptFilter" dynamic="true"/>
     <extensionPoint qualifiedName="Pythonid.unresolvedReferenceQuickFixProvider"
                     interface="com.jetbrains.python.inspections.PyUnresolvedReferenceQuickFixProvider"
@@ -744,7 +671,6 @@
     <extensionPoint qualifiedName="Pythonid.consoleOptionsProvider"
                     interface="com.jetbrains.python.console.PyConsoleOptionsProvider"
                     dynamic="true"/>
-    <extensionPoint qualifiedName="Pythonid.pyRootTypeProvider" interface="com.jetbrains.python.module.PyRootTypeProvider" dynamic="true"/>
     <extensionPoint qualifiedName="Pythonid.runConfigurationEditorExtension"
                     interface="com.jetbrains.python.run.PyRunConfigurationEditorExtension" dynamic="true"/>
     <extensionPoint qualifiedName="Pythonid.pyCustomSdkUiProvider"
@@ -855,18 +781,6 @@
                             order="after CondaEvoProvider"
                             implementation="com.jetbrains.python.venv.sdk.evolution.VenvEvoEnvironmentProvider"/>
 
-    <pyReferenceCustomTargetChecker implementation="com.jetbrains.python.testing.pyTestFixtures.PyTestFixtureTargetChecker"/>
-
-    <!--pytest fixture -->
-    <inspectionExtension implementation="com.jetbrains.python.testing.pyTestFixtures.PyTestFixtureInspectionExtension"/>
-    <inspectionExtension implementation="com.jetbrains.python.testing.pyTestParametrized.PyTestParametrizedInspectionExtension"/>
-    <inspectionExtension implementation="com.jetbrains.python.testing.pyMock.PyMockInspectionExtension"/>
-    <typeProvider implementation="com.jetbrains.python.testing.pyTestParametrized.PyTestParametrizedTypeProvider"/>
-    <typeProvider implementation="com.jetbrains.python.testing.pyTestFixtures.PyTextFixtureTypeProvider"/>
-    <typeProvider implementation="com.jetbrains.python.testing.pyMock.PyMockTypeProvider"/>
-    <typeProvider implementation="com.jetbrains.python.testing.pyMock.PyMockerFixtureTypeProvider"/>
-    <typeCheckerExtension implementation="com.jetbrains.python.testing.pyMock.PyMockTypeCheckerExtension"/>
-
     <typeProvider implementation="com.jetbrains.python.debugger.PyCallSignatureTypeProvider"/>
 
     <!-- Console -->
@@ -903,8 +817,6 @@
     <pythonFlavorProvider implementation="com.jetbrains.python.sdk.flavors.MayaFlavorProvider"/>
     <pyPregeneratedSkeletonsProvider id="default" implementation="com.jetbrains.python.sdk.skeletons.DefaultPregeneratedSkeletonsProvider"/>
 
-    <customPackageIdentifier implementation="com.jetbrains.python.namespacePackages.PyNamespacePackageCustomIdentifier"/>
-    <pyRootTypeProvider implementation="com.jetbrains.python.namespacePackages.PyNamespacePackageRootProvider"/>
     <pep8ProblemSuppressor implementation="com.jetbrains.python.validation.Pep8TypeParameterProblemSuppressor"/>
 
     <!-- Experimental packaging extensions-->
@@ -1025,12 +937,6 @@
       <add-to-group group-id="ToolWindowContextMenu" anchor="last"/>
     </action>
 
-    <action id="NewPythonPackage" class="com.jetbrains.python.actions.CreatePackageAction"
-            icon="AllIcons.Nodes.Package">
-      <add-to-group group-id="NewGroup" anchor="after" relative-to-action="NewDir"/>
-    </action>
-
-
     <action id="PySyncPythonRequirements" class="com.jetbrains.python.packaging.PySyncPythonRequirementsAction"/>
     <group id="PyPackagingMenu">
       <action id="CreateSetupPy" class="com.jetbrains.python.packaging.setupPy.CreateSetupPyAction"/>
@@ -1038,11 +944,6 @@
       <add-to-group group-id="ToolsMenu" anchor="last"/>
     </group>
 
-
-    <action id="PythonGenerateDictionaries" class="com.jetbrains.python.spellchecker.PythonSpellcheckerGenerateDictionariesAction"
-            internal="true">
-      <add-to-group group-id="Internal"/>
-    </action>
 
     <action id="PyDebugger.ViewArray" class="com.jetbrains.python.debugger.containerview.PyViewNumericContainerAction">
       <add-to-group group-id="XDebugger.ValueGroup" anchor="after" relative-to-action="Debugger.AddToWatch"/>
@@ -1075,10 +976,6 @@
     <action id="SetNextStatement" class="com.jetbrains.python.debugger.PySetNextStatementAction">
       <add-to-group group-id="DebugMainMenu" relative-to-action="ForceRunToCursor" anchor="after"/>
       <add-to-group group-id="EditorPopupMenuDebug" relative-to-action="ForceRunToCursor" anchor="after"/>
-    </action>
-
-    <action id="MarkNamespacePackageDirectory" class="com.jetbrains.python.namespacePackages.PyMarkAsNamespacePackageAction">
-      <add-to-group group-id="MarkRootGroup" anchor="after" relative-to-action="MarkSourceRoot"/>
     </action>
 
     <!--suppress PluginXmlI18n -->
@@ -1175,8 +1072,6 @@
     <pyprojectmanager implementation="com.jetbrains.python.sdk.impl.poetry.PoetryPyProjectManager"/>
   </extensions>
   <extensions defaultExtensionNs="com.intellij.spellchecker">
-    <support language="Python" implementationClass="com.jetbrains.python.spellchecker.PythonSpellcheckerStrategy"/>
-    <bundledDictionaryProvider implementation="com.jetbrains.python.spellchecker.PythonBundledDictionaryProvider"/>
     <dictionary.runtimeDictionaryProvider
       implementation="com.jetbrains.python.packaging.PyPackagesDictionary$PyPackagesDictionaryProvider"/>
   </extensions>

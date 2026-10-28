@@ -10,7 +10,7 @@ import com.intellij.platform.util.io.storages.database.spi.BlocksStore;
 import com.intellij.platform.util.io.storages.database.storages.durablemap.DurableMapBlockCatalog;
 import com.intellij.platform.util.io.storages.database.storages.durablemap.DurableMapWithKeyCatalogOverBlocks;
 import com.intellij.platform.util.io.storages.database.storages.durablemap.KeyRecordLayout;
-import com.intellij.platform.util.io.storages.database.storages.durablemap.RecordStorageOverBlocks;
+import com.intellij.platform.util.io.storages.database.storages.appenablerecords.RecordStorageOverBlocks;
 import com.intellij.platform.util.io.storages.database.storages.durablemap.ValueRecordLayout;
 import com.intellij.platform.util.io.storages.database.storages.extendiblehashmap.ExtendibleHashMapStorageOverLookupBlocks;
 import com.intellij.platform.util.io.storages.durablemap.DurableMap;
@@ -47,6 +47,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /// Verifies the map API over separate key and value records.
 public class DurableMapWithKeyCatalogOverBlocksTest {
   private static final int CHUNK_SIZE = 1024 * 1024;
+  private static final int SMALL_RECORD_BLOCK_SIZE = 128;
 
   @Test
   public void mapOperationsKeepStableKeysAndSeparateValues(@TempDir Path databaseDirectory) throws Exception {
@@ -92,6 +93,29 @@ public class DurableMapWithKeyCatalogOverBlocksTest {
       assertEquals("collision-one", map.get("FB"));
       assertEquals("collision-two", map.get("Ea"));
       assertEquals(3, map.size());
+    }
+  }
+
+  @Test
+  public void updateAfterReopenCanModifyAKeyFromAnOldBlock(@TempDir Path databaseDirectory) throws Exception {
+    var factory = new BlocksDatabaseFactory(CHUNK_SIZE);
+    try (var database = factory.open(databaseDirectory)) {
+      var store = database.openStore("map", 1);
+      try (var map = openStringMap(store, SMALL_RECORD_BLOCK_SIZE)) {
+        for (var keyIndex = 0; keyIndex < 16; keyIndex++) {
+          map.put("key-" + keyIndex, "initial");
+        }
+      }
+
+      var blockCatalog = DurableMapBlockCatalog.open(store);
+      assertTrue(blockCatalog.blocks(KEYS).size() > 1, "The test must allocate more than one key block");
+    }
+
+    try (var database = factory.open(databaseDirectory);
+         var map = openStringMap(requireMapStore(database), SMALL_RECORD_BLOCK_SIZE)) {
+      map.put("key-0", "updated");
+
+      assertEquals("updated", map.get("key-0"));
     }
   }
 
@@ -159,7 +183,9 @@ public class DurableMapWithKeyCatalogOverBlocksTest {
       var lookup = openLookup(blockCatalog);
       lookup.markDirty();
       var values = RecordStorageOverBlocks.open(
-        blockCatalog, VALUES, DurableMapWithKeyCatalogOverBlocks.DEFAULT_RECORD_BLOCK_CONTENT_LENGTH
+        blockCatalog.appendableRecordBlocks(VALUES),
+        /*appendOnly: */ true,
+        DurableMapWithKeyCatalogOverBlocks.DEFAULT_RECORD_BLOCK_CONTENT_LENGTH
       );
       var payload = serializedString("new");
       values.append(ValueRecordLayout.recordSize(Math.toIntExact(payload.byteSize())), record ->
@@ -184,13 +210,19 @@ public class DurableMapWithKeyCatalogOverBlocksTest {
       }
 
       var blockCatalog = DurableMapBlockCatalog.open(store);
-      var keys = RecordStorageOverBlocks.open(blockCatalog, KEYS, DurableMapWithKeyCatalogOverBlocks.DEFAULT_RECORD_BLOCK_CONTENT_LENGTH);
+      var keys = RecordStorageOverBlocks.open(
+        blockCatalog.appendableRecordBlocks(KEYS),
+        /*appendOnly: */ false,
+        DurableMapWithKeyCatalogOverBlocks.DEFAULT_RECORD_BLOCK_CONTENT_LENGTH
+      );
       var keyRecordRef = onlyKeyRecordRef(blockCatalog);
       var oldHead = KeyRecordLayout.valueRecordRef(keys.read(keyRecordRef));
       var lookup = openLookup(blockCatalog);
       lookup.markDirty();
       var values = RecordStorageOverBlocks.open(
-        blockCatalog, VALUES, DurableMapWithKeyCatalogOverBlocks.DEFAULT_RECORD_BLOCK_CONTENT_LENGTH
+        blockCatalog.appendableRecordBlocks(VALUES),
+        /*appendOnly: */ true,
+        DurableMapWithKeyCatalogOverBlocks.DEFAULT_RECORD_BLOCK_CONTENT_LENGTH
       );
       var firstPatch = serializedString("first");
       values.append(ValueRecordLayout.recordSize(Math.toIntExact(firstPatch.byteSize())), record ->
@@ -263,9 +295,15 @@ public class DurableMapWithKeyCatalogOverBlocksTest {
   }
 
   private static @NotNull DurableMapWithKeyCatalogOverBlocks<String, String> openStringMap(@NotNull BlocksStore store) throws IOException {
+    return openStringMap(store, DurableMapWithKeyCatalogOverBlocks.DEFAULT_RECORD_BLOCK_CONTENT_LENGTH);
+  }
+
+  private static @NotNull DurableMapWithKeyCatalogOverBlocks<String, String> openStringMap(@NotNull BlocksStore store,
+                                                                                            int recordBlockContentLength)
+    throws IOException {
     var descriptor = stringAsUTF8();
     return DurableMapWithKeyCatalogOverBlocks.open(
-      store, DurableMapWithKeyCatalogOverBlocks.DEFAULT_RECORD_BLOCK_CONTENT_LENGTH, descriptor, descriptor, descriptor
+      store, recordBlockContentLength, descriptor, descriptor, descriptor
     );
   }
 
@@ -295,7 +333,9 @@ public class DurableMapWithKeyCatalogOverBlocksTest {
 
   private static long onlyKeyRecordRef(@NotNull DurableMapBlockCatalog blockCatalog) throws IOException {
     var keys = RecordStorageOverBlocks.open(
-      blockCatalog, KEYS, DurableMapWithKeyCatalogOverBlocks.DEFAULT_RECORD_BLOCK_CONTENT_LENGTH
+      blockCatalog.appendableRecordBlocks(KEYS),
+      /*appendOnly: */ false,
+      DurableMapWithKeyCatalogOverBlocks.DEFAULT_RECORD_BLOCK_CONTENT_LENGTH
     );
     var keyRecordRef = new long[]{NO_VALUE};
     keys.forEachCommittedRecord((recordRef, _) -> {

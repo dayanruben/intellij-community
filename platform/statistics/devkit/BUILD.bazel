@@ -64,7 +64,6 @@ jvm_library(
         "//platform/forms_rt:java-guiForms-rt",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable",
         "//platform/util/concurrency",
-        "//platform/scratch",
     ],
 )
 
@@ -109,7 +108,6 @@ jvm_library(
         "//platform/forms_rt:java-guiForms-rt_test_lib",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
         "//platform/util/concurrency:concurrency_test_lib",
-        "//platform/scratch:scratch_test_lib",
     ],
 )
 ### auto-generated section `build intellij.platform.statistics.devkit` end
@@ -133,6 +131,11 @@ jvm_library(
     ),
     module_name = "intellij.platform.statistics.devkit.tests",
     visibility = ["//visibility:public"],
+    runtime_deps = [
+        # do not sort,
+        "//platform/main/intellij.platform.monolith.main:monolith-main",
+        "//community-resources:customization",
+    ],
 )
 
 jvm_library(
@@ -156,6 +159,8 @@ jvm_library(
         ":devkit-tests",
         "//platform/platform-impl:ide-impl_test_lib",
         "//platform/ide-core:ide-core_test_lib",
+        "//platform/main/intellij.platform.monolith.main:monolith-main_test_lib",
+        "//community-resources:customization_test_lib",
     ],
     deps = [
         # do not sort,

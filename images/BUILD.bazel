@@ -130,7 +130,9 @@ jvm_library(
         "//jps/model-api:model_test_lib",
     ],
 )
+### auto-generated section `build intellij.platform.images` end
 
+### auto-generated section `plugin intellij.platform.images` start
 ij_plugin(
     name = "images_plugin",
     descriptor_module = ":images",
@@ -142,7 +144,7 @@ ij_plugin(
     ],
     visibility = ["//visibility:public"],
 )
-### auto-generated section `build intellij.platform.images` end
+### auto-generated section `plugin intellij.platform.images` end
 
 ### auto-generated section `iml intellij.platform.images` start
 exports_files(
@@ -209,6 +211,10 @@ jvm_library(
         "//images:images_test_lib",
         "//libraries/junit6",
         "//libraries/junit6:junit6_test_lib",
+        "//platform/main/intellij.platform.monolith.main:monolith-main",
+        "//platform/main/intellij.platform.monolith.main:monolith-main_test_lib",
+        "//community-resources:customization",
+        "//community-resources:customization_test_lib",
     ],
 )
 ### auto-generated section `build intellij.platform.images.tests` end

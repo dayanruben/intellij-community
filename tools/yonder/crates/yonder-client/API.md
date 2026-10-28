@@ -3,7 +3,7 @@
 The client of yonder, for `yonder` and `bt --host`. `Client` holds the configuration directory, the seam of the local
 git and ssh calls (`Processes`), the sink of the stderr lines, the sink of the stdout lines of a run
 (`Client::with_stdout`; without it they come in `RunOutcome::stdout`), and the Ctrl+C question. Each operation opens a
-new connection per request: `run`, `run_with`, `attach`, `cancel`, `runs`, `lease`, `release`, `hello`, `prepare` and `upgrade`.
+new connection per request: `run`, `run_with`, `attach`, `cancel`, `runs`, `hello`, `prepare` and `upgrade`.
 
 ## The options of a run
 
@@ -15,7 +15,7 @@ new connection per request: `run`, `run_with`, `attach`, `cancel`, `runs`, `leas
 | `nice` | none | `--nice`, 10 by default | The niceness of the prepare steps and the command on the host. So the runs of `bt --host` go first. |
 | `outputs` | off | on | The outputs that `.yonder.toml` names come back, each in place of its local copy. |
 | `apply` | off | `--apply` | The changes that the command made to the files come back as a patch, and `git apply` applies it to the working tree. |
-| `repo_by_name` | off | on without `--repo` | The run goes to the repository of the same name as the local one beside the repository of the host file (`~/projects/branch-deck` beside `~/projects/idea-1`), or to the one of the host file when the host lacks it. `Client::lease_for` and `release_for`, and so `yonder lease` and `yonder release`, take the same repository. |
+| `repo_by_name` | off | on without `--repo` | The run goes to the repository of the same name as the local one beside the repository of the host file (`~/projects/branch-deck` beside `~/projects/idea-1`), or to the one of the host file when the host lacks it. |
 
 ### The commit of the working tree
 
@@ -52,7 +52,7 @@ A refusal carries an `Exit`, which is the exit code of `yonder`:
 
 | Exit | Code | When |
 |---|---|---|
-| `NotRun` | 75 | A run refused before its command: the host did not run it, so the caller can run it locally instead. Every refusal before the start, a pack that did not reach the host, and a refusal of the agent whose phases have no `command`, such as `lease_failed`, `prepare_failed` or `bad_config`, but `unknown_run`. |
+| `NotRun` | 75 | A run refused before its command: the host did not run it, so the caller can run it locally instead. Every refusal before the start, a pack that did not reach the host, and a refusal of the agent whose phases have no `command`, such as `lease_failed`, `prepare_failed`, `old_git` or `bad_config`, but `unknown_run`. |
 | `Interrupted` | 130 | Ctrl+C before the command, or a second Ctrl+C during the follow. |
 | `Refused` | 255 | Any other refusal: the link broke after the start and the run can go on on the host, the run vanished on the host after its start (`unknown_run`: a `yonder forget` or the expiry removed it, so whether its command ran is unknown, and the client forgets nothing), the changes did not apply, or a request other than a run failed. |
 
@@ -126,7 +126,7 @@ root, and `./bazel.cmd info execution_root` names that root. The monorepo has no
    `working_tree`, the commit of the working tree first, then `Have`. A host that has none of the candidates refuses
    with `behind`. The hello of the agent names its features, so a run that needs one that the agent lacks refuses here.
    Ctrl+C up to here runs nothing on the host.
-2. `Start`. The host takes the lock and the lease at once. A start whose reply does not come is cancelled, and the
+2. `Start`. The host lends the run a host slot, or puts it in the queue of the slots. A start whose reply does not come is cancelled, and the
    run refuses with `link` or `timed_out`.
 3. `Follow` on a thread of its own, up to `Phases` and `Exit`. The lines of the host show while the pack builds.
 4. `Pack` on a connection of its own: the client opens it, builds the pack file meanwhile with an empty chunk every
@@ -149,6 +149,6 @@ and stops the pack, and the output follows up to the end of the run. The second 
 host from `Reply::Phases`, `fetch`, and `total`, the whole call. The line of a started run is `yonder: run <id> of
 <commit> on <alias>`, with ` in <repository>` when the repository is not the one of the host file, and `: the working
 tree, HEAD <commit> and <n> changed paths` for a commit of the working tree. `phases_line` makes the stderr line `yonder: phases:
-pack 3.1s, upload 2.0s, lease 9m02s, … total 10m13s`. `yonder run` and `bt --host` print it at the end of a run. A run
+pack 3.1s, upload 2.0s, slot 9m02s, … total 10m13s`. `yonder run` and `bt --host` print it at the end of a run. A run
 that the agent refuses has no outcome, so the client says that line itself. `yonder runs` shows the steps of 0.1 s or
 more of each run.

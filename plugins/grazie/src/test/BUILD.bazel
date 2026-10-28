@@ -52,6 +52,8 @@ jvm_library(
         "//plugins/yaml/spellchecker",
         "//spellchecker/xml/backend",
         "//platform/testRunner/plugin",
+        "//platform/main/intellij.platform.monolith.main:monolith-main",
+        "//community-resources:customization",
     ],
 )
 
@@ -93,6 +95,8 @@ jvm_library(
         "//spellchecker/xml/backend:backend_test_lib",
         "//platform/ide-core:ide-core_test_lib",
         "//platform/testRunner/plugin:plugin_test_lib",
+        "//platform/main/intellij.platform.monolith.main:monolith-main_test_lib",
+        "//community-resources:customization_test_lib",
     ],
     deps = [
         # do not sort,
@@ -179,12 +183,6 @@ jvm_library(
         "//tools/intellij.tools.ide.metrics.benchmark:ide-metrics-benchmark_test_lib",
         "//libraries/jetcheck",
         "//libraries/jetcheck:jetcheck_test_lib",
-        "//images:images-tests",
-        "//images:images-tests_test_lib",
-        "//RegExpSupport:regexp-tests",
-        "//RegExpSupport:regexp-tests_test_lib",
-        "//platform/xdebugger-impl:debugger-impl-tests",
-        "//platform/xdebugger-impl:debugger-impl-tests_test_lib",
         "//platform/ide-core",
         "//libraries/fastutil",
         "//libraries/fastutil:fastutil_test_lib",

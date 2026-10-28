@@ -68,6 +68,7 @@ jvm_library(
         "//platform/eel-impl-base",
         "//platform/platform-impl:ide-impl",
         "//platform/projectModel-impl",
+        "//platform/util/annotations",
     ],
 )
 
@@ -105,6 +106,7 @@ jvm_library(
         "//platform/eel-impl-base:eel-impl-base_test_lib",
         "//platform/platform-impl:ide-impl_test_lib",
         "//platform/projectModel-impl:projectModel-impl_test_lib",
+        "//platform/util/annotations:annotations_test_lib",
     ],
 )
 ### auto-generated section `build intellij.python.community.execService` end
@@ -135,6 +137,11 @@ jvm_library(
     ),
     module_name = "intellij.python.community.execService.tests",
     visibility = ["//visibility:public"],
+    runtime_deps = [
+        # do not sort,
+        "//platform/main/intellij.platform.monolith.main:monolith-main",
+        "//community-resources:customization",
+    ],
 )
 
 jvm_library(
@@ -158,7 +165,12 @@ jvm_library(
         ["testResources/**/*"],
     ),
     visibility = ["//visibility:public"],
-    runtime_deps = [":community-execService-tests"],
+    runtime_deps = [
+        # do not sort,
+        ":community-execService-tests",
+        "//platform/main/intellij.platform.monolith.main:monolith-main_test_lib",
+        "//community-resources:customization_test_lib",
+    ],
     deps = [
         # do not sort,
         "@lib//:kotlin-stdlib",

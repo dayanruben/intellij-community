@@ -16,6 +16,8 @@ use yonder_client::{
     UpgradeWay, code, holder, interrupt, never, no_monorepo, phases_line, phases_short,
 };
 
+use crate::skill;
+
 /// The holder prefix of a checkout when `--holder` names none.
 const HOLDER_PREFIX: &str = "yonder";
 
@@ -52,15 +54,13 @@ enum Command {
         /// host file, such as `~/projects/branch-deck`, else the one of the host file).
         #[arg(long)]
         repo: Option<String>,
-        /// The lease holder on the host (default: `yonder-<hash of the checkout path>`).
+        /// Who the run comes from (default: `yonder-<hash of the checkout path>`): the host lends the slot that this
+        /// holder used last first, and keeps the base of the thin packs per holder.
         #[arg(long)]
         holder: Option<String>,
         /// A directory relative to the slot root whose new entries come back to this checkout. Repeatable.
         #[arg(long = "fetch", value_name = "DIR")]
         fetch: Vec<String>,
-        /// A lease of another holder that no run used for this many hours goes back to the pool after the run.
-        #[arg(long, default_value_t = 8)]
-        idle_hours: u32,
         /// Run the committed HEAD only, and refuse a checkout with local changes.
         #[arg(long)]
         head: bool,
@@ -92,22 +92,6 @@ enum Command {
     Forget { alias: String, run: String },
     /// Lists the runs that the agent keeps, each with the steps of the host that took 0.1 s or more.
     Runs { alias: String },
-    /// Takes the warm lease of this checkout without a run, in the repository that a run of this checkout takes.
-    Lease {
-        alias: String,
-        #[arg(long)]
-        repo: Option<String>,
-        #[arg(long)]
-        holder: Option<String>,
-    },
-    /// Returns the lease of this checkout, in the repository that a run of this checkout takes.
-    Release {
-        alias: String,
-        #[arg(long)]
-        repo: Option<String>,
-        #[arg(long)]
-        holder: Option<String>,
-    },
     /// Installs the agent on the host over ssh, adds this client to its allow list, and writes the host file. In a
     /// checkout of the monorepo, `yonder prepare <alias>` is the whole command: it builds the agent here first.
     Prepare {
@@ -142,12 +126,35 @@ enum Command {
         #[arg(long)]
         force: bool,
     },
+    /// The agent skill of yonder of this build: `SKILL.md` and the API documents, for an agent harness such as Claude
+    /// Code. `upgrade` also replaces an installed copy of another build that has no local edits.
+    Skill {
+        #[command(subcommand)]
+        command: SkillCommand,
+    },
 }
 
-/// One invocation, with the program name first. Answers the exit code.
+#[derive(Debug, Subcommand)]
+enum SkillCommand {
+    /// Writes the skill into `~/.claude/skills/yonder/`. A copy with local edits stays, unless `--force`.
+    Install {
+        /// The skill directory (default: `~/.claude/skills/yonder`).
+        #[arg(long)]
+        dir: Option<PathBuf>,
+        /// Replace a copy with local edits too.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Prints `SKILL.md` of this build.
+    Print,
+}
+
+/// One invocation, with the program name first. `skill_dir` is the skill directory of the user, `None` without a home
+/// directory. Answers the exit code.
 pub(crate) fn run<I, T>(
     argv: I,
     config: Result<Config, Refusal>,
+    skill_dir: Option<&Path>,
     processes: &dyn Processes,
     stdout: &mut (dyn Write + Send),
     say: &(dyn Fn(&str) + Sync),
@@ -168,7 +175,7 @@ where
             return USAGE_EXIT;
         }
     };
-    match config.and_then(|config| execute(cli.command, config, processes, stdout, say)) {
+    match config.and_then(|config| execute(cli.command, config, skill_dir, processes, stdout, say)) {
         Ok(code) => code,
         Err(refusal) => {
             say(&format!("yonder: {}: {}", refusal.code, refusal.message));
@@ -180,6 +187,7 @@ where
 fn execute(
     command: Command,
     config: Config,
+    skill_dir: Option<&Path>,
     processes: &dyn Processes,
     stdout: &mut (dyn Write + Send),
     say: &(dyn Fn(&str) + Sync),
@@ -202,14 +210,13 @@ fn execute(
             repo,
             holder: named,
             fetch,
-            idle_hours,
             head,
             nice,
             apply,
             command,
         } => {
             let checkout = checkout_root(processes)?;
-            let holder = named.unwrap_or_else(|| holder(HOLDER_PREFIX, &checkout));
+            let holder = holder_of(named, &checkout);
             install_interrupt(say, "Ctrl+C ends this process, and the run goes on on the host");
             let request = RunRequest {
                 checkout: &checkout,
@@ -217,7 +224,6 @@ fn execute(
                 holder: &holder,
                 command: &command,
                 fetch: &fetch,
-                idle_hours,
             };
             let options = RunOptions {
                 working_tree: !head,
@@ -266,29 +272,6 @@ fn execute(
             }
             Ok(0)
         }
-        Command::Lease {
-            alias,
-            repo,
-            holder: named,
-        } => {
-            let checkout = checkout_root(processes)?;
-            let holder = holder_of(named, &checkout);
-            let leased = client.lease_for(&alias, &checkout, repo.as_deref(), &holder)?;
-            let fresh = if leased.fresh { "new" } else { "warm" };
-            Ok(answer(&format!(
-                "the lease {} of {holder} is {} ({fresh})",
-                leased.lease_id, leased.slot
-            )))
-        }
-        Command::Release {
-            alias,
-            repo,
-            holder: named,
-        } => {
-            let checkout = checkout_root(processes)?;
-            let holder = holder_of(named, &checkout);
-            Ok(answer(&client.release_for(&alias, &checkout, repo.as_deref(), &holder)?))
-        }
         Command::Prepare {
             alias,
             agent,
@@ -335,6 +318,10 @@ fn execute(
             force,
         } => {
             install_interrupt(say, "Ctrl+C ends this process, and a child such as the Bazel build goes on");
+            // The skill is local, so its refresh comes first and does not wait for the host.
+            if let Some(said) = skill_dir.and_then(skill::refresh) {
+                say(&said);
+            }
             let checkout = checkout_root(processes).ok();
             let holder = named.unwrap_or_else(|| {
                 checkout
@@ -350,6 +337,22 @@ fn execute(
             })?;
             Ok(answer(&upgraded_text(&alias, &upgraded)))
         }
+        Command::Skill {
+            command: SkillCommand::Install { dir, force },
+        } => {
+            let dir = dir.or_else(|| skill_dir.map(Path::to_path_buf)).ok_or_else(|| {
+                Refusal::new(
+                    code::CONFIG,
+                    Exit::Refused,
+                    "this process has no home directory for ~/.claude/skills",
+                )
+            })?;
+            let installed = skill::install(&dir, force)?;
+            Ok(answer(&skill::installed_text(&dir, &installed)))
+        }
+        Command::Skill {
+            command: SkillCommand::Print,
+        } => Ok(answer(skill::SKILL.trim_end())),
     }
 }
 

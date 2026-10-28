@@ -1438,6 +1438,7 @@ plugins/jshell/execution
 plugins/jshell/frontend
 plugins/jshell/protocol
 plugins/jsonpath
+plugins/jsonpath/scratch
 plugins/junit
 plugins/junit/dashboard
 plugins/junit/groovy-tests
@@ -1543,6 +1544,7 @@ plugins/kotlin/compiler-plugins/power-assert/gradle
 plugins/kotlin/compiler-plugins/sam-with-receiver/maven
 plugins/kotlin/compiler-plugins/scripting
 plugins/kotlin/compiler-reference-index
+plugins/kotlin/compiler-reference-index/maven
 plugins/kotlin/compiler-reference-index/tests.k2
 plugins/kotlin/completion/api
 plugins/kotlin/completion/impl-k2
@@ -1896,6 +1898,7 @@ python/flask/common
 python/ide-common/ide-customization
 python/ide/customization.backend
 python/ide/customization.frontend
+python/ide/customization.scratch
 python/ide/customization.shared
 python/ide/impl
 python/ide/impl/intellij.pycharm.community.ide.impl.promotion
@@ -1924,6 +1927,7 @@ python/python-black/common
 python/python-black/frontend
 python/python-black/tests
 python/python-code-insight
+python/python-console
 python/python-copyright
 python/python-core-impl
 python/python-exec-service
@@ -1940,6 +1944,7 @@ python/python-lsp-core/frontend
 python/python-lsp-impl/frontend
 python/python-markdown
 python/python-minimap
+python/python-navigation
 python/python-packaging
 python/python-parser
 python/python-pixi/backend
@@ -1983,6 +1988,8 @@ python/python-sdk/backend
 python/python-sdk/common
 python/python-sdk/frontend
 python/python-sdk/tests
+python/python-source-roots
+python/python-spellchecker
 python/python-syntax
 python/python-syntax-core
 python/python-syntax/lambdaTests
@@ -1994,6 +2001,7 @@ python/python-test-env/junit4
 python/python-test-env/junit5
 python/python-test-env/plain
 python/python-test-env/uv
+python/python-testing-code-insight
 python/python-ty
 python/python-ty/common
 python/python-ty/frontend
@@ -2010,6 +2018,7 @@ python/python-venv/frontend
 python/python-zuban
 python/python-zuban/common
 python/python-zuban/frontend
+python/python-zuban/plugin
 python/services/internal-impl
 python/services/shared
 python/services/system-python

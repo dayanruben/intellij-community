@@ -17,31 +17,26 @@ use bt_core::evidence::RUNS_DIR;
 use bt_core::result::RunStatus;
 use bt_core::runtime::{Runtime, repo_file};
 use bt_core::{Refusal, exit};
-use yonder_client::{
-    AgentInfo, Client, Config, Leased, OsProcesses, PrepareRequest, Prepared, RunOutcome, RunRequest, interrupt, phases_line,
-};
+use yonder_client::{AgentInfo, Client, Config, OsProcesses, PrepareRequest, Prepared, RunOutcome, RunRequest, interrupt, phases_line};
 
+use crate::check::{Check, CheckCommand, record_host_run};
 use crate::execute::{JsonPayload, Outcome};
 
 /// The main repository on the host for `--prepare` when `--host-repo` and `BT_HOST_REPO` name none. A run without
 /// them takes the repository of the host file, which `--prepare` writes.
 pub(crate) const DEFAULT_HOST_REPO: &str = "~/projects/idea-1";
 
-/// How long a lease of another checkout may stay unused on the host before a run returns it, when
-/// `--host-idle-hours` and `BT_HOST_IDLE_HOURS` name no count.
-pub(crate) const DEFAULT_IDLE_HOURS: u32 = 8;
-
 /// The command of the host run, in the root of the slot.
 const COMMAND: &str = "./community/tools/bt.cmd";
 
-/// The prefix of the lease holder of a checkout.
+/// The prefix of the holder of a checkout: the host lends the slot it used last first, and keeps its base ref.
 const HOLDER_PREFIX: &str = "bt-remote";
 
 /// The flags of this module with a value, which the host run does not get.
-const HOST_FLAGS: [&str; 3] = ["--host", "--host-repo", "--host-idle-hours"];
+const HOST_FLAGS: [&str; 2] = ["--host", "--host-repo"];
 
 /// The switches of this module, which the host run does not get.
-const HOST_SWITCHES: [&str; 4] = ["--release", "--prepare", "--yes", "--take-lease"];
+const HOST_SWITCHES: [&str; 2] = ["--prepare", "--yes"];
 
 /// Where a run goes, from the local command line.
 pub(crate) struct Host<'a> {
@@ -49,16 +44,11 @@ pub(crate) struct Host<'a> {
     pub(crate) alias: &'a str,
     /// `--host-repo`: the main repository on the host.
     pub(crate) repo: Option<&'a str>,
-    pub(crate) idle_hours: u32,
 }
 
 /// The calls to the agent of a host: `yonder-client` in production, a script in the tests.
 pub(crate) trait HostLink {
     fn run(&self, alias: &str, request: &RunRequest<'_>) -> Result<RunOutcome, yonder_client::Refusal>;
-
-    fn lease(&self, alias: &str, repo: Option<&str>, holder: &str) -> Result<Leased, yonder_client::Refusal>;
-
-    fn release(&self, alias: &str, repo: Option<&str>, holder: &str) -> Result<String, yonder_client::Refusal>;
 
     fn hello(&self, alias: &str) -> Result<AgentInfo, yonder_client::Refusal>;
 
@@ -100,14 +90,6 @@ impl HostLink for Yonder<'_> {
         self.with_client(|client| client.run(alias, request))
     }
 
-    fn lease(&self, alias: &str, repo: Option<&str>, holder: &str) -> Result<Leased, yonder_client::Refusal> {
-        self.with_client(|client| client.lease(alias, repo, holder))
-    }
-
-    fn release(&self, alias: &str, repo: Option<&str>, holder: &str) -> Result<String, yonder_client::Refusal> {
-        self.with_client(|client| client.release(alias, repo, holder))
-    }
-
     fn hello(&self, alias: &str) -> Result<AgentInfo, yonder_client::Refusal> {
         self.with_client(|client| client.hello(alias))
     }
@@ -117,9 +99,11 @@ impl HostLink for Yonder<'_> {
     }
 }
 
-/// One run on the host, given as the whole local command line.
+/// One run on the host, given as the whole local command line. A green run records the tree of the commit that the
+/// host ran, when yonder names that commit.
 pub(crate) fn run_on_host(
     host: &Host<'_>,
+    check: CheckCommand,
     json: bool,
     argv: &[OsString],
     runtime: &dyn Runtime,
@@ -128,6 +112,12 @@ pub(crate) fn run_on_host(
     let forwarded = host_args(argv);
     runtime.write_error(&format!("> {}: bt {}", host.alias, forwarded.join(" ")));
     let command: Vec<String> = std::iter::once(COMMAND.to_owned()).chain(forwarded).collect();
+    // The record names the command apart, so the patterns of a build go without the verb.
+    let patterns = match check {
+        CheckCommand::Build => command.get(2..),
+        CheckCommand::Test => command.get(1..),
+    }
+    .unwrap_or_default();
     let holder = holder(runtime);
     let fetch = [RUNS_DIR.to_owned()];
     let request = RunRequest {
@@ -136,7 +126,6 @@ pub(crate) fn run_on_host(
         holder: &holder,
         command: &command,
         fetch: &fetch,
-        idle_hours: host.idle_hours,
     };
     let ran = match link.run(host.alias, &request) {
         Ok(ran) => ran,
@@ -154,7 +143,16 @@ pub(crate) fn run_on_host(
     if !ran.phases.is_empty() {
         runtime.write_error(&phases_line(&ran.phases));
     }
-    answer(runtime, host.alias, json, &ran)
+    let answered = answer(runtime, host.alias, json, &ran)?;
+    if answered.exit_code == exit::GREEN && !ran.commit.is_empty() {
+        let check = Check {
+            command: check,
+            patterns,
+            host: Some(host.alias),
+        };
+        record_host_run(runtime, &ran.commit, &check);
+    }
+    Ok(answered)
 }
 
 /// The `--json` payload of a run that a second Ctrl+C stopped: an infrastructure outcome that says nothing about the
@@ -174,20 +172,8 @@ fn interrupted_payload(message: &str) -> JsonPayload {
     }
 }
 
-/// Returns the lease that the runs of this checkout keep on the host.
-pub(crate) fn release_on_host(host: &Host<'_>, runtime: &dyn Runtime, link: &dyn HostLink) -> Result<Outcome, Refusal> {
-    let said = link
-        .release(host.alias, host.repo, &holder(runtime))
-        .map_err(|refusal| host_refusal(host.alias, &refusal))?;
-    Ok(Outcome {
-        exit_code: exit::GREEN,
-        text: said,
-        json: None,
-    })
-}
-
-/// The lease holder of this checkout on a host: `bt-remote-<hash of the checkout path>`, one per checkout, so two
-/// checkouts never share a slot there.
+/// The holder of this checkout on a host: `bt-remote-<hash of the checkout path>`, one per checkout. The host lends
+/// each run a slot for that run only, the slot this holder used last first.
 pub(crate) fn holder(runtime: &dyn Runtime) -> String {
     yonder_client::holder(HOLDER_PREFIX, runtime.repo_root())
 }

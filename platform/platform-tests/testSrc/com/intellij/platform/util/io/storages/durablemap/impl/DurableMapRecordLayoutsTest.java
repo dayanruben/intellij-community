@@ -4,7 +4,7 @@ package com.intellij.platform.util.io.storages.durablemap.impl;
 import com.intellij.platform.util.io.storages.database.spi.BlocksDatabaseFactory;
 import com.intellij.platform.util.io.storages.database.storages.durablemap.DurableMapBlockCatalog;
 import com.intellij.platform.util.io.storages.database.storages.durablemap.KeyRecordLayout;
-import com.intellij.platform.util.io.storages.database.storages.durablemap.RecordStorageOverBlocks;
+import com.intellij.platform.util.io.storages.database.storages.appenablerecords.RecordStorageOverBlocks;
 import com.intellij.platform.util.io.storages.database.storages.durablemap.ValueRecordLayout;
 import com.intellij.util.io.CorruptedException;
 import org.jetbrains.annotations.NotNull;
@@ -80,8 +80,8 @@ public class DurableMapRecordLayoutsTest {
     long tombstoneRef;
     try (var database = factory.open(databaseDirectory)) {
       var catalog = DurableMapBlockCatalog.open(database.openStore("map", 1));
-      var keys = RecordStorageOverBlocks.open(catalog, KEYS, BLOCK_SIZE);
-      var values = RecordStorageOverBlocks.open(catalog, VALUES, BLOCK_SIZE);
+      var keys = RecordStorageOverBlocks.open(catalog.appendableRecordBlocks(KEYS), /*appendOnly: */ false, BLOCK_SIZE);
+      var values = RecordStorageOverBlocks.open(catalog.appendableRecordBlocks(VALUES), /*appendOnly: */ true, BLOCK_SIZE);
 
       keyRecordRef = keys.append(KeyRecordLayout.recordSize(keyBytes.length), record ->
         KeyRecordLayout.write(record, 73, MemorySegment.ofArray(keyBytes))
@@ -105,8 +105,8 @@ public class DurableMapRecordLayoutsTest {
       var store = database.findStore("map");
       assertNotNull(store);
       var catalog = DurableMapBlockCatalog.open(store);
-      var keys = RecordStorageOverBlocks.open(catalog, KEYS, BLOCK_SIZE);
-      var values = RecordStorageOverBlocks.open(catalog, VALUES, BLOCK_SIZE);
+      var keys = RecordStorageOverBlocks.open(catalog.appendableRecordBlocks(KEYS), /*appendOnly: */ false, BLOCK_SIZE);
+      var values = RecordStorageOverBlocks.open(catalog.appendableRecordBlocks(VALUES), /*appendOnly: */ true, BLOCK_SIZE);
 
       assertEquals(73, KeyRecordLayout.keyHash(keys.read(keyRecordRef)));
       assertArrayEquals(keyBytes, KeyRecordLayout.keyPayload(keys.read(keyRecordRef)).toArray(JAVA_BYTE));

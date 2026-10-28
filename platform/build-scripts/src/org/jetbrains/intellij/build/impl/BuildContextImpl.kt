@@ -307,6 +307,9 @@ class BuildContextImpl internal constructor(
   }
 
   override fun getBundledPluginModules(): List<String> {
+    if (productProperties.loadAllBundledPluginsWithModularLoader) {
+      return productProperties.productLayout.bundledPluginModules
+    }
     return bundledPluginModulesForModularLoader ?: productProperties.productLayout.bundledPluginModules
   }
 

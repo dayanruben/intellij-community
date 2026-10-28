@@ -68,6 +68,7 @@ jvm_library(
     ),
     visibility = ["//visibility:public"],
     exports = ["//libraries/assertj-swing"],
+    runtime_deps = ["//platform/backend"],
     deps = [
         # do not sort,
         "@lib//:kotlin-stdlib",
@@ -99,6 +100,7 @@ jvm_library(
         "//platform/usageView",
         "//platform/statistics",
         "//platform/refactoring",
+        "//platform/scratch",
         "//platform/core-ui",
         "//xml/xml-psi-api:psi",
         "//platform/feedback",
@@ -112,7 +114,6 @@ jvm_library(
         "//platform/diagnostic",
         "//platform/execution",
         "//platform/xdebugger-impl/ui",
-        "//platform/scratch",
     ],
 )
 
@@ -161,6 +162,7 @@ jvm_library(
         "//platform/usageView:usageView_test_lib",
         "//platform/statistics:statistics_test_lib",
         "//platform/refactoring:refactoring_test_lib",
+        "//platform/scratch:scratch_test_lib",
         "//platform/core-ui:core-ui_test_lib",
         "//xml/xml-psi-api:psi_test_lib",
         "//platform/feedback:feedback_test_lib",
@@ -174,7 +176,7 @@ jvm_library(
         "//platform/diagnostic:diagnostic_test_lib",
         "//platform/execution:execution_test_lib",
         "//platform/xdebugger-impl/ui:ui_test_lib",
-        "//platform/scratch:scratch_test_lib",
+        "//platform/backend:backend_test_lib",
     ],
 )
 ### auto-generated section `build intellij.featuresTrainer` end
@@ -198,7 +200,12 @@ jvm_library(
     ),
     module_name = "intellij.featuresTrainer.tests",
     visibility = ["//visibility:public"],
-    runtime_deps = ["//xml/plugin"],
+    runtime_deps = [
+        # do not sort,
+        "//platform/main/intellij.platform.monolith.main:monolith-main",
+        "//community-resources:customization",
+        "//xml/plugin",
+    ],
 )
 
 jvm_library(
@@ -227,6 +234,8 @@ jvm_library(
         "//platform/platform-impl:ide-impl_test_lib",
         "//platform/ide-core-impl:ide-core-impl_test_lib",
         "//platform/ide-core:ide-core_test_lib",
+        "//platform/main/intellij.platform.monolith.main:monolith-main_test_lib",
+        "//community-resources:customization_test_lib",
         "//xml/plugin:plugin_test_lib",
     ],
     deps = [

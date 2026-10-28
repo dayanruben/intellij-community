@@ -6,6 +6,7 @@ import com.intellij.platform.util.io.storages.DataExternalizerEx;
 import com.intellij.platform.util.io.storages.KeyDescriptorEx;
 import com.intellij.platform.util.io.storages.UnsupportedFormatException;
 import com.intellij.platform.util.io.storages.database.spi.BlocksStore;
+import com.intellij.platform.util.io.storages.database.storages.appenablerecords.RecordStorageOverBlocks;
 import com.intellij.platform.util.io.storages.database.spi.housekeeping.HousekeeperInstaller;
 import com.intellij.platform.util.io.storages.database.storages.extendiblehashmap.ExtendibleHashMapStorageOverLookupBlocks;
 import com.intellij.platform.util.io.storages.durablemap.DurableMap;
@@ -169,7 +170,11 @@ public class DurableMapWithKeyCatalogOverBlocks<K, V> implements DurableMap<K, V
     var requiresRecovery = !freshLookup && !recordRefIndex.wasProperlyClosed();
     try {
       var keyCatalog = KeyCatalogOverBlocks.open(blockCatalog, preferredBlockContentLength, recordRefIndex, keyDescriptor);
-      var values = RecordStorageOverBlocks.open(blockCatalog, VALUES, preferredBlockContentLength);
+      var values = RecordStorageOverBlocks.open(
+        blockCatalog.appendableRecordBlocks(VALUES),
+        /*appendOnly: */ true,
+        preferredBlockContentLength
+      );
       DurableMapWithKeyCatalogOverBlocks<K, V> map;
       if (patchExternalizer == null) {
         map = new DurableMapWithKeyCatalogOverBlocks<>(

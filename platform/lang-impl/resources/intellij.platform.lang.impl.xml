@@ -209,6 +209,9 @@
     <extensionPoint qualifiedName="com.intellij.consoleOptionsProvider" beanClass="com.intellij.execution.console.ConsoleOptionsProviderEP" dynamic="true">
       <with attribute="instance" implements="com.intellij.openapi.options.UnnamedConfigurable" />
     </extensionPoint>
+    <extensionPoint qualifiedName="com.intellij.runLineMarkerContributor" beanClass="com.intellij.lang.LanguageExtensionPoint" dynamic="true">
+      <with attribute="implementationClass" implements="com.intellij.execution.lineMarker.RunLineMarkerContributorBase"/>
+    </extensionPoint>
     <extensionPoint dynamic="true" qualifiedName="com.intellij.editorAppearanceConfigurable" beanClass="com.intellij.application.options.editor.EditorAppearanceConfigurableEP">
       <with attribute="instance" implements="com.intellij.openapi.options.UnnamedConfigurable"/>
     </extensionPoint>
@@ -850,13 +853,13 @@
 
     <registryKey key="ide.analysisignore.file.enabled" defaultValue="true" restartRequired="true"
                  description="Enable the '.analysisignore' file: a list of files and directories excluded from the IDE analysis."/>
-    <registryKey key="ide.analysisignore.defaults.enabled" defaultValue="false" restartRequired="true"
-                 description="Exclude the default names, as 'node_modules' and '.venv', from a project root without a '.analysisignore' file in the root directory."/>
+    <registryKey key="ide.analysisignore.defaults.enabled" defaultValue="true" restartRequired="true"
+                 description="Exclude the default names, as 'node_modules' and '.venv', from analysis and search."/>
     <workspaceModel.fileIndexContributor implementation="com.intellij.ide.analysisignore.AnalysisIgnoreWorkspaceFileIndexContributor"/>
     <postStartupActivity implementation="com.intellij.ide.analysisignore.AnalysisIgnoreStartupActivity"/>
     <vfs.asyncListenerBackgroundable implementation="com.intellij.ide.analysisignore.AnalysisIgnoreVfsListener"/>
     <editorFactoryDocumentListener implementation="com.intellij.ide.analysisignore.AnalysisIgnoreDocumentListener"/>
-    <fileType name="AnalysisIgnore" language="AnalysisIgnore" fileNames=".analysisignore;default.analysisignore" fieldName="INSTANCE"
+    <fileType name="AnalysisIgnore" language="AnalysisIgnore" fileNames=".analysisignore" fieldName="INSTANCE"
               implementationClass="com.intellij.ide.analysisignore.lang.AnalysisIgnoreFileType"/>
     <lang.parserDefinition language="AnalysisIgnore"
                            implementationClass="com.intellij.ide.analysisignore.lang.AnalysisIgnoreParserDefinition"/>
@@ -864,8 +867,9 @@
                                    implementationClass="com.intellij.ide.analysisignore.lang.AnalysisIgnoreSyntaxHighlighterFactory"/>
     <lang.commenter language="AnalysisIgnore" implementationClass="com.intellij.ide.analysisignore.lang.AnalysisIgnoreCommenter"/>
     <editorNotificationProvider implementation="com.intellij.ide.analysisignore.AnalysisIgnoreEditorNotificationProvider"/>
-    <editorNotificationProvider implementation="com.intellij.ide.analysisignore.AnalysisIgnoreDefaultsFileNotificationProvider"/>
-    <nonProjectFileWritingAccessExtension implementation="com.intellij.ide.analysisignore.EditAnalysisIgnoreDefaultsAction$AccessExtension"/>
+    <applicationConfigurable parentId="language" id="analysis.ignore.defaults"
+                             bundle="messages.LangBundle" key="analysis.ignore.settings.defaults.display.name"
+                             provider="com.intellij.ide.analysisignore.AnalysisIgnoreDefaultsConfigurable$Provider"/>
     <statistics.projectUsagesCollector implementation="com.intellij.ide.analysisignore.AnalysisIgnoreUsagesCollector"/>
     <workspaceModel.optionalExclusionContributor implementation="com.intellij.ide.analysisignore.AnalysisIgnoreExclusionContributor"
                                                  order="last"/>
@@ -1069,6 +1073,7 @@
     <modcompletion.completionItemProvider language="any" implementationClass="com.intellij.codeInsight.template.impl.LiveTemplateModCompletionItemProvider"
                                           id="liveTemplates" order="first"/>
     <codeCompletionConfigurable provider="com.intellij.codeInsight.completion.command.configuration.CommandCompletionConfigurableProvider"/>
+    <codeInsight.lineMarkerProvider language="" implementationClass="com.intellij.execution.lineMarker.RunLineMarkerProvider"/>
     <applicationService serviceImplementation="com.intellij.execution.console.ConsoleFoldingSettings"/>
     <applicationSettings service="com.intellij.execution.console.ConsoleFoldingSettings"/>
     <console.folding implementation="com.intellij.execution.console.SubstringConsoleFolding"/>
