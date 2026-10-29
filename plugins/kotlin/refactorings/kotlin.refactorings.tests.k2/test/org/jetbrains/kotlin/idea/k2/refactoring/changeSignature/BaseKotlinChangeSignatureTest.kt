@@ -336,8 +336,10 @@ public @interface NotNull {
     protected open fun doTestConflict(configure: C.() -> Unit = {}) = runAndCheckConflicts {
         configureFiles()
 
-        doRefactoring(configure)
-        compareEditorsWithExpectedData()
+        withCustomCompilerOptions(file.text, project, module) {
+            doRefactoring(configure)
+            compareEditorsWithExpectedData()
+        }
     }
 
     protected fun doTestUnmodifiable(configure: C.() -> Unit = {}) {
@@ -948,6 +950,25 @@ public @interface NotNull {
     fun testCompanionExtensionReceiverToParameter() = doTestConflict {
         receiverParameterInfo = null
         newParameters[0].name = "text"
+    }
+
+    fun testCompanionExtensionParameterToReceiver() = doTestConflict { receiverParameterInfo = newParameters[1] }
+    fun testCompanionExtensionParameterToReceiverNoUsages() = doTest { receiverParameterInfo = newParameters[1] }
+    fun testCompanionExtensionParameterToReceiverUsageOfThis() = doTestConflict { receiverParameterInfo = newParameters[1] }
+    fun testCompanionExtensionParameterToReceiverWithRenamedParameter() = doTest {
+        receiverParameterInfo = newParameters[1]
+        newParameters[2].name = "renamed"
+    }
+
+    fun testCompanionExtensionChangeReceiverType() = doTestConflict { receiverParameterInfo!!.setType("OtherHost") }
+    fun testCompanionExtensionChangeReceiverTypeUnused() = doTest { receiverParameterInfo!!.setType("OtherHost") }
+
+    fun testCompanionExtensionNullableReceiver() = doTestConflict { receiverParameterInfo!!.setType("Host?") }
+
+    fun testCompanionExtensionContextParameterToReceiver() = doTestConflict {
+        val contextParameter = newParameters[0]
+        contextParameter.isContextParameter = false
+        receiverParameterInfo = contextParameter
     }
 
     fun testParameterToReceiverExplicitReceiver() = doTest { receiverParameterInfo = newParameters[0] }

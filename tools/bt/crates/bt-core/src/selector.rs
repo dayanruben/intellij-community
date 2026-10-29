@@ -8,7 +8,7 @@ use refusal::Refusal;
 use crate::areas::{AREAS_FILE, Areas};
 use crate::catalog::read_suite_documents;
 use crate::exit::fail_usage;
-use crate::modules::resolve_module;
+use crate::modules::{Layout, resolve_module};
 use crate::runtime::{Platform, Runtime};
 use crate::scan::{Candidate, Index, ResolutionInputs, TestRoot, derive_package, read_dir_or_none, read_text};
 use crate::suites::{AffectedSuite, resolve_suite_run};
@@ -255,15 +255,14 @@ pub fn resolve_selector(runtime: &dyn Runtime, selector: &Selector, inputs: &Res
         // Before any tree scan: a label and a pattern already name their targets.
         SelectorKind::Label | SelectorKind::Pattern => {
             return Ok(Resolution {
-                labels: vec![selector.name.clone()],
+                labels: vec![checkout_label(runtime, &selector.name)],
                 multi_target: selector.kind == SelectorKind::Pattern,
                 ..Resolution::default()
             });
         }
         SelectorKind::Dir => {
-            let dir = repo_relative_dir(runtime, &selector.name)?;
             return Ok(Resolution {
-                labels: vec![format!("//{dir}/...")],
+                labels: vec![directory_pattern(runtime, &selector.name)?],
                 multi_target: true,
                 ..Resolution::default()
             });
@@ -429,11 +428,61 @@ fn resolve_package(runtime: &dyn Runtime, selector: &Selector, inputs: &Resoluti
     })
 }
 
+/// The recursive target pattern of a directory selector. In the ultimate root, the root `.bazelignore` hides
+/// `community/`, so a directory under it is a package of the `@community` repository.
+pub fn directory_pattern(runtime: &dyn Runtime, raw: &str) -> Result<String, Refusal> {
+    let dir = repo_relative_dir(runtime, raw)?;
+    Ok(Layout::detect(runtime).pattern(&dir))
+}
+
+/// A label or a target pattern as the checkout root runs it. In the ultimate root, the root `.bazelignore` hides
+/// `community/`: bazel only warns that `//community/tools/vm/...` was filtered out, and it builds nothing. So such a
+/// value becomes its `@community` spelling, as a directory selector does. Every other value stays as it is.
+pub fn checkout_label(runtime: &dyn Runtime, raw: &str) -> String {
+    // Only a value that can name the community directory costs the layout probe.
+    if !raw.starts_with("//community") {
+        return raw.to_owned();
+    }
+    Layout::detect(runtime).community_label(raw).unwrap_or_else(|| raw.to_owned())
+}
+
+/// Refuses a label or a target pattern of the root repository whose package directory is not in the checkout.
+///
+/// `bt` runs every pattern in the checkout root, which `bt.cmd` finds from its own path, also when the working
+/// directory is `community/` of the ultimate root. There `//tools/vm/...` names a directory of the community
+/// repository, and the refusal names its `@community` spelling. A label of another repository, a package with a
+/// wildcard and the root package are not checked.
+pub fn check_package_dir(runtime: &dyn Runtime, label: &str) -> Result<(), Refusal> {
+    let Some(body) = label.strip_prefix("//") else {
+        return Ok(());
+    };
+    let path = body.split_once(':').map_or(body, |(path, _)| path);
+    let dir = if path == "..." {
+        ""
+    } else {
+        path.strip_suffix("/...").unwrap_or(path)
+    };
+    if dir.is_empty() || dir.contains('*') || runtime.exists(&repo_file(runtime, dir)) {
+        return Ok(());
+    }
+    let root = runtime.repo_root().to_string_lossy();
+    let community = format!("community/{dir}");
+    let hint = if Layout::detect(runtime) == Layout::Ultimate && runtime.exists(&repo_file(runtime, &community)) {
+        format!(";\n   for {community}, pass @community//{body}")
+    } else {
+        String::new()
+    };
+    Err(fail_usage(format!(
+        "No such directory: {dir}\n  (bt runs every target pattern in the checkout root {root}, whatever the working \
+         directory{hint})"
+    )))
+}
+
 /// Resolves a directory selector against the repository root, not the process working directory: under `bt.cmd`
 /// the working directory is a runfiles tree, and a bazel target pattern is repo-relative anyway. A path that does
 /// not exist is a usage refusal rather than an empty pattern, because a typo would otherwise become a silent
 /// zero-target run reported as "no tests".
-pub fn repo_relative_dir(runtime: &dyn Runtime, raw: &str) -> Result<String, Refusal> {
+fn repo_relative_dir(runtime: &dyn Runtime, raw: &str) -> Result<String, Refusal> {
     // A trailing `/...` is bazel's wildcard rather than part of the path, and a Windows shell spells it with the
     // other separator.
     let trimmed = raw

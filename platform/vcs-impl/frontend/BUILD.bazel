@@ -63,6 +63,8 @@ jvm_library(
         "//platform/lang-impl",
         "//platform/remote-topics/shared:rpc-topics",
         "//platform/platform-impl/rpc",
+        "//platform/diff-api:diff",
+        "//platform/util/diff",
     ],
 )
 
@@ -107,6 +109,8 @@ jvm_library(
         "//platform/lang-impl:lang-impl_test_lib",
         "//platform/remote-topics/shared:rpc-topics_test_lib",
         "//platform/platform-impl/rpc:rpc_test_lib",
+        "//platform/diff-api:diff_test_lib",
+        "//platform/util/diff:diff_test_lib",
     ],
 )
 ### auto-generated section `build intellij.platform.vcs.impl.frontend` end
@@ -180,6 +184,10 @@ jvm_library(
         "//platform/ide-core",
         "//platform/diff-impl",
         "//platform/diff-impl:diff-impl_test_lib",
+        "//platform/diff-api:diff",
+        "//platform/diff-api:diff_test_lib",
+        "//platform/util/diff",
+        "//platform/util/diff:diff_test_lib",
         "//platform/vcs-impl/shared",
         "//platform/vcs-impl/shared:shared_test_lib",
         "//platform/vcs-api/shared",
@@ -188,12 +196,18 @@ jvm_library(
         "//platform/vcs-api/vcs-api-core:vcs-core_test_lib",
         "//platform/vcs/plugin",
         "//platform/vcs/plugin:plugin_test_lib",
+        "//platform/analysis-api:analysis",
+        "//platform/analysis-api:analysis_test_lib",
         "//platform/testFramework",
         "//platform/testFramework:testFramework_test_lib",
+        "//platform/testFramework/junit5",
+        "//platform/testFramework/junit5:junit5_test_lib",
         "//platform/vcs-impl/shared:vcs-impl-shared-tests",
         "//platform/vcs-impl/shared:vcs-impl-shared-tests_test_lib",
         "//libraries/junit4",
         "//libraries/junit4:junit4_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
     ],
 )
 ### auto-generated section `build intellij.platform.vcs.impl.frontend.tests` end

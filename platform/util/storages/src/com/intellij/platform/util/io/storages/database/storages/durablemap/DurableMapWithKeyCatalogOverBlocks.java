@@ -6,6 +6,7 @@ import com.intellij.platform.util.io.storages.DataExternalizerEx;
 import com.intellij.platform.util.io.storages.KeyDescriptorEx;
 import com.intellij.platform.util.io.storages.UnsupportedFormatException;
 import com.intellij.platform.util.io.storages.database.spi.BlocksStore;
+import com.intellij.platform.util.io.storages.database.storages.BlockSizingPolicy;
 import com.intellij.platform.util.io.storages.database.storages.appenablerecords.RecordStorageOverBlocks;
 import com.intellij.platform.util.io.storages.database.spi.housekeeping.HousekeeperInstaller;
 import com.intellij.platform.util.io.storages.database.storages.extendiblehashmap.ExtendibleHashMapStorageOverLookupBlocks;
@@ -28,7 +29,6 @@ import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
-import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.BiPredicate;
@@ -95,7 +95,17 @@ public class DurableMapWithKeyCatalogOverBlocks<K, V> implements DurableMap<K, V
     @Nullable EqualityPolicy<? super V> valueEquality,
     @NotNull DataExternalizerEx<V> valueExternalizer
   ) throws IOException {
-    return open(blocksStore, preferredBlockContentLength, keyDescriptor, valueEquality, valueExternalizer, null);
+    return open(blocksStore, new BlockSizingPolicy.FixedSize(preferredBlockContentLength), keyDescriptor, valueEquality, valueExternalizer);
+  }
+
+  public static <K, V> @NotNull DurableMapWithKeyCatalogOverBlocks<K, V> open(
+    @NotNull BlocksStore blocksStore,
+    @NotNull BlockSizingPolicy blockSizePolicy,
+    @NotNull KeyDescriptorEx<K> keyDescriptor,
+    @Nullable EqualityPolicy<? super V> valueEquality,
+    @NotNull DataExternalizerEx<V> valueExternalizer
+  ) throws IOException {
+    return open(blocksStore, blockSizePolicy, keyDescriptor, valueEquality, valueExternalizer, /*patchExternalizer: */ null);
   }
 
   public static <K, V, P> @NotNull PatchableDurableMap<K, V, P> openPatchable(
@@ -105,9 +115,19 @@ public class DurableMapWithKeyCatalogOverBlocks<K, V> implements DurableMap<K, V
     @Nullable EqualityPolicy<? super V> valueEquality,
     @NotNull PatchableDurableMap.PatchableValueExternalizer<V, P> valueExternalizer
   ) throws IOException {
+    return openPatchable(blocksStore, new BlockSizingPolicy.FixedSize(preferredBlockContentLength), keyDescriptor, valueEquality, valueExternalizer);
+  }
+
+  public static <K, V, P> @NotNull PatchableDurableMap<K, V, P> openPatchable(
+    @NotNull BlocksStore blocksStore,
+    @NotNull BlockSizingPolicy blockSizePolicy,
+    @NotNull KeyDescriptorEx<K> keyDescriptor,
+    @Nullable EqualityPolicy<? super V> valueEquality,
+    @NotNull PatchableDurableMap.PatchableValueExternalizer<V, P> valueExternalizer
+  ) throws IOException {
     return asPatchable(
       open(
-        blocksStore, preferredBlockContentLength,
+        blocksStore, blockSizePolicy,
         keyDescriptor, valueEquality, valueExternalizer, valueExternalizer
       )
     );
@@ -115,7 +135,7 @@ public class DurableMapWithKeyCatalogOverBlocks<K, V> implements DurableMap<K, V
 
   private static <K, V> @NotNull DurableMapWithKeyCatalogOverBlocks<K, V> open(
     @NotNull BlocksStore blocksStore,
-    int preferredBlockContentLength,
+    @NotNull BlockSizingPolicy blockSizePolicy,
     @NotNull KeyDescriptorEx<K> keyDescriptor,
     @Nullable EqualityPolicy<? super V> valueEquality,
     @NotNull DataExternalizerEx<V> valueExternalizer,
@@ -169,11 +189,11 @@ public class DurableMapWithKeyCatalogOverBlocks<K, V> implements DurableMap<K, V
 
     var requiresRecovery = !freshLookup && !recordRefIndex.wasProperlyClosed();
     try {
-      var keyCatalog = KeyCatalogOverBlocks.open(blockCatalog, preferredBlockContentLength, recordRefIndex, keyDescriptor);
+      var keyCatalog = KeyCatalogOverBlocks.open(blockCatalog, blockSizePolicy, recordRefIndex, keyDescriptor);
       var values = RecordStorageOverBlocks.open(
         blockCatalog.appendableRecordBlocks(VALUES),
         /*appendOnly: */ true,
-        preferredBlockContentLength
+        blockSizePolicy
       );
       DurableMapWithKeyCatalogOverBlocks<K, V> map;
       if (patchExternalizer == null) {
@@ -461,7 +481,7 @@ public class DurableMapWithKeyCatalogOverBlocks<K, V> implements DurableMap<K, V
                            @NotNull ValueRecordInitializer initializer) throws IOException {
     return values.append(ValueRecordLayout.recordSize(writer.recordSize()), record -> {
       initializer.initialize(record);
-      writer.write(record.asSlice(ValueRecordLayout.HEADER_SIZE).asByteBuffer());
+      writer.write(record, ValueRecordLayout.HEADER_SIZE);
     });
   }
 
@@ -500,7 +520,7 @@ public class DurableMapWithKeyCatalogOverBlocks<K, V> implements DurableMap<K, V
   private @Nullable V deserializeValue(@NotNull MemorySegment snapshot,
                                        @NotNull ArrayList<MemorySegment> patches) throws IOException {
     if (patches.isEmpty()) {
-      return valueExternalizer.read(snapshot.asByteBuffer());
+      return valueExternalizer.read(snapshot);
     }
     long totalSize = snapshot.byteSize();
     for (var patch : patches) {
@@ -509,13 +529,15 @@ public class DurableMapWithKeyCatalogOverBlocks<K, V> implements DurableMap<K, V
     if (totalSize > Integer.MAX_VALUE) {
       throw new IOException("The patched value exceeds the maximum buffer size: " + totalSize);
     }
-    var buffer = ByteBuffer.allocate((int)totalSize);
-    buffer.put(snapshot.asByteBuffer());
+    var serializedValue = MemorySegment.ofArray(new byte[(int)totalSize]);
+    long offset = snapshot.byteSize();
+    MemorySegment.copy(snapshot, 0, serializedValue, 0, offset);
     for (int i = patches.size() - 1; i >= 0; i--) {
-      buffer.put(patches.get(i).asByteBuffer());
+      var patch = patches.get(i);
+      MemorySegment.copy(patch, 0, serializedValue, offset, patch.byteSize());
+      offset += patch.byteSize();
     }
-    buffer.flip();
-    return valueExternalizer.read(buffer);
+    return valueExternalizer.read(serializedValue);
   }
 
   private boolean isActiveValue(long keyRecordRef, long valueRecordRef) throws IOException {
@@ -556,7 +578,7 @@ public class DurableMapWithKeyCatalogOverBlocks<K, V> implements DurableMap<K, V
   private void restoreActiveEntryCount() throws IOException {
     synchronized (lock) {
       var count = new int[]{0};
-      keyCatalog.processKeyRecords((keyRecordRef, _, valueRecordRef) -> {
+      keyCatalog.processValueRecordRefs((keyRecordRef, valueRecordRef) -> {
         if (isActiveValue(keyRecordRef, valueRecordRef)) {
           count[0]++;
         }
@@ -680,7 +702,7 @@ public class DurableMapWithKeyCatalogOverBlocks<K, V> implements DurableMap<K, V
       }
       if (!liveBlockIds.contains(block.id())
           && block.state() == BlocksStore.Block.LifecycleState.SEALED) {
-        block.retire();
+        values.retireSealedBlock(block);
       }
     }
   }

@@ -26,8 +26,10 @@ Selectors (at most one):
   ClassName#method           bare simple name plus a single test method
   a.b.c.ClassName[#method]   fully-qualified name; resolves the label only
   a.b.c                      all-lowercase dotted package; runs the whole package
-  plugins/air/backend/vcs    directory; every test target under it, as //<dir>/...
-  //pkg:target               explicit label, no resolution (works outside every area)
+  plugins/air/backend/vcs    directory; every test target under it, as //<dir>/..., or as
+                             @community//<rest>/... for community/<rest> in the ultimate root
+  //pkg:target               explicit label, no resolution (works outside every area); in the
+                             ultimate root, //community/<rest> runs as @community//<rest>
   @repo//pkg:target          explicit label of another repository, such as @community, the same way
   //pkg/...                  wildcard pattern; a filter may not be combined with it
   flow-rename-session        flow id; every generated suite that tells or walks the flow, as its lane
@@ -109,6 +111,11 @@ records nothing either.
 Patterns:
   //pkg:target   //pkg/...   @repo//pkg/...
 
+bt runs every pattern in the checkout root, whatever the working directory. In the ultimate root,
+//community/<rest> runs as @community//<rest>, because bazel ignores the community directory there.
+A // pattern whose directory is not in the checkout is refused. A green build of bazel that built no
+target, or that dropped a pattern under an ignored directory, is BUILD EMPTY and records nothing.
+
 Options:
   --json                   emit one JSON object on stdout and nothing else
   --dry-run                print the argv; run nothing
@@ -121,7 +128,7 @@ Examples:
   bt build //plugins/air/...
   bt build //plugins/air/frontend/llm:air-frontend-llm //plugins/air/shared/core/...
 
-Exit codes: 0 green, 2 usage, 5 build failure, 6 infrastructure.";
+Exit codes: 0 green, 2 usage, 4 no target built, 5 build failure, 6 infrastructure.";
 
 /// The verb of `bt build`, the first argument.
 pub(crate) const BUILD_VERB: &str = "build";

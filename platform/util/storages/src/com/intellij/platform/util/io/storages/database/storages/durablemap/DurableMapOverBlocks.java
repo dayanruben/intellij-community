@@ -5,6 +5,7 @@ import com.intellij.openapi.util.Ref;
 import com.intellij.platform.util.io.storages.UnsupportedFormatException;
 import com.intellij.platform.util.io.storages.database.spi.housekeeping.HousekeeperInstaller;
 import com.intellij.platform.util.io.storages.database.spi.BlocksStore;
+import com.intellij.platform.util.io.storages.database.storages.BlockSizingPolicy;
 import com.intellij.platform.util.io.storages.database.storages.appenablerecords.RecordStorageOverBlocks;
 import com.intellij.platform.util.io.storages.database.storages.appenablerecords.AppendableRecordsOverBlock;
 import com.intellij.platform.util.io.storages.database.storages.extendiblehashmap.ExtendibleHashMapStorageOverLookupBlocks;
@@ -30,7 +31,6 @@ import org.jetbrains.annotations.Nullable;
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.BiPredicate;
@@ -106,7 +106,15 @@ public class DurableMapOverBlocks<K, V> implements DurableMap<K, V>, UnusedBlock
                                                                 @NotNull EqualityPolicy<? super K> keyEquality,
                                                                 @Nullable EqualityPolicy<? super V> valueEquality,
                                                                 @NotNull EntryExternalizer<K, V> entryExternalizer) throws IOException {
-    return open(blocksStore, preferredBlockContentLength, keyEquality, valueEquality, entryExternalizer, /*patchExternalizer: */ null);
+    return open(blocksStore, new BlockSizingPolicy.FixedSize(preferredBlockContentLength), keyEquality, valueEquality, entryExternalizer);
+  }
+
+  public static <K, V> @NotNull DurableMapOverBlocks<K, V> open(@NotNull BlocksStore blocksStore,
+                                                                @NotNull BlockSizingPolicy blockSizePolicy,
+                                                                @NotNull EqualityPolicy<? super K> keyEquality,
+                                                                @Nullable EqualityPolicy<? super V> valueEquality,
+                                                                @NotNull EntryExternalizer<K, V> entryExternalizer) throws IOException {
+    return open(blocksStore, blockSizePolicy, keyEquality, valueEquality, entryExternalizer, /*patchExternalizer: */ null);
   }
 
   /// Opens a map whose codec can combine snapshots and patches.
@@ -119,14 +127,26 @@ public class DurableMapOverBlocks<K, V> implements DurableMap<K, V>, UnusedBlock
     @NotNull EntryExternalizer<K, V> entryExternalizer,
     @NotNull PatchableDurableMap.PatchableValueExternalizer<V, P> patchExternalizer
   ) throws IOException {
+    return openPatchable(blocksStore, new BlockSizingPolicy.FixedSize(preferredBlockContentLength), keyEquality, valueEquality,
+                         entryExternalizer, patchExternalizer);
+  }
+
+  public static <K, V, P> @NotNull PatchableDurableMap<K, V, P> openPatchable(
+    @NotNull BlocksStore blocksStore,
+    @NotNull BlockSizingPolicy blockSizePolicy,
+    @NotNull EqualityPolicy<? super K> keyEquality,
+    @Nullable EqualityPolicy<? super V> valueEquality,
+    @NotNull EntryExternalizer<K, V> entryExternalizer,
+    @NotNull PatchableDurableMap.PatchableValueExternalizer<V, P> patchExternalizer
+  ) throws IOException {
     return asPatchable(
-      open(blocksStore, preferredBlockContentLength, keyEquality, valueEquality, entryExternalizer, patchExternalizer)
+      open(blocksStore, blockSizePolicy, keyEquality, valueEquality, entryExternalizer, patchExternalizer)
     );
   }
 
   private static <K, V> @NotNull DurableMapOverBlocks<K, V> open(
     @NotNull BlocksStore blocksStore,
-    int preferredBlockContentLength,
+    @NotNull BlockSizingPolicy blockSizePolicy,
     @NotNull EqualityPolicy<? super K> keyEquality,
     @Nullable EqualityPolicy<? super V> valueEquality,
     @NotNull EntryExternalizer<K, V> entryExternalizer,
@@ -184,7 +204,7 @@ public class DurableMapOverBlocks<K, V> implements DurableMap<K, V>, UnusedBlock
         rebuildIndex = true;
         recordRefIndex.clear();
       }
-      return open(blocksStore, blockCatalog, preferredBlockContentLength, recordRefIndex, rebuildIndex, keyEquality, valueEquality,
+      return open(blocksStore, blockCatalog, blockSizePolicy, recordRefIndex, rebuildIndex, keyEquality, valueEquality,
                   entryExternalizer, patchExternalizer);
     }
     catch (IOException | RuntimeException | Error failure) {
@@ -223,7 +243,7 @@ public class DurableMapOverBlocks<K, V> implements DurableMap<K, V>, UnusedBlock
                                                                 @NotNull EntryExternalizer<K, V> entryExternalizer) throws IOException {
     return open(
       blocksStore, DurableMapBlockCatalog.open(blocksStore),
-      preferredBlockContentLength,
+      new BlockSizingPolicy.FixedSize(preferredBlockContentLength),
       recordRefIndex, rebuildIndex,
       keyEquality, valueEquality, entryExternalizer,
       /*patchExternalizer: */ null
@@ -245,7 +265,7 @@ public class DurableMapOverBlocks<K, V> implements DurableMap<K, V>, UnusedBlock
     return asPatchable(
       open(
         blocksStore, DurableMapBlockCatalog.open(blocksStore),
-        preferredBlockContentLength,
+        new BlockSizingPolicy.FixedSize(preferredBlockContentLength),
         recordRefIndex, rebuildIndex,
         keyEquality, valueEquality, entryExternalizer, patchExternalizer
       )
@@ -254,7 +274,7 @@ public class DurableMapOverBlocks<K, V> implements DurableMap<K, V>, UnusedBlock
 
   private static <K, V> @NotNull DurableMapOverBlocks<K, V> open(@NotNull BlocksStore blocksStore,
                                                                  @NotNull DurableMapBlockCatalog blockCatalog,
-                                                                 int preferredBlockContentLength,
+                                                                 @NotNull BlockSizingPolicy blockSizePolicy,
                                                                  @NotNull RecordRefIndex recordRefIndex,
                                                                  boolean rebuildLookup,
                                                                  @NotNull EqualityPolicy<? super K> keyEquality,
@@ -268,7 +288,7 @@ public class DurableMapOverBlocks<K, V> implements DurableMap<K, V>, UnusedBlock
     var mapEntries = RecordStorageOverBlocks.open(
       blockCatalog.appendableRecordBlocks(ENTRIES),
       /*appendOnly: */ true,
-      preferredBlockContentLength
+      blockSizePolicy
     );
     DurableMapOverBlocks<K, V> durableMapImpl;
     if (patchExternalizer == null) {
@@ -345,7 +365,7 @@ public class DurableMapOverBlocks<K, V> implements DurableMap<K, V>, UnusedBlock
             markLookupDirty();
             mutationStarted.set(true);
           }
-          long appendedRecordRef = entries.append(writer.recordSize(), payload -> writer.write(payload.asByteBuffer()));
+          long appendedRecordRef = entries.append(writer.recordSize(), payload -> writer.write(payload, 0));
           newRecordRef.set(value == null ? NO_VALUE : appendedRecordRef);
           return false;
         });
@@ -385,7 +405,7 @@ public class DurableMapOverBlocks<K, V> implements DurableMap<K, V>, UnusedBlock
             }
             var newHead = entries.append(payloadSize, oldHead, payload -> {
               payload.set(ValueLayout.JAVA_LONG_UNALIGNED, 0, baseRef);
-              writer.write(payload.asSlice(Long.BYTES).asByteBuffer());
+              writer.write(payload, Long.BYTES);
             });
             newHeadRef.set(newHead);
             return false;
@@ -399,8 +419,8 @@ public class DurableMapOverBlocks<K, V> implements DurableMap<K, V>, UnusedBlock
             mutationStarted.set(true);
           }
           var newHead = entries.append(payloadSize, payload -> {
-            headerWriter.write(payload.asSlice(0, headerSize).asByteBuffer());
-            writer.write(payload.asSlice(headerSize).asByteBuffer());
+            headerWriter.write(payload, 0);
+            writer.write(payload, headerSize);
           });
           newHeadRef.set(newHead);
           return false;
@@ -544,7 +564,7 @@ public class DurableMapOverBlocks<K, V> implements DurableMap<K, V>, UnusedBlock
         return;
       }
       if (!liveBlockIds.contains(block.id()) && block.state() == BlocksStore.Block.LifecycleState.SEALED) {
-        block.retire();
+        entries.retireSealedBlock(block);
       }
     }
   }
@@ -616,10 +636,10 @@ public class DurableMapOverBlocks<K, V> implements DurableMap<K, V>, UnusedBlock
         return true;
       }
 
-      var key = entryExternalizer.readKey(record.payload().asByteBuffer());
+      var key = entryExternalizer.readKey(record.payload());
       boolean deleted = key == null;
       if (deleted) {
-        key = entryExternalizer.read(record.payload().asByteBuffer()).key();
+        key = entryExternalizer.read(record.payload()).key();
       }
       var restoredKey = key;
       int keyHash = adjustedHash(restoredKey);
@@ -693,7 +713,7 @@ public class DurableMapOverBlocks<K, V> implements DurableMap<K, V>, UnusedBlock
       var record = entries.readRecord(candidateRef);
       Entry<K, V> entry;
       if (record.previousRef() == NO_VALUE) {
-        entry = entryExternalizer.readIfKeyMatch(record.payload().asByteBuffer(), key);
+        entry = entryExternalizer.readIfKeyMatch(record.payload(), key);
       }
       else {
         var candidateKey = readKey(candidateRef);
@@ -719,13 +739,13 @@ public class DurableMapOverBlocks<K, V> implements DurableMap<K, V>, UnusedBlock
         throw new CorruptedException("The base entry is a patch: " + recordRef);
       }
     }
-    return entryExternalizer.readKey(record.payload().asByteBuffer());
+    return entryExternalizer.readKey(record.payload());
   }
 
   private @NotNull Entry<K, V> readEntry(long recordRef) throws IOException {
     var record = entries.readRecord(recordRef);
     if (record.previousRef() == NO_VALUE) {
-      return entryExternalizer.read(record.payload().asByteBuffer());
+      return entryExternalizer.read(record.payload());
     }
 
     long baseRef = baseEntryRef(recordRef, record);
@@ -742,20 +762,22 @@ public class DurableMapOverBlocks<K, V> implements DurableMap<K, V>, UnusedBlock
       currentRef = record.previousRef();
       record = entries.readRecord(currentRef);
     }
-    if (record.previousRef() != NO_VALUE || entryExternalizer.readKey(record.payload().asByteBuffer()) == null) {
+    if (record.previousRef() != NO_VALUE || entryExternalizer.readKey(record.payload()) == null) {
       throw new CorruptedException("The patch chain must start with a non-null entry: " + baseRef);
     }
     totalSize += record.payload().byteSize();
     if (totalSize > Integer.MAX_VALUE) {
       throw new IOException("The patched value exceeds the maximum buffer size: " + totalSize);
     }
-    var buffer = ByteBuffer.allocate((int)totalSize);
-    buffer.put(record.payload().asByteBuffer());
+    var serializedEntry = MemorySegment.ofArray(new byte[(int)totalSize]);
+    long offset = record.payload().byteSize();
+    MemorySegment.copy(record.payload(), 0, serializedEntry, 0, offset);
     for (int i = patches.size() - 1; i >= 0; i--) {
-      buffer.put(patches.get(i).asByteBuffer());
+      var patch = patches.get(i);
+      MemorySegment.copy(patch, 0, serializedEntry, offset, patch.byteSize());
+      offset += patch.byteSize();
     }
-    buffer.flip();
-    return entryExternalizer.read(buffer);
+    return entryExternalizer.read(serializedEntry);
   }
 
   /// @return reference to 'base' record, i.e., first record in a chain of 'patches'

@@ -365,14 +365,14 @@ fn a_flow_selector_dry_runs_as_its_lane_and_lane_settles_it() {
             "ui AirManageLaunchPresetQuickStartGeneratedFlowUiTest (manage-launch-preset-quick-start)",
         ],
     );
-    assert!(fake.spawned().is_empty());
+    assert_eq!(fake.spawned(), Vec::<Vec<String>>::new());
 }
 
 #[test]
 fn list_prints_candidates_without_running_bazel() {
     let fake = fake_air_tree();
     let outcome = run(&["AgentPromptChangesTreeContextContributorTest", "--list"], &fake);
-    assert!(fake.spawned().is_empty());
+    assert_eq!(fake.spawned(), Vec::<Vec<String>>::new());
     assert_mentions(
         &outcome.text,
         &[
@@ -435,6 +435,29 @@ fn a_directory_inside_the_integration_tree_keeps_its_tags() {
     assert!(!text.contains("--test_tag_filters"), "{text}");
 }
 
+/// A run and its candidate list name one pattern for a directory under `community/` of the ultimate root.
+#[test]
+fn a_directory_under_community_runs_in_the_community_repository() {
+    let fake = fake_air_tree();
+    fake.put("community/MODULE.bazel", "");
+    fake.put("community/tools/vm/BUILD.bazel", "");
+    for argv in [["community/tools/vm", "--dry-run"], ["community/tools/vm", "--list"]] {
+        assert_mentions(&run(&argv, &fake).text, &["label   @community//tools/vm/..."]);
+    }
+    assert!(fake.spawned().is_empty(), "{:?}", fake.spawned());
+}
+
+/// A run and its candidate list name the `@community` label for a label under `community/` of the ultimate root.
+#[test]
+fn a_label_under_community_runs_in_the_community_repository() {
+    let fake = fake_air_tree();
+    fake.put("community/MODULE.bazel", "");
+    for argv in [["//community/tools/bt/...", "--dry-run"], ["//community/tools/bt/...", "--list"]] {
+        assert_mentions(&run(&argv, &fake).text, &["label   @community//tools/bt/..."]);
+    }
+    assert!(fake.spawned().is_empty(), "{:?}", fake.spawned());
+}
+
 #[test]
 fn the_all_lane_carries_no_extras_so_it_still_covers_integration() {
     let text = dry_run(&["--lane", "all"]);
@@ -448,7 +471,7 @@ fn a_directory_that_does_not_exist_fails_before_bazel_is_spawned() {
     let fake = fake_air_tree();
     let failure = refusal(execute(["plugins/air/does/not/exist"], &fake));
     assert!(failure.message.contains("No such directory"), "{}", failure.message);
-    assert!(fake.spawned().is_empty());
+    assert_eq!(fake.spawned(), Vec::<Vec<String>>::new());
 }
 
 fn green_run(cases: Vec<bt_core::fake::CaseSpec>) -> FakeRuntime {

@@ -13,7 +13,8 @@
 //! export directory in its `outputs`, so yonder copies the directory back into the checkout of the caller. yonder
 //! replaces the local directory when the first file of the output arrives. So `failed` removes the export of a run
 //! that failed nothing, and the export of the last red run stays in the checkout of the caller. The paths inside the
-//! copied files are the paths of the other host.
+//! copied files are the paths of the other host. `air-trace serve` maps the trace zips and the reports of the journal
+//! to their copies in the export.
 //!
 //! The sink only decides. A thread of the export makes the copies, because the sink runs under the lock of the
 //! reporter, and a copy to another file system can take seconds. A copy is a clone where the file system can make
@@ -34,16 +35,13 @@ use avl_base::journal::Journal;
 use avl_base::report::SinkGuard;
 use avl_base::sync::lock;
 use avl_base::{Config, Reporter, journal};
-use avl_trace_tools::discover::{Status as BundleStatus, VM_EXPORT_DIR, VM_RUNS_DIR};
+use avl_trace_tools::discover::{Status as BundleStatus, VM_EXPORT_DIR, VM_RUN_REPORTS_DIR, VM_RUNS_DIR};
 use avl_wire::progress::{IterationReported, Kind, Record, RunFinished, TraceReady};
 use avl_wire::report::Status;
 use serde::de::DeserializeOwned;
 
 #[cfg(test)]
 mod tests;
-
-/// The directory of the reports inside the export of one run.
-const REPORTS_DIR: &str = "reports";
 
 /// Removes the sinks of the export when it drops, waits for the copies, and notes what the export holds, or its first
 /// failure.
@@ -202,10 +200,8 @@ impl avl_base::report::Sink for Exporter {
                     self.send(Job::Report(PathBuf::from(reported.report_path)));
                 }
             }
-            Kind::RunFinished => {
-                if data::<RunFinished>(record).is_some_and(|finished| finished.exit_code != 0) {
-                    lock(&self.state).red = true;
-                }
+            Kind::RunFinished if data::<RunFinished>(record).is_some_and(|finished| finished.exit_code != 0) => {
+                lock(&self.state).red = true;
             }
             _ => {}
         }
@@ -285,7 +281,7 @@ impl Copier {
     fn copy_report(&self, report: &Path) -> Result<(), String> {
         let directory = journal::run_dir(&self.root, &self.run_id)
             .map_err(|refusal| refusal.message)?
-            .join(REPORTS_DIR);
+            .join(VM_RUN_REPORTS_DIR);
         create_private_dir(&directory).map_err(|refusal| refusal.message)?;
         let name = report.file_name().ok_or("the report path has no file name")?;
         copy_file(report, &directory.join(name)).map_err(|error| error.to_string())?;

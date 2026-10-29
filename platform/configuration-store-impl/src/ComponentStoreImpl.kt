@@ -270,7 +270,6 @@ abstract class ComponentStoreImpl : IComponentStore {
 
   private fun initializeComponent(component: PersistentStateComponent<*>, stateSpec: State?) {
     component.initializeComponent()
-
     componentInitializationListeners.forEach {
       runCatching {
         it.onComponentInitialized(stateSpec)
@@ -382,11 +381,14 @@ abstract class ComponentStoreImpl : IComponentStore {
       val start = System.currentTimeMillis()
       try {
         val info = getClientAwareComponentInfo(name) ?: continue
+        val updateLocalSaveBaseline = ClientId.isCurrentlyUnderLocalId || info.stateSpec?.perClient == true
         var currentModificationCount = -1L
 
         if (info.lastSaved != -1) {
           if (isForce || (nowInSeconds - info.lastSaved) > NOT_ROAMABLE_COMPONENT_SAVE_THRESHOLD) {
-            info.lastSaved = nowInSeconds
+            if (updateLocalSaveBaseline) {
+              info.lastSaved = nowInSeconds
+            }
           }
           else {
             if (isSaveModLogEnabled) {
@@ -416,7 +418,9 @@ abstract class ComponentStoreImpl : IComponentStore {
           }
         }
         commitComponent(sessionManager, info, name, modificationCountChanged, isExternalSystemStorageEnabled)
-        info.updateModificationCount(currentModificationCount)
+        if (updateLocalSaveBaseline) {
+          info.updateModificationCount(currentModificationCount)
+        }
       }
       catch (e: Throwable) {
         saveResult.addError(Exception("Cannot get $name component state", e))
@@ -616,6 +620,7 @@ abstract class ComponentStoreImpl : IComponentStore {
     val postLoadStateUpdateModificationCount = name != "PathMacrosImpl"
 
     val defaultState = if (stateSpec.defaultStateAsResource) getDefaultState(component, name, stateClass) else null
+    var isStateChangedByController = false
     if (loadPolicy == StateLoadPolicy.LOAD || info.stateSpec?.allowLoadInTests == true) {
       val storageChooser = component as? StateStorageChooserEx
       for (storageSpec in getStorageSpecs(component.javaClass, component, stateSpec, StateStorageOperation.READ)) {
@@ -635,6 +640,7 @@ abstract class ComponentStoreImpl : IComponentStore {
 
         val stateGetter = doCreateStateGetter(isReloadDataForStorage, storage, info, name, stateClass, stateSpec.useLoadedStateAsExisting)
         var state = stateGetter.getState(defaultState)
+        isStateChangedByController = isStateChangedByController || stateGetter.isStateChangedByController
         if (state == null) {
           if (changedStorages != null && isStorageChanged(changedStorages, storage)) {
             // the state will be `null` if a file is deleted;
@@ -665,6 +671,9 @@ abstract class ComponentStoreImpl : IComponentStore {
         if (postLoadStateUpdateModificationCount) {
           info.updateModificationCount(info.currentModificationCount)
         }
+        if (isStateChangedByController) {
+          markComponentForSave(info)
+        }
         return
       }
     }
@@ -689,6 +698,16 @@ abstract class ComponentStoreImpl : IComponentStore {
         info.updateModificationCount(info.currentModificationCount)
       }
     }
+    if (isStateChangedByController) {
+      markComponentForSave(info)
+    }
+  }
+
+  private fun markComponentForSave(info: ComponentInfo) {
+    info.updateModificationCount(-1)
+    if (info.lastSaved != -1) {
+      info.lastSaved = 0
+    }
   }
 
   protected open fun isReportStatisticAllowed(stateSpec: State, storageSpec: Storage): Boolean {
@@ -706,9 +725,13 @@ abstract class ComponentStoreImpl : IComponentStore {
     @Suppress("UNCHECKED_CAST")
     val component = info.component as PersistentStateComponent<Any>
 
-    // getting state after loading with an active controller can lead to unusual issues - disable write protection
-    if (useLoadedStateAsExisting && storage is XmlElementStorage && (storage.controller == null || project != null) && isUseLoadedStateAsExisting(storage)) {
-      return storage.createGetSession(component, componentName, info.pluginId, stateClass, reloadData)
+    if (storage is XmlElementStorage) {
+      val archiveLoadedState = useLoadedStateAsExisting &&
+                               (storage.controller == null || project != null) &&
+                               isUseLoadedStateAsExisting(storage)
+      if (archiveLoadedState || storage.controller != null) {
+        return storage.createGetSession(component, componentName, info.pluginId, stateClass, reloadData, archiveLoadedState)
+      }
     }
 
     return object : StateGetter<Any> {

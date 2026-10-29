@@ -62,8 +62,17 @@ abstract class XmlElementStorage protected constructor(
     pluginId: PluginId,
     stateClass: Class<S>,
     reload: Boolean,
+    archiveLoadedState: Boolean = true,
   ): StateGetter<S> {
-    return StateGetterImpl(component = component, componentName = componentName, pluginId = pluginId, storageData = getStorageData(reload), stateClass = stateClass, storage = this)
+    return StateGetterImpl(
+      component = component,
+      componentName = componentName,
+      pluginId = pluginId,
+      storageData = getStorageData(reload),
+      stateClass = stateClass,
+      storage = this,
+      archiveLoadedState = archiveLoadedState,
+    )
   }
 
   final override fun loadData(): StateMap = loadElement()?.let { loadState(it) } ?: StateMap.EMPTY
@@ -446,8 +455,13 @@ private class StateGetterImpl<S : Any>(
   private val storageData: StateMap,
   private val stateClass: Class<S>,
   private val storage: XmlElementStorage,
+  private val archiveLoadedState: Boolean,
 ) : StateGetter<S> {
   private var serializedState: Element? = null
+  private val overrideTracker = ControllerOverrideTracker()
+
+  override val isStateChangedByController: Boolean
+    get() = overrideTracker.isLocalValueOverridden
 
   override suspend fun getState(mergeInto: S?): S? {
     LOG.assertTrue(serializedState == null)
@@ -460,11 +474,12 @@ private class StateGetterImpl<S : Any>(
       componentName = componentName,
       pluginId = pluginId,
       roamingType = storage.roamingType,
+      overrideTracker = overrideTracker,
     )
   }
 
   override fun archiveState(): S? {
-    if (serializedState == null) {
+    if (serializedState == null || !archiveLoadedState || isStateChangedByController) {
       return null
     }
 
@@ -531,6 +546,9 @@ enum class DataStateChanged { LOADED, SAVED }
 @Internal
 interface StateGetter<S : Any> {
   suspend fun getState(mergeInto: S? = null): S?
+
+  val isStateChangedByController: Boolean
+    get() = false
 
   fun archiveState(): S?
 }

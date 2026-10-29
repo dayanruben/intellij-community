@@ -682,17 +682,17 @@ jvm_import(
 )
 
 copy_file(
-    name = "com.jetbrains.fus.reporting/fus-api-2.0.249.jar_copy",
-    src = "@com_jetbrains_fus_reporting-fus-api-2_0_249_http//file",
-    out = "com.jetbrains.fus.reporting/fus-api-2.0.249.jar",
+    name = "com.jetbrains.fus.reporting/fus-api-2.0.250.jar_copy",
+    src = "@com_jetbrains_fus_reporting-fus-api-2_0_250_http//file",
+    out = "com.jetbrains.fus.reporting/fus-api-2.0.250.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
 
 jvm_import(
     name = "com-jetbrains-fus-reporting-fus-api",
-    jar = "@com_jetbrains_fus_reporting-fus-api-2_0_249_http//file",
-    source_jar = "@com_jetbrains_fus_reporting-fus-api-2_0_249-sources_http//file",
+    jar = "@com_jetbrains_fus_reporting-fus-api-2_0_250_http//file",
+    source_jar = "@com_jetbrains_fus_reporting-fus-api-2_0_250-sources_http//file",
     visibility = ["//visibility:public"],
 )
 
@@ -3972,17 +3972,17 @@ jvm_import(
 )
 
 copy_file(
-    name = "org.jetbrains.intellij.plugins/structure-intellij-3.333.jar_copy",
-    src = "@org_jetbrains_intellij_plugins-structure-intellij-3_333_http//file",
-    out = "org.jetbrains.intellij.plugins/structure-intellij-3.333.jar",
+    name = "org.jetbrains.intellij.plugins/structure-intellij-3.335.jar_copy",
+    src = "@org_jetbrains_intellij_plugins-structure-intellij-3_335_http//file",
+    out = "org.jetbrains.intellij.plugins/structure-intellij-3.335.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
 
 copy_file(
-    name = "org.jetbrains.intellij.plugins/structure-base-3.333.jar_copy",
-    src = "@org_jetbrains_intellij_plugins-structure-base-3_333_http//file",
-    out = "org.jetbrains.intellij.plugins/structure-base-3.333.jar",
+    name = "org.jetbrains.intellij.plugins/structure-base-3.335.jar_copy",
+    src = "@org_jetbrains_intellij_plugins-structure-base-3_335_http//file",
+    out = "org.jetbrains.intellij.plugins/structure-base-3.335.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
@@ -4048,8 +4048,8 @@ java_library(
     visibility = ["//visibility:public"],
     exports = [
         # do not sort,
-        ":org_jetbrains_intellij_plugins-structure-intellij-3_333_http_import",
-        ":org_jetbrains_intellij_plugins-structure-base-3_333_http_import",
+        ":org_jetbrains_intellij_plugins-structure-intellij-3_335_http_import",
+        ":org_jetbrains_intellij_plugins-structure-base-3_335_http_import",
         ":org_jetbrains_intellij_deps-trove4j-1_0_20200330_http_import",
         ":org_atteo-evo-inflector-1_3_http_import",
         ":org_jdom-jdom2-2_0_6_1_http_import",
@@ -4061,15 +4061,15 @@ java_library(
 )
 
 jvm_import(
-    name = "org_jetbrains_intellij_plugins-structure-intellij-3_333_http_import",
-    jar = "@org_jetbrains_intellij_plugins-structure-intellij-3_333_http//file",
-    source_jar = "@org_jetbrains_intellij_plugins-structure-intellij-3_333-sources_http//file",
+    name = "org_jetbrains_intellij_plugins-structure-intellij-3_335_http_import",
+    jar = "@org_jetbrains_intellij_plugins-structure-intellij-3_335_http//file",
+    source_jar = "@org_jetbrains_intellij_plugins-structure-intellij-3_335-sources_http//file",
 )
 
 jvm_import(
-    name = "org_jetbrains_intellij_plugins-structure-base-3_333_http_import",
-    jar = "@org_jetbrains_intellij_plugins-structure-base-3_333_http//file",
-    source_jar = "@org_jetbrains_intellij_plugins-structure-base-3_333-sources_http//file",
+    name = "org_jetbrains_intellij_plugins-structure-base-3_335_http_import",
+    jar = "@org_jetbrains_intellij_plugins-structure-base-3_335_http//file",
+    source_jar = "@org_jetbrains_intellij_plugins-structure-base-3_335-sources_http//file",
 )
 
 jvm_import(
@@ -4474,17 +4474,17 @@ jvm_import(
 )
 
 copy_file(
-    name = "com.jetbrains.fus.reporting/fus-api-jvm-2.0.249.jar_copy",
-    src = "@com_jetbrains_fus_reporting-fus-api-jvm-2_0_249_http//file",
-    out = "com.jetbrains.fus.reporting/fus-api-jvm-2.0.249.jar",
+    name = "com.jetbrains.fus.reporting/fus-api-jvm-2.0.250.jar_copy",
+    src = "@com_jetbrains_fus_reporting-fus-api-jvm-2_0_250_http//file",
+    out = "com.jetbrains.fus.reporting/fus-api-jvm-2.0.250.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
 
 jvm_import(
     name = "jetbrains-fus-reporting-api-jvm",
-    jar = "@com_jetbrains_fus_reporting-fus-api-jvm-2_0_249_http//file",
-    source_jar = "@com_jetbrains_fus_reporting-fus-api-jvm-2_0_249-sources_http//file",
+    jar = "@com_jetbrains_fus_reporting-fus-api-jvm-2_0_250_http//file",
+    source_jar = "@com_jetbrains_fus_reporting-fus-api-jvm-2_0_250-sources_http//file",
     visibility = ["//visibility:public"],
 )
 
@@ -6658,7 +6658,7 @@ copy_file(
 )
 
 jvm_import(
-    name = "libraries-coil-io-coil-kt-coil3-test-jvm",
+    name = "libraries-coil-test-io-coil-kt-coil3-test-jvm",
     jar = "@io_coil-kt_coil3-coil-test-jvm-3_2_0_http//file",
     source_jar = "@io_coil-kt_coil3-coil-test-jvm-3_2_0-sources_http//file",
     visibility = ["//visibility:public"],
@@ -7586,7 +7586,7 @@ copy_file(
 )
 
 java_library(
-    name = "libraries-compose-swing-org-jetbrains-compose-swing-swing-ui-test",
+    name = "libraries-compose-swing-test-org-jetbrains-compose-swing-swing-ui-test",
     visibility = ["//visibility:public"],
     exports = [
         # do not sort,
@@ -8814,17 +8814,17 @@ jvm_import(
 )
 
 copy_file(
-    name = "com.jetbrains.fus.reporting/ap-validation-all-2.0.249.jar_copy",
-    src = "@com_jetbrains_fus_reporting-ap-validation-all-2_0_249_http//file",
-    out = "com.jetbrains.fus.reporting/ap-validation-all-2.0.249.jar",
+    name = "com.jetbrains.fus.reporting/ap-validation-all-2.0.250.jar_copy",
+    src = "@com_jetbrains_fus_reporting-ap-validation-all-2_0_250_http//file",
+    out = "com.jetbrains.fus.reporting/ap-validation-all-2.0.250.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
 
 jvm_import(
     name = "libraries-fus-ap-validation-com-jetbrains-fus-reporting-ap-validation-all",
-    jar = "@com_jetbrains_fus_reporting-ap-validation-all-2_0_249_http//file",
-    source_jar = "@com_jetbrains_fus_reporting-ap-validation-all-2_0_249-sources_http//file",
+    jar = "@com_jetbrains_fus_reporting-ap-validation-all-2_0_250_http//file",
+    source_jar = "@com_jetbrains_fus_reporting-ap-validation-all-2_0_250-sources_http//file",
     visibility = ["//visibility:public"],
 )
 
@@ -15327,13 +15327,6 @@ java_library(
 )
 
 java_library(
-    name = "maven-server-event_listener-tests-com-google-inject-guice-no_aop-4-0-provided",
-    neverlink = True,
-    visibility = ["//visibility:public"],
-    exports = [":maven-server-event_listener-tests-com-google-inject-guice-no_aop-4-0"],
-)
-
-java_library(
     name = "maven-server-event_listener-tests-org-apache-maven-maven-core-3-3-9",
     visibility = ["//visibility:public"],
     exports = [
@@ -15365,13 +15358,6 @@ java_library(
         ":org_sonatype_plexus-plexus-cipher-1_4_http_import",
         ":org_apache_commons-commons-lang3-3_4_http_import",
     ],
-)
-
-java_library(
-    name = "maven-server-event_listener-tests-org-apache-maven-maven-core-3-3-9-provided",
-    neverlink = True,
-    visibility = ["//visibility:public"],
-    exports = [":maven-server-event_listener-tests-org-apache-maven-maven-core-3-3-9"],
 )
 
 copy_file(
