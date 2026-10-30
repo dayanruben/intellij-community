@@ -11,9 +11,9 @@ import com.intellij.openapi.editor.impl.marker.DefaultMarkerPolicy
 import com.intellij.openapi.editor.impl.marker.MarkerPolicy
 import com.intellij.openapi.editor.impl.marker.MarkerSpec
 import com.intellij.openapi.editor.impl.marker.PersistentHighlighterPolicy
-import com.intellij.openapi.editor.impl.marker.SnapshotMarkerEngineImpl
 import com.intellij.openapi.editor.impl.marker.SnapshotRangeMarkerImpl
 import com.intellij.openapi.editor.markup.CustomHighlighterRenderer
+import com.intellij.openapi.editor.markup.FontFamilies
 import com.intellij.openapi.editor.markup.GutterIconRenderer
 import com.intellij.openapi.editor.markup.HighlighterTargetArea
 import com.intellij.openapi.editor.markup.LineMarkerRenderer
@@ -27,10 +27,11 @@ import com.intellij.util.Consumer
 import org.jetbrains.annotations.ApiStatus
 import java.awt.Color
 import java.awt.Font
+import java.lang.invoke.MethodHandles
+import java.lang.invoke.VarHandle
 
 internal class SnapshotRangeHighlighterImpl private constructor(
   private val storage: SnapshotHighlighterStorage,
-  private val highlighterId: Long,
   startOffset: Int,
   endOffset: Int,
   private val layer: Int,
@@ -38,14 +39,11 @@ internal class SnapshotRangeHighlighterImpl private constructor(
   initialSpec: Byte,
   private val persistent: Boolean,
   private var textAttributesKey: TextAttributesKey?,
-  policy: MarkerPolicy = DefaultMarkerPolicy,
 ) : SnapshotRangeMarkerImpl(
   storage.document,
   storage.rootStore,
-  highlighterId,
   initialSpec,
   TextRangeScalarUtil.toScalarRange(startOffset, endOffset),
-  policy,
 ), RangeHighlighterEx {
   private var forcedTextAttributes: TextAttributes? = null
   private var lineMarkerRenderer: LineMarkerRenderer? = null
@@ -65,6 +63,18 @@ internal class SnapshotRangeHighlighterImpl private constructor(
   private var thinErrorStripeMark: Boolean = false
   private var inBatchChange: Boolean = false
   private var batchChangeStatus: Int = 0
+
+  @Volatile
+  private var registered: Boolean = false
+
+  internal val isRegistered: Boolean
+    get() = registered
+
+  internal fun register() {
+    check(REGISTERED_HANDLE.compareAndSet(this, false, true)) { "Highlighter $id is already registered" }
+  }
+
+  internal fun unregister(): Boolean = REGISTERED_HANDLE.compareAndSet(this, true, false)
 
   override fun getLayer(): Int = layer
 
@@ -99,7 +109,9 @@ internal class SnapshotRangeHighlighterImpl private constructor(
     val erasedChanged = old === TextAttributes.ERASE_MARKER || textAttributes === TextAttributes.ERASE_MARKER ||
                         old == null && textAttributesKey != null
     if (erasedChanged || old != textAttributes) {
-      val fontStyleChanged = erasedChanged || fontStyle(old) != fontStyle(textAttributes)
+      val fontStyleChanged = erasedChanged ||
+                             fontStyle(old) != fontStyle(textAttributes) ||
+                             fontFamilies(old) != fontFamilies(textAttributes)
       val foregroundColorChanged = erasedChanged || foregroundColor(old) != foregroundColor(textAttributes)
       fireChanged(false, fontStyleChanged, foregroundColorChanged)
     }
@@ -312,10 +324,6 @@ internal class SnapshotRangeHighlighterImpl private constructor(
     if (renderer is Disposable) Disposer.dispose(renderer)
   }
 
-  fun idForStorage(): Long = highlighterId
-
-  fun targetAreaForStorage(): HighlighterTargetArea = targetArea
-
   fun updateFlavor() {
     storage.updateFlavor(this)
   }
@@ -330,6 +338,10 @@ internal class SnapshotRangeHighlighterImpl private constructor(
   }
 
   companion object {
+    private val REGISTERED_HANDLE: VarHandle = MethodHandles
+      .privateLookupIn(SnapshotRangeHighlighterImpl::class.java, MethodHandles.lookup())
+      .findVarHandle(SnapshotRangeHighlighterImpl::class.java, "registered", Boolean::class.java)
+
     @Suppress("InspectionUsingGrayColors", "UseJBColor")
     private val NULL_COLOR: Color = Color(0, 0, 0)
 
@@ -384,7 +396,6 @@ internal class SnapshotRangeHighlighterImpl private constructor(
     ): SnapshotRangeHighlighterImpl {
       val highlighter = SnapshotRangeHighlighterImpl(
         storage,
-        SnapshotMarkerEngineImpl.nextMarkerId(),
         startOffset,
         endOffset,
         layer,
@@ -392,13 +403,14 @@ internal class SnapshotRangeHighlighterImpl private constructor(
         spec,
         persistent,
         textAttributesKey,
-        policy,
       )
-      storage.add(highlighter, startOffset, endOffset, spec)
+      storage.add(highlighter, startOffset, endOffset, spec, policy)
       return highlighter
     }
 
     private fun fontStyle(attributes: TextAttributes?): Int = attributes?.fontType ?: Font.PLAIN
+
+    private fun fontFamilies(attributes: TextAttributes?): FontFamilies? = attributes?.fontFamilies
 
     private fun foregroundColor(attributes: TextAttributes?): Color? = attributes?.foregroundColor
   }

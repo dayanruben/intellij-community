@@ -5,6 +5,8 @@ import com.intellij.concurrency.virtualThreads.IntelliJVirtualThreads
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.util.io.FileUtil
+import com.intellij.platform.diagnostic.telemetry.Storage
+import com.intellij.platform.diagnostic.telemetry.TelemetryManager
 import com.intellij.platform.util.io.storages.database.DurableDatabase
 import com.intellij.platform.util.io.storages.database.DurableDatabaseFactory
 import com.intellij.platform.util.io.storages.database.DurableMapImplementation
@@ -13,8 +15,10 @@ import com.intellij.platform.util.io.storages.database.DurableMapImplementation.
 import com.intellij.platform.util.io.storages.database.impl.DropRetiredChunksHousekeeper
 import com.intellij.platform.util.io.storages.database.impl.SparseChunksEvacuationHousekeeper
 import com.intellij.platform.util.io.storages.database.spi.metrics.DatabaseMetrics
+import com.intellij.util.ExceptionUtil.runAllAndRethrowAllExceptions
 import com.intellij.util.indexing.FileBasedIndexExtension
 import com.intellij.util.indexing.SingleEntryFileBasedIndexExtension
+import com.intellij.util.indexing.impl.storage.IndexMaintenance
 import com.intellij.util.indexing.storage.FileBasedIndexLayoutProvider
 import com.intellij.util.indexing.storage.VfsAwareIndexStorageLayout
 import com.intellij.util.indexing.storage.sharding.ShardableIndexExtension
@@ -48,17 +52,30 @@ private val LOG = logger<DurableDatabaseIndexLayoutProvider>()
  * [invertedMapImplementation] and [forwardMapImplementation] select the formats for the two map roles.
  */
 @ApiStatus.Internal
-class DurableDatabaseIndexLayoutProvider(
+class DurableDatabaseIndexLayoutProvider @JvmOverloads constructor(
   private val databasePath: Path = PathManager.getIndexRoot().resolve(DATABASE_DIRECTORY_NAME),
   private val forwardMapImplementation: DurableMapImplementation = DurableMapImplementation.getProperty(
     "DurableDatabaseIndexLayoutProvider.forwardMapImplementation", KEY_VALUE_TOGETHER
   ),
   private val invertedMapImplementation: DurableMapImplementation = DurableMapImplementation.getProperty(
     "DurableDatabaseIndexLayoutProvider.invertedMapImplementation", KEY_VALUE_SEPARATELY
-  )
+  ),
+  private val maintenanceService: () -> IndexMaintenance<DurableDatabaseIndexLayoutProvider>? = { IndexMaintenance.getInstance() },
 ) : FileBasedIndexLayoutProvider {
-  private var lazyExecutorHolder: Lazy<ScheduledExecutorService> = newExecutorHolder()
-  private var lazyDatabaseHolder: Lazy<DurableDatabase> = newDatabaseHolder()
+
+  private object OTelReporterHolder {
+    // Keep one callback and its cumulative counters across provider replacements and data removal
+    val reporter = DurableDatabaseOTelReporter(TelemetryManager.getMeter(Storage))
+  }
+
+  private val lazyExecutorHolder: Lazy<ScheduledExecutorService> = newExecutorHolder()
+  private val lazyDatabaseHolder: Lazy<DurableDatabase> = newDatabaseHolder()
+
+  //@GuardedBy(this)
+  private var closed = false
+
+  //@GuardedBy(this)
+  private var maintenanceRegistration: AutoCloseable? = null
 
   private fun newExecutorHolder(): Lazy<ScheduledExecutorService> = lazy {
     Executors.newSingleThreadScheduledExecutor(
@@ -73,7 +90,7 @@ class DurableDatabaseIndexLayoutProvider(
       "implementations: forwardIndex=$forwardMapImplementation, invertedIndex=$invertedMapImplementation, " +
       "directory: [$databasePath]",
     )
-    DurableDatabaseFactory.withDefaults()
+    val database = DurableDatabaseFactory.withDefaults()
       .housekeeping(scheduler, scheduler)
       .startupHousekeeping(
         SparseChunksEvacuationHousekeeper(
@@ -84,6 +101,19 @@ class DurableDatabaseIndexLayoutProvider(
         DropRetiredChunksHousekeeper(),
       )
       .open(databasePath)
+    try {
+      OTelReporterHolder.reporter.attachDatabase(database)
+      database
+    }
+    catch (t: Throwable) {
+      try {
+        database.close()
+      }
+      catch (closeError: Throwable) {
+        t.addSuppressed(closeError)
+      }
+      throw t
+    }
   }
 
   private val applicableIndexIds: Predicate<String> by lazy {
@@ -116,8 +146,10 @@ class DurableDatabaseIndexLayoutProvider(
     extension: FileBasedIndexExtension<K, V>,
     otherApplicableProviders: Iterable<FileBasedIndexLayoutProvider>,
   ): VfsAwareIndexStorageLayout<K, V> {
+    check(!closed) { "Provider is closed [$databasePath]" }
+
     val database = lazyDatabaseHolder.value
-    return when (extension) {
+    val layout: VfsAwareIndexStorageLayout<K, V> = when (extension) {
       is SingleEntryFileBasedIndexExtension<V> -> {
         @Suppress("UNCHECKED_CAST")
         DurableDatabaseSingleEntryStorageLayout(database, extension, invertedMapImplementation) as VfsAwareIndexStorageLayout<K, V>
@@ -132,42 +164,70 @@ class DurableDatabaseIndexLayoutProvider(
       }
       else -> DurableDatabaseStorageLayout(database, extension, invertedMapImplementation, forwardMapImplementation)
     }
+
+    if (maintenanceRegistration == null) {
+      maintenanceRegistration = maintenanceService()?.registerForMaintenance(this)
+    }
+    return layout
   }
 
   @Synchronized
   @Throws(IOException::class)
   override fun closeAndClearData() {
-    closeDatabase()
+    close()
     if (Files.exists(databasePath) && !FileUtil.deleteWithRenaming(databasePath)) {
-      throw IOException("Cannot delete database at $databasePath")
+      throw IOException("Cannot delete database at [$databasePath]")
     }
-    lazyExecutorHolder = newExecutorHolder()
-    lazyDatabaseHolder = newDatabaseHolder()
   }
-
-  @Throws(IOException::class)
-  override fun close(): Unit = closeDatabase()
 
   @Synchronized
   @Throws(IOException::class)
+  override fun close() {
+    if (closed) return
+    closed = true
+    closeDatabase()
+  }
+
+  //@GuardedBy(this)
+  @Throws(IOException::class)
   private fun closeDatabase() {
-    if (lazyDatabaseHolder.isInitialized()) {
-      lazyDatabaseHolder.value.close()
-    }
-    if (lazyExecutorHolder.isInitialized()) {
-      lazyExecutorHolder.value.shutdown()
-    }
+    runAllAndRethrowAllExceptions(
+      IOException::class.java, { IOException("Failed to close database at [$databasePath]") },
+
+      {
+        maintenanceRegistration?.close()
+        maintenanceRegistration = null
+      },
+
+      {
+        if (lazyDatabaseHolder.isInitialized()) {
+          OTelReporterHolder.reporter.detachDatabase(lazyDatabaseHolder.value)
+        }
+      },
+
+      {
+        if (lazyDatabaseHolder.isInitialized()) {
+          lazyDatabaseHolder.value.close()
+        }
+      },
+
+      {
+        if (lazyExecutorHolder.isInitialized()) {
+          lazyExecutorHolder.value.shutdown()
+        }
+      }
+    )
   }
 
 
   /**
    * For monitoring/testing purposes
-   * @return database metrics, or {@link DatabaseMetrics#DUMMY} if database is not yet opened
+   * @return database metrics, or [DatabaseMetrics.DUMMY] if the database is not open or the provider is closed
    */
   @ApiStatus.Internal
   @Synchronized
   fun databaseMetrics(): DatabaseMetrics {
-    if (lazyDatabaseHolder.isInitialized()) {
+    if (!closed && lazyDatabaseHolder.isInitialized()) {
       return lazyDatabaseHolder.value.metrics(/*snapshot: */true)
     }
     else {

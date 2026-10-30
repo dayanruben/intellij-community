@@ -9,19 +9,7 @@ dev_dist_plugin(
         "intellij.dotenv.java",
         "intellij.dotenv.python",
     ],
-    descriptor = "src/main/resources/META-INF/plugin.xml",
-    jars = {
-        "lib/dotenv.jar": [
-            "intellij.dotenv",
-            "intellij.dotenv.kotlin",
-            "intellij.dotenv.java",
-            "intellij.dotenv.python",
-        ],
-    },
     main_module = "intellij.dotenv",
-    mode_refused_content_modules = {
-        "frontend": ["intellij.dotenv.python"],
-    },
 )
 ### auto-generated section `dev intellij.dotenv` end
 
@@ -62,37 +50,6 @@ jvm_library(
         "//platform/lang-impl",
         "//platform/lang-api:lang",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable",
-    ],
-)
-
-jvm_library(
-    name = "dotenv_test_lib",
-    testonly = True,
-    srcs = glob(
-        [],
-        allow_empty = True,
-    ),
-    module_name = "intellij.dotenv",
-    visibility = ["//visibility:public"],
-    runtime_deps = [
-        # do not sort,
-        ":dotenv",
-        "//platform/analysis-api:analysis_test_lib",
-        "//platform/core-api:core_test_lib",
-        "//platform/editor-ui-api:editor-ui_test_lib",
-        "//platform/lang-core:lang-core_test_lib",
-        "//platform/indexing-api:indexing_test_lib",
-        "//platform/projectModel-api:projectModel_test_lib",
-        "//platform/core-impl:core-impl_test_lib",
-        "//platform/util:util_test_lib",
-        "//platform/platform-impl:ide-impl_test_lib",
-        "//platform/ide-core:ide-core_test_lib",
-        "//platform/analysis-impl:analysis-impl_test_lib",
-        "//platform/util:util-ui_test_lib",
-        "//platform/refactoring:refactoring_test_lib",
-        "//platform/lang-impl:lang-impl_test_lib",
-        "//platform/lang-api:lang_test_lib",
-        "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
     ],
 )
 ### auto-generated section `build intellij.dotenv` end
