@@ -4,6 +4,7 @@ package com.intellij.platform.eel
 import com.intellij.platform.eel.fs.EelFileSystemApi
 import com.intellij.platform.eel.fs.EelFileSystemPosixApi
 import com.intellij.platform.eel.fs.EelFileSystemWindowsApi
+import com.intellij.platform.eel.provider.getResolvedEelMachine
 import org.jetbrains.annotations.ApiStatus
 
 /**
@@ -34,6 +35,16 @@ interface LocalEelApi : EelApi
  * Most operations are `suspend` functions and must be called from a coroutine.
  *
  * [EelPosixApi] and [EelWindowsApi] are the OS-family-specific refinements that narrow the capabilities and info to a known [EelOsFamily].
+ *
+ * ## Type Consistency Across `EelMachine`, `EelDescriptor`, and `Eel*Api`
+ * Although not expressible in the static type system, all [EelMachine], [EelDescriptor], and `Eel*Api` instances for a given environment
+ * are consistently linked by their backend and operating system characteristics:
+ * - **Backend family**: If an [EelMachine] is backed by IJent (or is [com.intellij.platform.eel.provider.LocalEelMachine]), its
+ *   corresponding [EelDescriptor]s, [EelApi] (`IjentApi` or [LocalEelApi]), and capability sub-APIs ([fs], [exec], [tunnels], etc.) all
+ *   belong to that same backend implementation family (e.g., `Ijent*Api`).
+ * - **Operating system family**: If a descriptor, machine, or API targets Windows (or POSIX), then [EelDescriptor.osFamily] is
+ *   [EelOsFamily.Windows] (or [EelOsFamily.Posix]), [platform] is [EelPlatform.Windows] (or [EelPlatform.Posix]), and the [EelApi] and its
+ *   sub-APIs implement the corresponding `Eel*WindowsApi` (or `Eel*PosixApi`) interfaces.
  */
 @ApiStatus.Experimental
 interface EelApi {
@@ -44,12 +55,23 @@ interface EelApi {
   val descriptor: EelDescriptor
 
   /**
+   * The [EelMachine] this instance connects to.
+   */
+  @get:ApiStatus.Experimental
+  val machine: EelMachine get() = descriptor.getResolvedEelMachine()!!  // TODO
+
+  /**
    * OS family and architecture of this environment. Prefer this over host-side `SystemInfo` when choosing environment-specific
    * binaries or branching on the OS.
    */
   val platform: EelPlatform
 
-  /** A view of the environment's file system. See [EelFileSystemApi]. */
+  /**
+   * A view of the environment's file system. See [EelFileSystemApi].
+   *
+   * Instead of using this internal property directly, use the [fileSystem] extension to access the environment's
+   * [java.nio.file.FileSystem] through standard `java.nio.file` APIs.
+   */
   @get:ApiStatus.Internal
   val fs: EelFileSystemApi
 

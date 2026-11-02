@@ -4,7 +4,9 @@ package com.intellij.platform.eel.provider
 import com.intellij.platform.eel.EelApi
 import com.intellij.platform.eel.EelDescriptor
 import com.intellij.platform.eel.EelMachine
+import kotlinx.coroutines.CoroutineScope
 import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.Nls
 
 @ApiStatus.Experimental
 data object LocalEelMachine : EelMachine {
@@ -12,7 +14,15 @@ data object LocalEelMachine : EelMachine {
 
   override val internalName: String = "Local"
 
+  @Suppress("HardCodedStringLiteral")
+  override val name: @Nls String = "Local"
+
   override suspend fun toEelApi(descriptor: EelDescriptor): EelApi {
+    check(descriptor === LocalEelDescriptor) { "Wrong descriptor: $descriptor for machine: $this" }
+    return localEel
+  }
+
+  override suspend fun toEelApi(descriptor: EelDescriptor, lifetime: CoroutineScope): EelApi {
     check(descriptor === LocalEelDescriptor) { "Wrong descriptor: $descriptor for machine: $this" }
     return localEel
   }

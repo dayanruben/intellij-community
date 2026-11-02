@@ -1,10 +1,13 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.multiverse
 
+import com.intellij.codeInsight.multiverse.CodeInsightContextProvider.Answer
 import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.backgroundWriteAction
+import com.intellij.openapi.application.readAndBackgroundWriteAction
+import com.intellij.openapi.application.runReadActionBlocking
 import com.intellij.openapi.application.runWriteAction
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
@@ -30,6 +33,9 @@ import com.intellij.util.concurrency.annotations.RequiresReadLock
 import com.intellij.util.containers.CollectionFactory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -37,6 +43,7 @@ import kotlinx.coroutines.launch
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.TestOnly
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.coroutines.cancellation.CancellationException
 
 @ApiStatus.Internal
 class CodeInsightContextManagerImpl(
@@ -59,6 +66,20 @@ class CodeInsightContextManagerImpl(
   // The buffer lets tryEmit succeed when subscribers are present. A zero-capacity flow rejects tryEmit and drops the invalidation event.
   private val _changeFlow = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
+  // One consumer merges the waiting requests, so two rechecks never run at the same time.
+  private val recheckRequests = Channel<Set<VirtualFile>>(Channel.UNLIMITED)
+
+  private val invalidator = object : CodeInsightContextProvider.Invalidator {
+    override fun requestInvalidation() {
+      invalidateAllContexts()
+    }
+
+    override fun requestInvalidation(files: Collection<VirtualFile>) {
+      if (files.isEmpty()) return
+      recheckRequests.trySend(files.toSet())
+    }
+  }
+
   init {
     EP_NAME.addChangeListener(cs) {
       cs.launch {
@@ -70,10 +91,10 @@ class CodeInsightContextManagerImpl(
     }
     subscribeToChanges()
     InvalidationBulkFileListener.subscribeToVfsEvents()
+    cs.launch { consumeRecheckRequests() }
   }
 
   private fun subscribeToChanges() {
-    val invalidator = { invalidateAllContexts() }
     EP_NAME.forEachExtensionSafe { provider ->
       provider.subscribeToChanges(project, invalidator)
     }
@@ -90,6 +111,86 @@ class CodeInsightContextManagerImpl(
     log.trace { "all contexts are invalidated" }
   }
 
+  private suspend fun consumeRecheckRequests() {
+    for (first in recheckRequests) {
+      val files = LinkedHashSet(first)
+      while (true) {
+        files.addAll(recheckRequests.tryReceive().getOrNull() ?: break)
+      }
+      try {
+        runSafely { recheck(files) }
+      }
+      catch (e: CancellationException) {
+        currentCoroutineContext().ensureActive()
+        log.error(e)
+      }
+    }
+  }
+
+  private suspend fun recheck(files: Set<VirtualFile>) {
+    val changed = readAndBackgroundWriteAction {
+      val checked = checkAnswers(files)
+      if (checked.isEmpty()) {
+        value(checked)
+      }
+      else {
+        writeAction {
+          invalidateContexts(checked)
+          checked
+        }
+      }
+    }
+    if (changed.isEmpty()) {
+      log.trace { "rechecked the contexts of ${files.size} file(s), none changed" }
+    }
+  }
+
+  /**
+   * Compares the cached answer of each file with the answer the providers give now, and returns the files whose answer
+   * changed. A file with no cached answer counts as changed. The GC can clear a cached answer while the editor, the
+   * preferred context and the PSI still use its contexts.
+   * Known gap: a compute that read an old input and caches its answer after this check stays until the next change.
+   */
+  @RequiresReadLock
+  private fun checkAnswers(files: Set<VirtualFile>): Set<VirtualFile> {
+    val changed = LinkedHashSet<VirtualFile>()
+    for (file in files) {
+      if (!file.isValid) continue
+      val cached = allContexts[file]
+      if (cached == null || isAnswerChanged(file, cached, computeContexts(file))) {
+        changed.add(file)
+      }
+    }
+    return changed
+  }
+
+  private fun isAnswerChanged(file: VirtualFile, cached: ContextOrArray, fresh: ContextOrArray): Boolean {
+    if (!isSameContexts(cached, fresh)) return true
+
+    // A single context is also the preferred one, so nothing else is cached for it.
+    if (fresh !is Array<*>) return false
+
+    val cachedPreferred = preferredContext[file] ?: return true
+    return cachedPreferred != selectPreferredContext(file, fresh)
+  }
+
+  private fun invalidateContexts(files: Set<VirtualFile>) {
+    assertWriteAccess()
+    preferredContext.remove(files)
+    allContexts.remove(files)
+    project.messageBus.syncPublisher(CodeInsightContextManager.topic).contextsChanged(files)
+    log.trace { "contexts of ${files.size} file(s) are invalidated: ${files.joinToString { it.path }}" }
+  }
+
+  /** Does what [CodeInsightContextProvider.Invalidator.requestInvalidation] does for [files], at once, on the calling thread. */
+  @TestOnly
+  fun requestInvalidationNow(files: Set<VirtualFile>) {
+    val changed = runReadActionBlocking { checkAnswers(files) }
+    if (changed.isNotEmpty()) {
+      runWriteAction { invalidateContexts(changed) }
+    }
+  }
+
   @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
   @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   override fun getCodeInsightContexts(file: VirtualFile): List<CodeInsightContext> {
@@ -100,23 +201,29 @@ class CodeInsightContextManagerImpl(
     return getContextsOf(file).wrapToList()
   }
 
+  private fun getContextsOf(file: VirtualFile): ContextOrArray = allContexts.getOrPut(file) { computeContexts(file) }
+
   /** lazySequence, not extensionList: getContexts can cost a workspace-index query, so providers past the owner are not asked. */
-  private fun getContextsOf(file: VirtualFile): ContextOrArray = allContexts.getOrPut(file) {
+  private fun computeContexts(file: VirtualFile): ContextOrArray {
     log.trace { "requested all contexts of file ${file.path}" }
 
     for (provider in EP_NAME.lazySequence()) {
-      val contexts = provider.getContextSafely(file) ?: continue
-      return@getOrPut contexts.ifEmpty { listOf(defaultContext()) }.asSequence().toContextOrArray().also {
-        log.debug { "[ctx-diag] computed contexts of ${file.path}: ${it.wrapToList()}" }
+      when (val answer = provider.getContextSafely(file)) {
+        Answer.NotOwned -> continue
+        is Answer.Contexts -> return answer.contexts.asSequence().toContextOrArray().also {
+          log.debug { "[ctx-diag] computed contexts of ${file.path}: ${it.wrapToList()}" }
+        }
       }
     }
 
-    defaultContext()
+    return defaultContext()
   }
 
   /** The provider whose contexts [file] carries. Derived from the contexts, so the cache stores no owner per file. */
-  private fun findOwner(file: VirtualFile): CodeInsightContextProvider? {
-    val context = getContextsOf(file).getFirstContextOrNull() ?: return null
+  private fun findOwner(file: VirtualFile): CodeInsightContextProvider? = findOwnerOf(getContextsOf(file))
+
+  private fun findOwnerOf(contexts: ContextOrArray): CodeInsightContextProvider? {
+    val context = contexts.getFirstContextOrNull() ?: return null
     return EP_NAME.lazySequence().firstOrNull { runSafely { it.isOwnerOf(context) } == true }
   }
 
@@ -141,7 +248,7 @@ class CodeInsightContextManagerImpl(
     }
 
     return preferredContext.getOrPut(file) {
-      val preferred = selectPreferredContext(file)
+      val preferred = selectPreferredContext(file, contexts)
       log.assertTrue(preferred !== anyContext()) { "preferredContext must not be anyContext" }
       preferred
     }
@@ -158,9 +265,9 @@ class CodeInsightContextManagerImpl(
     return runSafely { block(provider) }
   }
 
-  private fun selectPreferredContext(file: VirtualFile): CodeInsightContext {
-    val contexts = getContextsOf(file).wrapToList()
-    val owner = findOwner(file) ?: return contexts.first()
+  private fun selectPreferredContext(file: VirtualFile, contextOrArray: ContextOrArray): CodeInsightContext {
+    val contexts = contextOrArray.wrapToList()
+    val owner = findOwnerOf(contextOrArray) ?: return contexts.first()
 
     val nominee = runSafely { owner.getPreferredContext(file, project, contexts) } ?: return contexts.first()
     if (nominee in contexts) return nominee
@@ -185,9 +292,9 @@ class CodeInsightContextManagerImpl(
     return context
   }
 
-  /** `null` when the provider does not own [file], or when it threw. A provider that throws is broken, so we isolate it. */
-  private fun CodeInsightContextProvider.getContextSafely(file: VirtualFile): List<CodeInsightContext>? {
-    return runSafely { this.getContexts(file, project) }
+  /** [Answer.NotOwned] when the provider threw. A provider that throws is broken, so we isolate it. */
+  private fun CodeInsightContextProvider.getContextSafely(file: VirtualFile): Answer {
+    return runSafely { this.getContexts(file, project) } ?: Answer.NotOwned
   }
 
   private inline fun <T> runSafely(block: () -> T): T? {
@@ -318,6 +425,10 @@ private fun ContextOrArray.wrapToList(): List<CodeInsightContext> {
     is Array<*> -> (this as Array<CodeInsightContext>).asList()
     else -> listOf(this as CodeInsightContext)
   }
+}
+
+private fun isSameContexts(a: ContextOrArray, b: ContextOrArray): Boolean {
+  return if (a is Array<*> && b is Array<*>) a.contentEquals(b) else a == b
 }
 
 private fun Sequence<CodeInsightContext>.toContextOrArray(): ContextOrArray {

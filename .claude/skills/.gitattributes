@@ -4,8 +4,7 @@
 /code-style/** linguist-generated
 /commits/** linguist-generated
 /compare-python-typecheckers/** linguist-generated
-/compose-ui-architecture/** linguist-generated
-/compose-ui-audit/** linguist-generated
+/compose-ui/** linguist-generated
 /conda-env-tests/** linguist-generated
 /debugging/** linguist-generated
 /driver-ui-tests/** linguist-generated
@@ -16,11 +15,7 @@
 /icon-resources/** linguist-generated
 /icons/** linguist-generated
 /ide-diagnostics-mcp/** linguist-generated
-/jewel-markdown/** linguist-generated
-/jewel-release/** linguist-generated
-/jewel-swing-interop/** linguist-generated
-/jewel-ui/** linguist-generated
-/jewel-ui-audit/** linguist-generated
+/jewel/** linguist-generated
 /jna/** linguist-generated
 /kotlin-ui-dsl/** linguist-generated
 /kotlin-ui-swing-component-architecture/** linguist-generated

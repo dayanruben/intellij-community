@@ -3,7 +3,9 @@ package com.intellij.platform.eel
 
 import com.intellij.platform.eel.path.EelPath.OS
 import com.intellij.platform.util.annotations.VisibleToClasses
+import kotlinx.coroutines.CoroutineScope
 import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.Nls
 import org.jetbrains.annotations.NonNls
 
 /**
@@ -93,6 +95,14 @@ interface EelDescriptorWithInteractiveDeployment : EelDescriptor {
  * - For Docker: descriptors with `/docker-<id>/...` paths share the same container machine.
  *
  * Use this when caching or pooling long-lived data that’s stable across paths.
+ *
+ * ## Type Consistency
+ * Although not expressible in the static type system, an [EelMachine], its corresponding [EelDescriptor]s, and the `Eel*Api` instances
+ * it produces always share the same backend and operating system characteristics:
+ * - If an [EelMachine] is backed by IJent, its [EelDescriptor]s belong to IJent and all `Eel*Api` instances implement the corresponding
+ *   `Ijent*Api` interfaces (and similarly for [com.intellij.platform.eel.provider.LocalEelMachine] and [LocalEelApi]).
+ * - If a descriptor, machine, or API is for Windows (or POSIX), [EelDescriptor.osFamily] is [EelOsFamily.Windows] (or [EelOsFamily.Posix])
+ *   and all `Eel*Api` instances implement the corresponding `Eel*WindowsApi` (or `Eel*PosixApi`) interfaces.
  */
 @ApiStatus.Experimental
 interface EelMachine {
@@ -108,15 +118,46 @@ interface EelMachine {
   val internalName: String
 
   /**
-   * Converts this machine into a [EelApi] — starts or reuses a running environment.
+   * It is recommended but not obliged to return the same info as in [EelDescriptor.name].
+   */
+  @Suppress("HardCodedStringLiteral")
+  @get:ApiStatus.Experimental
+  val name: @Nls String get() = "TODO OVERRIDE ME"
+
+  /**
+   * Converts this machine into a [EelApi] — starts or reuses a running environment without binding a lease to a caller scope.
+   *
    * The machine selects the connection. [descriptor] defines the path namespace of the API and all paths it returns.
    * The caller must ensure that [descriptor] addresses this environment, including when another resolver owns that descriptor.
    * Implementations can reject path namespaces they do not support.
+   *
+   * To tie the environment's lifecycle to a [CoroutineScope] lease, use the [toEelApi] overload taking `lifetime`.
+   *
    * @throws EelUnavailableException if eel is unavailable (i.e. remote machine is gone, docker container removed e.t.c.). Show it to a user, ask to fix and try again.
    */
   @ApiStatus.Experimental
   @Throws(EelUnavailableException::class)
   suspend fun toEelApi(descriptor: EelDescriptor): EelApi
+
+  /**
+   * Acquires a reference-counted connection lease on this machine bound to [lifetime] and returns its [EelApi] for [descriptor].
+   *
+   * Unlike [toEelApi] without a scope, this overload ties the environment's lifecycle to [lifetime]. The lease remains active until
+   * [lifetime] is cancelled or completes. When all leases on this machine (including any open IDE projects) end, its machine-bound
+   * [fileSystem] and underlying remote agent session are closed.
+   *
+   * Why a [lifetime] parameter instead of making [EelApi] implement [AutoCloseable]: an [EelApi] is backed by a machine-wide shared
+   * session, and most callers of the single-parameter [toEelApi] are one-shot lookups that never close the returned instance. Taking
+   * [lifetime] at acquisition time distinguishes lease-holding callers from fire-and-forget callers, so reference counts cannot leak
+   * and closing one caller's scope never terminates a session still used by another lease or an open project.
+   *
+   * @throws EelUnavailableException if the environment cannot be reached.
+   */
+  @ApiStatus.Experimental
+  @Throws(EelUnavailableException::class)
+  suspend fun toEelApi(descriptor: EelDescriptor, lifetime: CoroutineScope): EelApi {
+    return EelMachineConnectionProvider.registry.openConnection(this, descriptor, lifetime)
+  }
 
   fun ownsDescriptor(descriptor: EelDescriptor): Boolean
 }
@@ -182,6 +223,8 @@ interface EelDescriptor {
   /**
    * Describes descriptor in a user-readable manner, i.e: "Docker: <container_name>" or "Wsl: <distro name>".
    * Format is *not* specified but guaranteed to be user-readable.
+   *
+   * See also [EelMachine.name].
    */
   @get:ApiStatus.Experimental
   val name: @NonNls String
