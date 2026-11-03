@@ -351,7 +351,7 @@
 
     <!-- Refactor -->
     <group id="RefactoringMenu" popup="true">
-    <reference ref="Refactorings.QuickListPopupAction"/>
+      <reference ref="Refactorings.QuickListPopupAction"/>
       <reference ref="RenameElement"/>
       <reference ref="ChangeSignature"/>
       <separator/>
@@ -686,10 +686,6 @@
 
     <reference ref="FileChooser.LightEditGotoOpenedFile">
       <add-to-group group-id="FileChooserToolbar" anchor="after" relative-to-action="FileChooser.GotoDesktop"/>
-    </reference>
-
-    <reference ref="ActivateHierarchyToolWindow">
-      <add-to-group group-id="ActivateToolWindowActions"/>
     </reference>
 
     <reference ref="ClickLink"/>

@@ -62,6 +62,7 @@ android/android/sdk
 android/android/ui
 android/android/ui.designer.overlays
 android/android/ui.resourcemanager
+android/android/webp
 android/androidx-integration-tests
 android/apkanalyzer
 android/apkanalyzer/apk
@@ -2068,7 +2069,6 @@ tools/intellij.tools.ide.starter.build.server
 tools/intellij.tools.ide.starter.driver
 tools/intellij.tools.ide.starter.junit5
 tools/intellij.tools.ide.starter.product.android.studio
-tools/intellij.tools.ide.starter.product.aqua
 tools/intellij.tools.ide.starter.product.clion
 tools/intellij.tools.ide.starter.product.datagrip
 tools/intellij.tools.ide.starter.product.gateway

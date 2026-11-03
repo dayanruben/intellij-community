@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.idea.devkit.documentation
 
 import com.intellij.codeInsight.documentation.DocumentationManagerProtocol.PSI_ELEMENT_PROTOCOL
@@ -135,12 +135,12 @@ internal class DocumentationRenderer(private val project: Project) {
     val style = attributes["style"]
     val icon = when (style) {
       "warning" -> "AllIcons.General.Warning" to AllIcons.General.Warning
-      "info" -> "AllIcons.General.Information" to AllIcons.General.Information
+      "note" -> "AllIcons.General.Information" to AllIcons.General.Information
       else -> "AllIcons.Actions.IntentionBulbGrey" to AllIcons.Actions.IntentionBulbGrey
     }
     val text = attributes["title"] ?: when (style) {
       "warning" -> "Warning"
-      "info" -> "Information"
+      "note" -> "Information"
       else -> "Tip"
     }
     return "${indent}> ${buildIconTitle(icon.first, icon.second, text)}<br>"
@@ -169,6 +169,7 @@ internal class DocumentationRenderer(private val project: Project) {
     appendElementPath(element.path)
     appendLine("<hr/>")
     appendDeprecation(element.deprecatedSince, element.deprecationNote)
+    appendExperimental(element.getOwnOrParentExperimentalNote())
     appendSinceUntil(element.since, element.until)
     element.description?.trim()?.let { appendLine("$it\n") }
     appendNamespace(element.namespace)
@@ -213,24 +214,29 @@ internal class DocumentationRenderer(private val project: Project) {
   }
 
   private fun StringBuilder.appendDeprecation(deprecatedSince: String?, deprecationNote: String?) {
-    if (deprecatedSince != null || deprecationNote != null) {
-      append("**_")
-      if (deprecatedSince != null) {
-        append("Deprecated since ${deprecatedSince}")
-      }
-      else {
-        append("Deprecated")
-      }
-      append("_**")
-      val deprecationNote = deprecationNote
-      if (deprecationNote != null) {
-        append("<br/>")
-        val italicDeprecationNote = deprecationNote.lines().joinToString(separator = "\n") { if (it.isNotEmpty()) "_${it}_" else it }
-        append(italicDeprecationNote)
-
-      }
-      appendLine().appendLine()
+    if (deprecatedSince == null && deprecationNote == null) return
+    val title = if (deprecatedSince != null) "Deprecated since $deprecatedSince" else "Deprecated"
+    if (deprecationNote != null) {
+      appendCallout("warning", title, deprecationNote)
     }
+    else {
+      // a callout requires at least one content line
+      appendLine("**_${title}_**").appendLine()
+    }
+  }
+
+  private fun StringBuilder.appendExperimental(experimentalNote: String?) {
+    experimentalNote ?: return
+    appendCallout("note", "Experimental", experimentalNote)
+  }
+
+  private fun StringBuilder.appendCallout(style: String, title: String, content: String) {
+    for (line in content.trim().lines()) {
+      appendLine(if (line.isBlank()) ">" else "> $line")
+    }
+    appendLine(">")
+    appendLine("{style=\"$style\" title=\"$title\"}")
+    appendLine()
   }
 
   private fun StringBuilder.appendSinceUntil(since: String?, until: String?) {
@@ -292,7 +298,12 @@ internal class DocumentationRenderer(private val project: Project) {
     if (includedAttributes.isNotEmpty()) {
       appendLine("$HEADER_LEVEL Attributes")
       for (attribute in includedAttributes) {
-        val attributeDetails = getDetails(attribute.getOwnOrParentInternalNote(), attribute.requirement)
+        val attributeDetails = getDetails(
+          attribute.getOwnOrParentInternalNote(),
+          attribute.getOwnOrParentExperimentalNote(),
+          attribute.requirement,
+          attribute.deprecatedSince != null || attribute.deprecationNote != null,
+        )
         appendLine("- ${attributeLink(attribute.name!!, attribute.path)}$attributeDetails")
       }
     }
@@ -303,7 +314,7 @@ internal class DocumentationRenderer(private val project: Project) {
     return "[`$text`]($ATTRIBUTE_DOC_LINK_PREFIX$linkPath)"
   }
 
-  private fun getDetails(internalNote: String?, requirement: Requirement?): String {
+  private fun getDetails(internalNote: String?, experimentalNote: String?, requirement: Requirement?, deprecated: Boolean): String {
     val details = mutableListOf<String>()
     if (internalNote != null) {
       details.add("internal")
@@ -317,6 +328,12 @@ internal class DocumentationRenderer(private val project: Project) {
       if (requiredDetails != null) {
         details.add("**$requiredDetails**")
       }
+    }
+    if (experimentalNote != null) {
+      details.add("experimental")
+    }
+    if (deprecated) {
+      details.add("deprecated")
     }
     if (details.isEmpty()) return ""
     return details.joinToString(prefix = " ", separator = "; ") { "_${it}_" }
@@ -336,7 +353,12 @@ internal class DocumentationRenderer(private val project: Project) {
         val linkText = childElement.name
         val linkPath = childElement.path.toPathString()
         val linkUrl = "$ELEMENT_DOC_LINK_PREFIX$linkPath"
-        val childDetails = getDetails(childElement.getOwnOrParentInternalNote(), childElement.requirement)
+        val childDetails = getDetails(
+          childElement.getOwnOrParentInternalNote(),
+          childElement.getOwnOrParentExperimentalNote(),
+          childElement.requirement,
+          childElement.deprecatedSince != null || childElement.deprecationNote != null,
+        )
         appendLine("- [`<$linkText>`]($linkUrl)$childDetails")
       }
       appendParagraphSeparator()
@@ -379,6 +401,7 @@ internal class DocumentationRenderer(private val project: Project) {
     appendAttributePath(attribute.path)
     appendLine("<hr/>")
     appendDeprecation(attribute.deprecatedSince, attribute.deprecationNote)
+    appendExperimental(attribute.getOwnOrParentExperimentalNote())
     appendSinceUntil(attribute.since, attribute.until)
     attribute.description?.trim()?.let { append("$it\n") }
     appendParagraphSeparator()

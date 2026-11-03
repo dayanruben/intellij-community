@@ -44,7 +44,6 @@ import com.intellij.ui.ExperimentalUI
 import com.intellij.ui.FontComboBox
 import com.intellij.ui.MacCustomAppIcon
 import com.intellij.ui.components.JBCheckBox
-import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.BottomGap
 import com.intellij.ui.dsl.builder.Cell
 import com.intellij.ui.dsl.builder.MutableProperty
@@ -429,7 +428,7 @@ internal class AppearanceConfigurable : BoundSearchableConfigurable(message("tit
               row {
                 checkBox(cdShowToolWindowBars)
                   .onChanged { cb ->
-                    findDiagramPanel(cb)?.showToolWindowBars = cb.isSelected
+                    findPreviewPanel(cb)?.showToolWindowBars = cb.isSelected
                   }
               }
               if (ExperimentalUI.isNewUI()) {
@@ -438,7 +437,7 @@ internal class AppearanceConfigurable : BoundSearchableConfigurable(message("tit
                   checkBox(cdShowToolWindowNames).onApply {
                     ResizeStripeManager.applyShowNames()
                   }.onChanged { cb ->
-                    findDiagramPanel(cb)?.showToolWindowNames = cb.isSelected
+                    findPreviewPanel(cb)?.showToolWindowNames = cb.isSelected
                   }.visible(extension == null)
                 }
                 row {
@@ -450,19 +449,19 @@ internal class AppearanceConfigurable : BoundSearchableConfigurable(message("tit
               }
               row {
                 checkBox(cdLeftToolWindowLayout).onChanged { cb ->
-                  findDiagramPanel(cb)?.leftHorizontalSplit = cb.isSelected
+                  findPreviewPanel(cb)?.leftHorizontalSplit = cb.isSelected
                 }
               }
               row {
                 checkBox(cdRightToolWindowLayout).onChanged { cb ->
-                  findDiagramPanel(cb)?.rightHorizontalSplit = cb.isSelected
+                  findPreviewPanel(cb)?.rightHorizontalSplit = cb.isSelected
                 }
               }
               row {
                 checkBox(cdWidescreenToolWindowLayout)
                   .contextHelp(message("checkbox.widescreen.tool.window.layout.description"))
                   .onChanged { cb ->
-                    findDiagramPanel(cb)?.wideScreenSupport = cb.isSelected
+                    findPreviewPanel(cb)?.wideScreenSupport = cb.isSelected
                   }
               }
               if (ExperimentalUI.isNewUI()) {
@@ -479,15 +478,14 @@ internal class AppearanceConfigurable : BoundSearchableConfigurable(message("tit
             }
           },
           {
-            val diagram = ToolWindowLayoutDiagramPanel()
-            cell(diagram)
-              .align(Align.FILL)
+            val preview = ToolWindowLayoutPreviewPanel()
+            cell(preview)
               .onApply {
-                diagram.wideScreenSupport = settings.wideScreenSupport
-                diagram.leftHorizontalSplit = settings.leftHorizontalSplit
-                diagram.rightHorizontalSplit = settings.rightHorizontalSplit
-                diagram.showToolWindowBars = !settings.hideToolStripes
-                diagram.showToolWindowNames = settings.showToolWindowsNames
+                preview.wideScreenSupport = settings.wideScreenSupport
+                preview.leftHorizontalSplit = settings.leftHorizontalSplit
+                preview.rightHorizontalSplit = settings.rightHorizontalSplit
+                preview.showToolWindowBars = !settings.hideToolStripes
+                preview.showToolWindowNames = settings.showToolWindowsNames
               }
           },
         )
@@ -674,12 +672,12 @@ internal fun logIdeZoomChanged(value: Float, isPresentation: Boolean) {
   )
 }
 
-private fun findDiagramPanel(component: java.awt.Component): ToolWindowLayoutDiagramPanel? {
+private fun findPreviewPanel(component: java.awt.Component): ToolWindowLayoutPreviewPanel? {
   var parent = component.parent
   while (parent != null) {
-    if (parent is ToolWindowLayoutDiagramPanel) return parent
+    if (parent is ToolWindowLayoutPreviewPanel) return parent
     for (child in parent.components) {
-      val found = findDiagramInTree(child)
+      val found = findPreviewInTree(child)
       if (found != null) return found
     }
     parent = parent.parent
@@ -687,11 +685,11 @@ private fun findDiagramPanel(component: java.awt.Component): ToolWindowLayoutDia
   return null
 }
 
-private fun findDiagramInTree(component: java.awt.Component): ToolWindowLayoutDiagramPanel? {
-  if (component is ToolWindowLayoutDiagramPanel) return component
+private fun findPreviewInTree(component: java.awt.Component): ToolWindowLayoutPreviewPanel? {
+  if (component is ToolWindowLayoutPreviewPanel) return component
   if (component is java.awt.Container) {
     for (child in component.components) {
-      val found = findDiagramInTree(child)
+      val found = findPreviewInTree(child)
       if (found != null) return found
     }
   }

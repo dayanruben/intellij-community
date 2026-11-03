@@ -10,6 +10,8 @@ import com.intellij.codeInspection.util.IntentionFamilyName
 import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.TextRange
+import com.intellij.psi.PsiComment
+import com.intellij.psi.PsiElement
 import com.intellij.psi.SmartPsiElementPointer
 import com.intellij.psi.createSmartPointer
 import com.intellij.psi.util.parents
@@ -49,6 +51,7 @@ import org.jetbrains.kotlin.psi.KtQualifiedExpression
 import org.jetbrains.kotlin.psi.KtValueArgument
 import org.jetbrains.kotlin.psi.KtVisitorVoid
 import org.jetbrains.kotlin.psi.expressionVisitor
+import org.jetbrains.kotlin.psi.psiUtil.allChildren
 
 /**
  * Applicable to a topmost [KtBinaryExpression] possibly wrapped into `()`
@@ -155,13 +158,13 @@ class CollectionConcatenationToBuildCollectionInspection :
     private fun createInitialOperation(element: KtBinaryExpression): Context.Operation? {
         val expression = nestedBinaryExpressionSequence(element).lastOrNull()?.left ?: return null
         val type = expression.expressionType ?: return null
-        return expression.toOperationForPlus(isIterableOrSequence(type))
+        return expression.toOperationForPlus(isIterableSequenceOrArray(type))
     }
 
     context(_: KaSession)
     private fun KtExpression.toOperationForStandalone(): Context.Operation? {
         val type = expressionType ?: return null
-        return toOperationForPlus(isIterableOrSequence(type))
+        return toOperationForPlus(isIterableSequenceOrArray(type))
     }
 
     context(_: KaSession)
@@ -177,7 +180,7 @@ class CollectionConcatenationToBuildCollectionInspection :
         val rhs = right ?: return null
         val rhsType = rhs.expressionType ?: return null
 
-        val isCollectionOrSequence = isIterableOrSequence(rhsType)
+        val isCollectionOrSequence = isIterableSequenceOrArray(rhsType)
         return when (operationToken) {
             KtTokens.MINUS -> when {
                 isCollectionOrSequence -> Context.Operation.AddRemoveOperation(
@@ -198,16 +201,17 @@ class CollectionConcatenationToBuildCollectionInspection :
     }
 
     context(_: KaSession)
-    private fun isIterableOrSequence(rhsType: KaType): Boolean {
-        return rhsType.isSubtypeOf(StandardClassIds.Iterable) || rhsType.isSubtypeOf(StandardClassIds.Sequence)
+    private fun isIterableSequenceOrArray(rhsType: KaType): Boolean {
+        return rhsType.isSubtypeOf(StandardClassIds.Iterable)
+                || rhsType.isSubtypeOf(StandardClassIds.Sequence)
+                || rhsType.isSubtypeOf(StandardClassIds.Array)
     }
 
     context(_: KaSession)
     private fun KtExpression.toOperationForPlus(isCollectionOrSequence: Boolean): Context.Operation {
-        toTransformingOperation()?.let { return it }
         return when {
-            isCollectionOrSequence ->
-                Context.Operation.AddRemoveOperation(createSmartPointer(), Context.Operation.AddRemoveOperation.Kind.AddAll)
+            isCollectionOrSequence -> toTransformingOperation()
+                ?: Context.Operation.AddRemoveOperation(createSmartPointer(), Context.Operation.AddRemoveOperation.Kind.AddAll)
 
             else ->
                 Context.Operation.AddRemoveOperation(createSmartPointer(), Context.Operation.AddRemoveOperation.Kind.Add)
@@ -267,6 +271,8 @@ class CollectionConcatenationToBuildCollectionInspection :
         val expression = writableElement.safeDeparenthesize()
         val expressionToConvert = expression.expressionToConvert()
         val replacementTarget = expressionToConvert.getTopmostParenthesizedExpressionOrSelf()
+        val commentsBeforeOperations = commentsBeforeOperations(expressionToConvert)
+        val operationExpressions = writableOperations.map { operation -> operation.expression.element ?: return }
         val replacements = ThisRebinderForAddingNewReceiver.apply(writableRebinderContext)
 
         val ktPsiFactory = KtPsiFactory(project)
@@ -280,17 +286,18 @@ class CollectionConcatenationToBuildCollectionInspection :
             replacements[this] ?: this
 
         val collectionType = elementContext.collectionType
-        for (operation in writableOperations) {
+        for (index in writableOperations.indices) {
+            val operation = writableOperations[index]
+            val expression = operationExpressions[index].elementOrReplacement()
+            for (comment in commentsBeforeOperations.getOrNull(index).orEmpty()) {
+                bodyExpression.addStatement(ktPsiFactory, comment)
+            }
             when (operation) {
                 is Context.Operation.AddRemoveOperation -> {
-                    val expression = operation.expression.element?.elementOrReplacement()
-                        ?: error("Element is invalid for operation: $operation")
                     bodyExpression.addOperation(ktPsiFactory, collectionType.operationNames.getValue(operation.kind), expression)
                 }
 
                 is Context.Operation.TransformingOperation -> {
-                    val expression = operation.expression.element?.elementOrReplacement()
-                        ?: error("Element is invalid for operation: $operation")
                     val callExpression = expression.transformingCallExpression() ?: return
                     val nameReferenceExpression = callExpression.calleeExpression as? KtNameReferenceExpression ?: return
                     val identifier = nameReferenceExpression.getIdentifier() ?: return
@@ -398,15 +405,25 @@ class CollectionConcatenationToBuildCollectionInspection :
             }
     }
 
+    /**
+     * A binary parent extends the chain only if it is a `+` or `-` operation,
+     * and the chain is not a receiver of a qualified expression, as in `1 + (a + b).size`.
+     */
     private fun KtExpression.expressionToConvert(): KtExpression {
         var currentExpression: KtExpression = this
         var topmostBinaryExpression: KtBinaryExpression? = currentExpression as? KtBinaryExpression
+        var isChainEnded = false
         while (true) {
             val parent = currentExpression.parent
             currentExpression = when (parent) {
                 is KtParenthesizedExpression -> parent
-                is KtQualifiedExpression -> parent
+                is KtQualifiedExpression -> {
+                    if (topmostBinaryExpression != null) isChainEnded = true
+                    parent
+                }
+
                 is KtBinaryExpression -> {
+                    if (isChainEnded || !parent.hasApplicableToken()) break
                     topmostBinaryExpression = parent
                     parent
                 }
@@ -434,7 +451,18 @@ class CollectionConcatenationToBuildCollectionInspection :
     }
 
 
-    private fun KtBlockExpression.addStatement(ktPsiFactory: KtPsiFactory, statement: KtExpression) {
+    /**
+     * Returns the comments between the operands of [expression], grouped by the index of the operation that follows them.
+     */
+    private fun commentsBeforeOperations(expression: KtExpression): List<List<PsiComment>> {
+        if (expression !is KtBinaryExpression) return emptyList()
+        val binaryExpressions = nestedBinaryExpressionSequence(expression).toList().reversed()
+        return listOf(emptyList<PsiComment>()) + binaryExpressions.map { binaryExpression ->
+            binaryExpression.allChildren.filterIsInstance<PsiComment>().toList()
+        }
+    }
+
+    private fun KtBlockExpression.addStatement(ktPsiFactory: KtPsiFactory, statement: PsiElement) {
         addBefore(statement, rBrace)
         addBefore(ktPsiFactory.createNewLine(), rBrace)
     }

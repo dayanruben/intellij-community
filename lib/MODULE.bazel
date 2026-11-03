@@ -8058,17 +8058,17 @@ http_file(
 )
 
 http_file(
-    name = "org_jetbrains_intellij_deps_jcef-jcef-150_0_14-g7c1aa68-chromium-150_0_7871_129-api-1_21-263-b16_http",
-    downloaded_file_path = "jcef-150.0.14-g7c1aa68-chromium-150.0.7871.129-api-1.21-263-b16.jar",
-    sha256 = "beea36b3c2a831165c9b68ae5313b0ade6c3a8f0ffd33f3c001c2ddc450ad195",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/intellij/deps/jcef/jcef/150.0.14-g7c1aa68-chromium-150.0.7871.129-api-1.21-263-b16/jcef-150.0.14-g7c1aa68-chromium-150.0.7871.129-api-1.21-263-b16.jar",
+    name = "org_jetbrains_intellij_deps_jcef-jcef-150_0_14-g7c1aa68-chromium-150_0_7871_129-api-1_21-263-b18_http",
+    downloaded_file_path = "jcef-150.0.14-g7c1aa68-chromium-150.0.7871.129-api-1.21-263-b18.jar",
+    sha256 = "ce9278f9b757bc477e03df4b86c2e86793b7257832d628d7b48676086a6e4c71",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/intellij/deps/jcef/jcef/150.0.14-g7c1aa68-chromium-150.0.7871.129-api-1.21-263-b18/jcef-150.0.14-g7c1aa68-chromium-150.0.7871.129-api-1.21-263-b18.jar",
 )
 
 http_file(
-    name = "org_jetbrains_intellij_deps_jcef-jcef-150_0_14-g7c1aa68-chromium-150_0_7871_129-api-1_21-263-b16-sources_http",
-    downloaded_file_path = "jcef-150.0.14-g7c1aa68-chromium-150.0.7871.129-api-1.21-263-b16-sources.jar",
-    sha256 = "77d39cbeceeb3f796cb9278f7dcb1701f9cec2c645ea0f262c668c9329de53e8",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/intellij/deps/jcef/jcef/150.0.14-g7c1aa68-chromium-150.0.7871.129-api-1.21-263-b16/jcef-150.0.14-g7c1aa68-chromium-150.0.7871.129-api-1.21-263-b16-sources.jar",
+    name = "org_jetbrains_intellij_deps_jcef-jcef-150_0_14-g7c1aa68-chromium-150_0_7871_129-api-1_21-263-b18-sources_http",
+    downloaded_file_path = "jcef-150.0.14-g7c1aa68-chromium-150.0.7871.129-api-1.21-263-b18-sources.jar",
+    sha256 = "4de7461b688f55dfcfd9f0db4dec57eb32cb9f31c3f32c969ceaa775a7f24c35",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/intellij/deps/jcef/jcef/150.0.14-g7c1aa68-chromium-150.0.7871.129-api-1.21-263-b18/jcef-150.0.14-g7c1aa68-chromium-150.0.7871.129-api-1.21-263-b18-sources.jar",
 )
 
 http_file(
@@ -8814,31 +8814,31 @@ http_file(
 )
 
 http_file(
-    name = "org_jetbrains_kotlin-kotlin-gradle-plugin-idea-1_9_20-dev-8162_http",
-    downloaded_file_path = "kotlin-gradle-plugin-idea-1.9.20-dev-8162.jar",
-    sha256 = "8d1af87632d95148f122a9fa0ae2903c19ee6fab7d01e017f76e0d2c9a022c20",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/kotlin/kotlin-gradle-plugin-idea/1.9.20-dev-8162/kotlin-gradle-plugin-idea-1.9.20-dev-8162.jar",
+    name = "org_jetbrains_kotlin-kotlin-gradle-plugin-idea-2_5_20-dev-2623_http",
+    downloaded_file_path = "kotlin-gradle-plugin-idea-2.5.20-dev-2623.jar",
+    sha256 = "e771882a77c4eb63fd613cb551b5a904dfbe874fc7f12b07de1162bc54030dca",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/kotlin/kotlin-gradle-plugin-idea/2.5.20-dev-2623/kotlin-gradle-plugin-idea-2.5.20-dev-2623.jar",
 )
 
 http_file(
-    name = "org_jetbrains_kotlin-kotlin-gradle-plugin-idea-1_9_20-dev-8162-sources_http",
-    downloaded_file_path = "kotlin-gradle-plugin-idea-1.9.20-dev-8162-sources.jar",
-    sha256 = "34995ef329b089595cc65f760f4aad0ce012730bc40666072af72695b24fe5cf",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/kotlin/kotlin-gradle-plugin-idea/1.9.20-dev-8162/kotlin-gradle-plugin-idea-1.9.20-dev-8162-sources.jar",
+    name = "org_jetbrains_kotlin-kotlin-gradle-plugin-idea-2_5_20-dev-2623-sources_http",
+    downloaded_file_path = "kotlin-gradle-plugin-idea-2.5.20-dev-2623-sources.jar",
+    sha256 = "59d8a65869e20f663164dedb50d34580e10c6127eb1345e229ebff21a637fe92",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/kotlin/kotlin-gradle-plugin-idea/2.5.20-dev-2623/kotlin-gradle-plugin-idea-2.5.20-dev-2623-sources.jar",
 )
 
 http_file(
-    name = "org_jetbrains_kotlin-kotlin-gradle-plugin-idea-proto-1_9_20-dev-8162_http",
-    downloaded_file_path = "kotlin-gradle-plugin-idea-proto-1.9.20-dev-8162.jar",
-    sha256 = "3841d6ad1fdd4bf90143ac6012146d291409b431e837f143c023135bd24b79a6",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/kotlin/kotlin-gradle-plugin-idea-proto/1.9.20-dev-8162/kotlin-gradle-plugin-idea-proto-1.9.20-dev-8162.jar",
+    name = "org_jetbrains_kotlin-kotlin-gradle-plugin-idea-proto-2_5_20-dev-2623_http",
+    downloaded_file_path = "kotlin-gradle-plugin-idea-proto-2.5.20-dev-2623.jar",
+    sha256 = "24a0a39ae6ddefa6e612d0e9027ca636d34658e579995d574a3a383fae61f70a",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/kotlin/kotlin-gradle-plugin-idea-proto/2.5.20-dev-2623/kotlin-gradle-plugin-idea-proto-2.5.20-dev-2623.jar",
 )
 
 http_file(
-    name = "org_jetbrains_kotlin-kotlin-gradle-plugin-idea-proto-1_9_20-dev-8162-sources_http",
-    downloaded_file_path = "kotlin-gradle-plugin-idea-proto-1.9.20-dev-8162-sources.jar",
-    sha256 = "17cfd9ffb163ab974875820368673a42edf8cd6c8f3a0d9750ccb0cb21f6d21d",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/kotlin/kotlin-gradle-plugin-idea-proto/1.9.20-dev-8162/kotlin-gradle-plugin-idea-proto-1.9.20-dev-8162-sources.jar",
+    name = "org_jetbrains_kotlin-kotlin-gradle-plugin-idea-proto-2_5_20-dev-2623-sources_http",
+    downloaded_file_path = "kotlin-gradle-plugin-idea-proto-2.5.20-dev-2623-sources.jar",
+    sha256 = "65673fb356b7d7ad49d3404ceb038d1810b552ec4b988261bfc2f90c0146997f",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/kotlin/kotlin-gradle-plugin-idea-proto/2.5.20-dev-2623/kotlin-gradle-plugin-idea-proto-2.5.20-dev-2623-sources.jar",
 )
 
 http_file(
@@ -8898,17 +8898,17 @@ http_file(
 )
 
 http_file(
-    name = "org_jetbrains_kotlin-kotlin-tooling-core-1_9_20-dev-8162_http",
-    downloaded_file_path = "kotlin-tooling-core-1.9.20-dev-8162.jar",
-    sha256 = "8938eb97e36320daa3e6fb2a60fd2a05b232ff4a557173c5019f045b8832d9f4",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/kotlin/kotlin-tooling-core/1.9.20-dev-8162/kotlin-tooling-core-1.9.20-dev-8162.jar",
+    name = "org_jetbrains_kotlin-kotlin-tooling-core-2_5_20-dev-2623_http",
+    downloaded_file_path = "kotlin-tooling-core-2.5.20-dev-2623.jar",
+    sha256 = "4dc5ec54a924c0d66d6f918e67aa28a569275a64cdfdaab11061c9eb9bb16b67",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/kotlin/kotlin-tooling-core/2.5.20-dev-2623/kotlin-tooling-core-2.5.20-dev-2623.jar",
 )
 
 http_file(
-    name = "org_jetbrains_kotlin-kotlin-tooling-core-1_9_20-dev-8162-sources_http",
-    downloaded_file_path = "kotlin-tooling-core-1.9.20-dev-8162-sources.jar",
-    sha256 = "1b13cee4e9b562f5cd553370840c9b91d283235a61ffe87ca1efb069ede88294",
-    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/kotlin/kotlin-tooling-core/1.9.20-dev-8162/kotlin-tooling-core-1.9.20-dev-8162-sources.jar",
+    name = "org_jetbrains_kotlin-kotlin-tooling-core-2_5_20-dev-2623-sources_http",
+    downloaded_file_path = "kotlin-tooling-core-2.5.20-dev-2623-sources.jar",
+    sha256 = "2d41ea328ee90b09bb0b917bcab82399158ab7046aeadeccb6e357d445aadac8",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/kotlin/kotlin-tooling-core/2.5.20-dev-2623/kotlin-tooling-core-2.5.20-dev-2623-sources.jar",
 )
 
 http_file(
@@ -9983,17 +9983,17 @@ http_file(
 )
 
 http_file(
-    name = "org_jetbrains-markdown-jvm-0_7_18_http",
-    downloaded_file_path = "markdown-jvm-0.7.18.jar",
-    sha256 = "05a7f08a5ecb00fc1dbe5026e695c840098729a6aa79cfffa26e2ffb2a789ea1",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/jetbrains/markdown-jvm/0.7.18/markdown-jvm-0.7.18.jar",
+    name = "org_jetbrains-markdown-jvm-0_7_18_2_http",
+    downloaded_file_path = "markdown-jvm-0.7.18.2.jar",
+    sha256 = "7cbe2642fce7ceabb99e8230823098e1f318427f3292ee5e67a1574631c60db3",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/markdown-jvm/0.7.18.2/markdown-jvm-0.7.18.2.jar",
 )
 
 http_file(
-    name = "org_jetbrains-markdown-jvm-0_7_18-sources_http",
-    downloaded_file_path = "markdown-jvm-0.7.18-sources.jar",
-    sha256 = "b10abb1daf5b2dd3ff1a419afd1713707ba0b5de2bc356a4b3066fa0f880269b",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/jetbrains/markdown-jvm/0.7.18/markdown-jvm-0.7.18-sources.jar",
+    name = "org_jetbrains-markdown-jvm-0_7_18_2-sources_http",
+    downloaded_file_path = "markdown-jvm-0.7.18.2-sources.jar",
+    sha256 = "b28355838630271f1a788aebc470c2d7df9f622a7d71212b0a49d779163c727e",
+    url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/markdown-jvm/0.7.18.2/markdown-jvm-0.7.18.2-sources.jar",
 )
 
 http_file(
@@ -11971,17 +11971,17 @@ http_file(
 )
 
 http_file(
-    name = "org_jetbrains-marketplace-zip-signer-0_1_43_http",
-    downloaded_file_path = "marketplace-zip-signer-0.1.43.jar",
-    sha256 = "7db707d839949384760b0f3e58eff49bfedea05f822e4f3361c4b540aa5dcc16",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/jetbrains/marketplace-zip-signer/0.1.43/marketplace-zip-signer-0.1.43.jar",
+    name = "org_jetbrains-marketplace-zip-signer-0_1_45_http",
+    downloaded_file_path = "marketplace-zip-signer-0.1.45.jar",
+    sha256 = "715ddf235c8a422fe09a3b374ad0ed2d0a7c6ae96b03299ef43738ce6c197065",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/jetbrains/marketplace-zip-signer/0.1.45/marketplace-zip-signer-0.1.45.jar",
 )
 
 http_file(
-    name = "org_jetbrains-marketplace-zip-signer-0_1_43-sources_http",
-    downloaded_file_path = "marketplace-zip-signer-0.1.43-sources.jar",
-    sha256 = "50233062bc38ac3d6405d7de0505440260588da59ebf8589ac7edabe7a499ead",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/jetbrains/marketplace-zip-signer/0.1.43/marketplace-zip-signer-0.1.43-sources.jar",
+    name = "org_jetbrains-marketplace-zip-signer-0_1_45-sources_http",
+    downloaded_file_path = "marketplace-zip-signer-0.1.45-sources.jar",
+    sha256 = "dd89a0c82097dedb3f1537fcb97b9b5c33863b7ea3004315f27ac7edffc27c99",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/org/jetbrains/marketplace-zip-signer/0.1.45/marketplace-zip-signer-0.1.45-sources.jar",
 )
 
 http_file(

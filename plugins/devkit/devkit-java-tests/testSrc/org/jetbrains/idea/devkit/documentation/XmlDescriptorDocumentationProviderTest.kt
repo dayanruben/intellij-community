@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.idea.devkit.documentation
 
 import com.intellij.lang.documentation.ide.IdeDocumentationTargetProvider
@@ -39,13 +39,14 @@ class XmlDescriptorDocumentationProviderTest : CodeInsightFixtureTestCase<Module
       "<ul>" +
       "<li><a href=\"psi_element://#element:root__first-level-child-1\"><code>&lt;first-level-child-1&gt;</code></a></li>" +
       "<li><a href=\"psi_element://#element:root__firstLevelChild2\"><code>&lt;firstLevelChild2&gt;</code></a></li>" +
-      "<li><a href=\"psi_element://#element:root__deprecatedElement\"><code>&lt;deprecatedElement&gt;</code></a></li>" +
+      "<li><a href=\"psi_element://#element:root__deprecatedElement\"><code>&lt;deprecatedElement&gt;</code></a> <i>deprecated</i></li>" +
       "<li><a href=\"psi_element://#element:root__elementWithDeprecatedAttribute\"><code>&lt;elementWithDeprecatedAttribute&gt;</code></a></li>" +
       "<li><a href=\"psi_element://#element:root__elementWithCallouts\"><code>&lt;elementWithCallouts&gt;</code></a></li>" +
       "<li><a href=\"psi_element://#element:root__elementWithNotIncludedAttribute\"><code>&lt;elementWithNotIncludedAttribute&gt;</code></a></li>" +
       "<li><a href=\"psi_element://#element:root__elementWithChildrenDescription\"><code>&lt;elementWithChildrenDescription&gt;</code></a></li>" +
       "<li><a href=\"psi_element://#element:root__internalElement\"><code>&lt;internalElement&gt;</code></a> <i>internal</i></li>" +
       "<li><a href=\"psi_element://#element:root__elementWithInternalLinks\"><code>&lt;elementWithInternalLinks&gt;</code></a> <i>internal</i></li>" +
+      "<li><a href=\"psi_element://#element:root__experimentalElement\"><code>&lt;experimentalElement&gt;</code></a> <i>experimental</i></li>" +
       "<li><a href=\"psi_element://#element:root__xi:include\"><code>&lt;xi:include&gt;</code></a></li>" +
       "</ul>"
     )
@@ -195,13 +196,35 @@ class XmlDescriptorDocumentationProviderTest : CodeInsightFixtureTestCase<Module
           <deprecated<caret>Element/>
         </root>
       """.trimIndent(),
-      "<p><a href=\"psi_element://#element:root\"><code>&lt;root&gt;</code></a> / <b><code>&lt;deprecatedElement&gt;</code></b><hr/>\n" +
-      "<b><i>Deprecated since 2020.1</i></b><br/>" +
-      "<i>Do not use it in new plugins.</i>\n" +
-      "<i>See <a href=\"https://example.com\">Components</a> for the migration guide.</i>" +
+      "<p><a href=\"psi_element://#element:root\"><code>&lt;root&gt;</code></a> / <b><code>&lt;deprecatedElement&gt;</code></b><hr/>" +
+      "<blockquote>" +
+      "<p><icon src=\"AllIcons.General.Warning\"/> <b>Deprecated since 2020.1</b><br>\n" +
+      " Do not use it in new plugins.\n" +
+      " See <a href=\"https://example.com\">Components</a> for the migration guide." +
+      "</blockquote>" +
       "<p>The <code>deprecatedElement</code> description." +
       "<h5>Requirement</h5>" +
       "<p>Required: no"
+    )
+  }
+
+  fun `test element with deprecated attributes`() {
+    doTestDocContains(
+      """
+        <root>
+          <elementWith<caret>DeprecatedAttribute/>
+        </root>
+      """.trimIndent(),
+      "<p><a href=\"psi_element://#element:root\"><code>&lt;root&gt;</code></a> / <b><code>&lt;elementWithDeprecatedAttribute&gt;</code></b><hr/>\n" +
+      "The <code>elementWithDeprecatedAttribute</code> description." +
+      "<h5>Requirement</h5>" +
+      "<p>Required: no" +
+      "<h5>Attributes</h5>" +
+      "<ul>" +
+      "<li><a href=\"psi_element://#attribute:root__elementWithDeprecatedAttribute__deprecated-attribute\"><code>deprecated-attribute</code></a> <i>deprecated</i></li>" +
+      "<li><a href=\"psi_element://#attribute:root__elementWithDeprecatedAttribute__deprecated-attribute-without-note\"><code>deprecated-attribute-without-note</code></a> <i>deprecated</i></li>" +
+      "<li><a href=\"psi_element://#attribute:root__elementWithDeprecatedAttribute__new-attribute\"><code>new-attribute</code></a></li>" +
+      "</ul>"
     )
   }
 
@@ -212,9 +235,25 @@ class XmlDescriptorDocumentationProviderTest : CodeInsightFixtureTestCase<Module
           <elementWithDeprecatedAttribute deprecated-<caret>attribute=""/>
         </root>
       """.trimIndent(),
-      "<p><a href=\"psi_element://#element:root\"><code>&lt;root&gt;</code></a> / <a href=\"psi_element://#element:root__elementWithDeprecatedAttribute\"><code>&lt;elementWithDeprecatedAttribute&gt;</code></a> / <b><code>@deprecated-attribute</code></b><hr/>\n" +
-      "<b><i>Deprecated since 2005.1</i></b><br/><i>Use <a href=\"psi_element://#attribute:root__elementWithDeprecatedAttribute__new-attribute\"><code>new-attribute</code></a> instead.</i>" +
+      "<p><a href=\"psi_element://#element:root\"><code>&lt;root&gt;</code></a> / <a href=\"psi_element://#element:root__elementWithDeprecatedAttribute\"><code>&lt;elementWithDeprecatedAttribute&gt;</code></a> / <b><code>@deprecated-attribute</code></b><hr/>" +
+      "<blockquote>" +
+      "<p><icon src=\"AllIcons.General.Warning\"/> <b>Deprecated since 2005.1</b><br>\n" +
+      " Use <a href=\"psi_element://#attribute:root__elementWithDeprecatedAttribute__new-attribute\"><code>new-attribute</code></a> instead." +
+      "</blockquote>" +
       "<p>The <code>deprecated-attribute</code> description."
+    )
+  }
+
+  fun `test deprecated attribute without a deprecation note`() {
+    doTestDocContains(
+      """
+        <root>
+          <elementWithDeprecatedAttribute deprecated-attribute-without-<caret>note=""/>
+        </root>
+      """.trimIndent(),
+      "<p><a href=\"psi_element://#element:root\"><code>&lt;root&gt;</code></a> / <a href=\"psi_element://#element:root__elementWithDeprecatedAttribute\"><code>&lt;elementWithDeprecatedAttribute&gt;</code></a> / <b><code>@deprecated-attribute-without-note</code></b><hr/>\n" +
+      "<b><i>Deprecated since 2010.1</i></b>" +
+      "<p>The <code>deprecated-attribute-without-note</code> description."
     )
   }
 
@@ -356,6 +395,66 @@ class XmlDescriptorDocumentationProviderTest : CodeInsightFixtureTestCase<Module
       "Description of <code>internalAttribute</code>." +
       "<h6><icon src=\"AllIcons.General.Warning\"/> <b>Internal Use Only</b></h6>" +
       "<p>An internal note for the attribute."
+    )
+  }
+
+  fun `test an experimental element`() {
+    doTestDocContains(
+      """
+        <root>
+          <experimental<caret>Element/>
+        </root>
+      """.trimIndent(),
+      "<p><a href=\"psi_element://#element:root\"><code>&lt;root&gt;</code></a> / <b><code>&lt;experimentalElement&gt;</code></b><hr/>" +
+      "<blockquote>" +
+      "<p><icon src=\"AllIcons.General.Information\"/> <b>Experimental</b><br>\n" +
+      " An experimental note for the element.\n" +
+      " It can <a href=\"https://example.com\">change</a>." +
+      "</blockquote>" +
+      "<p>An experimental element description." +
+      "<h5>Attributes</h5>" +
+      "<ul>" +
+      "<li><a href=\"psi_element://#attribute:root__experimentalElement__inheritedExperimentalAttribute\"><code>inheritedExperimentalAttribute</code></a> <i>experimental</i></li>" +
+      "<li><a href=\"psi_element://#attribute:root__experimentalElement__experimentalAttribute\"><code>experimentalAttribute</code></a> <i>experimental</i></li>" +
+      "<li><a href=\"psi_element://#attribute:root__experimentalElement__requiredExperimentalDeprecatedAttribute\"><code>requiredExperimentalDeprecatedAttribute</code></a> <i><b>required</b></i>; <i>experimental</i>; <i>deprecated</i></li>" +
+      "</ul>" +
+      "<h5>Children</h5>" +
+      "<ul>" +
+      "<li><a href=\"psi_element://#element:root__experimentalElement__experimentalChildElement\"><code>&lt;experimentalChildElement&gt;</code></a> <i>experimental</i></li>" +
+      "</ul>"
+    )
+  }
+
+  fun `test an attribute inheriting the experimental note`() {
+    doTestDocContains(
+      """
+        <root>
+          <experimentalElement inheritedExperimental<caret>Attribute="any"/>
+        </root>
+      """.trimIndent(),
+      "<p><a href=\"psi_element://#element:root\"><code>&lt;root&gt;</code></a> / <a href=\"psi_element://#element:root__experimentalElement\"><code>&lt;experimentalElement&gt;</code></a> / <b><code>@inheritedExperimentalAttribute</code></b><hr/>" +
+      "<blockquote>" +
+      "<p><icon src=\"AllIcons.General.Information\"/> <b>Experimental</b><br>\n" +
+      " An experimental note for the element.\n" +
+      " It can <a href=\"https://example.com\">change</a>." +
+      "</blockquote>" +
+      "<p>Description of <code>inheritedExperimentalAttribute</code>."
+    )
+  }
+
+  fun `test an attribute with its own experimental note`() {
+    doTestDocContains(
+      """
+        <root>
+          <experimentalElement experimental<caret>Attribute="any"/>
+        </root>
+      """.trimIndent(),
+      "<p><a href=\"psi_element://#element:root\"><code>&lt;root&gt;</code></a> / <a href=\"psi_element://#element:root__experimentalElement\"><code>&lt;experimentalElement&gt;</code></a> / <b><code>@experimentalAttribute</code></b><hr/>" +
+      "<blockquote>" +
+      "<p><icon src=\"AllIcons.General.Information\"/> <b>Experimental</b><br>\n" +
+      " An experimental note for the attribute." +
+      "</blockquote>" +
+      "<p>Description of <code>experimentalAttribute</code>."
     )
   }
 

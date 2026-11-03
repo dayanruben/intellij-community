@@ -683,7 +683,7 @@
                     serviceImplementation="com.intellij.openapi.vfs.impl.ProjectBulkFileListenerRegistryImpl"/>
     <applicationService serviceInterface="com.intellij.openapi.fileTypes.FileTypeManager" open="true"
                         serviceImplementation="com.intellij.openapi.fileTypes.impl.FileTypeManagerImpl"/>
-    <vfs.asyncListener order="first" implementation="com.intellij.openapi.fileTypes.impl.FileTypeManagerImpl$MyAsyncVfsListener"/>
+    <vfs.asyncListenerBackgroundable order="first" implementation="com.intellij.openapi.fileTypes.impl.FileTypeManagerImpl$MyAsyncVfsListener"/>
     <persistentFsConnectionListener implementation="com.intellij.openapi.fileTypes.impl.IgnoredFileCacheCleaner"/>
     <applicationInitializedListener order="first" implementation="com.intellij.util.net.OverrideDefaultJdkProxy"/>
     <applicationService serviceInterface="com.intellij.util.net.ProxySettings"
@@ -1423,7 +1423,7 @@
     <titleInfoProvider implementation="com.intellij.openapi.wm.impl.simpleTitleParts.SuperUserSuffixTitleInfoProvider"/>
     <titleInfoProvider implementation="com.intellij.openapi.wm.impl.simpleTitleParts.ConfigFolderTitleInfoProvider"/>
     <applicationActivity implementation="com.intellij.ide.plugins.DynamicPluginVfsListenerInitializer"/>
-    <vfs.asyncListener implementation="com.intellij.ide.plugins.DynamicPluginVfsListener"/>
+    <vfs.asyncListenerBackgroundable implementation="com.intellij.ide.plugins.DynamicPluginVfsListener"/>
     <ide.dynamicPluginVetoer implementation="com.intellij.ide.plugins.FallbackPluginVetoer"/>
     <statistics.validation.customValidationRule implementation="com.intellij.ide.ColorValidationRule"/>
     <statistics.projectUsagesCollector implementation="com.intellij.ide.ProjectWindowCustomizerUsagesCollector"/>

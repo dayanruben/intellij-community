@@ -9971,17 +9971,17 @@ jvm_import(
 )
 
 copy_file(
-    name = "org.jetbrains.intellij.deps.jcef/jcef-150.0.14-g7c1aa68-chromium-150.0.7871.129-api-1.21-263-b16.jar_copy",
-    src = "@org_jetbrains_intellij_deps_jcef-jcef-150_0_14-g7c1aa68-chromium-150_0_7871_129-api-1_21-263-b16_http//file",
-    out = "org.jetbrains.intellij.deps.jcef/jcef-150.0.14-g7c1aa68-chromium-150.0.7871.129-api-1.21-263-b16.jar",
+    name = "org.jetbrains.intellij.deps.jcef/jcef-150.0.14-g7c1aa68-chromium-150.0.7871.129-api-1.21-263-b18.jar_copy",
+    src = "@org_jetbrains_intellij_deps_jcef-jcef-150_0_14-g7c1aa68-chromium-150_0_7871_129-api-1_21-263-b18_http//file",
+    out = "org.jetbrains.intellij.deps.jcef/jcef-150.0.14-g7c1aa68-chromium-150.0.7871.129-api-1.21-263-b18.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
 
 jvm_import(
     name = "libraries-jcef-jcef",
-    jar = "@org_jetbrains_intellij_deps_jcef-jcef-150_0_14-g7c1aa68-chromium-150_0_7871_129-api-1_21-263-b16_http//file",
-    source_jar = "@org_jetbrains_intellij_deps_jcef-jcef-150_0_14-g7c1aa68-chromium-150_0_7871_129-api-1_21-263-b16-sources_http//file",
+    jar = "@org_jetbrains_intellij_deps_jcef-jcef-150_0_14-g7c1aa68-chromium-150_0_7871_129-api-1_21-263-b18_http//file",
+    source_jar = "@org_jetbrains_intellij_deps_jcef-jcef-150_0_14-g7c1aa68-chromium-150_0_7871_129-api-1_21-263-b18-sources_http//file",
     visibility = ["//visibility:public"],
 )
 
@@ -10890,32 +10890,32 @@ jvm_import(
 )
 
 copy_file(
-    name = "org.jetbrains.kotlin/kotlin-gradle-plugin-idea-1.9.20-dev-8162.jar_copy",
-    src = "@org_jetbrains_kotlin-kotlin-gradle-plugin-idea-1_9_20-dev-8162_http//file",
-    out = "org.jetbrains.kotlin/kotlin-gradle-plugin-idea-1.9.20-dev-8162.jar",
+    name = "org.jetbrains.kotlin/kotlin-gradle-plugin-idea-2.5.20-dev-2623.jar_copy",
+    src = "@org_jetbrains_kotlin-kotlin-gradle-plugin-idea-2_5_20-dev-2623_http//file",
+    out = "org.jetbrains.kotlin/kotlin-gradle-plugin-idea-2.5.20-dev-2623.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
 
 jvm_import(
     name = "libraries-kotlin-gradle-plugin-idea-kotlin-gradle-plugin-idea",
-    jar = "@org_jetbrains_kotlin-kotlin-gradle-plugin-idea-1_9_20-dev-8162_http//file",
-    source_jar = "@org_jetbrains_kotlin-kotlin-gradle-plugin-idea-1_9_20-dev-8162-sources_http//file",
+    jar = "@org_jetbrains_kotlin-kotlin-gradle-plugin-idea-2_5_20-dev-2623_http//file",
+    source_jar = "@org_jetbrains_kotlin-kotlin-gradle-plugin-idea-2_5_20-dev-2623-sources_http//file",
     visibility = ["//visibility:public"],
 )
 
 copy_file(
-    name = "org.jetbrains.kotlin/kotlin-gradle-plugin-idea-proto-1.9.20-dev-8162.jar_copy",
-    src = "@org_jetbrains_kotlin-kotlin-gradle-plugin-idea-proto-1_9_20-dev-8162_http//file",
-    out = "org.jetbrains.kotlin/kotlin-gradle-plugin-idea-proto-1.9.20-dev-8162.jar",
+    name = "org.jetbrains.kotlin/kotlin-gradle-plugin-idea-proto-2.5.20-dev-2623.jar_copy",
+    src = "@org_jetbrains_kotlin-kotlin-gradle-plugin-idea-proto-2_5_20-dev-2623_http//file",
+    out = "org.jetbrains.kotlin/kotlin-gradle-plugin-idea-proto-2.5.20-dev-2623.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
 
 jvm_import(
     name = "libraries-kotlin-gradle-plugin-idea-proto-kotlin-gradle-plugin-idea-proto",
-    jar = "@org_jetbrains_kotlin-kotlin-gradle-plugin-idea-proto-1_9_20-dev-8162_http//file",
-    source_jar = "@org_jetbrains_kotlin-kotlin-gradle-plugin-idea-proto-1_9_20-dev-8162-sources_http//file",
+    jar = "@org_jetbrains_kotlin-kotlin-gradle-plugin-idea-proto-2_5_20-dev-2623_http//file",
+    source_jar = "@org_jetbrains_kotlin-kotlin-gradle-plugin-idea-proto-2_5_20-dev-2623-sources_http//file",
     visibility = ["//visibility:public"],
 )
 
@@ -10980,17 +10980,17 @@ jvm_import(
 )
 
 copy_file(
-    name = "org.jetbrains.kotlin/kotlin-tooling-core-1.9.20-dev-8162.jar_copy",
-    src = "@org_jetbrains_kotlin-kotlin-tooling-core-1_9_20-dev-8162_http//file",
-    out = "org.jetbrains.kotlin/kotlin-tooling-core-1.9.20-dev-8162.jar",
+    name = "org.jetbrains.kotlin/kotlin-tooling-core-2.5.20-dev-2623.jar_copy",
+    src = "@org_jetbrains_kotlin-kotlin-tooling-core-2_5_20-dev-2623_http//file",
+    out = "org.jetbrains.kotlin/kotlin-tooling-core-2.5.20-dev-2623.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
 
 jvm_import(
     name = "libraries-kotlin-tooling-core-kotlin-tooling-core",
-    jar = "@org_jetbrains_kotlin-kotlin-tooling-core-1_9_20-dev-8162_http//file",
-    source_jar = "@org_jetbrains_kotlin-kotlin-tooling-core-1_9_20-dev-8162-sources_http//file",
+    jar = "@org_jetbrains_kotlin-kotlin-tooling-core-2_5_20-dev-2623_http//file",
+    source_jar = "@org_jetbrains_kotlin-kotlin-tooling-core-2_5_20-dev-2623-sources_http//file",
     visibility = ["//visibility:public"],
 )
 
@@ -12307,17 +12307,17 @@ jvm_import(
 )
 
 copy_file(
-    name = "org.jetbrains/markdown-jvm-0.7.18.jar_copy",
-    src = "@org_jetbrains-markdown-jvm-0_7_18_http//file",
-    out = "org.jetbrains/markdown-jvm-0.7.18.jar",
+    name = "org.jetbrains/markdown-jvm-0.7.18.2.jar_copy",
+    src = "@org_jetbrains-markdown-jvm-0_7_18_2_http//file",
+    out = "org.jetbrains/markdown-jvm-0.7.18.2.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
 
 jvm_import(
     name = "libraries-markdown-jetbrains-markdown",
-    jar = "@org_jetbrains-markdown-jvm-0_7_18_http//file",
-    source_jar = "@org_jetbrains-markdown-jvm-0_7_18-sources_http//file",
+    jar = "@org_jetbrains-markdown-jvm-0_7_18_2_http//file",
+    source_jar = "@org_jetbrains-markdown-jvm-0_7_18_2-sources_http//file",
     visibility = ["//visibility:public"],
 )
 
@@ -14697,17 +14697,17 @@ jvm_import(
 )
 
 copy_file(
-    name = "org.jetbrains/marketplace-zip-signer-0.1.43.jar_copy",
-    src = "@org_jetbrains-marketplace-zip-signer-0_1_43_http//file",
-    out = "org.jetbrains/marketplace-zip-signer-0.1.43.jar",
+    name = "org.jetbrains/marketplace-zip-signer-0.1.45.jar_copy",
+    src = "@org_jetbrains-marketplace-zip-signer-0_1_45_http//file",
+    out = "org.jetbrains/marketplace-zip-signer-0.1.45.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
 
 jvm_import(
     name = "libraries-zip-signer-zip-signer",
-    jar = "@org_jetbrains-marketplace-zip-signer-0_1_43_http//file",
-    source_jar = "@org_jetbrains-marketplace-zip-signer-0_1_43-sources_http//file",
+    jar = "@org_jetbrains-marketplace-zip-signer-0_1_45_http//file",
+    source_jar = "@org_jetbrains-marketplace-zip-signer-0_1_45-sources_http//file",
     visibility = ["//visibility:public"],
 )
 

@@ -62,11 +62,10 @@ elements:
               different. For example, if `com.example` is set for the main plugin descriptor, `com.example` cannot be used for any
               module dependency.
             internalNote: &plugin_model_v2_internal_note |
-              This item is part of the [_Plugin Model_](https://youtrack.jetbrains.com/articles/IJPL-A-31){internal},
+              This item is part of the [_Plugin Model V2_](https://youtrack.jetbrains.com/articles/IJPL-A-31){internal},
               which is not recommended to be used in third-party plugins in the current state.
         - attribute:
             name: visibility
-            renderContexts: [doc_provider]
             requirement:
               required: no
             description: |
@@ -77,7 +76,9 @@ elements:
               - `private` - the module is visible only inside the plugin where it's defined
               - `internal` - the module is visible only from content modules declared in the same [namespace](#attribute:idea-plugin__content__namespace)
               - `public` - the module is visible from all content modules of all plugins
-            internalNote: *plugin_model_v2_internal_note
+            experimentalNote: &plugin_model_v2_experimental_note |
+              It can change in a future version.
+              Use it only to make a plugin compatible with remote development.
             defaultValue: |
               `private`
         - attribute:
@@ -125,12 +126,11 @@ elements:
 
         - element:
             name: module
-            renderContexts: [doc_provider]
             description: |
               Defines the current plugin's alias.
               
               The alias can be used instead of the plugin [ID](#element:idea-plugin__id) in [`depends`](#element:idea-plugin__depends)
-              or [`dependencies/plugin@id`](#element:idea-plugin__dependencies__plugin__id).
+              or [`dependencies/plugin@id`](#attribute:idea-plugin__dependencies__plugin__id).
               
               Aliases are usually added to core plugins and work as markers of the corresponding IDEs.
               For example, `com.intellij.modules.ruby-capable` alias is declared in core plugins for IntelliJ IDEA Ultimate and RubyMine,
@@ -466,7 +466,6 @@ elements:
 
         - element:
             name: dependencies
-            renderContexts: [doc_provider]
             description: |
               Defines the dependencies of the module.
               
@@ -476,7 +475,7 @@ elements:
               
               Circular dependencies aren't allowed: if a set of modules forms a dependency cycle, plugins which contain modules
               from the cycle will fail to load.
-            internalNote: *plugin_model_v2_internal_note
+            experimentalNote: *plugin_model_v2_experimental_note
             children:
               - element:
                   name: module
@@ -502,8 +501,8 @@ elements:
                           Specifies the [namespace](#attribute:idea-plugin__content__namespace) where the referenced module is defined. 
                           
                           If the namespace is not specified explicitly, the dependency is resolved as follows:
-                          - if a content module with the specified [name](#attribute:idea-plugin__dependencies__name) exists in the plugin
-                            where the current module is defined, the dependency resolved to that module.
+                          - if a content module with the specified [name](#attribute:idea-plugin__dependencies__module__name) exists in
+                            the plugin where the current module is defined, the dependency resolved to that module.
                           - otherwise, the module is searched in the default `jetbrains` namespace.
               - element:
                   name: plugin
@@ -555,12 +554,11 @@ elements:
 
         - element:
             name: content
-            renderContexts: [doc_provider]
             description: |
               Defines the content modules of the plugin.
               
               The module which contains the plugin descriptor (<path>plugin.xml</path>) is included implicitly.
-            internalNote: *plugin_model_v2_internal_note
+            experimentalNote: *plugin_model_v2_experimental_note
             requirement:
               required: no
             examples:
@@ -621,34 +619,31 @@ elements:
                         description: |
                           Specifies when a content module of a plugin should be loaded.
                           Allowed values:
-                          - `required` - the module is a required part of the plugin.
-                            If the module cannot be loaded because some of its dependencies aren't available, the whole plugin isn't
-                            loaded, and an error is shown to the user.
-                          - `embedded` - the same as `required`, but also puts the module's classes to the main plugin JAR and loads them
-                            using the main plugin classloader.
-                            **This is an internal temporary option added to simplify the migration of some existing plugins.
-                            For new modules, use `required` instead.**
-                          - `optional` - the module is an optional part of the plugin.
-                            If the module cannot be loaded, it is skipped and doesn't prevent other modules from the plugin from being
-                            loaded.
-                          - `on-demand` - the module is used by other modules of the plugin and doesn't provide user-visible functionality
-                            itself.
-                            The module is loaded if and only if another `required` or `optional` module, which depends on it, is loaded.
-                            **Effective since 2026.3**; in older versions, it behaves the same way as `optional`.
+                            - `required` - the module is a required part of the plugin.
+                              If the module cannot be loaded because some of its dependencies aren't available, the whole plugin isn't
+                              loaded, and an error is shown to the user.
+                            - `embedded` - the same as `required`, but also puts the module's classes to the main plugin JAR and loads them
+                              using the main plugin classloader.
+                              **This is an internal temporary option added to simplify the migration of some existing plugins.
+                              For new modules, use `required` instead.**
+                            - `optional` - the module is an optional part of the plugin.
+                              If the module cannot be loaded, it is skipped and doesn't prevent other modules from the plugin from being
+                              loaded.
+                            - `on-demand` - the module is used by other modules of the plugin and doesn't provide user-visible functionality
+                              itself.
+                              The module is loaded if and only if another `required` or `optional` module, which depends on it, is loaded.
+                              **Effective since 2026.3**; in older versions, it behaves the same way as `optional`.
                         defaultValue: |
                           `optional`
                     - attribute:
                         name: required-if-available
+                        experimentalNote: *plugin_model_v2_experimental_note
                         description: |
-                          **Experimental attribute**
-                          
                           Specifies a condition when the loading rule should be restricted to 'required' instead of the rule given by the 'loading' attribute.
                           The value of the attribute may reference one of the special content modules that reflect the configuration of the IDE:
-                          - `intellij.platform.frontend` 
-                          - `intellij.platform.backend` 
-                          - `intellij.platform.frontend.split`                          
-                          
-                          [Internal doc](https://youtrack.jetbrains.com/articles/IJPL-A-1503).
+                          - `intellij.platform.frontend`
+                          - `intellij.platform.backend`
+                          - `intellij.platform.frontend.split`
         - element:
             name: extensions
             references:
@@ -1704,6 +1699,66 @@ elements:
               required: no
             children:
               - element: *listener
+
+        - element:
+            name: *xIncludeName
+            namespace: *xIncludeNamespace
+            description: |
+              Allows including content of another plugin descriptor in this descriptor with
+              [XInclude](http://www.w3.org/2001/XInclude) standard.
+            requirement:
+              required: no
+            attributes:
+              - attribute:
+                  name: href
+                  requirement:
+                    required: no
+                  description: Path of the plugin descriptor file to include.
+              - attribute:
+                  name: xpointer
+                  requirement:
+                    required: no
+                  deprecatedSince: '2021.2'
+                  deprecationNote: |
+                    The `xpointer` attribute must be `xpointer(/idea-plugin/*)` or not defined.
+                  description: Elements pointer to include.
+                  defaultValue: |
+                    `xpointer(/idea-plugin/*)`
+            examples:
+              - |
+                Given a plugin descriptor:
+                
+                ```xml
+                <idea-plugin xmlns:xi="http://www.w3.org/2001/XInclude">
+                  <id>com.example.myplugin</id>
+                  <name>Example</name>
+                  <xi:include href="/META-INF/another-plugin.xml"/>
+                  ...
+                </idea-plugin>
+                ```
+                
+                and <path>/META-INF/another-plugin.xml</path>:
+                
+                ```xml
+                <idea-plugin>
+                  <extensions>...</extensions>
+                  <actions>...</actions>
+                </idea-plugin>
+                ```
+                
+                The effective plugin descriptor loaded to memory will contain the following elements:
+                
+                ```xml
+                <idea-plugin xmlns:xi="http://www.w3.org/2001/XInclude">
+                  <id>com.example.myplugin</id>
+                  <name>Example</name>
+                  <extensions>...</extensions>
+                  <actions>...</actions>
+                  ...
+                </idea-plugin>
+                ```
+            children:
+              - element: *xIncludeFallback
         - element:
             name: application-components
             deprecatedSince: &componentsDeprecatedSince "2020.1"
@@ -1800,65 +1855,6 @@ elements:
                           if it is required to load a component in the default project.
                         requirement:
                           required: no
-        - element:
-            name: *xIncludeName
-            namespace: *xIncludeNamespace
-            description: |
-              Allows including content of another plugin descriptor in this descriptor with
-              [XInclude](http://www.w3.org/2001/XInclude) standard.
-            requirement:
-              required: no
-            attributes:
-              - attribute:
-                  name: href
-                  requirement:
-                    required: no
-                  description: Path of the plugin descriptor file to include.
-              - attribute:
-                  name: xpointer
-                  requirement:
-                    required: no
-                  deprecatedSince: '2021.2'
-                  deprecationNote: |
-                    The `xpointer` attribute must be `xpointer(/idea-plugin/*)` or not defined.
-                  description: Elements pointer to include.
-                  defaultValue: |
-                    `xpointer(/idea-plugin/*)`
-            examples:
-              - |
-                Given a plugin descriptor:
-                
-                ```xml
-                <idea-plugin xmlns:xi="http://www.w3.org/2001/XInclude">
-                  <id>com.example.myplugin</id>
-                  <name>Example</name>
-                  <xi:include href="/META-INF/another-plugin.xml"/>
-                  ...
-                </idea-plugin>
-                ```
-                
-                and <path>/META-INF/another-plugin.xml</path>:
-                
-                ```xml
-                <idea-plugin>
-                  <extensions>...</extensions>
-                  <actions>...</actions>
-                </idea-plugin>
-                ```
-                
-                The effective plugin descriptor loaded to memory will contain the following elements:
-                
-                ```xml
-                <idea-plugin xmlns:xi="http://www.w3.org/2001/XInclude">
-                  <id>com.example.myplugin</id>
-                  <name>Example</name>
-                  <extensions>...</extensions>
-                  <actions>...</actions>
-                  ...
-                </idea-plugin>
-                ```
-            children:
-              - element: *xIncludeFallback
         - element:
             name: project-components
             deprecatedSince: *componentsDeprecatedSince

@@ -935,8 +935,6 @@
                                     implementationClass="org.jetbrains.idea.devkit.navigation.PluginDescriptorDeclarationRelatedItemLineMarkerProvider"/>
     <codeInsight.lineMarkerProvider language="XML"
                                     implementationClass="org.jetbrains.idea.devkit.references.DevKitRelatedPropertiesProvider"/>
-    <codeInsight.lineMarkerProvider language="XML"
-                                    implementationClass="org.jetbrains.idea.devkit.navigation.DescriptorsIncludingContentModuleLineMarkerProvider"/>
     <codeInsight.declarativeInlayProvider
       providerId="devkit.plugin.descriptor.split.mode.kind"
       bundle="messages.DevKitBundle"
@@ -946,6 +944,10 @@
       implementationClass="org.jetbrains.idea.devkit.navigation.DescriptorSplitModeInlayHintsProvider"
       isEnabledByDefault="true"
       language="XML"/>
+    <codeInsight.daemonBoundCodeVisionProvider
+      implementation="org.jetbrains.idea.devkit.navigation.DescriptorsIncludingContentModuleCodeVisionProvider"/>
+    <config.codeVisionGroupSettingProvider
+      implementation="org.jetbrains.idea.devkit.navigation.DescriptorsIncludingContentModuleCodeVisionGroupSettingProvider"/>
     <psi.referenceContributor
       language="Properties"
       implementation="org.jetbrains.idea.devkit.references.MessageBundleReferenceContributor"/>

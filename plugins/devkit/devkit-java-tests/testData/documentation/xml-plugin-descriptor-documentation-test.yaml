@@ -144,6 +144,11 @@ elements:
                   #language=Markdown
                   deprecationNote: Use [`new-attribute`](#attribute:root__elementWithDeprecatedAttribute__new-attribute) instead.
               - attribute:
+                  name: deprecated-attribute-without-note
+                  #language=Markdown
+                  description: The `deprecated-attribute-without-note` description.
+                  deprecatedSince: "2010.1"
+              - attribute:
                   name: new-attribute
                   #language=Markdown
                   description: The `new-attribute` description.
@@ -284,6 +289,37 @@ elements:
                   name: internalChildElement
                   #language=Markdown
                   description: Description of `internalChildElement`.
+        - element:
+            name: experimentalElement
+            #language=Markdown
+            description: An experimental element description.
+            #language=Markdown
+            experimentalNote: |
+              An experimental note for the element.
+              It can [change](https://example.com).
+            attributes:
+              - attribute:
+                  name: inheritedExperimentalAttribute
+                  #language=Markdown
+                  description: Description of `inheritedExperimentalAttribute`.
+              - attribute:
+                  name: experimentalAttribute
+                  #language=Markdown
+                  description: Description of `experimentalAttribute`.
+                  #language=Markdown
+                  experimentalNote: An experimental note for the attribute.
+              - attribute:
+                  name: requiredExperimentalDeprecatedAttribute
+                  #language=Markdown
+                  description: Description of `requiredExperimentalDeprecatedAttribute`.
+                  requirement:
+                    required: yes
+                  deprecatedSince: "2015.1"
+            children:
+              - element:
+                  name: experimentalChildElement
+                  #language=Markdown
+                  description: Description of `experimentalChildElement`.
         - element:
             name: xi:include
             namespace: xmlns:xi="http://www.w3.org/2001/XInclude"

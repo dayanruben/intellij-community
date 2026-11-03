@@ -170,6 +170,7 @@
       <module fileurl="file://$PROJECT_DIR$/android/android/ui/intellij.android.core.ui.iml" filepath="$PROJECT_DIR$/android/android/ui/intellij.android.core.ui.iml" />
       <module fileurl="file://$PROJECT_DIR$/android/android/ui.designer.overlays/intellij.android.core.ui.designer.overlays.iml" filepath="$PROJECT_DIR$/android/android/ui.designer.overlays/intellij.android.core.ui.designer.overlays.iml" />
       <module fileurl="file://$PROJECT_DIR$/android/android/ui.resourcemanager/intellij.android.core.ui.resourcemanager.iml" filepath="$PROJECT_DIR$/android/android/ui.resourcemanager/intellij.android.core.ui.resourcemanager.iml" />
+      <module fileurl="file://$PROJECT_DIR$/android/android/webp/intellij.android.core.webp.iml" filepath="$PROJECT_DIR$/android/android/webp/intellij.android.core.webp.iml" />
       <module fileurl="file://$PROJECT_DIR$/android/dagger/intellij.android.dagger.iml" filepath="$PROJECT_DIR$/android/dagger/intellij.android.dagger.iml" />
       <module fileurl="file://$PROJECT_DIR$/android/dagger/intellij.android.dagger.tests.iml" filepath="$PROJECT_DIR$/android/dagger/intellij.android.dagger.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/android/databinding/intellij.android.databinding.iml" filepath="$PROJECT_DIR$/android/databinding/intellij.android.databinding.iml" />
@@ -2424,7 +2425,6 @@
       <module fileurl="file://$PROJECT_DIR$/tools/intellij.tools.ide.starter.junit5/intellij.tools.ide.starter.junit5.iml" filepath="$PROJECT_DIR$/tools/intellij.tools.ide.starter.junit5/intellij.tools.ide.starter.junit5.iml" />
       <module fileurl="file://$PROJECT_DIR$/tools/intellij.tools.ide.starter.junit5/intellij.tools.ide.starter.junit5.tests.iml" filepath="$PROJECT_DIR$/tools/intellij.tools.ide.starter.junit5/intellij.tools.ide.starter.junit5.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/tools/intellij.tools.ide.starter.product.android.studio/intellij.tools.ide.starter.product.android.studio.iml" filepath="$PROJECT_DIR$/tools/intellij.tools.ide.starter.product.android.studio/intellij.tools.ide.starter.product.android.studio.iml" />
-      <module fileurl="file://$PROJECT_DIR$/tools/intellij.tools.ide.starter.product.aqua/intellij.tools.ide.starter.product.aqua.iml" filepath="$PROJECT_DIR$/tools/intellij.tools.ide.starter.product.aqua/intellij.tools.ide.starter.product.aqua.iml" />
       <module fileurl="file://$PROJECT_DIR$/tools/intellij.tools.ide.starter.product.clion/intellij.tools.ide.starter.product.clion.iml" filepath="$PROJECT_DIR$/tools/intellij.tools.ide.starter.product.clion/intellij.tools.ide.starter.product.clion.iml" />
       <module fileurl="file://$PROJECT_DIR$/tools/intellij.tools.ide.starter.product.datagrip/intellij.tools.ide.starter.product.datagrip.iml" filepath="$PROJECT_DIR$/tools/intellij.tools.ide.starter.product.datagrip/intellij.tools.ide.starter.product.datagrip.iml" />
       <module fileurl="file://$PROJECT_DIR$/tools/intellij.tools.ide.starter.product.gateway/intellij.tools.ide.starter.product.gateway.iml" filepath="$PROJECT_DIR$/tools/intellij.tools.ide.starter.product.gateway/intellij.tools.ide.starter.product.gateway.iml" />

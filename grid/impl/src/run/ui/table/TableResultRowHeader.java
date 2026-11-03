@@ -18,6 +18,7 @@ import com.intellij.openapi.actionSystem.ActionGroup;
 import com.intellij.openapi.actionSystem.ActionManager;
 import com.intellij.openapi.actionSystem.ActionPlaces;
 import com.intellij.openapi.actionSystem.ActionPopupMenu;
+import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.ui.CellRendererPanel;
 import com.intellij.ui.ComponentUtil;
@@ -37,7 +38,7 @@ import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JTable;
 import javax.swing.SwingConstants;
-import javax.swing.table.TableCellRenderer;
+import javax.swing.table.TableColumnModel;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
@@ -66,6 +67,13 @@ public class TableResultRowHeader extends GridRowHeader {
   private final JBTable myTable;
   private final ActionGroup myPopupActions;
   private final RowHeaderCellRenderer myRenderer;
+  private final TableHoverListener myHoverListener = new TableHoverListener() {
+    @Override
+    public void onHover(@NotNull JTable table, int row, int column) {
+      revalidate();
+      repaint();
+    }
+  };
 
   public TableResultRowHeader(@NotNull DataGrid grid, @NotNull TableResultView view, @Nullable ActionGroup popupActions) {
     super(view.rowHeaderTable(), () -> view.getShowHorizontalLines(), () -> view.rowHeaderTable().getShowLastHorizontalLine());
@@ -78,13 +86,8 @@ public class TableResultRowHeader extends GridRowHeader {
     GutterMouseListener mouseListener = new GutterMouseListener();
     addMouseMotionListener(mouseListener);
     addMouseListener(mouseListener);
-    new TableHoverListener() {
-      @Override
-      public void onHover(@NotNull JTable table, int row, int column) {
-        revalidate();
-        repaint();
-      }
-    }.addTo(myTable);
+    myHoverListener.addTo(myTable);
+    Disposer.register(this, () -> myHoverListener.removeFrom(myTable));
   }
 
   protected @NotNull RowHeaderCellComponentBase createRegularRenderer() {
@@ -287,9 +290,10 @@ public class TableResultRowHeader extends GridRowHeader {
         e.consume();
         return;
       }
-      JComponent focusTarget = myResultPanel.getPreferredFocusedComponent();
-      if (!focusTarget.hasFocus()) IdeFocusManager.getInstance(myResultPanel.getProject()).requestFocus(focusTarget, true);
       boolean selected = processSelectionEventInternal(e, isDragEvent, currentRow);
+      // Typing then edits the lead cell, which the pinned table may show.
+      JComponent focusTarget = myView.leadColumnTable();
+      if (!focusTarget.hasFocus()) IdeFocusManager.getInstance(myResultPanel.getProject()).requestFocus(focusTarget, true);
       myResultPanel.getHiddenColumnSelectionHolder().setWholeRowSelected(!isTransposed() && selected);
       e.consume();
     }
@@ -299,26 +303,27 @@ public class TableResultRowHeader extends GridRowHeader {
       boolean exclusive = GridUtil.isExclusiveModifierSet(e);
       TableSelectionModel selectionModel = ObjectUtils.tryCast(myResultPanel.getSelectionModel(), TableSelectionModel.class);
       if (selectionModel == null) return false;
+      TableColumnModel columns = myView.getGridColumnModel();
       if (interval) {
         int lead = myTable.getSelectionModel().getLeadSelectionIndex();
         if (exclusive) {
           selectionModel.addRowSelectionInterval(currentRow, lead);
-          selectionModel.addColumnSelectionInterval(myTable.getColumnCount() - 1, 0);
+          selectionModel.addColumnSelectionInterval(columns.getColumnCount() - 1, 0);
         }
         else {
           selectionModel.setRowSelectionInterval(currentRow, lead);
-          selectionModel.setColumnSelectionInterval(myTable.getColumnCount() - 1, 0);
+          selectionModel.setColumnSelectionInterval(columns.getColumnCount() - 1, 0);
         }
         return true;
       }
       else if (exclusive) {
         if (!isDragEvent) {
           mySelectWhileDraggingInExclusiveMode = !myTable.isRowSelected(currentRow) ||
-                                                 myTable.getSelectedColumnCount() != myTable.getColumnCount();
+                                                 columns.getSelectedColumnCount() != columns.getColumnCount();
         }
         if (mySelectWhileDraggingInExclusiveMode) {
           selectionModel.addRowSelection(ModelIndexSet.forRows(myResultPanel, currentRow));
-          selectionModel.addColumnSelectionInterval(myTable.getColumnCount() - 1, 0);
+          selectionModel.addColumnSelectionInterval(columns.getColumnCount() - 1, 0);
         }
         else {
           myTable.removeRowSelectionInterval(currentRow, currentRow);
@@ -328,7 +333,7 @@ public class TableResultRowHeader extends GridRowHeader {
       else {
         int lead = isDragEvent ? myTable.getSelectionModel().getLeadSelectionIndex() : currentRow;
         selectionModel.setRowSelectionInterval(currentRow, lead);
-        selectionModel.setColumnSelectionInterval(myTable.getColumnCount() - 1, 0);
+        selectionModel.setColumnSelectionInterval(columns.getColumnCount() - 1, 0);
         return true;
       }
     }
@@ -346,22 +351,10 @@ public class TableResultRowHeader extends GridRowHeader {
       int rowToResize = getRowToResize(e);
       if (e.isConsumed() || rowToResize == -1) return;
 
-      int expandedHeight = getExpandedRowHeight(rowToResize);
+      int expandedHeight = myView.expandedRowHeight(rowToResize);
       int newHeight = myTable.getRowHeight(rowToResize) >= expandedHeight ? myTable.getRowHeight() : expandedHeight;
 
       myView.setRowHeight(rowToResize, newHeight);
-    }
-
-    private int getExpandedRowHeight(int row) {
-      int expandedHeight = myTable.getRowHeight();
-      for (int column = 0; column < myTable.getColumnCount(); column++) {
-        TableCellRenderer renderer = myTable.getCellRenderer(row, column);
-        if (renderer != null) {
-          Component c = myTable.prepareRenderer(renderer, row, column);
-          expandedHeight = Math.max(expandedHeight, c.getPreferredSize().height);
-        }
-      }
-      return expandedHeight;
     }
   }
 

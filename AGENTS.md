@@ -47,30 +47,13 @@ Branch Deck is optional. First check for the `branch-deck` skill: the skill list
 - After you change a Bazel or Starlark source (`BUILD`, `BUILD.bazel`, `MODULE.bazel`, `WORKSPACE`, `WORKSPACE.bazel`, or `*.bzl`), run `./bazel.cmd run //:format.check`. If it reports a diff, run `./bazel.cmd run //:format`, inspect the changes, and run the check again.
 - After you change an `*.iml`, a `BUILD.bazel`, or a `.idea/` file, run `./build/jpsModelToBazelCommunityOnly.cmd`.
 
-### After Writing Code
-
-- Use `lint_files` to check the files for warnings when ijproxy or JetBrains MCP is available. Fix every warning that belongs to your changes. You can ignore an unrelated warning.
-
 ## Tools
 
-Never use the `code-search` skill. The search tools below replace it. Recipes, the Windows rules, and the full tool inventory: [Tools Reference](./.ai/tools.md).
+Search the repository with `./tools/accio.cmd`, not with the `search_*` tools of an IDE MCP server. It answers from the working tree of the current checkout, a lease included. An answer that is not `exact` and `complete` is a lead: read the code it points to. For a log, build output, or a path outside the repository, use `./tools/rg.cmd` or `./tools/fd.cmd`. The `Glob` and `Grep` tools, `find`, a recursive `grep`, and `git grep` are denied. A rename or a move is a search too: `accio locate '<regex>' --mode regex --files` lists the files to change.
 
-### Search & navigation (ijproxy preferred)
+When JetBrains MCP is available, check the changed files with `lint_files` and fix the warnings of your change, and use `rename_refactoring` instead of a search and replace. An IDE answers from the project that it has open, not from a lease.
 
-Use `search_symbol` for a class, a method, or a field. Use `search_file` to find a file by glob. Use `search_text` and `search_regex` for a string, a comment, or another match that is not a symbol.
-
-These are `mcp__ijproxy__<name>`. Look them up in the harness deferred-tool catalog before you use a shell or a non-ijproxy fallback.
-
-### IDE-backed semantic tools
-
-Available through ijproxy or JetBrains MCP: `lint_files`, `get_symbol_info`, `rename`, `reformat_file`, the threading and lock checks, and the project, VCS and run-configuration tools. Prefer a real refactoring over a manual search and replace.
-
-### Tooling rules
-
-- Prefer ijproxy for a content or symbol **search** and for a semantic operation. Fall back to JetBrains MCP, then to `./tools/fd.cmd` (files) and `./tools/rg.cmd` (text and regex), only when ijproxy is unavailable. Pass `-H` to see a dot-directory such as `.agents/`.
-- Do not shell out for a file **search**, inside the repo or outside it. This is enforced: the `Glob` and `Grep` tools are denied, and so are the `grep` and `find` commands in every pipeline position.
-- Prefer a spelling the allowlist knows, because a novel one asks for a prompt. Add a new entry to `.ai/tool-permissions.json`, never to a harness allowlist.
-- Shell is allowed where this guide documents it, and for git, build, and test. Prefer `git_status` when that tool is available. Outside the working copy it is task-scoped: read what this repo's tooling produced, or what the user or a skill named, and never survey the machine.
+Shell is allowed where this guide documents it, and for git, build, and test. Outside the working copy, read only what the task names. The accio commands, the allowlist, the Windows rules, and the tool inventory: [Tools Reference](./.ai/tools.md).
 
 ### Skills
 

@@ -13352,6 +13352,16 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
             public void testInsideBuilderSameName() throws Exception {
                 runTest("../../../idea/tests/testData/inspectionsLocal/collections/concatenationToBuildCollection/implicitThis/insideBuilderSameName.kt");
             }
+
+            @TestMetadata("memberFunctionsOfOuterClass.kt")
+            public void testMemberFunctionsOfOuterClass() throws Exception {
+                runTest("../../../idea/tests/testData/inspectionsLocal/collections/concatenationToBuildCollection/implicitThis/memberFunctionsOfOuterClass.kt");
+            }
+
+            @TestMetadata("memberFunctionsWithTransformingCall.kt")
+            public void testMemberFunctionsWithTransformingCall() throws Exception {
+                runTest("../../../idea/tests/testData/inspectionsLocal/collections/concatenationToBuildCollection/implicitThis/memberFunctionsWithTransformingCall.kt");
+            }
         }
 
         @RunWith(JUnit3RunnerWithInners.class)
@@ -13409,14 +13419,34 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
 
+            @TestMetadata("arrayOperand.kt")
+            public void testArrayOperand() throws Exception {
+                runTest("../../../idea/tests/testData/inspectionsLocal/collections/concatenationToBuildCollection/list/arrayOperand.kt");
+            }
+
+            @TestMetadata("assignment.kt")
+            public void testAssignment() throws Exception {
+                runTest("../../../idea/tests/testData/inspectionsLocal/collections/concatenationToBuildCollection/list/assignment.kt");
+            }
+
             @TestMetadata("caretAtCall.kt")
             public void testCaretAtCall() throws Exception {
                 runTest("../../../idea/tests/testData/inspectionsLocal/collections/concatenationToBuildCollection/list/caretAtCall.kt");
             }
 
+            @TestMetadata("commentsBetweenOperands.kt")
+            public void testCommentsBetweenOperands() throws Exception {
+                runTest("../../../idea/tests/testData/inspectionsLocal/collections/concatenationToBuildCollection/list/commentsBetweenOperands.kt");
+            }
+
             @TestMetadata("complexExpressions.kt")
             public void testComplexExpressions() throws Exception {
                 runTest("../../../idea/tests/testData/inspectionsLocal/collections/concatenationToBuildCollection/list/complexExpressions.kt");
+            }
+
+            @TestMetadata("mapFilterOperand.kt")
+            public void testMapFilterOperand() throws Exception {
+                runTest("../../../idea/tests/testData/inspectionsLocal/collections/concatenationToBuildCollection/list/mapFilterOperand.kt");
             }
 
             @TestMetadata("mapTo.kt")
@@ -13434,9 +13464,24 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
                 runTest("../../../idea/tests/testData/inspectionsLocal/collections/concatenationToBuildCollection/list/multipleListOf.kt");
             }
 
+            @TestMetadata("operandOfIn.kt")
+            public void testOperandOfIn() throws Exception {
+                runTest("../../../idea/tests/testData/inspectionsLocal/collections/concatenationToBuildCollection/list/operandOfIn.kt");
+            }
+
+            @TestMetadata("operandOfIntSum.kt")
+            public void testOperandOfIntSum() throws Exception {
+                runTest("../../../idea/tests/testData/inspectionsLocal/collections/concatenationToBuildCollection/list/operandOfIntSum.kt");
+            }
+
             @TestMetadata("parenthesis.kt")
             public void testParenthesis() throws Exception {
                 runTest("../../../idea/tests/testData/inspectionsLocal/collections/concatenationToBuildCollection/list/parenthesis.kt");
+            }
+
+            @TestMetadata("primitiveArrayOperand.kt")
+            public void testPrimitiveArrayOperand() throws Exception {
+                runTest("../../../idea/tests/testData/inspectionsLocal/collections/concatenationToBuildCollection/list/primitiveArrayOperand.kt");
             }
 
             @TestMetadata("singleExpression.kt")
@@ -13467,6 +13512,16 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
 
+            @TestMetadata("arrayOperandMinus.kt")
+            public void testArrayOperandMinus() throws Exception {
+                runTest("../../../idea/tests/testData/inspectionsLocal/collections/concatenationToBuildCollection/set/arrayOperandMinus.kt");
+            }
+
+            @TestMetadata("commentsBetweenOperands.kt")
+            public void testCommentsBetweenOperands() throws Exception {
+                runTest("../../../idea/tests/testData/inspectionsLocal/collections/concatenationToBuildCollection/set/commentsBetweenOperands.kt");
+            }
+
             @TestMetadata("complexExpressions.kt")
             public void testComplexExpressions() throws Exception {
                 runTest("../../../idea/tests/testData/inspectionsLocal/collections/concatenationToBuildCollection/set/complexExpressions.kt");
@@ -13485,6 +13540,11 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
             @TestMetadata("multipleSetOf.kt")
             public void testMultipleSetOf() throws Exception {
                 runTest("../../../idea/tests/testData/inspectionsLocal/collections/concatenationToBuildCollection/set/multipleSetOf.kt");
+            }
+
+            @TestMetadata("operandOfEquality.kt")
+            public void testOperandOfEquality() throws Exception {
+                runTest("../../../idea/tests/testData/inspectionsLocal/collections/concatenationToBuildCollection/set/operandOfEquality.kt");
             }
 
             @TestMetadata("parenthesis.kt")
@@ -15781,6 +15841,94 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
             @TestMetadata("valueArgumentEmpty.kt")
             public void testValueArgumentEmpty() throws Exception {
                 runTest("testData/inspectionsLocal/convertCollectionLiteralToTypeOfExpression/valueArgumentEmpty.kt");
+            }
+        }
+
+        @RunWith(JUnit3RunnerWithInners.class)
+        @TestMetadata("testData/inspectionsLocal/convertNameBasedDestructuringFullFormToShort")
+        public static class ConvertNameBasedDestructuringFullFormToShort extends AbstractK2LocalInspectionTest {
+            private void runTest(String testDataFilePath) throws Exception {
+                KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+            }
+
+            @TestMetadata("forLoopCompleteOption.kt")
+            public void testForLoopCompleteOption() throws Exception {
+                runTest("testData/inspectionsLocal/convertNameBasedDestructuringFullFormToShort/forLoopCompleteOption.kt");
+            }
+
+            @TestMetadata("forLoopNameMismatchOption.kt")
+            public void testForLoopNameMismatchOption() throws Exception {
+                runTest("testData/inspectionsLocal/convertNameBasedDestructuringFullFormToShort/forLoopNameMismatchOption.kt");
+            }
+
+            @TestMetadata("indexedValueForLoopNameMismatchOption.kt")
+            public void testIndexedValueForLoopNameMismatchOption() throws Exception {
+                runTest("testData/inspectionsLocal/convertNameBasedDestructuringFullFormToShort/indexedValueForLoopNameMismatchOption.kt");
+            }
+
+            @TestMetadata("lambdaCompleteOption.kt")
+            public void testLambdaCompleteOption() throws Exception {
+                runTest("testData/inspectionsLocal/convertNameBasedDestructuringFullFormToShort/lambdaCompleteOption.kt");
+            }
+
+            @TestMetadata("localDeclarationNameMismatchOption.kt")
+            public void testLocalDeclarationNameMismatchOption() throws Exception {
+                runTest("testData/inspectionsLocal/convertNameBasedDestructuringFullFormToShort/localDeclarationNameMismatchOption.kt");
+            }
+
+            @TestMetadata("mapEntryForLoopNameMismatchOption.kt")
+            public void testMapEntryForLoopNameMismatchOption() throws Exception {
+                runTest("testData/inspectionsLocal/convertNameBasedDestructuringFullFormToShort/mapEntryForLoopNameMismatchOption.kt");
+            }
+
+            @TestMetadata("missingClosingParenthesisCompleteOptionNoWarn.kt")
+            public void testMissingClosingParenthesisCompleteOptionNoWarn() throws Exception {
+                runTest("testData/inspectionsLocal/convertNameBasedDestructuringFullFormToShort/missingClosingParenthesisCompleteOptionNoWarn.kt");
+            }
+
+            @TestMetadata("mixedKeywordsCompleteOptionNoWarn.kt")
+            public void testMixedKeywordsCompleteOptionNoWarn() throws Exception {
+                runTest("testData/inspectionsLocal/convertNameBasedDestructuringFullFormToShort/mixedKeywordsCompleteOptionNoWarn.kt");
+            }
+
+            @TestMetadata("onlySyntaxOptionNoWarn.kt")
+            public void testOnlySyntaxOptionNoWarn() throws Exception {
+                runTest("testData/inspectionsLocal/convertNameBasedDestructuringFullFormToShort/onlySyntaxOptionNoWarn.kt");
+            }
+
+            @TestMetadata("pairForLoopNameMismatchOption.kt")
+            public void testPairForLoopNameMismatchOption() throws Exception {
+                runTest("testData/inspectionsLocal/convertNameBasedDestructuringFullFormToShort/pairForLoopNameMismatchOption.kt");
+            }
+
+            @TestMetadata("renamedEntryNameMismatchOptionNoWarn.kt")
+            public void testRenamedEntryNameMismatchOptionNoWarn() throws Exception {
+                runTest("testData/inspectionsLocal/convertNameBasedDestructuringFullFormToShort/renamedEntryNameMismatchOptionNoWarn.kt");
+            }
+
+            @TestMetadata("renamedEntryWithCommentsCompleteOption.kt")
+            public void testRenamedEntryWithCommentsCompleteOption() throws Exception {
+                runTest("testData/inspectionsLocal/convertNameBasedDestructuringFullFormToShort/renamedEntryWithCommentsCompleteOption.kt");
+            }
+
+            @TestMetadata("reversedEntriesNameMismatchOptionNoWarn.kt")
+            public void testReversedEntriesNameMismatchOptionNoWarn() throws Exception {
+                runTest("testData/inspectionsLocal/convertNameBasedDestructuringFullFormToShort/reversedEntriesNameMismatchOptionNoWarn.kt");
+            }
+
+            @TestMetadata("shortFormCompleteOptionNoWarn.kt")
+            public void testShortFormCompleteOptionNoWarn() throws Exception {
+                runTest("testData/inspectionsLocal/convertNameBasedDestructuringFullFormToShort/shortFormCompleteOptionNoWarn.kt");
+            }
+
+            @TestMetadata("tripleForLoopNameMismatchOption.kt")
+            public void testTripleForLoopNameMismatchOption() throws Exception {
+                runTest("testData/inspectionsLocal/convertNameBasedDestructuringFullFormToShort/tripleForLoopNameMismatchOption.kt");
+            }
+
+            @TestMetadata("varCompleteOption.kt")
+            public void testVarCompleteOption() throws Exception {
+                runTest("testData/inspectionsLocal/convertNameBasedDestructuringFullFormToShort/varCompleteOption.kt");
             }
         }
 

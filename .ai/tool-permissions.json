@@ -19,7 +19,7 @@
     "filters at the end of `allow` are listed at all: without them `rg.cmd x | head -5` prompts.",
     "",
     "`deny` wins over `allow` in both harnesses and is the load-bearing half: it also overrides",
-    "Claude Code's built-in read-only command set, which is what `grep` and `find` are listed for.",
+    "Claude Code's built-in read-only command set, which is what `find` is listed for.",
     "",
     "`{{TOOLS_DIR}}` resolves per edition (./community/tools, or ./tools in a community checkout).",
     "Everything else is spelled relative to the workspace root the rules are rendered into."
@@ -96,7 +96,6 @@
     ["git", "diff"],
     ["git", "log"],
     ["git", "show"],
-    ["git", "grep"],
     ["git", "ls-files"],
     ["git", "rev-list"],
     ["git", "rev-parse"],
@@ -126,6 +125,7 @@
     ["du"],
     ["echo"],
     ["false"],
+    ["grep"],
     ["head"],
     ["jq"],
     ["ls"],
@@ -150,21 +150,35 @@
   ],
 
   "$comment_deny": [
-    "`grep` and `find` are denied outright, in every pipeline position: pipe into",
-    "`{{TOOLS_DIR}}/rg.cmd` instead, which reads stdin. Expressing \"denied only as the first stage\"",
-    "took a whole argv-parsing hook; the flat rule is what lets both harnesses do this natively."
+    "`find` is denied outright, in every pipeline position: `accio files` finds a file. `grep` is",
+    "allowed: a filter of a pipeline needs it, and the guide sends a search of the source to accio.",
+    "A recursive `grep` is a search of the source, so its common spellings are denied. A prefix rule",
+    "sees only the first argument: `grep -n -r` still runs.",
+    "`git grep` is denied too. It is a search of the source, and from the root it reads 1.4 million",
+    "files. A prefix rule cannot tell a module path from the root, so the whole command is denied:",
+    "`accio locate '<regex>' --mode regex --files` lists the files that hold a text, untracked ones too."
   ],
   "deny": [
     ["bazel", "clean"],
     ["./bazel.cmd", "clean"],
     ["./bazel-clean-caches.cmd"],
-    ["grep"],
-    ["find"]
+    ["find"],
+    ["grep", "-r"],
+    ["grep", "-R"],
+    ["grep", "-rn"],
+    ["grep", "-nr"],
+    ["grep", "-Rn"],
+    ["grep", "-rl"],
+    ["grep", "-ri"],
+    ["grep", "-rni"],
+    ["grep", "-rin"],
+    ["grep", "--recursive"],
+    ["git", "grep"]
   ],
 
   "$comment_denyTools": [
     "Whole tools, denied by name. Claude Code drops these from the model's context entirely, so no",
-    "call is attempted; the guide's Tooling rules point at the ijproxy and rg.cmd/fd.cmd equivalents.",
+    "call is attempted; the guide's Tooling rules point at the accio and rg.cmd equivalents.",
     "Codex has no such tools, so its rules file omits this section."
   ],
   "denyTools": ["Grep", "Glob"],

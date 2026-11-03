@@ -17,13 +17,12 @@ import com.intellij.openapi.progress.util.ProgressIndicatorUtils;
 import com.intellij.openapi.progress.util.ProgressWrapper;
 import com.intellij.openapi.progress.util.TooManyUsagesStatus;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.project.ProjectUtil;
 import com.intellij.openapi.roots.ProjectFileIndex;
 import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.util.NotNullLazyValue;
 import com.intellij.openapi.util.registry.Registry;
+import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.platform.ide.productMode.IdeProductMode;
 import com.intellij.psi.PsiManager;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.GlobalSearchScopeUtil;
@@ -34,9 +33,12 @@ import com.intellij.util.ExceptionUtil;
 import com.intellij.util.Processor;
 import com.intellij.util.TimeoutUtil;
 import com.intellij.util.concurrency.ThreadingAssertions;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.EDT;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.Future;
@@ -75,6 +77,11 @@ final class FindInProjectTask {
 
   /** See {@link #isExcludedFromSearch(VirtualFile)}. */
   private final boolean skipExcludedFiles;
+  /**
+   * The paths of the searched directories that are excluded themselves; the user asked for them, so their files are searched.
+   * A path, because the searched directory can be a transient VFS file while a directory search engine gives cached files.
+   */
+  private final List<String> excludedRootPaths;
 
   private final @NotNull CandidateFilter candidateFilter;
   private final @NotNull ScopeWalker scopeWalker;
@@ -94,45 +101,48 @@ final class FindInProjectTask {
     PsiManager psiManager = PsiManager.getInstance(project);
     projectFileIndex = ProjectRootManager.getInstance(project).getFileIndex();
 
-    VirtualFile directoryToSearchIn;
-    boolean withSubdirectories;
-    boolean directoryStandsForProject = false;
-    var directoryCandidate = FindInProjectUtil.getDirectory(findModel);
-    if (directoryCandidate == null && IdeProductMode.isLight()) {
-      // Make sure that in ijLight we always do a directory search. Directory search requests are easier to optimize by delegating
-      // iteration and pre-filtering to backend (ijent), thus minimizing amount of round trips over the network.
-      // What we configure here is a set of files which should be searched. It may contain more files than requested scope,
-      // but not less than requested. All the discovered files will be filtered by actually provided scope later.
-      // In ijLight we have a very primitive workspace model containing only one ProjectRootEntity, so all the scopes, including
-      // Project Scope and All Scope, are the same - this root directory.
-      directoryToSearchIn = ProjectUtil.guessProjectDir(project);
-      if (directoryToSearchIn != null) {
-        LOG.info("Using guessed " + directoryToSearchIn + " for search.");
-        directoryStandsForProject = true;
-      }
-      else {
-        LOG.warn("No project directory guessed for search in " + project);
-      }
-      withSubdirectories = true;
-    } else {
-      directoryToSearchIn = directoryCandidate;
-      withSubdirectories = findModel.isWithSubdirectories();
-    }
-
     String moduleName = findModel.getModuleName();
     Module moduleToSearchIn = moduleName == null ?
                               null :
                               ReadAction.computeBlocking(() -> ModuleManager.getInstance(project).findModuleByName(moduleName));
 
-    skipExcludedFiles = directoryToSearchIn != null
-                        && !Registry.is("find.search.in.excluded.dirs")
-                        && !ReadAction.computeBlocking(() -> projectFileIndex.isExcluded(directoryToSearchIn));
+    List<VirtualFile> directoriesToSearchIn;
+    boolean withSubdirectories;
+    boolean directoryStandsForProject = false;
+    var directoryCandidate = FindInProjectUtil.getDirectory(findModel);
+    // a module search walks the module, and the module scope filters only the index candidates, so the directories stay out of it
+    List<VirtualFile> projectDirectories = directoryCandidate == null && moduleToSearchIn == null ? projectDirectories(project) : null;
+    if (projectDirectories != null) {
+      // A directory search is a set of files that holds every file of the requested scope, and maybe more: the scope filters
+      // each discovered file later. A DirectorySearchEngine can delegate the walk and the pre-filtering of a directory to a
+      // backend, so a product whose project is a set of directories searches the project this way.
+      directoriesToSearchIn = projectDirectories;
+      if (directoriesToSearchIn.isEmpty()) {
+        LOG.warn("No project directory found for search in " + project);
+      }
+      else {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Using the project directories " + directoriesToSearchIn + " for search.");
+        }
+        directoryStandsForProject = true;
+      }
+      withSubdirectories = true;
+    }
+    else {
+      directoriesToSearchIn = ContainerUtil.createMaybeSingletonList(directoryCandidate);
+      withSubdirectories = findModel.isWithSubdirectories();
+    }
+
+    skipExcludedFiles = !directoriesToSearchIn.isEmpty() && !Registry.is("find.search.in.excluded.dirs");
+    excludedRootPaths = !skipExcludedFiles ? List.of() : ReadAction.computeBlocking(
+      () -> ContainerUtil.mapNotNull(directoriesToSearchIn, dir -> projectFileIndex.isExcluded(dir) ? dir.getPath() : null)
+    );
 
     SearchScope modelCustomScope = findModel.isCustomScope() ? findModel.getCustomScope() : null;
     GlobalSearchScope customScope = modelCustomScope == null ? null : GlobalSearchScopeUtil.toGlobalSearchScope(modelCustomScope, project);
 
-    boolean locateClassSources = directoryToSearchIn != null
-                                 && ReadAction.computeBlocking(() -> projectFileIndex.getClassRootForFile(directoryToSearchIn)) != null;
+    boolean locateClassSources = !directoriesToSearchIn.isEmpty()
+                                 && ReadAction.computeBlocking(() -> ContainerUtil.exists(directoriesToSearchIn, dir -> projectFileIndex.getClassRootForFile(dir) != null));
 
     Predicate<CharSequence> fileNamePatternCondition = FindInProjectUtil.createFileMaskCondition(findModel.getFileFilter());
     NotNullLazyValue<GlobalSearchScope> modelScope =
@@ -149,7 +159,7 @@ final class FindInProjectTask {
         return pair == null ? null : pair.second;
       }
     );
-    scopeWalker = new ScopeWalker(findModel, project, candidateFilter, moduleToSearchIn, directoryToSearchIn, withSubdirectories,
+    scopeWalker = new ScopeWalker(findModel, project, candidateFilter, moduleToSearchIn, directoriesToSearchIn, withSubdirectories,
                                   directoryStandsForProject, customScope);
 
     ProgressIndicator progress = ProgressManager.getInstance().getProgressIndicator();
@@ -160,6 +170,16 @@ final class FindInProjectTask {
     if (tooManyUsagesStatus) {
       TooManyUsagesStatus.createFor(progressIndicator);
     }
+  }
+
+  /**
+   * The valid directories that stand for the project, from the {@link FindInProjectDirectoriesProvider} that defines it.
+   * Null when no provider does, so the project search takes the platform path.
+   */
+  private static @Nullable List<VirtualFile> projectDirectories(@NotNull Project project) {
+    if (project.isDefault()) return null;
+    List<VirtualFile> directories = FindInProjectDirectoriesProvider.findProjectDirectories(project);
+    return directories == null ? null : ContainerUtil.filter(directories, VirtualFile::isValid);
   }
 
   /**
@@ -273,8 +293,14 @@ final class FindInProjectTask {
     ExceptionUtil.rethrowAllAsUnchecked(ProgressIndicatorUtils.awaitWithCheckCanceled(search, progressIndicator));
   }
 
-  /** A directory search skips the excluded subdirectories, unless the registry key allows them or the directory itself is excluded. */
+  /**
+   * A directory search skips the excluded files, unless the registry key allows them or the file lies under a searched directory
+   * that is excluded itself. One excluded directory does not open the excluded files of the other searched directories.
+   * The check compares paths: the searched directory and the file can be different VFS objects for one disk directory.
+   */
   private boolean isExcludedFromSearch(@NotNull VirtualFile file) {
-    return skipExcludedFiles && projectFileIndex.isExcluded(file);
+    return skipExcludedFiles
+           && projectFileIndex.isExcluded(file)
+           && !ContainerUtil.exists(excludedRootPaths, rootPath -> VfsUtilCore.isAncestorOrSelf(rootPath, file));
   }
 }

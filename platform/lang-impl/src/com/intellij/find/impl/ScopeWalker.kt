@@ -44,9 +44,10 @@ internal class ScopeWalker(
   private val project: Project,
   private val candidateFilter: CandidateFilter,
   private val moduleToSearchIn: Module?,
-  private val directoryToSearchIn: VirtualFile?,
+  /** The directories of the model: one named directory, or the directories a [FindInProjectDirectoriesProvider] gives for the project. */
+  private val directoriesToSearchIn: List<VirtualFile>,
   private val withSubdirectories: Boolean,
-  /** True when [directoryToSearchIn] stands for the whole project, as in JetBrains Light, where every file is non-indexable. */
+  /** True when [directoriesToSearchIn] stand for the whole project, whose files are then all non-indexable, as in JetBrains Light. */
   private val directoryStandsForProject: Boolean,
   private val customScope: GlobalSearchScope?,
 ) {
@@ -69,7 +70,9 @@ internal class ScopeWalker(
    * What [roots] decided for one search; [expand] reads it on the workers.
    *
    * @param items        the root walk items
-   * @param searchInLibs true when the custom scope searches in libraries, so a library iterator is walked too
+   * @param searchInLibs true when the custom scope searches in libraries, so a library iterator is walked too; the directories
+   *                     that stand for the project hold no library, so their plan gets the library iterators and the external
+   *                     non-indexable roots as items
    * @param engines      the [DirectorySearchEngine]s whose [DirectorySearchEngine.canSearch] accepted the model
    */
   data class WalkPlan(
@@ -86,8 +89,10 @@ internal class ScopeWalker(
   )
 
   /**
-   * Builds the walk items from _one of_ {custom scope | directory | module | indexable providers}, plus the
-   * [FindModelExtension]s. Runs on the producer coroutine, once per search and only when the walk phase runs; asks
+   * Builds the walk items from _one of_ {custom scope | directories | module | indexable providers}, plus the
+   * [FindModelExtension]s. The directories that stand for the project also get the library iterators and the external
+   * non-indexable roots when the custom scope searches in libraries. Runs on the producer coroutine, once per search and only
+   * when the walk phase runs; asks
    * [DirectorySearchEngine.canSearch] here, outside a read action.
    *
    * @param skipNonIndexableRoots true when a reliable searcher reported
@@ -114,24 +119,32 @@ internal class ScopeWalker(
         items.add(WorkItem.Walk.File(NewVirtualFile.asCacheAvoiding(file)))
       }
     }
-    else if (directoryToSearchIn != null) {
-      // The directory can lie outside the project. Wrap a persistent VFS directory so the walk does not fill the VFS cache
-      // with entries from a rarely used file tree. An LSP virtual file is not persistent and is walked as is.
-      val directory = (directoryToSearchIn as? NewVirtualFile)?.asCacheAvoiding() ?: directoryToSearchIn
-      if (withSubdirectories) {
-        // the directory that stands for the project holds only non-indexable files, so a reliable searcher covers its walk too
-        if (directoryStandsForProject && skipNonIndexableRoots) {
-          nonIndexableWalked = false
+    else if (directoriesToSearchIn.isNotEmpty()) {
+      // the directories that stand for the project hold only non-indexable files, so a reliable searcher covers their walk too
+      val skipDirectories = directoryStandsForProject && skipNonIndexableRoots
+      if (skipDirectories) nonIndexableWalked = false
+      for (directory in directoriesToSearchIn) {
+        // The directory can lie outside the project. Wrap a persistent VFS directory so the walk does not fill the VFS cache
+        // with entries from a rarely used file tree. An LSP virtual file is not persistent and is walked as is.
+        val cacheAvoidingDirectory = (directory as? NewVirtualFile)?.asCacheAvoiding() ?: directory
+        if (withSubdirectories) {
+          if (!skipDirectories) items.add(WorkItem.Walk.File(cacheAvoidingDirectory))
+          // DirectorySearchEngine is not obliged to add unsaved documents to the search queue - do it now.
+          getUnsavedDocumentsUnderDirectory(directory).mapTo(items) { WorkItem.Walk.File(it) }
         }
         else {
-          items.add(WorkItem.Walk.File(directory))
+          cacheAvoidingDirectory.children.mapTo(items) { WorkItem.Walk.File(it) }
         }
-
-        // DirectorySearchEngine is not obliged to add unsaved documents to the search queue - do it now.
-        getUnsavedDocumentsUnderDirectory(directoryToSearchIn).mapTo(items) { WorkItem.Walk.File(it) }
       }
-      else {
-        directory.children.mapTo(items) { WorkItem.Walk.File(it) }
+      if (directoryStandsForProject && searchInLibs) {
+        // the libraries lie outside the directories of the project, so a custom scope that searches in them walks their iterators
+        val indexes = FileBasedIndex.getInstance() as? FileBasedIndexEx
+        indexes?.getIndexableFilesProviders(project)?.filter { it.origin !is ContentOrigin }?.mapTo(items) { WorkItem.Walk.Indexable(it) }
+        if (Registry.`is`("find.in.files.in.non.indexable.enable") && !skipNonIndexableRoots) {
+          // the external non-indexable roots are libraries too, and no iterator covers them
+          val traversalRoots = readAction { ConcurrentFileTraversal.externalNonIndexableTraversal(project).roots }
+          traversalRoots.mapTo(items) { WorkItem.Walk.Traversal(it) }
+        }
       }
       //MAYBE RC: should we return early here? Should FindModelExtension be added if user explicitly
       //          request a search in a specific directory _only_?
@@ -231,7 +244,7 @@ internal class ScopeWalker(
 
   private fun expandDirectory(plan: WalkPlan, item: WorkItem.Walk.File, directory: VirtualFile, sink: Sink) {
     if (!candidateFilter.claimDirectory(item, directory)) return
-    if (directoryToSearchIn != null && withSubdirectories) {
+    if (directoriesToSearchIn.isNotEmpty() && withSubdirectories) {
       // note that search engine may unfold more than one level and eventually visit already indexed, excluded or ignored
       // files or directories. This might be a performance problem, but does not affect correctness: all the files
       // will be checked against the WSM and requested scope later when this search task deals with individual files.
