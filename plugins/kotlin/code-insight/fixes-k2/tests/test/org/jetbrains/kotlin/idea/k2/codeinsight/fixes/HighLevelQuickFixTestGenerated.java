@@ -18816,9 +18816,24 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
             }
 
+            @TestMetadata("unusedUnderscoreWithComments.kt")
+            public void testUnusedUnderscoreWithComments() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/variables/unusedUnderscoreWithComments.kt");
+            }
+
             @TestMetadata("unusedUnderscoreWithImplicitIgnorableType.kt")
             public void testUnusedUnderscoreWithImplicitIgnorableType() throws Exception {
                 runTest("../../../idea/tests/testData/quickfix/variables/unusedUnderscoreWithImplicitIgnorableType.kt");
+            }
+
+            @TestMetadata("unusedUnderscoreWithInvokedLambdaAfterCall.kt")
+            public void testUnusedUnderscoreWithInvokedLambdaAfterCall() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/variables/unusedUnderscoreWithInvokedLambdaAfterCall.kt");
+            }
+
+            @TestMetadata("unusedUnderscoreWithInvokedLambdaFirstStatement.kt")
+            public void testUnusedUnderscoreWithInvokedLambdaFirstStatement() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/variables/unusedUnderscoreWithInvokedLambdaFirstStatement.kt");
             }
 
             @TestMetadata("unusedVariableInDestructuringDeclaration.kt")

@@ -7,6 +7,7 @@ import com.intellij.execution.wsl.WSLCommandLineOptions
 import com.intellij.execution.wsl.WSLDistribution
 import com.intellij.execution.wsl.WslPath
 import com.intellij.openapi.application.PathManager
+import com.intellij.openapi.application.runReadActionBlocking
 import com.intellij.openapi.components.BaseState
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.SimplePersistentStateComponent
@@ -25,6 +26,7 @@ import com.intellij.openapi.progress.util.RelayUiToDelegateIndicator
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectBundle
 import com.intellij.openapi.projectRoots.JdkUtil
+import com.intellij.openapi.projectRoots.ProjectJdkTable
 import com.intellij.openapi.projectRoots.impl.jdkDownloader.JdkInstallerEel.unpackJdkOnEel
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.io.OSAgnosticPathUtil
@@ -114,6 +116,8 @@ interface JdkInstallerListener {
   fun onJdkDownloadFinished(request: JdkInstallRequest, project: Project?) {}
 }
 
+internal data class InstallDirAndMarkerFile(val installDir: Path, val markerFile: Path)
+
 @Service
 @Internal
 class JdkInstaller : JdkInstallerBase() {
@@ -177,6 +181,69 @@ class JdkInstaller : JdkInstallerBase() {
     }
     finally {
       JDK_INSTALL_LISTENER_EP_NAME.forEachExtensionSafe { it.onJdkDownloadFinished(request, project) }
+    }
+  }
+
+  fun findRemovableOutdatedJdk(oldJdkHome: String?): Path? = findRemovableOutdatedJdkAndMarkerFile(oldJdkHome)?.installDir
+
+  private fun findRemovableOutdatedJdkAndMarkerFile(oldJdkHome: String?): InstallDirAndMarkerFile? {
+    val oldJdkPath = oldJdkHome?.let { runCatching { Path.of(it) }.getOrNull() } ?: return null
+    val installDirAndMarkerFile = findInstallDirAndMarkerFile(oldJdkPath) ?: return null
+    val installDir = installDirAndMarkerFile.installDir
+    val normalizedInstallDir = installDir.toAbsolutePath().normalize()
+    val sdkHomes = runReadActionBlocking {
+      ProjectJdkTable.getInstance().allJdks.mapNotNull { sdk ->
+        sdk.homePath?.let { runCatching { Path.of(it).toAbsolutePath().normalize() }.getOrNull() }
+      }
+    }
+    val ideJavaHome = Path.of(System.getProperty("java.home")).toAbsolutePath().normalize()
+    if (sdkHomes.any { it.startsWith(normalizedInstallDir) } || ideJavaHome.startsWith(normalizedInstallDir)) {
+      return null
+    }
+
+    return installDirAndMarkerFile
+  }
+
+  /**
+   * Removes the outdated JDK at [installDir] if no SDK and no IDE runtime use it.
+   * If the removal fails, the IDE records [installDir] and [retryOutdatedJdkRemoval] tries again later.
+   */
+  fun removeOutdatedJdk(installDir: Path) {
+    val store = service<JdkInstallerStore>()
+    val removableInstallDirAndMarkerFile = findRemovableOutdatedJdkAndMarkerFile(installDir.toString())
+    if (removableInstallDirAndMarkerFile == null || removableInstallDirAndMarkerFile.installDir != installDir) {
+      store.unregisterOutdated(installDir.toAbsolutePath().toString())
+      return
+    }
+    val removableInstallDir = removableInstallDirAndMarkerFile.installDir
+    val markerFile = removableInstallDirAndMarkerFile.markerFile
+
+    try {
+      removableInstallDir.delete()
+      markerFile.delete()
+      store.unregisterOutdated(installDir.toAbsolutePath().toString())
+    }
+    catch (e: IOException) {
+      LOG.warn("Failed to remove outdated JDK at $installDir. The IDE tries again on the next project opening", e)
+      store.registerOutdated(installDir)
+    }
+  }
+
+  fun retryOutdatedJdkRemoval() {
+    val store = service<JdkInstallerStore>()
+    for (installDirString in store.listOutdated()) {
+      val installDir = runCatching { Path.of(installDirString) }.getOrNull()
+      if (installDir == null || !installDir.isDirectory()) {
+        try {
+          installDir?.let { markerFile(it)?.delete() }
+          store.unregisterOutdated(installDirString)
+        }
+        catch (e: IOException) {
+          LOG.warn("Failed to remove the marker file of outdated JDK at $installDir", e)
+        }
+        continue
+      }
+      removeOutdatedJdk(installDir)
     }
   }
 
@@ -261,6 +328,12 @@ abstract class JdkInstallerBase {
   abstract fun defaultInstallDir(osAbstractionForJdkInstaller: OsAbstractionForJdkInstaller?): Path
 
   fun defaultInstallDir(newVersion: JdkItem): Path = defaultInstallDir(defaultInstallDir(null), newVersion)
+
+  fun installDirNextToInstalledJdk(jdkHome: String?, newVersion: JdkItem): Path? {
+    val jdkPath = jdkHome?.let { Path.of(it) } ?: return null
+    val markerFile = findMarkerFile(jdkPath) ?: return null
+    return markerFile.parent?.let { defaultInstallDir(it, newVersion) }
+  }
 
   protected fun defaultInstallDir(installDir: Path, newVersion: JdkItem): Path {
     val targetDir = installDir.resolve(newVersion.installFolderName)
@@ -482,7 +555,7 @@ abstract class JdkInstallerBase {
     return request
   }
 
-  private fun markerFile(installDir: Path): Path? = installDir.parent?.resolve(".${installDir.fileName}.intellij")
+  protected fun markerFile(installDir: Path): Path? = installDir.parent?.resolve(".${installDir.fileName}.intellij")
 
   private fun writeMarkerFile(request: JdkInstallRequest) {
     val installDir = request.installDir
@@ -512,15 +585,7 @@ abstract class JdkInstallerBase {
       if (!jdkPath.isDirectory()) return null
       val predicate = JdkPredicate.forEel(jdkPath.getEelDescriptor().toEelApiBlocking())
 
-      // Java package install dir have several folders up from it, e.g. Contents/Home on macOS
-      val markerFile = generateSequence(jdkPath) { file -> file.parent }
-                         .takeWhile {
-                           arrayOf<LinkOption>()
-                           it.isDirectory()
-                         }
-                         .take(5)
-                         .mapNotNull { markerFile(it) }
-                         .firstOrNull { it.isRegularFile() } ?: return null
+      val markerFile = findMarkerFile(jdkPath) ?: return null
 
       val json = JdkListParser.readTree(Files.readString(markerFile))
       return JdkListParser.parseJdkItem(json, predicate).firstOrNull()
@@ -529,6 +594,16 @@ abstract class JdkInstallerBase {
       return null
     }
   }
+
+  // Java package install dir have several folders up from it, e.g. Contents/Home on macOS
+  protected fun findMarkerFile(jdkPath: Path): Path? = findInstallDirAndMarkerFile(jdkPath)?.markerFile
+
+  internal fun findInstallDirAndMarkerFile(jdkPath: Path): InstallDirAndMarkerFile? = generateSequence(jdkPath) { it.parent }
+    .takeWhile { it.isDirectory() }
+    .take(5)
+    .firstNotNullOfOrNull { installDir ->
+      markerFile(installDir)?.takeIf { it.isRegularFile() }?.let { InstallDirAndMarkerFile(installDir, it) }
+    }
 
   private fun findAlreadyInstalledJdk(feedItem: JdkItem, distribution: OsAbstractionForJdkInstaller?): JdkInstallRequest? {
     try {
@@ -702,6 +777,9 @@ class JdkInstallerStateEntry : BaseState() {
 class JdkInstallerState : BaseState() {
   @get:XCollection
   var installedItems: MutableList<JdkInstallerStateEntry> by list()
+
+  @get:XCollection
+  var outdatedInstallDirs: MutableList<String> by list()
 }
 
 @State(name = "JdkInstallerHistory", storages = [Storage(StoragePathMacros.NON_ROAMABLE_FILE)], allowLoadInTests = true)
@@ -734,6 +812,24 @@ class JdkInstallerStore : SimplePersistentStateComponent<JdkInstallerState>(JdkI
 
   fun listJdkInstallHomes(): List<Path> = lock.withLock {
     state.installedItems.mapNotNull { it.javaHomePath }
+  }
+
+  fun registerOutdated(installDir: Path): Unit = lock.withLock {
+    val installDirString = installDir.toAbsolutePath().toString()
+    if (installDirString !in state.outdatedInstallDirs) {
+      state.outdatedInstallDirs.add(installDirString)
+      state.intIncrementModificationCount()
+    }
+  }
+
+  fun listOutdated(): List<String> = lock.withLock {
+    state.outdatedInstallDirs.toList()
+  }
+
+  fun unregisterOutdated(installDirString: String): Unit = lock.withLock {
+    if (state.outdatedInstallDirs.remove(installDirString)) {
+      state.intIncrementModificationCount()
+    }
   }
 
   companion object {

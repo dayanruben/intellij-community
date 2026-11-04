@@ -9,7 +9,6 @@ import com.intellij.openapi.editor.InlayModel
 import com.intellij.openapi.editor.InlayProperties
 import com.intellij.openapi.editor.ex.DocumentPatch
 import com.intellij.openapi.editor.impl.marker.PMarkerResolution
-import com.intellij.openapi.editor.impl.marker.SnapshotMarkerEngine
 import com.intellij.openapi.editor.impl.marker.SnapshotRangeMarkerImpl
 import com.intellij.openapi.editor.impl.marker.UsePMarkerImplementation
 import com.intellij.openapi.util.Disposer
@@ -63,11 +62,10 @@ class SnapshotInlayModelTest {
       val marker = editor.inlayModel.addInlineElement(2, false, renderer)!! as SnapshotRangeMarkerImpl
       val rootStore = editor.inlayModel.rootStore()
       val shiftedSnapshot = document.snapshotMarkerStores.applyPatch(initialSnapshot, textPatch(0, 0, "xy"))
-      val initialResolution = SnapshotMarkerEngine.resolveRangeMarker(marker, rootStore.rootReference(initialSnapshot).get())
-      val shiftedResolution = SnapshotMarkerEngine.resolveRangeMarker(marker, rootStore.rootReference(shiftedSnapshot).get())
+      val shiftedResolution = marker.resolve(rootStore.rootReference(shiftedSnapshot).get())
 
       BranchState(
-        initialOffset = PMarkerResolution.startOffset(initialResolution),
+        initialOffset = marker.startOffset,
         shiftedOffset = PMarkerResolution.startOffset(shiftedResolution),
       )
     }
@@ -194,7 +192,7 @@ class SnapshotInlayModelTest {
         offset = inlay.offset,
         isOnlyRangeResult = editor.inlayModel.getBlockElementsInRange(3, 3) == listOf(inlay),
         isOnlyVisualLineResult = editor.inlayModel.getBlockElementsForVisualLine(1, true) == listOf(inlay),
-        isShownWhenFolded = InlayModelImpl.showWhenFolded(inlay),
+        isShownWhenFolded = inlay.properties.isShownWhenFolded,
         priority = inlay.properties.priority,
       )
     }

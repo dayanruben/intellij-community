@@ -2,6 +2,7 @@
 package com.intellij.openapi.editor.impl;
 
 import com.intellij.codeInsight.daemon.impl.TestDaemonCodeAnalyzerImpl;
+import com.intellij.ide.impl.OpenProjectTask;
 import com.intellij.lang.FileASTNode;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
@@ -24,7 +25,7 @@ import com.intellij.openapi.editor.ex.RangeHighlighterEx;
 import com.intellij.openapi.editor.ex.RangeMarkerEx;
 import com.intellij.openapi.editor.ex.RangeMarkers;
 import com.intellij.openapi.editor.impl.event.DocumentEventImpl;
-import com.intellij.openapi.editor.impl.marker.SnapshotMarkerEngine;
+import com.intellij.openapi.editor.impl.marker.SnapshotMarkerReference;
 import com.intellij.openapi.editor.impl.marker.SnapshotRangeMarkerImpl;
 import com.intellij.openapi.editor.markup.HighlighterTargetArea;
 import com.intellij.openapi.editor.markup.MarkupModel;
@@ -119,7 +120,8 @@ import static org.junit.jupiter.api.Assertions.fail;
 @SuppressWarnings({"deprecation", "WeakerAccess"})
 public class RangeMarkerTest {
   private static final Logger LOG = Logger.getInstance(RangeMarkerTest.class);
-  private static final TestFixture<Project> PROJECT_FIXTURE = FixturesKt.projectFixture();
+  private static final TestFixture<Project> PROJECT_FIXTURE =
+    FixturesKt.projectFixture(FixturesKt.tempPathFixture(), OpenProjectTask.build(), true);
   private static final TestFixture<Module> MODULE_FIXTURE = FixturesKt.moduleFixture(PROJECT_FIXTURE, "range-marker", null);
 
   private final TestFixture<PsiDirectory> sourceRootFixture = FixturesKt.sourceRootFixture(MODULE_FIXTURE);
@@ -1273,7 +1275,7 @@ public class RangeMarkerTest {
     GCUtil.tryGcSoftlyReachableObjects(() -> reference.get() == null);
     assertNull(reference.get());
     if (snapshotMarker) {
-      while (!SnapshotMarkerEngine.INSTANCE.processQueue()) {
+      while (!SnapshotMarkerReference.processQueue()) {
         Thread.yield();
       }
     }
@@ -1806,6 +1808,28 @@ public class RangeMarkerTest {
     for (RangeMarker rm : markers) {
       assertTrue(rm.isValid());
     }
+  }
+
+  @PerformanceUnitTest
+  @Test
+  public void testReplaceMostOfDocumentWithManyMarkersPerformance() {
+    int N = 80_000;
+    // a line for each marker
+    String text = StringUtil.repeat("abcdefghij\n", N);
+    Ref<DocumentEx> doc = new Ref<>();
+    List<RangeMarker> markers = new ArrayList<>(N);
+    Benchmark.newBenchmark(classPlusTestName(), () -> {
+      replaceString(doc.get(), text.length() / 4, text.length(), "replacement\n");
+    }).setup(() -> {
+      markers.forEach(RangeMarker::dispose);
+      markers.clear();
+      doc.set(new DocumentImpl(text));
+      for (int i = 0; i < N; i++) {
+        int offset = i * (text.length() / N);
+        markers.add(doc.get().createRangeMarker(offset, offset + 5));
+      }
+    }).runAsStressTest().start();
+    assertEquals(N / 4, markers.stream().filter(RangeMarker::isValid).count());
   }
 
   @PerformanceUnitTest

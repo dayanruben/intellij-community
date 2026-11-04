@@ -18,12 +18,6 @@ import java.util.function.Consumer
  * with the receiver.
  */
 interface PMarkerRoot {
-  /** Creates a handle that retains [marker] when [retainStrong] is true. */
-  fun <T : SnapshotRangeMarkerImpl> createHandle(marker: T, retainStrong: Boolean): SnapshotMarkerReference<T?>
-
-  /** Creates a handle that retains [marker]. */
-  fun <T : SnapshotRangeMarkerImpl> createStrongHandle(marker: T): SnapshotMarkerReference<T>
-
   /** Identifies roots with the same marker offsets and validity. This token must not retain a root. */
   val resolutionCacheIdentity: Any
 
@@ -32,9 +26,6 @@ interface PMarkerRoot {
 
   /** Replaces the offsets of existing valid markers and discards stale cached offsets. */
   fun restoreEntries(entries: List<MarkerEntry>): PMarkerRoot
-
-  /** Returns an empty root with the same implementation and handle family as this root. */
-  fun emptyRoot(): PMarkerRoot
 
   /**
    * Returns `true` when this root contains no valid markers.
@@ -143,17 +134,10 @@ interface PMarkerRoot {
   fun remove(handle: SnapshotMarkerReference<*>): PMarkerRoot
 
   /**
-   * Removes [handles] and retains absent tombstones, as [remove] does.
-   * Repeated or absent handles have no effect. An unchanged batch returns the receiver.
-   */
-  @TestOnly
-  fun removeMany(handles: Collection<SnapshotMarkerReference<*>>): PMarkerRoot
-
-  /**
    * Removes every trace of [handles], including their stored resolutions.
    *
-   * This operation is intended for garbage-collected marker handles. Unlike [removeMany], it does not retain an absent
-   * tombstone because no handle remains that could resolve against it.
+   * This operation removes collected marker handles without retaining removal tombstones.
+   * No marker remains that could resolve against a tombstone.
    *
    * Repeated or absent handles have no effect. An unchanged batch returns the receiver.
    */
@@ -224,12 +208,12 @@ interface PMarkerRoot {
 
   /**
    * Returns a lazy iterator over valid markers that non-strictly intersect `[startOffset, endOffset]` and match [tastePreference].
-   * The iterator orders entries by start offset and handle order.
+   * The iterator orders entries by start offset and handle ID.
    */
   fun overlappingIterator(startOffset: Int, endOffset: Int, tastePreference: Int): Iterator<MarkerEntry>
 
   /**
-   * Processes all valid markers by increasing actual start offset, then increasing handle order.
+   * Processes all valid markers by increasing actual start offset, then increasing handle ID.
    * The start offset includes pending shifts in this root.
    * The end offset, flavor flags, and tree shape do not affect the order.
    *
@@ -249,8 +233,8 @@ interface PMarkerRoot {
     @JvmField
     val EMPTY_HANDLE_CONSUMER: Consumer<SnapshotMarkerReference<*>> = Consumer { }
 
-    /** Creates an empty marker root. */
+    /** Creates an empty root with direct links. */
     @JvmStatic
-    fun empty(): PMarkerRoot = PMarkerRootImpl.empty()
+    fun empty(): PMarkerRoot = PMarkerDirectRoot.empty()
   }
 }

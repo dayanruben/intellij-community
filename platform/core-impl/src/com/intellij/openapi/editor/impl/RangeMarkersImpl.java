@@ -10,7 +10,6 @@ import com.intellij.openapi.editor.ex.RangeMarkers;
 import com.intellij.openapi.editor.impl.marker.DefaultMarkerPolicy;
 import com.intellij.openapi.editor.impl.marker.MarkerSpec;
 import com.intellij.openapi.editor.impl.marker.PersistentMarkerPolicy;
-import com.intellij.openapi.editor.impl.marker.SnapshotMarkerEngine;
 import com.intellij.openapi.editor.impl.marker.SnapshotMarkerRootStore;
 import com.intellij.openapi.editor.impl.marker.SnapshotRangeMarkerImpl;
 import com.intellij.openapi.util.ProperTextRange;
@@ -41,7 +40,7 @@ public final class RangeMarkersImpl implements RangeMarkers {
       myRangeMarkerTree = null;
       myPersistentRangeMarkerTree = null;
       mySnapshotMarkerRootStore = hostDocument == null
-                                  ? SnapshotMarkerRootStore.create(myDocument)
+                                  ? new SnapshotMarkerRootStore<>(myDocument, SnapshotRangeMarkerImpl.class)
                                   : hostDocument.getRangeMarkers().mySnapshotMarkerRootStore;
     }
     else {
@@ -63,7 +62,7 @@ public final class RangeMarkersImpl implements RangeMarkers {
                                                   boolean surviveOnExternalChange) {
     if (myRangeMarkerTree == null) {
       byte spec = MarkerSpec.create(false, false);
-      return SnapshotMarkerEngine.INSTANCE.createRangeMarker(
+      return SnapshotRangeMarkerImpl.createRangeMarker(
         hostDocument,
         startOffset,
         endOffset,
@@ -91,7 +90,7 @@ public final class RangeMarkersImpl implements RangeMarkers {
   @Override
   public boolean removeRangeMarker(@NotNull RangeMarkerEx rangeMarker) {
     if (rangeMarker instanceof SnapshotRangeMarkerImpl) {
-      return SnapshotMarkerEngine.INSTANCE.removeRangeMarker((SnapshotRangeMarkerImpl)rangeMarker);
+      return ((SnapshotRangeMarkerImpl)rangeMarker).removeFromCurrentRoot();
     }
     return treeFor(rangeMarker).removeInterval(rangeMarker);
   }
@@ -99,9 +98,7 @@ public final class RangeMarkersImpl implements RangeMarkers {
   @Override
   public boolean processRangeMarkers(@NotNull Processor<? super RangeMarker> processor) {
     if (myRangeMarkerTree == null) {
-      return SnapshotMarkerEngine.INSTANCE.processAllRangeMarkers(
-        mySnapshotMarkerRootStore, myDocument.getCore().snapshot(), processor
-      );
+      return mySnapshotMarkerRootStore.processAllRangeMarkers(myDocument.getCore().snapshot(), processor);
     }
     return processRangeMarkersOverlappingWith(0, myDocument.getTextLength(), processor);
   }
@@ -118,8 +115,8 @@ public final class RangeMarkersImpl implements RangeMarkers {
                                                              @NotNull Processor<? super RangeMarker> processor) {
     RangeMarkerTree<RangeMarkerEx> rangeMarkerTree = myRangeMarkerTree;
     if (rangeMarkerTree == null) {
-      return SnapshotMarkerEngine.INSTANCE.processRangeMarkersOverlappingWith(
-        mySnapshotMarkerRootStore, myDocument.getCore().snapshot(), start, end, tastePreference, processor
+      return mySnapshotMarkerRootStore.processRangeMarkersOverlappingWith(
+        myDocument.getCore().snapshot(), start, end, tastePreference, processor
       );
     }
 

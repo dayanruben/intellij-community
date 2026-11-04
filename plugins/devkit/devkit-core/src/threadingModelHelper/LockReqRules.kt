@@ -19,6 +19,20 @@ interface LockReqRules {
   val disposeMethodNames: Set<String>
 
   /**
+   * The qualified names of the classes whose declared methods all require read access.
+   * A call to such a method gives a [ConstraintType.READ] requirement with [RequirementReason.IMPLICIT].
+   */
+  val readRequiredClasses: Set<String>
+
+  /**
+   * The qualified names of the classes whose declared methods the analysis does not enter.
+   * A call to such a method gives no inheritor search, and the analysis does not go into its implementations.
+   * The method can still give a requirement from [assertionMethods] or [readRequiredClasses].
+   * The analysis treats the methods of all JDK classes in the same way, so this set does not need to list them.
+   */
+  val opaqueClasses: Set<String>
+
+  /**
    * When analyzer configured to search for a subset of [ConstraintType] (via [AnalysisConfig.interestingConstraintTypes]),
    * and it meets a signature from [indifferent] that is matched with a subset of [AnalysisConfig.interestingConstraintTypes], this signature is ignored.
    * This is needed to save some performance on methods that guaranteedly won't have anything interesting inside them
@@ -101,6 +115,25 @@ class BaseLockReqRules : LockReqRules {
   override val disposerUtilityClassFqn: String = "com.intellij.openapi.util.Disposer"
   override val disposableInterfaceFqn: String = "com.intellij.openapi.Disposable"
   override val disposeMethodNames: Set<String> = setOf("dispose")
+
+  override val readRequiredClasses: Set<String> = setOf(
+    "com.intellij.psi.PsiElement",
+    "com.intellij.psi.PsiMethod",
+    "com.intellij.lang.ASTNode",
+    "com.intellij.psi.impl.PsiElementBase",
+    "com.intellij.psi.PsiTypeParameterListOwner",
+    "com.intellij.psi.PsiReference",
+    "com.intellij.psi.stubs.StubElement",
+    "com.intellij.extapi.psi.ASTDelegatePsiElement",
+    "com.intellij.extapi.psi.ASTWrapperPsiElement",
+  )
+
+  override val opaqueClasses: Set<String> = setOf(
+    "com.intellij.openapi.util.UserDataHolder",
+    "com.intellij.openapi.util.UserDataHolderEx",
+    "com.intellij.openapi.util.UserDataHolderBase",
+    "com.intellij.openapi.diagnostic.Logger",
+  )
 
   override val indifferent: Set<Pair<EnumSet<ConstraintType>, Signature>> = setOf(
     THREAD_REQUIREMENTS to Signature("com.intellij.openapi.application.impl.ServerNonBlockingReadAction", "submit"),

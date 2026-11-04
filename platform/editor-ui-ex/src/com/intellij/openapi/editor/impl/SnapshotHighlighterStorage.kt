@@ -31,8 +31,8 @@ internal class SnapshotHighlighterStorage(
   /** A positive value prevents nested changes during before-removal notifications on the current thread. */
   private val removalDepth: ThreadLocal<Int> = ThreadLocal.withInitial { 0 }
 
-  val rootStore: SnapshotMarkerRootStore<SnapshotRangeHighlighterImpl> = SnapshotMarkerRootStore.strong(
-    document, SnapshotRangeHighlighterImpl::class.java,
+  val rootStore: SnapshotMarkerRootStore<SnapshotRangeHighlighterImpl> = SnapshotMarkerRootStore(
+    document, SnapshotRangeHighlighterImpl::class.java, retainStrong = true,
     onMarkersInvalidated = ::highlightersChanged, emptyRoot = CompoundPMarkerRoot.empty(),
   )
 
@@ -54,7 +54,7 @@ internal class SnapshotHighlighterStorage(
       inserted = rootStore.updateCurrentRoot {
         require(endOffset <= document.textLength) { "Highlighter range exceeds document length" }
         it.insert(handle, startOffset, endOffset, spec, flavorFlags, policy = policy)
-      }
+      } != null
     }
     finally {
       if (!inserted) highlighter.unregister()
@@ -147,7 +147,7 @@ internal class SnapshotHighlighterStorage(
     try {
       for (i in 0 until size) {
         val handle = invalidatedHandles[i]
-        val highlighter = handle.get()
+        val highlighter = checkNotNull(handle.get())
         if (!highlighter.isRegistered) continue
         beforeRemoved(highlighter)
         afterRemoved(highlighter)
@@ -155,7 +155,7 @@ internal class SnapshotHighlighterStorage(
     }
     finally {
       for (i in 0 until size) {
-        val highlighter = invalidatedHandles[i].get()
+        val highlighter = checkNotNull(invalidatedHandles[i].get())
         highlighter.unregister()
       }
       model.invalidateHighlighterCache()

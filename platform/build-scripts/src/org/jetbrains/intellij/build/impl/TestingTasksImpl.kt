@@ -458,7 +458,10 @@ internal class TestingTasksImpl(context: CompilationContext, private val options
               mainModule.name != "intellij.clion.main.tests" &&
               !(mainModule.name == "intellij.idea.ultimate.tests.main" && options.testGroups?.split(';')?.contains("COMMUNITY_JAVA_TESTS") == true) &&
               !(testModule.name == "intellij.idea.ultimate.tests.integration" && options.testGroups?.split(';')?.contains(GroupBasedTestClassFilter.ALL_EXCLUDE_DEFINED) == true) &&
-              !(testModule.name == "intellij.idea.ultimate.codeInsight.tests" && options.testGroups?.split(';')?.any { it == GroupBasedTestClassFilter.ALL_EXCLUDE_DEFINED || it == "IdeaSmokeTests" } == true)
+              !(testModule.name == "intellij.idea.ultimate.codeInsight.tests" && options.testGroups?.split(';')?.any { it == GroupBasedTestClassFilter.ALL_EXCLUDE_DEFINED || it == "IdeaSmokeTests" } == true) &&
+              !(testModule.name == "intellij.gradle.java.tests" && options.testGroups?.split(';')?.contains("GRADLE_ON_EEL_INTEGRATION_TESTS") == true) &&
+              !(testModule.name == "intellij.gradle.tests" && options.testGroups?.split(';')?.contains("GRADLE_ON_EEL_INTEGRATION_TESTS") == true) &&
+              !(testModule.name == "intellij.maven.tests" && options.testGroups?.split(';')?.contains("MAVEN_IN_DOCKER_INTEGRATION_TESTS") == true)
             } ?: mainModule,
             testGroups = options.testGroups,
             testPatterns = options.testPatterns,
@@ -1496,6 +1499,8 @@ private fun publishTestDiscovery(messages: BuildMessages, file: String?) {
 private val COMMUNITY_AGGREGATOR_JPS_MODULES_ALLOWLIST = setOf(
   "intellij.devkit.kotlin.tests",
   "intellij.devkit.themes.tests",
+  "intellij.filePrediction.tests",
+  "intellij.gradle.declarativeSync.tests",
   "intellij.gradle.java.toml.tests",
   "intellij.gradle.tests",
   "intellij.java.dumb.completion.tests",
@@ -1504,12 +1509,15 @@ private val COMMUNITY_AGGREGATOR_JPS_MODULES_ALLOWLIST = setOf(
   "intellij.platform.lang.testEntities",
   "intellij.platform.remoteServers.targetsIntegrationTests",
   "intellij.platform.workspace.storage.testEntities",
+  "intellij.python.community.tests",
+  "intellij.python.markdown.tests",
   "intellij.python.test.env.common",
   "intellij.python.test.env.conda",
   "intellij.python.test.env.core",
   "intellij.python.test.env.junit4",
   "intellij.python.test.env.plain",
   "intellij.python.test.env.uv",
+  "intellij.settingsRepository.tests",
   "intellij.terminal.completion.tests",
   // no tests
   "kotlin.jvm-debugger.testFramework",

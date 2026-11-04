@@ -8,9 +8,7 @@ import com.intellij.openapi.editor.impl.marker.PMarkerResolution
 import com.intellij.openapi.editor.impl.marker.PMarkerRoot
 import com.intellij.openapi.editor.impl.marker.PMarkerRoot.MarkerDeltaProcessor
 import com.intellij.openapi.editor.impl.marker.PMarkerRoot.MarkerEntry
-import com.intellij.openapi.editor.impl.marker.PMarkerRootImpl
 import com.intellij.openapi.editor.impl.marker.SnapshotMarkerReference
-import com.intellij.openapi.editor.impl.marker.SnapshotRangeMarkerImpl
 import com.intellij.openapi.editor.markup.HighlighterTargetArea
 import com.intellij.util.Processor
 import org.jetbrains.annotations.ApiStatus
@@ -24,14 +22,6 @@ open class CompoundPMarkerRoot private constructor(
   val linesInRangeRoot: PMarkerRoot,
 ) : PMarkerRoot {
   override val resolutionCacheIdentity: Any = Any()
-
-  override fun emptyRoot(): CompoundPMarkerRoot = empty()
-
-  override fun <T : SnapshotRangeMarkerImpl> createHandle(marker: T, retainStrong: Boolean): SnapshotMarkerReference<T?> =
-    exactRangeRoot.createHandle(marker, retainStrong)
-
-  override fun <T : SnapshotRangeMarkerImpl> createStrongHandle(marker: T): SnapshotMarkerReference<T> =
-    exactRangeRoot.createStrongHandle(marker)
 
   override fun restoreEntries(entries: List<MarkerEntry>): PMarkerRoot {
     return withRoots(exactRangeRoot.restoreEntries(entries.filter { exactRangeRoot.isValid(it.handle) }),
@@ -48,8 +38,8 @@ open class CompoundPMarkerRoot private constructor(
 
     return linesInRangeRoot.resolve(handle)
   }
-  @TestOnly
 
+  @TestOnly
   override fun invalidationReason(handle: SnapshotMarkerReference<*>): String? {
     return if (PMarkerResolution.isAbsent(exactRangeRoot.resolve(handle))) {
       linesInRangeRoot.invalidationReason(handle)
@@ -128,11 +118,6 @@ open class CompoundPMarkerRoot private constructor(
 
   override fun remove(handle: SnapshotMarkerReference<*>): PMarkerRoot {
     return updateMarker { it.remove(handle) }
-  }
-  @TestOnly
-
-  override fun removeMany(handles: Collection<SnapshotMarkerReference<*>>): PMarkerRoot {
-    return withRoots(exactRangeRoot.removeMany(handles), linesInRangeRoot.removeMany(handles))
   }
 
   override fun purgeMany(handles: Collection<SnapshotMarkerReference<*>>): PMarkerRoot {
@@ -218,11 +203,7 @@ open class CompoundPMarkerRoot private constructor(
   }
 
   companion object {
-    private object EMPTY : CompoundPMarkerRoot(PMarkerRootImpl.empty(), PMarkerRootImpl.empty()) {
-      override fun toString(): String = "EMPTY"
-    }
-
-    fun empty(): CompoundPMarkerRoot = EMPTY
+    fun empty(): CompoundPMarkerRoot = CompoundPMarkerRoot(PMarkerRoot.empty(), PMarkerRoot.empty())
 
     private fun compareEntries(first: MarkerEntry, second: MarkerEntry): Int {
       val byStartOffset = first.nodeStart.compareTo(second.nodeStart)

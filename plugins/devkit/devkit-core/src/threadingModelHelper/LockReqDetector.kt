@@ -1,8 +1,11 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.idea.devkit.threadingModelHelper
 
+import com.intellij.openapi.roots.JdkOrderEntry
+import com.intellij.openapi.roots.ProjectFileIndex
 import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiMethod
+import com.intellij.psi.util.InheritanceUtil
 
 object LockReqDetector {
 
@@ -29,6 +32,10 @@ object LockReqDetector {
       if (lockType in config.interestingConstraintTypes) {
         requirements.add(LockRequirement(method, lockType, RequirementReason.ASSERTION))
       }
+    }
+
+    if (ConstraintType.READ in config.interestingConstraintTypes && className in patterns.readRequiredClasses) {
+      requirements.add(LockRequirement(method, ConstraintType.READ, RequirementReason.IMPLICIT))
     }
 
     if (config.interestingConstraintTypes.contains(ConstraintType.EDT) && isSwingMethod(method)) {
@@ -94,6 +101,29 @@ object LockReqDetector {
            || containingFqn.startsWith("com.intellij.util")
            || containingFqn.startsWith("org.jdom")
 
+  }
+
+  /**
+   * Whether the analysis must not go into the implementations of [method].
+   * This is true if a JDK class or one of [LockReqRules.opaqueClasses] declares [method].
+   * This is also true for `Disposable.dispose` and all its overrides.
+   */
+  context(patterns: LockReqRules)
+  fun isOpaqueMethod(method: PsiMethod): Boolean {
+    val containingClass = method.containingClass ?: return false
+    return containingClass.qualifiedName in patterns.opaqueClasses || isJdkClass(containingClass) || isDisposeMethod(method, containingClass)
+  }
+
+  context(patterns: LockReqRules)
+  private fun isDisposeMethod(method: PsiMethod, containingClass: PsiClass): Boolean {
+    return method.name in patterns.disposeMethodNames &&
+           method.parameterList.parametersCount == 0 &&
+           InheritanceUtil.isInheritor(containingClass, patterns.disposableInterfaceFqn)
+  }
+
+  private fun isJdkClass(psiClass: PsiClass): Boolean {
+    val file = psiClass.containingFile?.virtualFile ?: return false
+    return ProjectFileIndex.getInstance(psiClass.project).getOrderEntriesForFile(file).any { it is JdkOrderEntry }
   }
 
   context(config: AnalysisConfig, patterns: LockReqRules)

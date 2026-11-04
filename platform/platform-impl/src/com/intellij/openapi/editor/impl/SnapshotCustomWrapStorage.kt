@@ -23,8 +23,8 @@ internal class SnapshotCustomWrapStorage(
   val document: DocumentImpl,
 ) {
   private val registeredWraps: MutableSet<SnapshotMarkerReference<*>> = ConcurrentHashMap.newKeySet()
-  val rootStore: SnapshotMarkerRootStore<SnapshotCustomWrap> = SnapshotMarkerRootStore.strong(
-    document, SnapshotCustomWrap::class.java, onMarkersInvalidated = ::processInvalidatedWraps,
+  val rootStore: SnapshotMarkerRootStore<SnapshotCustomWrap> = SnapshotMarkerRootStore(
+    document, SnapshotCustomWrap::class.java, retainStrong = true, onMarkersInvalidated = ::processInvalidatedWraps,
   )
 
   fun dispose() {
@@ -95,7 +95,7 @@ internal class SnapshotCustomWrapStorage(
     val size = invalidatedHandles.size
     for (i in 0 until size) {
       val handle = invalidatedHandles[i]
-      if (registeredWraps.remove(handle)) model.notifyRemoved(handle.get())
+      if (registeredWraps.remove(handle)) model.notifyRemoved(checkNotNull(handle.get()))
     }
   }
 }

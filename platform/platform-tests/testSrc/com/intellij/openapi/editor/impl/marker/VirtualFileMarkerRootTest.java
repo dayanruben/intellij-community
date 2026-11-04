@@ -1,11 +1,14 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.editor.impl.marker;
 
+import com.intellij.openapi.editor.LazyRangeMarkerFactory;
 import com.intellij.openapi.editor.RangeMarker;
 import com.intellij.openapi.editor.ex.DocumentPatch;
 import com.intellij.openapi.editor.impl.DocumentImpl;
+import com.intellij.openapi.project.Project;
 import com.intellij.testFramework.LightVirtualFile;
 import com.intellij.testFramework.junit5.TestApplication;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -18,16 +21,19 @@ import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 
+import static com.intellij.testFramework.junit5.fixture.FixturesKt.projectFixture;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @TestApplication
 @UsePMarkerImplementation
 final class VirtualFileMarkerRootTest {
+  private static final TestFixture<Project> projectFixture = projectFixture();
+
   @Test
   void documentFullTraversalIncludesFileMarkersBeyondTheDocumentLength() {
     var file = new LightVirtualFile("test.txt", "abcdef");
-    var fileMarker = SnapshotMarkerEngine.INSTANCE.createRangeMarkerForVirtualFile(file, 10, -1, -1, -1, -1, false);
+    var fileMarker = LazyRangeMarkerFactory.getInstance(projectFixture.get()).createRangeMarker(file, 10);
     var document = new DocumentImpl("abcdef", true);
     VirtualFileMarkerRoot.restoreRangeMarkersFromFile(document, file, 4);
     var documentMarker = document.createRangeMarker(1, 2);
@@ -44,9 +50,9 @@ final class VirtualFileMarkerRootTest {
   @Test
   void restorationComparesResolvedMarkerOffsetsInsteadOfJustMarkerEntryNodeStart() {
     var file = new LightVirtualFile("test.txt", "abcdef");
-    var firstMarker = SnapshotMarkerEngine.INSTANCE.createRangeMarkerForVirtualFile(file, 1, 0, 1, 0, 1, true);
-    var middleMarker = SnapshotMarkerEngine.INSTANCE.createRangeMarkerForVirtualFile(file, 3, 0, 3, 0, 3, true);
-    var lastMarker = SnapshotMarkerEngine.INSTANCE.createRangeMarkerForVirtualFile(file, 5, 0, 5, 0, 5, true);
+    var firstMarker = SnapshotRangeMarkerImpl.createRangeMarkerForVirtualFile(file, 1, 0, 1, 0, 1, true);
+    var middleMarker = SnapshotRangeMarkerImpl.createRangeMarkerForVirtualFile(file, 3, 0, 3, 0, 3, true);
+    var lastMarker = SnapshotRangeMarkerImpl.createRangeMarkerForVirtualFile(file, 5, 0, 5, 0, 5, true);
     //noinspection KotlinInternalInJava
     var fileRoot = VirtualFileMarkerRoot.Companion.getOrCreate$intellij_platform_core_impl(file);
     var document = new DocumentImpl("abcdef", true);
@@ -69,9 +75,9 @@ final class VirtualFileMarkerRootTest {
   @ValueSource(ints = {3, 5})
   void restorationResolvesUnchangedMarkersBeforeLaterRestores(int initialOffset) {
     var file = new LightVirtualFile("test.txt", "abcdef");
-    var unchangedMarker = SnapshotMarkerEngine.INSTANCE.createRangeMarkerForVirtualFile(file, 1, 0, 1, 0, 1, true);
-    var restoredMarker = SnapshotMarkerEngine.INSTANCE.createRangeMarkerForVirtualFile(file, initialOffset, 0, 3, 0, 3, true);
-    var offsetMarker = SnapshotMarkerEngine.INSTANCE.createRangeMarkerForVirtualFile(file, 5, -1, -1, -1, -1, false);
+    var unchangedMarker = SnapshotRangeMarkerImpl.createRangeMarkerForVirtualFile(file, 1, 0, 1, 0, 1, true);
+    var restoredMarker = SnapshotRangeMarkerImpl.createRangeMarkerForVirtualFile(file, initialOffset, 0, 3, 0, 3, true);
+    var offsetMarker = LazyRangeMarkerFactory.getInstance(projectFixture.get()).createRangeMarker(file, 5);
     var document = new DocumentImpl("abcdef", true);
 
     VirtualFileMarkerRoot.restoreRangeMarkersFromFile(document, file, 4);
@@ -97,15 +103,15 @@ final class VirtualFileMarkerRootTest {
     DocumentImpl document = new DocumentImpl("abcdef", true);
     CountDownLatch updateStarted = new CountDownLatch(1);
     CountDownLatch finishUpdate = new CountDownLatch(1);
-    var marker = (SnapshotRangeMarkerImpl)SnapshotMarkerEngine.INSTANCE.createRangeMarkerForVirtualFile(file, 0, -1, -1, -1, -1, false);
-    var handle = fileRoot.currentRootReference$intellij_platform_core_impl().get().createHandle(marker, false);
+    var marker = (SnapshotRangeMarkerImpl)LazyRangeMarkerFactory.getInstance(projectFixture.get()).createRangeMarker(file, 0);
+    var handle = SnapshotMarkerReference.create(marker, false);
 
     FutureTask<Boolean> updateTask = new FutureTask<>(() ->
       fileRoot.updateCurrentRoot(root -> {
         updateStarted.countDown();
         await(finishUpdate);
         return root.insert(handle, 1, 2, MarkerSpec.create(false, false), (byte)0, 0, DefaultMarkerPolicy.INSTANCE);
-      })
+      }) != null
     );
     new Thread(updateTask, "file marker root update").start();
     assertTrue(updateStarted.await(30, TimeUnit.SECONDS));

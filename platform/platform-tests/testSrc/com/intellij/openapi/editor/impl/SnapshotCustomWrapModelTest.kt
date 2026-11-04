@@ -8,7 +8,6 @@ import com.intellij.openapi.editor.CustomWrapModel
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.ex.DocumentPatch
 import com.intellij.openapi.editor.impl.marker.PMarkerResolution
-import com.intellij.openapi.editor.impl.marker.SnapshotMarkerEngine
 import com.intellij.openapi.editor.impl.marker.SnapshotRangeMarkerImpl
 import com.intellij.openapi.editor.impl.marker.UsePMarkerImplementation
 import com.intellij.openapi.util.Disposer
@@ -80,16 +79,15 @@ class SnapshotCustomWrapModelTest {
       val markerStores = document.snapshotMarkerStores
       val shiftedBranch = markerStores.applyPatch(initialSnapshot, textPatch(0, 0, "x"))
       val invalidBranch = markerStores.applyPatch(initialSnapshot, textPatch(4, 5, ""))
-      val initialResolution = SnapshotMarkerEngine.resolveRangeMarker(snapshotWrap, rootStore.rootReference(initialSnapshot).get())
-      val shiftedResolution = SnapshotMarkerEngine.resolveRangeMarker(snapshotWrap, rootStore.rootReference(shiftedBranch).get())
-      val invalidResolution = SnapshotMarkerEngine.resolveRangeMarker(snapshotWrap, rootStore.rootReference(invalidBranch).get())
+      val shiftedResolution = snapshotWrap.resolve(rootStore.rootReference(shiftedBranch).get())
+      val invalidResolution = snapshotWrap.resolve(rootStore.rootReference(invalidBranch).get())
       BranchState(
         wrap = wrap,
-        initialRange = PMarkerResolution.startOffset(initialResolution) to PMarkerResolution.endOffset(initialResolution),
+        initialRange = wrap.offset to wrap.offset,
         shiftedRange = PMarkerResolution.startOffset(shiftedResolution) to PMarkerResolution.endOffset(shiftedResolution),
         invalidRange = PMarkerResolution.startOffset(invalidResolution) to PMarkerResolution.endOffset(invalidResolution),
         invalidBranchIsValid = PMarkerResolution.isValid(invalidResolution),
-        initialBranchIsValid = PMarkerResolution.isValid(initialResolution),
+        initialBranchIsValid = snapshotWrap.isValid,
       )
     }
 

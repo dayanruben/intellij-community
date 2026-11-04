@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.python.lsp.core
 
 import com.intellij.codeInsight.completion.CompletionParameters
@@ -97,6 +97,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import org.eclipse.lsp4j.ClientCapabilities
 import org.eclipse.lsp4j.ConfigurationItem
 import org.eclipse.lsp4j.Diagnostic
 import org.eclipse.lsp4j.DiagnosticSeverity
@@ -515,6 +516,12 @@ private const val NO_VERSION: String = ""
 private val GLOB_CHARACTERS: CharArray = charArrayOf('*', '?', '[', ']', '{', '}')
 
 /**
+ * Guards the application-wide IDs of the command actions. Two servers of one tool can initialize at the same time, and
+ * each one replaces the actions of the other one under the same IDs.
+ */
+private val commandActionIdsLock = Any()
+
+/**
  * Base class for a Python LSP tool descriptor.
  *
  * The server answers for the content roots of [servedProjects], which holds [pyProject] alone by
@@ -808,23 +815,21 @@ abstract class PyLspToolDescriptor(
       // The owner gets its parent only after the loop, so no other thread disposes it while the list grows.
       val registration = Disposer.newDisposable("$presentableName command actions")
       Disposer.register(registration) {
-        for ((actionId, action) in registered) {
-          // Another server of this tool can have taken the ID since, see PY-86023.
-          if (actionManager.getAction(actionId) === action) actionManager.unregisterAction(actionId)
+        synchronized(commandActionIdsLock) {
+          for ((actionId, action) in registered) {
+            // Another server of this tool can have taken the ID since, see PY-86023.
+            if (actionManager.getAction(actionId) === action) actionManager.unregisterAction(actionId)
+          }
+          registered.clear()
         }
-        registered.clear()
       }
       var complete = false
       try {
         for (command in commandProvider.commands) {
           val actionId = "LSP.Command.$presentableName.$command"
-          if (actionManager.getAction(actionId) != null) {
-            // workaround for PY-86023
-            actionManager.unregisterAction(actionId)
-          }
-          if (command in commandDescriptions && commandDescriptions[command] == null) continue
+          val hidden = command in commandDescriptions && commandDescriptions[command] == null
           val text = "${params.serverInfo?.name ?: presentableName}: " + (commandDescriptions[command] ?: command)
-          val action = object : AnAction(text) {
+          val action = if (hidden) null else object : AnAction(text) {
             override fun actionPerformed(e: AnActionEvent) {
               val lspServerManager = LspClientManager.getInstance(project)
 
@@ -840,8 +845,14 @@ abstract class PyLspToolDescriptor(
                 }
             }
           }
-          actionManager.registerAction(actionId, action)
-          registered.add(actionId to action)
+          synchronized(commandActionIdsLock) {
+            // workaround for PY-86023
+            if (actionManager.getAction(actionId) != null) actionManager.unregisterAction(actionId)
+            if (action != null) {
+              actionManager.registerAction(actionId, action)
+              registered.add(actionId to action)
+            }
+          }
         }
         // `tryRegister` fails for a project that closes meanwhile, and then the actions go at once.
         complete = Disposer.tryRegister(parentDisposable, registration) && !project.isDisposed
@@ -873,6 +884,11 @@ abstract class PyLspToolDescriptor(
 
   // workaround for IJPL-196574
   open val commandDescriptions: Map<String, String?> = emptyMap()
+
+  override val clientCapabilities: ClientCapabilities
+    get() = super.clientCapabilities.apply {
+      workspace?.fileOperations?.willRename = false
+    }
 
   override val lspCustomization: PyLspToolCustomization = PyLspToolCustomization(toolConfig, pyTool, project)
 }

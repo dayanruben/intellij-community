@@ -50,6 +50,52 @@ internal class SnapshotRangeMarkerImplTest {
   }
 
   @Test
+  fun `disposal during publication clears the store cache`() {
+    RangeMarkersImpl.usePMarkerImplementationIn<RuntimeException> {
+      val core = DocumentImpl("abcdefgh", true).core
+      var current = core.snapshot()
+      val document = DocumentImpl(object : DocumentCore by core {
+        override fun snapshot(): DocumentBranch = current
+      }, null)
+      val store = SnapshotMarkerRootStore(document, SnapshotRangeMarkerImpl::class.java)
+      val before = current
+      store.rootReference(before)
+      val cache = checkNotNull(store.currentRootCache.get())
+      val patch = DocumentPatch.simple(0, 0, "xx", newModStamp = 1, clearLineFlags = false)
+      var after = before
+      for (op in patch.ops()) after = after.applyOp(op)
+
+      assertTrue(document.snapshotMarkerStores.tryCommit(before, after, patch, isCurrent = { current === before }, publish = {
+        current = after
+        store.dispose(document.snapshotMarkerStores)
+      }))
+
+      assertNull(cache.get(after))
+      assertNull(store.root(after))
+    }
+  }
+
+  @Test
+  fun `updates to a previous snapshot preserve the current root`() {
+    RangeMarkersImpl.usePMarkerImplementationIn<RuntimeException> {
+      val document = DocumentImpl("abcdefgh", true)
+      val marker = document.createRangeMarker(2, 4) as SnapshotRangeMarkerImpl
+      val store = document.rangeMarkers.rootStore()
+      val previous = document.core.snapshot()
+      document.insertString(0, "x")
+      val current = document.core.snapshot()
+      val currentRoot = checkNotNull(store.root(current))
+
+      store.updateRoot(previous) { it.remove(marker.markerHandle) }
+
+      assertFalse(checkNotNull(store.root(previous)).isValid(marker.markerHandle))
+      assertSame(currentRoot, store.root(current))
+      assertTrue(marker.isValid)
+      assertEquals(TextRange(3, 5), marker.textRange)
+    }
+  }
+
+  @Test
   fun `a failed snapshot publication preserves marker offsets`() {
     RangeMarkersImpl.usePMarkerImplementationIn<RuntimeException> {
       val document = DocumentImpl("abcdefgh", true)
@@ -134,13 +180,13 @@ internal class SnapshotRangeMarkerImplTest {
   fun `root insertion does not need a live marker for its policy`() {
     RangeMarkersImpl.usePMarkerImplementationIn<RuntimeException> {
       val spec = MarkerSpec.create(isGreedyToLeft = false, isGreedyToRight = false)
-      val marker = SnapshotMarkerEngine.createRangeMarker(DocumentImpl("", true), 0, 0, spec, false, DefaultMarkerPolicy)
-      val handle = PMarkerRootImpl.empty().createHandle(marker, false)
+      val marker = DocumentImpl("", true).createRangeMarker(0, 0) as SnapshotRangeMarkerImpl
+      val handle = SnapshotMarkerReference.create(marker, false)
       (handle as Reference<*>).clear()
       val policy = MarkerPolicy { _, _, _, _ -> error("Insertion must not transform the marker") }
-      val root = PMarkerRootImpl.empty().insert(handle, 2, 4, spec, flavorFlags = 0, policy = policy)
+      val root = PMarkerRoot.empty().insert(handle, 2, 4, spec, flavorFlags = 0, policy = policy)
 
-      assertEquals(PMarkerResolution.valid(TextRangeScalarUtil.toScalarRange(2, 4)), root.resolve(handle))
+      assertEquals(TextRangeScalarUtil.toScalarRange(2, 4), root.resolve(handle))
       assertSame(policy, root.overlappingIterator(2, 4, 0).next().policy)
     }
   }
@@ -150,7 +196,7 @@ internal class SnapshotRangeMarkerImplTest {
     RangeMarkersImpl.usePMarkerImplementationIn<RuntimeException> {
       val document = DocumentImpl("abcdefgh", true)
       val policy = MarkerPolicy { entry, _, _, _ -> MarkerTransformResult(entry.nodeStart, 6) }
-      val marker = SnapshotMarkerEngine.createRangeMarker(
+      val marker = SnapshotRangeMarkerImpl.createRangeMarker(
         document, 2, 4, MarkerSpec.create(isGreedyToLeft = false, isGreedyToRight = false), policy = policy,
       )
 
@@ -174,7 +220,7 @@ internal class SnapshotRangeMarkerImplTest {
     RangeMarkersImpl.usePMarkerImplementationIn<RuntimeException> {
       val document = DocumentImpl("abcdefgh", true)
       val marker = document.createRangeMarker(2, 4) as SnapshotRangeMarkerImpl
-      assertEquals(PMarkerResolution.valid(TextRangeScalarUtil.toScalarRange(2, 4)), marker.fallbackRange)
+      assertEquals(TextRangeScalarUtil.toScalarRange(2, 4), marker.fallbackRange)
       val reference = marker.currentRootReference()
       val before = document.core.snapshot().text()
       val patch = DocumentPatch.simple(0, 0, "xx", newModStamp = 1, clearLineFlags = false)
@@ -185,7 +231,7 @@ internal class SnapshotRangeMarkerImplTest {
       reference.set(shifted.remove(marker.markerHandle))
 
       repeat(2) {
-        assertEquals(PMarkerResolution.ABSENT, SnapshotMarkerEngine.resolveRangeMarker(marker, reference.get()))
+        assertEquals(PMarkerResolution.ABSENT, marker.resolve(reference.get()))
         assertFalse(marker.isValid)
         assertEquals(2, marker.startOffset)
         assertEquals(4, marker.endOffset)
@@ -197,7 +243,7 @@ internal class SnapshotRangeMarkerImplTest {
 
       marker.dispose()
       repeat(2) {
-        assertEquals(PMarkerResolution.ABSENT, SnapshotMarkerEngine.resolveRangeMarker(marker, reference.get()))
+        assertEquals(PMarkerResolution.ABSENT, marker.resolve(reference.get()))
         assertFalse(marker.isValid)
         assertEquals(4, marker.startOffset)
         assertEquals(6, marker.endOffset)
@@ -224,7 +270,7 @@ internal class SnapshotRangeMarkerImplTest {
       val resolution = root.resolve(marker.markerHandle)
       val spec = MarkerSpec.create(isGreedyToLeft = false, isGreedyToRight = false)
       val otherRoot = if (absent) root.remove(marker.markerHandle)
-      else PMarkerRootImpl.empty().insert(marker.markerHandle, 4, 6, spec, flavorFlags = 0)
+      else PMarkerRoot.empty().insert(marker.markerHandle, 4, 6, spec, flavorFlags = 0)
       val otherResolution = otherRoot.resolve(marker.markerHandle)
       val start = CountDownLatch(1)
       val executor = Executors.newFixedThreadPool(3)

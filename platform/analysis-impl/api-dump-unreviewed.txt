@@ -2083,6 +2083,7 @@ c:com.intellij.codeInspection.ex.ProblemDescriptorImpl
 - getHintAction():com.intellij.codeInspection.HintAction
 f:com.intellij.codeInspection.ex.ProblemDescriptorUserDataKt
 - sf:FINGERPRINT_DATA:com.intellij.openapi.util.Key
+- sf:VULNERABILITY_IDS:com.intellij.openapi.util.Key
 f:com.intellij.codeInspection.ex.ReportConverterUtil
 - <init>():V
 - s:getReportConverter(java.lang.String):com.intellij.codeInspection.InspectionsReportConverter
@@ -2115,7 +2116,6 @@ f:com.intellij.codeInspection.ex.ToolsImpl
 - removeScope(java.lang.String):V
 - setDefaultState(com.intellij.codeInspection.ex.InspectionToolWrapper,Z,com.intellij.codeHighlighting.HighlightDisplayLevel):V
 - setDefaultState(com.intellij.codeInspection.ex.InspectionToolWrapper,Z,com.intellij.codeHighlighting.HighlightDisplayLevel,java.lang.String):V
-- setEditorAttributesKey(java.lang.String,java.lang.String):V
 - setLevel(com.intellij.codeHighlighting.HighlightDisplayLevel):V
 - setLevel(com.intellij.codeHighlighting.HighlightDisplayLevel,com.intellij.psi.PsiElement):V
 - setLevel(com.intellij.codeHighlighting.HighlightDisplayLevel,java.lang.String,com.intellij.openapi.project.Project):V

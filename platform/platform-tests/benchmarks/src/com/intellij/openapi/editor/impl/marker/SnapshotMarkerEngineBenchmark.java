@@ -1,7 +1,9 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.editor.impl.marker;
 
+import com.intellij.openapi.editor.ex.DocumentPatch;
 import com.intellij.openapi.editor.ex.DocumentSnapshot;
+import com.intellij.openapi.editor.ex.DocumentText;
 import com.intellij.openapi.editor.ex.RangeMarkerEx;
 import com.intellij.openapi.editor.impl.DocumentImpl;
 import com.intellij.util.Processor;
@@ -20,11 +22,19 @@ import org.openjdk.jmh.annotations.Threads;
 import org.openjdk.jmh.annotations.Timeout;
 import org.openjdk.jmh.annotations.Warmup;
 import org.openjdk.jmh.runner.Runner;
-import org.openjdk.jmh.runner.options.Options;
+import org.openjdk.jmh.runner.options.CommandLineOptions;
 import org.openjdk.jmh.runner.options.OptionsBuilder;
 
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.StringJoiner;
 import java.util.concurrent.TimeUnit;
+import java.util.jar.Attributes;
+import java.util.jar.JarOutputStream;
+import java.util.jar.Manifest;
 
 /**
  * Measures complete fixed-size snapshot-marker-engine workloads.
@@ -43,12 +53,93 @@ import java.util.concurrent.TimeUnit;
  */
 @BenchmarkMode(Mode.SingleShotTime)
 @OutputTimeUnit(TimeUnit.MILLISECONDS)
-@Warmup(iterations = 1)
+@Warmup(iterations = 3)
 @Measurement(iterations = 5)
-@Fork(value = 0, jvmArgsAppend = {"-Xms2g", "-Xmx2g"})
+@Fork(value = 1, jvmArgsAppend = {"-Xms2g", "-Xmx2g"})
 @Threads(1)
 @Timeout(time = 10, timeUnit = TimeUnit.MINUTES)
+@SuppressWarnings({"MethodMayBeStatic", "WeakerAccess"})
 public class SnapshotMarkerEngineBenchmark {
+  /** Creates the marker population in a persistent root. */
+  @Benchmark
+  public Object create50KRootMarkers(RootCreateState state) {
+    var root = state.root;
+    for (int index = 0; index < MARKER_COUNT; index++) {
+      var start = markerStart(index);
+      root =
+        root.insert(SnapshotMarkerReference.create(state.markerForHandles, false), start, start + MARKER_LENGTH, NON_GREEDY_SPEC, (byte)0,
+                    0, DefaultMarkerPolicy.INSTANCE);
+    }
+    return root;
+  }
+
+  /** Resolves the root through retained handles. */
+  @Benchmark
+  public long resolve4MRootMarkers(RootState state) {
+    long checksum = 0;
+    for (int index : state.resolveOrder) checksum += state.root.resolve(state.handles[index]);
+    return checksum;
+  }
+
+  /** Removes 1,000 markers while preserving the input root. */
+  @Benchmark
+  public Object remove1KRootMarkers(RootState state) {
+    var root = state.root;
+    for (int index = 0; index < ROOT_UPDATES; index++) root = root.remove(state.handles[state.resolveOrder[index]]);
+    return root;
+  }
+
+  /** Updates 1,000 specifications while preserving the input root. */
+  @Benchmark
+  public Object update1KRootSpecs(RootState state) {
+    byte spec = MarkerSpec.create(true, true, false);
+    var root = state.root;
+    for (int index = 0; index < ROOT_UPDATES; index++) root = root.updateSpec(state.handles[state.resolveOrder[index]], spec);
+    return root;
+  }
+
+  /** Applies an insertion at the middle of the document to the root. */
+  @Benchmark
+  public Object patchRoot(RootState state) {
+    return state.root.applyPatch(state.patch, state.beforeText, state.afterText,
+                                 PMarkerRoot.EMPTY_HANDLE_CONSUMER, PMarkerRoot.EMPTY_HANDLE_CONSUMER);
+  }
+
+  @State(Scope.Thread)
+  public static class RootCreateState {
+    PMarkerRoot root;
+    final SnapshotRangeMarkerImpl markerForHandles = createMarkerForHandles();
+
+    @Setup(Level.Invocation)
+    public void setUp() {
+      root = PMarkerRoot.empty();
+    }
+  }
+
+  @State(Scope.Thread)
+  public static class RootState {
+    PMarkerRoot root;
+    SnapshotRangeMarkerImpl markerForHandles;
+    SnapshotMarkerReference<?>[] handles;
+    int[] resolveOrder;
+    DocumentText beforeText;
+    DocumentText afterText;
+    DocumentPatch patch;
+
+    @Setup(Level.Trial)
+    public void setUp() {
+      var population = createRootPopulation();
+      root = population.root();
+      markerForHandles = population.markerForHandles();
+      handles = population.handles();
+      resolveOrder = buildResolveOrder();
+      beforeText = DocumentText.createText(BENCHMARK_TEXT);
+      int offset = DOCUMENT_LENGTH / 2;
+      afterText = beforeText.insert(offset, "x");
+      patch = DocumentPatch.simple(offset, offset, "x", 1, false);
+    }
+  }
+
   /**
    * Creates a fresh engine outside the timed region, then measures creation of 50,000 range markers.
    *
@@ -61,7 +152,7 @@ public class SnapshotMarkerEngineBenchmark {
 
     for (int index = 0; index < MARKER_COUNT; index++) {
       int startOffset = markerStart(index);
-      SnapshotRangeMarkerImpl marker = SnapshotMarkerEngine.INSTANCE.createRangeMarker(
+      SnapshotRangeMarkerImpl marker = SnapshotRangeMarkerImpl.createRangeMarker(
         state.document,
         startOffset,
         startOffset + MARKER_LENGTH,
@@ -77,7 +168,7 @@ public class SnapshotMarkerEngineBenchmark {
   }
 
   /**
-   * Resolves markers 4,000,000 times through {@link SnapshotMarkerEngine}.
+   * Resolves markers 4,000,000 times through {@link SnapshotRangeMarkerImpl}.
    *
    * <p>The precomputed access order visits every one of the 50,000 markers exactly 80 times in a permuted order. Each
    * loop iteration resolves one marker and consumes both resolved offsets through the returned checksum.</p>
@@ -122,10 +213,10 @@ public class SnapshotMarkerEngineBenchmark {
   }
 
   /**
-   * Calls {@link SnapshotMarkerEngine#processRangeMarkersOverlappingWith} 2,000,000 times.
+   * Calls {@link SnapshotMarkerRootStore#processRangeMarkersOverlappingWith} 2,000,000 times.
    *
    * <p>This uses the same marker population and query workload as {@link #reportIntersecting2MQueries}, but creates
-   * and retains real marker handles and enumerates them through the engine. The timed path therefore includes the
+   * and retains real marker handles and enumerates them through the store. The timed path therefore includes the
    * embedded weak-reference dereference and marker-handle materialization for every reported marker.</p>
    */
   @Benchmark
@@ -137,8 +228,7 @@ public class SnapshotMarkerEngineBenchmark {
     accumulator.reset();
 
     for (int index = 0; index < INTERSECTION_CALLS; index++) {
-      SnapshotMarkerEngine.INSTANCE.processRangeMarkersOverlappingWith(
-        state.rootStore,
+      state.rootStore.processRangeMarkersOverlappingWith(
         snapshot,
         queryStarts[index],
         queryEnds[index],
@@ -177,7 +267,7 @@ public class SnapshotMarkerEngineBenchmark {
 
       for (int index = 0; index < MARKER_COUNT; index++) {
         int startOffset = markerStart(index);
-        markers[index] = SnapshotMarkerEngine.INSTANCE.createRangeMarker(
+        markers[index] = SnapshotRangeMarkerImpl.createRangeMarker(
           document,
           startOffset,
           startOffset + MARKER_LENGTH,
@@ -205,18 +295,9 @@ public class SnapshotMarkerEngineBenchmark {
     /** Builds the root and deterministic query workload once per parameter value and fork. */
     @Setup(Level.Trial)
     public void setUp() {
-      markerForHandles = createMarkerForHandles();
-      PMarkerRoot currentRoot = PMarkerRootImpl.Companion.empty();
-      for (int index = 0; index < MARKER_COUNT; index++) {
-        int startOffset = markerStart(index);
-        currentRoot = currentRoot.insert(
-          currentRoot.createHandle(markerForHandles, false),
-          startOffset,
-          startOffset + MARKER_LENGTH,
-          NON_GREEDY_SPEC, (byte)0, 0, DefaultMarkerPolicy.INSTANCE
-        );
-      }
-      root = currentRoot;
+      var population = createRootPopulation();
+      root = population.root();
+      markerForHandles = population.markerForHandles();
 
       queryStarts = new int[INTERSECTION_CALLS];
       queryEnds = new int[INTERSECTION_CALLS];
@@ -247,7 +328,7 @@ public class SnapshotMarkerEngineBenchmark {
 
       for (int index = 0; index < MARKER_COUNT; index++) {
         int startOffset = markerStart(index);
-        markers[index] = SnapshotMarkerEngine.INSTANCE.createRangeMarker(
+        markers[index] = SnapshotRangeMarkerImpl.createRangeMarker(
           document,
           startOffset,
           startOffset + MARKER_LENGTH,
@@ -324,6 +405,7 @@ public class SnapshotMarkerEngineBenchmark {
   private static final int RESOLVE_STEP = 8_191;
   private static final int QUERY_STEP = 7_919;
   private static final int DOCUMENT_LENGTH = MARKER_COUNT * MARKER_STRIDE + MARKER_LENGTH;
+  private static final int ROOT_UPDATES = 1_000;
 
   private static final String BENCHMARK_TEXT = createBenchmarkText();
   private static final byte NON_GREEDY_SPEC = MarkerSpec.create(false, false, false);
@@ -339,25 +421,62 @@ public class SnapshotMarkerEngineBenchmark {
    * SnapshotMarkerEngineBenchmark .*resolve4MMarkers.* -f 1 -wi 1 -i 3
    * </pre>
    */
-  static void main() throws Exception {
+  static void main(String[] args) throws Exception {
     System.setProperty("jmh.separateClasspathJAR", "true");
 
-    final Options opt = new OptionsBuilder()
-      .jvmArgs()
-      //.forks(1)
-      .forks(0)
-      .threads(1)
-      .jvmArgsAppend("-Djmh.separateClasspathJAR=true")
-      .include("\\W" + SnapshotMarkerEngineBenchmark.class.getSimpleName() + ".*")
-      .build();
+    var options = new OptionsBuilder().parent(new CommandLineOptions(args));
+    if (args.length == 0) {
+      options.include("\\W" + SnapshotMarkerEngineBenchmark.class.getSimpleName() + ".*");
+    }
+    var classpath = System.getProperty("java.class.path");
+    var classpathJar = createClasspathJar(classpath);
+    try {
+      System.setProperty("java.class.path", classpathJar.toString());
+      new Runner(options.build()).run();
+    }
+    finally {
+      System.setProperty("java.class.path", classpath);
+      Files.deleteIfExists(classpathJar);
+    }
+  }
 
-    new Runner(opt).run();
+  private static Path createClasspathJar(String classpath) throws IOException {
+    var entries = new StringJoiner(" ");
+    for (var entry : classpath.split(File.pathSeparator)) {
+      entries.add(new File(entry).toURI().toASCIIString());
+    }
+    var manifest = new Manifest();
+    var attributes = manifest.getMainAttributes();
+    attributes.put(Attributes.Name.MANIFEST_VERSION, "1.0");
+    attributes.put(Attributes.Name.CLASS_PATH, entries.toString());
+    var jar = Files.createTempFile("snapshot-marker-benchmark-", ".jar");
+    jar.toFile().deleteOnExit();
+    try (var output = new JarOutputStream(Files.newOutputStream(jar), manifest)) {
+      output.finish();
+    }
+    return jar;
+  }
+
+  private record RootPopulation(PMarkerRoot root, SnapshotMarkerReference<?>[] handles, SnapshotRangeMarkerImpl markerForHandles) {
   }
 
   private static SnapshotRangeMarkerImpl createMarkerForHandles() {
-    return SnapshotMarkerEngine.INSTANCE.createRangeMarker(
+    return SnapshotRangeMarkerImpl.createRangeMarker(
       new DocumentImpl(""), 0, 0, NON_GREEDY_SPEC, false, DefaultMarkerPolicy.INSTANCE
     );
+  }
+
+  private static RootPopulation createRootPopulation() {
+    var root = PMarkerRoot.empty();
+    var markerForHandles = createMarkerForHandles();
+    var handles = new SnapshotMarkerReference<?>[MARKER_COUNT];
+    for (int index = 0; index < MARKER_COUNT; index++) {
+      var start = markerStart(index);
+      handles[index] = SnapshotMarkerReference.create(markerForHandles, false);
+      root = root.insert(handles[index], start, start + MARKER_LENGTH, NON_GREEDY_SPEC, (byte)0,
+                         0, DefaultMarkerPolicy.INSTANCE);
+    }
+    return new RootPopulation(root, handles, markerForHandles);
   }
 
   private static int markerStart(int index) {

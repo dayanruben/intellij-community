@@ -5,12 +5,13 @@ import com.intellij.openapi.editor.event.DocumentEvent
 import com.intellij.openapi.editor.ex.DocumentPatch
 import com.intellij.openapi.editor.ex.DocumentSnapshot
 import com.intellij.openapi.editor.ex.PrioritizedDocumentListener
+import com.intellij.openapi.editor.ex.RangeMarkerEx
 import com.intellij.openapi.editor.impl.DocumentImpl
 import com.intellij.openapi.editor.impl.EditorDocumentPriorities
+import com.intellij.util.Processor
 import com.intellij.util.containers.HashingStrategy
 import com.intellij.util.containers.Java11Shim
 import com.intellij.util.containers.ReferenceQueueable
-import org.jetbrains.annotations.ApiStatus
 import java.lang.ref.WeakReference
 import java.util.concurrent.ConcurrentMap
 import java.util.concurrent.atomic.AtomicReference
@@ -24,19 +25,21 @@ import java.util.function.Consumer
  * The constructor registers this store with the document's [SnapshotMarkerStores].
  * An owner with a shorter lifetime than the document must call [dispose].
  *
- * @param T the marker type and nullability of all references in this store
+ * @param T the marker type in this store
  * @param document supplies snapshot transitions and owns the store registry
+ * @param retainStrong retains every marker when true; otherwise each marker selects its ownership
  * @param onMarkersInvalidated receives marker handles that became invalid during a text change
  * @param onDocumentChanged receives the document event after the marker callbacks run
  * @param onMarkersAffected receives handles for valid markers whose policies processed the text change
  */
-class SnapshotMarkerRootStore<T : SnapshotRangeMarkerImpl?> private constructor(
+class SnapshotMarkerRootStore<T : SnapshotRangeMarkerImpl> @JvmOverloads constructor(
   document: DocumentImpl,
-  private val onMarkersInvalidated: ((List<SnapshotMarkerReference<T>>) -> Unit)?,
-  private val onDocumentChanged: ((DocumentEvent) -> Unit)?,
-  private val onMarkersAffected: ((List<SnapshotMarkerReference<T>>) -> Unit)?,
-  @Volatile private var emptyRoot: PMarkerRoot,
-  private val referenceFactory: (PMarkerRoot, SnapshotRangeMarkerImpl, Boolean) -> SnapshotMarkerReference<T>,
+  private val markerClass: Class<T>,
+  private val retainStrong: Boolean = false,
+  private val onMarkersInvalidated: ((List<SnapshotMarkerReference<T>>) -> Unit)? = null,
+  private val onDocumentChanged: ((DocumentEvent) -> Unit)? = null,
+  private val onMarkersAffected: ((List<SnapshotMarkerReference<T>>) -> Unit)? = null,
+  private val emptyRoot: PMarkerRoot = PMarkerRoot.empty(),
 ) : MarkerRootUpdater() {
   private val documentReference: WeakReference<DocumentImpl> = WeakReference(document)
 
@@ -109,9 +112,54 @@ class SnapshotMarkerRootStore<T : SnapshotRangeMarkerImpl?> private constructor(
     return reference.get()
   }
 
-  /** Creates a handle in this store's family without reading a document snapshot. */
+  /**
+   * Processes valid markers from one captured root by increasing start offset, then marker ID.
+   * Usually faster than [processRangeMarkersOverlappingWith]
+   * Includes markers beyond the snapshot text length. Purges collected handles and skips disposed markers.
+   * Returns `false` when [processor] stops processing.
+   */
+  fun processAllRangeMarkers(
+    snapshot: DocumentSnapshot,
+    processor: Processor<in RangeMarkerEx>,
+  ): Boolean = processMarkers(snapshot, processor) { root, markerProcessor ->
+    root.processAllRangeMarkers(markerProcessor)
+  }
+
+  /**
+   * Processes valid markers that non-strictly intersect the requested range and contain every bit in [tastePreference].
+   * A zero preference matches every marker. Purges collected handles and skips disposed markers.
+   * Returns `false` when [processor] stops processing.
+   */
+  fun processRangeMarkersOverlappingWith(
+    snapshot: DocumentSnapshot,
+    startOffset: Int,
+    endOffset: Int,
+    tastePreference: Int,
+    processor: Processor<in RangeMarkerEx>,
+  ): Boolean = processMarkers(snapshot, processor) { root, markerProcessor ->
+    root.processRangeMarkersOverlappingWith(startOffset, endOffset, tastePreference, markerProcessor)
+  }
+
+  /** Captures a root and purges collected handles after [query], including when processing stops or throws. */
+  private inline fun processMarkers(
+    snapshot: DocumentSnapshot,
+    processor: Processor<in RangeMarkerEx>,
+    query: (PMarkerRoot, MarkerProcessor) -> Boolean,
+  ): Boolean {
+    SnapshotMarkerReference.processQueue()
+    val root = root(snapshot) ?: return true
+    val markerProcessor = MarkerProcessor(processor)
+    try {
+      return query(root, markerProcessor)
+    }
+    finally {
+      markerProcessor.purgeCollected(this, snapshot)
+    }
+  }
+
+  /** Creates a handle for this store without reading a document snapshot. */
   override fun createHandle(marker: SnapshotRangeMarkerImpl, retainStrong: Boolean): SnapshotMarkerReference<T> =
-    referenceFactory(emptyRoot, marker, retainStrong)
+    SnapshotMarkerReference.create(markerClass.cast(marker), this.retainStrong || retainStrong)
 
   /**
    * Returns the shared atomic reference for [snapshot], creating a root entry from [initialRoot] when necessary.
@@ -143,8 +191,8 @@ class SnapshotMarkerRootStore<T : SnapshotRangeMarkerImpl?> private constructor(
     }
   }
 
-  /** Returns whether the document is available and its current snapshot is this exact [snapshot] instance. */
-  internal fun isCurrentSnapshot(snapshot: DocumentSnapshot): Boolean = documentReference.get()?.core?.snapshot() === snapshot
+  /** Returns whether this store is active and its document's current snapshot is this exact [snapshot] instance. */
+  internal fun isCurrentSnapshot(snapshot: DocumentSnapshot): Boolean = !disposed && documentReference.get()?.core?.snapshot() === snapshot
 
   /** Returns the root reference for the current document snapshot, creating the root entry when necessary. */
   override fun currentRootReference(): AtomicReference<PMarkerRoot> {
@@ -152,14 +200,9 @@ class SnapshotMarkerRootStore<T : SnapshotRangeMarkerImpl?> private constructor(
     return rootReference(document!!.core.snapshot())
   }
 
-  /** Uses the commit gate when [rootReference] is `null`. */
-  override fun updateRootAtomically(
-    rootReference: AtomicReference<PMarkerRoot>?,
-    update: (PMarkerRoot) -> PMarkerRoot,
-  ): PMarkerRoot? {
-    if (rootReference != null) return super.updateRootAtomically(rootReference, update)
-    return updateCurrentRootAtomically { _, root -> update(root) }
-  }
+  /** Publishes updates to the current root through the commit gate. */
+  override fun updateCurrentRoot(update: (PMarkerRoot) -> PMarkerRoot): PMarkerRoot? =
+    updateCurrentRoot { _, root -> update(root) }
 
   /**
    * Applies [update] to the root for [snapshot], creating the root entry when necessary.
@@ -175,7 +218,7 @@ class SnapshotMarkerRootStore<T : SnapshotRangeMarkerImpl?> private constructor(
    *
    * @return the new root, or `null` if the store is disposed or [update] returns the input root
    */
-  internal fun updateCurrentRootAtomically(update: (DocumentSnapshot, PMarkerRoot) -> PMarkerRoot): PMarkerRoot? {
+  internal fun updateCurrentRoot(update: (DocumentSnapshot, PMarkerRoot) -> PMarkerRoot): PMarkerRoot? {
     val initialRoot = emptyRoot
     val document = documentReference.get()
     val markerStores = document!!.snapshotMarkerStores
@@ -200,39 +243,20 @@ class SnapshotMarkerRootStore<T : SnapshotRangeMarkerImpl?> private constructor(
   }
 
   /**
-   * Applies [update] only when [snapshot] already has a root entry.
-   * [update] can run more than once and must have no side effects.
-   *
-   * @return `true` if this call installs a new root
-   */
-  private fun updateRootIfPresent(snapshot: DocumentSnapshot, update: (PMarkerRoot) -> PMarkerRoot): Boolean {
-    processQueue()
-    val rootReference = roots[snapshot]?.rootReference ?: return false
-    return updateRootAtomically(rootReference, update) != null
-  }
-
-  /**
    * Removes all state for [handles] from an existing root for [snapshot].
    *
    * @return `true` if this call changes the root
    */
   fun purgeMany(snapshot: DocumentSnapshot, handles: Collection<SnapshotMarkerReference<*>>): Boolean {
     if (handles.isEmpty()) return false
-    return updateRootIfPresent(snapshot) { it.purgeMany(handles) }
+    processQueue()
+    val rootReference = roots[snapshot]?.rootReference
+    return rootReference != null && updateRootAtomically(rootReference) { it: PMarkerRoot -> it.purgeMany(handles) } != null
   }
 
-  /** Replaces the root for [snapshot] with [root] and adopts its empty root for future entries. */
+  /** Replaces the root for [snapshot] with [root]. */
   internal fun restoreRoot(snapshot: DocumentSnapshot, root: PMarkerRoot) {
-    emptyRoot = root.emptyRoot()
     rootReference(snapshot, root).set(root)
-  }
-
-  /**
-   * Captures the root state and root instance for [snapshot] without creating an entry.
-   * The caller must hold the registry's monitor.
-   */
-  internal fun captureRoot(snapshot: DocumentSnapshot): CapturedRoot {
-    return CapturedRoot(this, roots[snapshot])
   }
 
   /**
@@ -314,13 +338,42 @@ class SnapshotMarkerRootStore<T : SnapshotRangeMarkerImpl?> private constructor(
    */
   fun processQueue(): Boolean = (roots as ReferenceQueueable).processQueue()
 
+  private class MarkerProcessor(
+    private val processor: Processor<in RangeMarkerEx>,
+  ) : Processor<PMarkerRoot.MarkerEntry>, PMarkerRoot.MarkerDeltaProcessor {
+    private var collectedHandles: ArrayList<SnapshotMarkerReference<*>>? = null
+
+    override fun process(entry: PMarkerRoot.MarkerEntry): Boolean {
+      val marker = entry.marker
+      if (marker == null) {
+        val handles = collectedHandles ?: ArrayList<SnapshotMarkerReference<*>>().also { collectedHandles = it }
+        handles.add(entry.handle)
+        return true
+      }
+      return marker.isDisposed() || processor.process(marker)
+    }
+
+    override fun process(entry: PMarkerRoot.MarkerEntry, ancestorDelta: Int): Boolean = process(entry)
+
+    fun purgeCollected(rootStore: SnapshotMarkerRootStore<*>, snapshot: DocumentSnapshot) {
+      val handles = collectedHandles ?: return
+      rootStore.purgeMany(snapshot, handles)
+    }
+  }
+
   /**
-   * Holds a root reference for the current document snapshot.
+   * Registers [store] and holds its current root reference.
    * Publication clears [state] before the snapshot changes. It fills [state] after the new snapshot is visible.
    */
-  internal class CurrentRootCache {
+  internal class CurrentRootCache(val store: SnapshotMarkerRootStore<*>) {
     @Volatile
     var state: State? = null
+
+    /**
+     * Captures the root state and root instance for [snapshot] without creating an entry.
+     * The caller must hold the registry's monitor.
+     */
+    fun captureRoot(snapshot: DocumentSnapshot): CapturedRoot = CapturedRoot(this, store.roots[snapshot])
 
     /** Returns the cached reference for this exact [snapshot] instance, or `null` on a cache miss. */
     fun get(snapshot: DocumentSnapshot): AtomicReference<PMarkerRoot>? {
@@ -332,9 +385,12 @@ class SnapshotMarkerRootStore<T : SnapshotRangeMarkerImpl?> private constructor(
   }
 
   internal class CapturedRoot(
-    val store: SnapshotMarkerRootStore<*>,
+    val cache: CurrentRootCache,
     private val beforeState: RootState?,
   ) {
+    val store: SnapshotMarkerRootStore<*>
+      get() = cache.store
+
     val root: PMarkerRoot? = beforeState?.rootReference?.get()
     var afterState: RootState? = null
 
@@ -386,43 +442,5 @@ class SnapshotMarkerRootStore<T : SnapshotRangeMarkerImpl?> private constructor(
       val invalidatedMarkers: List<SnapshotMarkerReference<*>>,
       val affectedMarkers: List<SnapshotMarkerReference<*>>,
     )
-  }
-
-  companion object {
-    /** Creates a store for markers with mixed ownership. */
-    @JvmStatic
-    @JvmOverloads
-    fun create(
-      document: DocumentImpl,
-      onMarkersInvalidated: ((List<SnapshotMarkerReference<SnapshotRangeMarkerImpl?>>) -> Unit)? = null,
-      onDocumentChanged: ((DocumentEvent) -> Unit)? = null,
-      onMarkersAffected: ((List<SnapshotMarkerReference<SnapshotRangeMarkerImpl?>>) -> Unit)? = null,
-      emptyRoot: PMarkerRoot = PMarkerRoot.empty(),
-    ): SnapshotMarkerRootStore<SnapshotRangeMarkerImpl?> = SnapshotMarkerRootStore(
-      document, onMarkersInvalidated, onDocumentChanged, onMarkersAffected, emptyRoot,
-    ) { root, marker, retainStrong -> root.createHandle(marker, retainStrong) }
-
-    /** Creates a store for [markerClass] with ownership selected by each marker. */
-    fun <T : SnapshotRangeMarkerImpl> create(
-      document: DocumentImpl,
-      markerClass: Class<T>,
-      onMarkersInvalidated: ((List<SnapshotMarkerReference<T?>>) -> Unit)? = null,
-      onDocumentChanged: ((DocumentEvent) -> Unit)? = null,
-      onMarkersAffected: ((List<SnapshotMarkerReference<T?>>) -> Unit)? = null,
-      emptyRoot: PMarkerRoot = PMarkerRoot.empty(),
-    ): SnapshotMarkerRootStore<T?> = SnapshotMarkerRootStore(document, onMarkersInvalidated, onDocumentChanged, onMarkersAffected, emptyRoot,
-    ) { root, marker, retainStrong -> root.createHandle(markerClass.cast(marker), retainStrong) }
-
-    /** Creates a store that retains each marker of [markerClass]. */
-    fun <T : SnapshotRangeMarkerImpl> strong(
-      document: DocumentImpl,
-      markerClass: Class<T>,
-      onMarkersInvalidated: ((List<SnapshotMarkerReference<T>>) -> Unit)? = null,
-      onDocumentChanged: ((DocumentEvent) -> Unit)? = null,
-      onMarkersAffected: ((List<SnapshotMarkerReference<T>>) -> Unit)? = null,
-      emptyRoot: PMarkerRoot = PMarkerRoot.empty(),
-    ): SnapshotMarkerRootStore<T> = SnapshotMarkerRootStore(
-      document, onMarkersInvalidated, onDocumentChanged, onMarkersAffected, emptyRoot,
-    ) { root, marker, _ -> root.createStrongHandle(markerClass.cast(marker)) }
   }
 }

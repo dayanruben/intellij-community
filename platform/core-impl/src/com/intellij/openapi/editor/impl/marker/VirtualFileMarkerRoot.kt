@@ -31,9 +31,8 @@ class VirtualFileMarkerRoot private constructor(
   override val document: DocumentImpl?
     get() = documentReference?.get()
 
-  @Synchronized
   override fun createHandle(marker: SnapshotRangeMarkerImpl, retainStrong: Boolean): SnapshotMarkerReference<*> =
-    rootReference.get().createHandle(marker, retainStrong)
+    SnapshotMarkerReference.create(marker, retainStrong)
 
   override fun currentRootReference(): AtomicReference<PMarkerRoot> {
     val observedDocumentReference = documentReference ?: return rootReference
@@ -46,14 +45,10 @@ class VirtualFileMarkerRoot private constructor(
   }
 
   @Synchronized
-  override fun updateRootAtomically(
-    rootReference: AtomicReference<PMarkerRoot>?, // null means currentRootReference()
-    update: (PMarkerRoot) -> PMarkerRoot,
-  ): PMarkerRoot? {
-    val document = if (rootReference == null) document else null
-    if (document == null) return super.updateRootAtomically(rootReference, update)
+  override fun updateCurrentRoot(update: (PMarkerRoot) -> PMarkerRoot): PMarkerRoot? {
+    val document = document ?: return updateRootAtomically(rootReference, update)
     try {
-      return document.rangeMarkers.rootStore().updateRootAtomically(null, update)
+      return document.rangeMarkers.rootStore().updateCurrentRoot(update)
     }
     finally {
       this.rootReference = markerRoot(document)
@@ -141,14 +136,14 @@ class VirtualFileMarkerRoot private constructor(
 
     @JvmStatic
     fun restoreRangeMarkersFromFile(document: DocumentImpl, file: VirtualFile, tabSize: Int) {
-      SnapshotMarkerEngine.processQueue()
+      SnapshotMarkerReference.processQueue()
       val fileRoot = find(file) ?: return
       fileRoot.restoreAndAttach(document, tabSize)
     }
 
     @JvmStatic
     fun areRangeMarkersRetainedFor(file: VirtualFile): Boolean {
-      SnapshotMarkerEngine.processQueue()
+      SnapshotMarkerReference.processQueue()
       return find(file) != null
     }
 

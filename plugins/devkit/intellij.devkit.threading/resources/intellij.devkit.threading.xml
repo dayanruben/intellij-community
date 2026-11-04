@@ -4,7 +4,8 @@
     <module name="intellij.devkit.core"/>
     <module name="intellij.java.psi"/>
     <module name="intellij.platform.analysis"/>
-    <module name="intellij.platform.compose"/>
+    <module name="intellij.platform.consoleView"/>
+    <module name="intellij.platform.consoleView.impl"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.core.ui"/>
     <module name="intellij.platform.editor.ui"/>
@@ -16,6 +17,11 @@
   <!-- endregion -->
 
   <resource-bundle>messages.DevkitThreadingBundle</resource-bundle>
+
+  <extensions defaultExtensionNs="com.intellij">
+    <registryKey key="devkit.threading.open.statistics.report" defaultValue="false"
+                 description="Open the statistics report in the editor after the lock requirements analysis completes"/>
+  </extensions>
 
   <actions resource-bundle="messages.DevkitThreadingBundle">
     <action id="LockReqAnalysis"

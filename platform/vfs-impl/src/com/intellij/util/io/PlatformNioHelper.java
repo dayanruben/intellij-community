@@ -43,6 +43,21 @@ public final class PlatformNioHelper {
     }
   }
 
+  /// The canned exception that [Result#get] throws when the attribute read was skipped.
+  /// See [#visitDirectory(Path, Set, boolean, BiPredicate)] with `readMissingAttributes=false`.
+  public static final class AttributesNotReadException extends IOException {
+    private AttributesNotReadException() {
+      super("The attribute read was skipped");
+    }
+
+    @Override
+    public synchronized Throwable fillInStackTrace() {
+      return this;
+    }
+  }
+
+  private static final Result<BasicFileAttributes> ATTRIBUTES_NOT_READ = new Result<>(new AttributesNotReadException());
+
   /// Whether directory enumeration for `directory` should use the Windows-native
   /// [WindowsBufferedDirectoryStream] instead of the stock [Files#newDirectoryStream].
   public static boolean useWindowsBufferedDirectoryStream(@NotNull Path directory) {
@@ -54,10 +69,22 @@ public final class PlatformNioHelper {
   /// `(filter == null)` means 'no filter', i.e., all children must be passed to consumer; `filter={}` (an empty set) means 'do nothing'.
   ///
   /// @see NioFiles#readAttributes
+  public static void visitDirectory(
+    @NotNull Path directory,
+    @Nullable Set<String> filter,
+    @NotNull BiPredicate<Path, Result<BasicFileAttributes>> consumer
+  ) throws IOException, SecurityException {
+    visitDirectory(directory, filter, true, consumer);
+  }
+
+  /// A variant of [#visitDirectory(Path, Set, BiPredicate)] that can skip the attribute read.
+  /// When `readMissingAttributes` is `false` and the directory stream did not cache the attributes of an entry,
+  /// the consumer receives a result that throws [AttributesNotReadException], and no extra read is made for the entry.
   @SuppressWarnings("UnnecessaryFullyQualifiedName")
   public static void visitDirectory(
     @NotNull Path directory,
     @Nullable Set<String> filter,
+    boolean readMissingAttributes,
     @NotNull BiPredicate<Path, Result<BasicFileAttributes>> consumer
   ) throws IOException, SecurityException {
     if (filter != null && filter.isEmpty()) return;  // nothing to read
@@ -86,6 +113,9 @@ public final class PlatformNioHelper {
         Result<BasicFileAttributes> result;
         if (attrs != null) {
           result = new Result<>(attrs);
+        }
+        else if (!readMissingAttributes) {
+          result = ATTRIBUTES_NOT_READ;
         }
         else {
           try {

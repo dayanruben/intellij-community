@@ -1,10 +1,18 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.projectRoots.impl.jdkDownloader
 
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.execution.wsl.WslDistributionManager
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.components.BaseState
+import com.intellij.openapi.components.RoamingType
 import com.intellij.openapi.components.Service
+import com.intellij.openapi.components.SettingsCategory
+import com.intellij.openapi.components.SimplePersistentStateComponent
+import com.intellij.openapi.components.State
+import com.intellij.openapi.components.Storage
 import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.extensions.ExtensionNotApplicableException
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.progress.ProgressIndicator
@@ -31,6 +39,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
+import org.jetbrains.annotations.ApiStatus
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -54,6 +64,8 @@ private fun isEnabled(project: Project): Boolean {
          !ApplicationManager.getApplication().isHeadlessEnvironment
 }
 
+private val LOG = logger<JdkUpdaterStartup>()
+
 internal class JdkUpdaterStartup : ProjectActivity {
   init {
     if (ApplicationManager.getApplication().isUnitTestMode) {
@@ -63,6 +75,14 @@ internal class JdkUpdaterStartup : ProjectActivity {
 
   override suspend fun execute(project: Project) {
     delay(60.seconds) // no hurry!
+
+    withContext(Dispatchers.IO) {
+      runCatching { JdkInstaller.getInstance().retryOutdatedJdkRemoval() }
+        .onFailure { t ->
+          rethrowControlFlowException(t)
+          LOG.warn("Failed to retry the removal of outdated JDKs", t)
+        }
+    }
 
     if (isEnabled(project)) {
       updateNotifications(project)
@@ -164,4 +184,29 @@ internal class JdkUpdaterStartup : ProjectActivity {
 private class JdkUpdatesCollectorQueue(val coroutineScope: CoroutineScope) :
   UnknownSdkCollectorQueue(mergingTimeSpaceMillis = 7_000, coroutineScope = coroutineScope) {
   var updateJob: Job? = null
+}
+
+@ApiStatus.Internal
+class JdkUpdaterState : BaseState() {
+  var isRemoveOutdatedJdksAutomatically: Boolean by property(false)
+}
+
+@State(
+  name = "JdkUpdaterSettings",
+  storages = [Storage(value = "updates.xml", roamingType = RoamingType.DISABLED, exportable = true)],
+  category = SettingsCategory.SYSTEM,
+  allowLoadInTests = true,
+)
+@Service
+@ApiStatus.Internal
+class JdkUpdaterSettings : SimplePersistentStateComponent<JdkUpdaterState>(JdkUpdaterState()) {
+  var isRemoveOutdatedJdksAutomatically: Boolean
+    get() = state.isRemoveOutdatedJdksAutomatically
+    set(value) {
+      state.isRemoveOutdatedJdksAutomatically = value
+    }
+
+  companion object {
+    fun getInstance(): JdkUpdaterSettings = service<JdkUpdaterSettings>()
+  }
 }

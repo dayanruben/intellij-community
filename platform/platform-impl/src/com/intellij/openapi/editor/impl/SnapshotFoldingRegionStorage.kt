@@ -17,7 +17,6 @@ import com.intellij.openapi.editor.impl.marker.MarkerTransformError
 import com.intellij.openapi.editor.impl.marker.MarkerTransformResult
 import com.intellij.openapi.editor.impl.marker.PMarkerResolution
 import com.intellij.openapi.editor.impl.marker.PMarkerRoot
-import com.intellij.openapi.editor.impl.marker.SnapshotMarkerEngine
 import com.intellij.openapi.editor.impl.marker.SnapshotMarkerReference
 import com.intellij.openapi.editor.impl.marker.SnapshotMarkerRootStore
 import com.intellij.openapi.editor.impl.marker.SnapshotRangeMarkerImpl
@@ -44,8 +43,8 @@ internal class SnapshotFoldingRegionStorage(
   private val foldRegionMarkerPolicy: MarkerPolicy = FoldRegionMarkerPolicy {
     model.setComplexDocumentChange(true)
   }
-  val rootStore: SnapshotMarkerRootStore<SnapshotFoldRegion> = SnapshotMarkerRootStore.strong(
-    document, SnapshotFoldRegion::class.java,
+  val rootStore: SnapshotMarkerRootStore<SnapshotFoldRegion> = SnapshotMarkerRootStore(
+    document, SnapshotFoldRegion::class.java, retainStrong = true,
     onMarkersInvalidated = ::processInvalidatedRegions,
     onMarkersAffected = ::processAffectedRegions,
   )
@@ -91,7 +90,7 @@ internal class SnapshotFoldingRegionStorage(
     if (region !is SnapshotFoldRegion || region.storage !== this) return false
     if (region.markerHandle !in registeredRegions || !region.isValid) return false
     model.notifyBeforeFoldRegionDisposed(region)
-    val removed = SnapshotMarkerEngine.removeRangeMarker(region)
+    val removed = region.removeFromCurrentRoot()
     registeredRegions.remove(region.markerHandle)
     return removed
   }
@@ -234,7 +233,7 @@ internal class SnapshotFoldingRegionStorage(
     @Suppress("ReplaceManualRangeWithIndicesCalls")
     for (index in 0 until handles.size) {
       val handle = handles[index]
-      if (handle in registeredRegions) regions.add(handle.get())
+      if (handle in registeredRegions) regions.add(checkNotNull(handle.get()))
     }
     regions.sortWith(REGION_COMPARATOR)
     removeDuplicateRegions(regions)
@@ -284,7 +283,7 @@ internal class SnapshotFoldingRegionStorage(
     for (index in 0 until size) {
       val handle = handles[index]
       if (registeredRegions.remove(handle)) {
-        val region = handle.get()
+        val region = checkNotNull(handle.get())
         region.markDisposed()
         model.snapshotFoldRegionInvalidated(region)
       }
@@ -463,7 +462,7 @@ internal class SnapshotCustomFoldRegion(
   override fun update() {
     ThreadingAssertions.assertEventDispatchThread()
     if (editorImpl.isDisposed || !isValid) return
-    if (editorImpl.myDocumentChangeInProgress) {
+    if (editorImpl.isDocumentChangeInProgress) {
       throw IllegalStateException("A custom fold region cannot update during a document change")
     }
     val oldWidth = width

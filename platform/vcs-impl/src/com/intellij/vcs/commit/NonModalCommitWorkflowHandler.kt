@@ -48,7 +48,7 @@ import com.intellij.openapi.vcs.checkin.CommitProblemWithDetails
 import com.intellij.openapi.vcs.checkin.VcsCheckinHandlerFactory
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileManager
-import com.intellij.openapi.vfs.newvfs.BulkFileListener
+import com.intellij.openapi.vfs.newvfs.BulkFileListenerBackgroundable
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent
 import com.intellij.platform.util.progress.mapWithProgress
 import com.intellij.platform.util.progress.reportSequentialProgress
@@ -64,6 +64,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.Nls
 import kotlin.properties.Delegates.observable
@@ -200,14 +201,14 @@ abstract class NonModalCommitWorkflowHandler<W : NonModalCommitWorkflow, U : Non
     }
 
     // reset commit checks on VFS updates
-    project.messageBus.connect(this).subscribe(VirtualFileManager.VFS_CHANGES, object : BulkFileListener {
+    project.messageBus.connect(this).subscribe(VirtualFileManager.VFS_CHANGES_BG, object : BulkFileListenerBackgroundable {
       override fun after(events: List<VFileEvent>) {
         if (isCommitChecksResultUpToDate == RecentCommitChecks.UNKNOWN) {
           return
         }
         val updatedFiles = events.mapNotNull { it.file }
         if (areFilesAffectsCommitChecksResult(updatedFiles)) {
-          resetCommitChecksResult()
+          coroutineScope.launch { resetCommitChecksResult() }
         }
       }
     })

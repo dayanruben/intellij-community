@@ -6,23 +6,18 @@ import com.intellij.python.pyproject.model.evolution.setPythonInterpreter
 import com.intellij.python.sdk.backend.PythonInterpreter
 import com.intellij.idea.TestFor
 import com.intellij.openapi.application.EDT
-import com.intellij.openapi.application.readAction
 import com.intellij.openapi.module.Module
-import com.intellij.openapi.module.ModuleUtilCore
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.platform.lsp.api.LspClient
 import com.intellij.platform.lsp.api.LspClientManager
 import com.intellij.platform.lsp.api.LspServerState
-import com.intellij.platform.lsp.api.getClients
 import com.intellij.platform.testFramework.junit5.codeInsight.fixture.codeInsightFixture
 import com.intellij.python.junit5Tests.framework.LeakedProcessReporterExtension
 import com.intellij.python.junit5Tests.framework.env.PyEnvTestCase
 import com.intellij.python.junit5Tests.framework.env.pyEnvironmentFixture
 import com.intellij.python.junit5Tests.framework.pyProjectFixture
 import com.intellij.python.junit5Tests.framework.subdirectoryFixture
-import com.intellij.python.lsp.core.pyServedProjects
 import com.intellij.python.pytools.backend.PyToolsState
 import com.intellij.python.ruff.RuffPyTool
 import com.intellij.python.ruff.server.RuffLspIntegrationProvider
@@ -38,22 +33,15 @@ import com.jetbrains.python.allure.Subsystems
 import com.jetbrains.python.project.PyProject
 import com.jetbrains.python.project.PyProject.Companion.asPyProject
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
-import org.junit.jupiter.api.Assertions.fail
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.extension.ExtendWith
-import java.nio.file.Path
 import java.util.concurrent.TimeUnit
-import kotlin.io.path.writeText
-import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
-import kotlin.time.Duration.Companion.seconds
 
 /**
  * A Ruff version that differs from the pinned one in [LspToolVersions]. Only the version that a server reports
@@ -119,7 +107,7 @@ class RuffMultiModuleLspToolEnvTest {
     assertRuffChecks(serviceFile, serviceModule, SERVICE_RUFF_VERSION)
     assertRuffChecks(rootFile, rootModule, pinnedRuffVersion)
     awaitRuffClientOf(rootModule, "two Ruff versions need two servers") {
-      LspClientManager.getInstance(project).getClients<RuffLspIntegrationProvider>().count { client -> client.state == LspServerState.Running } == 2
+      LspClientManager.getInstance(project).getClients(RUFF).count { client -> client.state == LspServerState.Running } == 2
     }
   }
 
@@ -138,7 +126,7 @@ class RuffMultiModuleLspToolEnvTest {
     val client = awaitRuffClientOf(serviceModule, "the Ruff server of module 'service' did not restart with Ruff $SPARE_RUFF_VERSION") {
       it.ruffVersion == SPARE_RUFF_VERSION
     }
-    assertEquals(listOf(serviceModule), client.pyServedModulesForTest, "the service module keeps a server of its own")
+    assertEquals(listOf(serviceModule), client.pyServedModules, "the service module keeps a server of its own")
   }
 
   @Test
@@ -159,8 +147,8 @@ class RuffMultiModuleLspToolEnvTest {
 
       servicePyProject.setPythonInterpreter(projectInterpreter).orThrow()
 
-      val client = awaitOneRuffServer(pinnedRuffVersion)
-      awaitLspDiagnostics(client, serviceFile) { it.code?.get()?.toString() == "F401" }
+      awaitOneRuffServer(pinnedRuffVersion)
+      awaitUnusedImport(serviceFile) { isOneRuffServer(it, pinnedRuffVersion) }
       assertRuffChecks(rootFile, rootModule, pinnedRuffVersion)
       awaitOneRuffServer(pinnedRuffVersion)
     }
@@ -174,15 +162,15 @@ class RuffMultiModuleLspToolEnvTest {
 
       rootPyProject.setPythonInterpreter(serviceInterpreter).orThrow()
 
-      val client = awaitOneRuffServer(SERVICE_RUFF_VERSION)
-      awaitLspDiagnostics(client, rootFile) { it.code?.get()?.toString() == "F401" }
+      awaitOneRuffServer(SERVICE_RUFF_VERSION)
+      awaitUnusedImport(rootFile) { isOneRuffServer(it, SERVICE_RUFF_VERSION) }
       assertRuffChecks(serviceFile, serviceModule, SERVICE_RUFF_VERSION)
       awaitOneRuffServer(SERVICE_RUFF_VERSION)
     }
 
   @AfterEach
   fun tearDownTool(): Unit = timeoutRunBlocking {
-    tearDownLspTool(project, RuffLspIntegrationProvider::class.java)
+    tearDownLspTool(project, RUFF)
   }
 
   /**
@@ -199,65 +187,44 @@ class RuffMultiModuleLspToolEnvTest {
     rootPyProject.installToolPackage("ruff==$pinnedRuffVersion")
     // The service module of [oneInterpreter] runs the project interpreter, which must keep the pinned Ruff.
     if (!oneInterpreter) servicePyProject.installToolPackage("ruff==$SERVICE_RUFF_VERSION")
-    return writeModuleFile(projectPath.get(), rootModule) to writeModuleFile(servicePath.get(), serviceModule)
+    return writeModuleFile(project, projectPath.get(), rootModule, UNUSED_IMPORT_SNIPPET) to
+      writeModuleFile(project, servicePath.get(), serviceModule, UNUSED_IMPORT_SNIPPET)
   }
 
   /** Opens [file], and checks that the Ruff server of [module] runs Ruff [expectedVersion] and reports the unused import. */
   private suspend fun assertRuffChecks(file: VirtualFile, module: Module, expectedVersion: String) {
     withContext(Dispatchers.EDT) { codeInsightFixture.configureFromExistingVirtualFile(file) }
     // The package snapshot starts empty, so the first server can hold both modules until the versions are known. It
-    // restarts then, and a wait for the open file before that restart would fail on the shutdown.
-    val client = awaitRuffClientOf(module, "the Ruff server of module '${module.name}' must run Ruff $expectedVersion") {
+    // restarts then, and the restart can come after any of the waits below. So no wait keeps the client of a step.
+    awaitRuffClientOf(module, "the Ruff server of module '${module.name}' must run Ruff $expectedVersion") {
       it.ruffVersion == expectedVersion
     }
-    awaitFileOpenedByLspTool(project, file)
-    awaitLspDiagnostics(client, file) { diagnostic -> diagnostic.code?.get()?.toString() == "F401" }
+    awaitFileOpenedByLspTool(project, file, RUFF)
+    awaitUnusedImport(file) { module in it.pyServedModules && it.ruffVersion == expectedVersion }
   }
 
-  /** The one Ruff client of the project, once it runs Ruff [version] and serves both modules. */
-  private suspend fun awaitOneRuffServer(version: String): LspClient =
-    awaitRuffClientOf(rootModule, "no single Ruff $version server serves both modules") { client ->
-      client.ruffVersion == version &&
-      client.pyServedModulesForTest.toSet() == setOf(rootModule, serviceModule) &&
-      LspClientManager.getInstance(project).getClients<RuffLspIntegrationProvider>().size == 1
+  /** Waits until the running Ruff client that [condition] accepts reports the unused import in [file]. */
+  private suspend fun awaitUnusedImport(file: VirtualFile, condition: (LspClient) -> Boolean) {
+    awaitLspDiagnostics(project, file, RUFF, { runningLspClient(project, RUFF, condition) }) { diagnostics ->
+      diagnostics.any { it.code?.get()?.toString() == "F401" }
     }
+  }
+
+  /** Waits until the project has one Ruff client, which runs Ruff [version] and serves both modules. */
+  private suspend fun awaitOneRuffServer(version: String) {
+    awaitRuffClientOf(rootModule, "no single Ruff $version server serves both modules") { isOneRuffServer(it, version) }
+  }
+
+  private fun isOneRuffServer(client: LspClient, version: String): Boolean =
+    client.ruffVersion == version && isOnlyLspServerOf(client, RUFF, setOf(rootModule, serviceModule))
 
   private val LspClient.ruffVersion: String? get() = initializeResult?.serverInfo?.version?.substringBefore(' ')
 
-  /**
-   * The running Ruff client that serves [module], once [condition] holds for it. Fails with [failure] when no such
-   * client comes in time.
-   */
   private suspend fun awaitRuffClientOf(
     module: Module,
     failure: String = "no running Ruff client serves module '${module.name}'",
     condition: (LspClient) -> Boolean = { true },
-  ): LspClient {
-    val manager = LspClientManager.getInstance(project)
-    val client = withTimeoutOrNull(90.seconds) {
-      var found: LspClient? = null
-      while (found == null) {
-        found = manager.getClients<RuffLspIntegrationProvider>().firstOrNull {
-          module in it.pyServedModulesForTest && it.state == LspServerState.Running && condition(it)
-        }
-        if (found == null) delay(200.milliseconds)
-      }
-      found
-    }
-    return client ?: fail(failure)
-  }
-
-  /** Writes [UNUSED_IMPORT_SNIPPET] into [directory], and checks that the file belongs to [module]. */
-  private suspend fun writeModuleFile(directory: Path, module: Module): VirtualFile {
-    val path = directory.resolve("main.py")
-    withContext(Dispatchers.IO) { path.writeText(UNUSED_IMPORT_SNIPPET) }
-    val file = checkNotNull(VirtualFileManager.getInstance().refreshAndFindFileByNioPath(path)) { "$path is not in the VFS" }
-    val owner = readAction { ModuleUtilCore.findModuleForFile(file, project) }
-    assertEquals(module, owner, "$path must belong to module '${module.name}'")
-    return file
-  }
+  ): LspClient = awaitLspClientOf(project, RUFF, module, failure, condition)
 }
 
-/** The modules of the Python projects that the server behind [this] answers for. */
-private val LspClient.pyServedModulesForTest: List<Module>
-  get() = pyServedProjects.map { it.residesOnModule }
+private val RUFF = RuffLspIntegrationProvider::class.java

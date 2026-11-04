@@ -25,19 +25,19 @@
     <orderEntry type="sourceFolder" forTests="false" />
     <orderEntry type="module-library" exported="">
       <library name="kotlinc.analysis-api" type="repository">
-        <properties include-transitive-deps="false" maven-id="org.jetbrains.kotlin:analysis-api-for-ide:2.5.20-dev-2285">
+        <properties include-transitive-deps="false" maven-id="org.jetbrains.kotlin:analysis-api-for-ide:2.5.20-dev-3282">
           <verification>
-            <artifact url="file://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/analysis-api-for-ide/2.5.20-dev-2285/analysis-api-for-ide-2.5.20-dev-2285.jar">
-              <sha256sum>4119a3f892e3f1228a16a3a95c4a3e787a6d944736b03cb089d95cf0137bd521</sha256sum>
+            <artifact url="file://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/analysis-api-for-ide/2.5.20-dev-3282/analysis-api-for-ide-2.5.20-dev-3282.jar">
+              <sha256sum>d7472331f68c1912b326f7602d2af1902acfd684ee08f54fb0862990ff4b1746</sha256sum>
             </artifact>
           </verification>
         </properties>
         <CLASSES>
-          <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/analysis-api-for-ide/2.5.20-dev-2285/analysis-api-for-ide-2.5.20-dev-2285.jar!/" />
+          <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/analysis-api-for-ide/2.5.20-dev-3282/analysis-api-for-ide-2.5.20-dev-3282.jar!/" />
         </CLASSES>
         <JAVADOC />
         <SOURCES>
-          <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/analysis-api-for-ide/2.5.20-dev-2285/analysis-api-for-ide-2.5.20-dev-2285-sources.jar!/" />
+          <root url="jar://$MAVEN_REPOSITORY$/org/jetbrains/kotlin/analysis-api-for-ide/2.5.20-dev-3282/analysis-api-for-ide-2.5.20-dev-3282-sources.jar!/" />
         </SOURCES>
       </library>
     </orderEntry>
