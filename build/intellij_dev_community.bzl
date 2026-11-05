@@ -6,6 +6,7 @@ macros. `build/intellij_dev_ultimate.bzl` of the ultimate checkout is the twin o
 
 load("@jps_dynamic_deps_community//:targets.bzl", "BAZEL_TARGETS_JSON_COMMUNITY")
 load("//build/dev-dist-content:dev_dist_content_sets.bzl", "DEV_DIST_PLUGIN_COMPONENTS")
+load("//platform/build-scripts/bazel-rules:dev_dist_runtime_module_repository.bzl", "dev_dist_runtime_module_facts")
 load("//platform/build-scripts/bazel-rules:intellij_dev_dist.bzl", "intellij_project_model_tree")
 load(":dev_dist_fragment_inputs.bzl", "DEV_DIST_FRAGMENT_INPUTS")
 load(":dev_dist_module_sets.bzl", "DEV_DIST_MODULE_SETS")
@@ -27,8 +28,11 @@ COMMUNITY_EXTRA_PROJECT_FILES = [
 ]
 
 # The project model tree of the community half, declared by `intellij_dev_project_model_tree_community`. Only the
-# runtime module repository component reads it, and no community row asks for that component yet.
+# runtime module facts action reads it, and no community row asks for the runtime module repository component yet.
 _DEV_PROJECT_MODEL_TREE = "//build:dev_project_model_tree"
+
+# The runtime module facts of that tree, declared next to it. The runtime module repository actions read them.
+_DEV_RUNTIME_MODULE_FACTS = "//build:dev_runtime_module_facts"
 
 # The payload key of the platform `lib/` jars, and the component of the runtime module repository. The ultimate
 # bridge exports the same two names.
@@ -45,6 +49,9 @@ def _platform_lib_payload(product):
 def _product_info_label(product):
     return "//build/dev-dist-descriptors:%s_product_info" % product
 
+def _product_mode(product):
+    return DEV_DIST_PRODUCT_INFO[product].mode
+
 # The generated tables of the community half, which the shared declarations read. The community half has no hook:
 # no community launcher changes its flags, and none has a before-run step.
 _DECLARATIONS = intellij_dev_dist_declarations(struct(
@@ -60,10 +67,12 @@ _DECLARATIONS = intellij_dev_dist_declarations(struct(
     platform_lib_payload = _platform_lib_payload,
     bazel_targets_json = BAZEL_TARGETS_JSON_COMMUNITY,
     project_model_tree = _DEV_PROJECT_MODEL_TREE,
+    runtime_module_facts = _DEV_RUNTIME_MODULE_FACTS,
     collector = "//build:dev_dist_packed_jars",
     composer = "//build:dev_dist_composer",
     build_package = "//build",
     product_info_label = _product_info_label,
+    product_mode = _product_mode,
     launcher_jvm_flags = None,
     check_before_run = None,
     community = None,
@@ -94,8 +103,10 @@ def intellij_dev_project_model_tree_community():
     """Declares `//build:dev_project_model_tree`, the checkout-shaped tree of the community half.
 
     It carries the community project model, the product files, and the union of the `extra_project_files` of every
-    `DEV_DIST_PRODUCTS` entry. Only the runtime module repository component reads the tree. Call the macro in
+    `DEV_DIST_PRODUCTS` entry. Only the runtime module facts action reads the tree. Call the macro in
     `//build` when the first community row asks for that component.
+
+    It also declares `//build:dev_runtime_module_facts`, the runtime module facts of the tree.
     """
     if native.package_name() != "build":
         fail("Declare the dev project model tree in //build, where %s points" % _DEV_PROJECT_MODEL_TREE)
@@ -109,4 +120,9 @@ def intellij_dev_project_model_tree_community():
         mode = "community",
         project_model_files = ["//build:community_project_model_files"],
         extra_project_files = COMMUNITY_EXTRA_PROJECT_FILES + extra_project_files.keys(),
+    )
+    dev_dist_runtime_module_facts(
+        name = _DEV_RUNTIME_MODULE_FACTS.split(":")[1],
+        project_model_tree = _DEV_PROJECT_MODEL_TREE,
+        tags = ["manual"],
     )

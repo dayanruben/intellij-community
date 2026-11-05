@@ -57,6 +57,16 @@ abstract class DefaultVcsRootPolicy protected constructor(protected val myProjec
       StringUtil.escapeXmlEntities(ProjectBundle.message("project.roots.project.display.name") + ": " + it.replace('\n', ' '))
     }
 
+  /**
+   * Tells the detector that [getDefaultVcsRoots] changed: [removed] roots are gone, [added] roots are new.
+   * A removed root that is still a default root keeps its mapping, because another source still supplies it.
+   */
+  protected fun notifyDefaultRootsChanged(removed: Collection<VirtualFile>, added: Collection<VirtualFile>) {
+    scheduleMappedRootsUpdate()
+    val goneRoots = if (removed.isEmpty()) removed else removed - getDefaultVcsRoots().toSet()
+    scheduleRootsChangeProcessing(goneRoots, added)
+  }
+
   protected fun scheduleMappedRootsUpdate() {
     val vcsManager = ProjectLevelVcsManagerEx.getInstanceEx(myProject)
     if (!vcsManager.haveDefaultMapping().isNullOrEmpty()) {
@@ -73,6 +83,13 @@ abstract class DefaultVcsRootPolicy protected constructor(protected val myProjec
   }
 
   companion object {
+    /**
+     * The registry key that makes the project roots of a project its default VCS roots in place of the base directory.
+     * Declared in VcsExtensions.xml. A product turns it on with a `<registryKey overrides="true">` in a module that
+     * loads at startup. A change of the key applies after a restart.
+     */
+    const val PROJECT_ROOTS_REGISTRY_KEY: String = "vcs.default.roots.from.project.roots"
+
     @JvmStatic
     fun getInstance(project: Project): DefaultVcsRootPolicy {
       return project.getService(DefaultVcsRootPolicy::class.java)

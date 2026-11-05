@@ -682,17 +682,17 @@ jvm_import(
 )
 
 copy_file(
-    name = "com.jetbrains.fus.reporting/fus-api-2.0.250.jar_copy",
-    src = "@com_jetbrains_fus_reporting-fus-api-2_0_250_http//file",
-    out = "com.jetbrains.fus.reporting/fus-api-2.0.250.jar",
+    name = "com.jetbrains.fus.reporting/fus-api-2.0.251.jar_copy",
+    src = "@com_jetbrains_fus_reporting-fus-api-2_0_251_http//file",
+    out = "com.jetbrains.fus.reporting/fus-api-2.0.251.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
 
 jvm_import(
     name = "com-jetbrains-fus-reporting-fus-api",
-    jar = "@com_jetbrains_fus_reporting-fus-api-2_0_250_http//file",
-    source_jar = "@com_jetbrains_fus_reporting-fus-api-2_0_250-sources_http//file",
+    jar = "@com_jetbrains_fus_reporting-fus-api-2_0_251_http//file",
+    source_jar = "@com_jetbrains_fus_reporting-fus-api-2_0_251-sources_http//file",
     visibility = ["//visibility:public"],
 )
 
@@ -1502,28 +1502,6 @@ jvm_import(
     name = "org_opentest4j-opentest4j-1_2_0_http_import",
     jar = "@org_opentest4j-opentest4j-1_2_0_http//file",
     source_jar = "@org_opentest4j-opentest4j-1_2_0-sources_http//file",
-)
-
-copy_file(
-    name = "org.jetbrains.intellij.deps.filePrediction.model/file-prediction-model-0.3.0.jar_copy",
-    src = "@org_jetbrains_intellij_deps_filePrediction_model-file-prediction-model-0_3_0_http//file",
-    out = "org.jetbrains.intellij.deps.filePrediction.model/file-prediction-model-0.3.0.jar",
-    allow_symlink = True,
-    visibility = ["//visibility:public"],
-)
-
-jvm_import(
-    name = "file_prediction-file-prediction-model",
-    jar = "@org_jetbrains_intellij_deps_filePrediction_model-file-prediction-model-0_3_0_http//file",
-    source_jar = "@org_jetbrains_intellij_deps_filePrediction_model-file-prediction-model-0_3_0-sources_http//file",
-    visibility = ["//visibility:public"],
-)
-
-jvm_import(
-    name = "file_prediction-tests-file-prediction-model",
-    jar = "@org_jetbrains_intellij_deps_filePrediction_model-file-prediction-model-0_3_0_http//file",
-    source_jar = "@org_jetbrains_intellij_deps_filePrediction_model-file-prediction-model-0_3_0-sources_http//file",
-    visibility = ["//visibility:public"],
 )
 
 copy_file(
@@ -4474,17 +4452,17 @@ jvm_import(
 )
 
 copy_file(
-    name = "com.jetbrains.fus.reporting/fus-api-jvm-2.0.250.jar_copy",
-    src = "@com_jetbrains_fus_reporting-fus-api-jvm-2_0_250_http//file",
-    out = "com.jetbrains.fus.reporting/fus-api-jvm-2.0.250.jar",
+    name = "com.jetbrains.fus.reporting/fus-api-jvm-2.0.251.jar_copy",
+    src = "@com_jetbrains_fus_reporting-fus-api-jvm-2_0_251_http//file",
+    out = "com.jetbrains.fus.reporting/fus-api-jvm-2.0.251.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
 
 jvm_import(
     name = "jetbrains-fus-reporting-api-jvm",
-    jar = "@com_jetbrains_fus_reporting-fus-api-jvm-2_0_250_http//file",
-    source_jar = "@com_jetbrains_fus_reporting-fus-api-jvm-2_0_250-sources_http//file",
+    jar = "@com_jetbrains_fus_reporting-fus-api-jvm-2_0_251_http//file",
+    source_jar = "@com_jetbrains_fus_reporting-fus-api-jvm-2_0_251-sources_http//file",
     visibility = ["//visibility:public"],
 )
 
@@ -8814,17 +8792,17 @@ jvm_import(
 )
 
 copy_file(
-    name = "com.jetbrains.fus.reporting/ap-validation-all-2.0.250.jar_copy",
-    src = "@com_jetbrains_fus_reporting-ap-validation-all-2_0_250_http//file",
-    out = "com.jetbrains.fus.reporting/ap-validation-all-2.0.250.jar",
+    name = "com.jetbrains.fus.reporting/ap-validation-all-2.0.251.jar_copy",
+    src = "@com_jetbrains_fus_reporting-ap-validation-all-2_0_251_http//file",
+    out = "com.jetbrains.fus.reporting/ap-validation-all-2.0.251.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
 
 jvm_import(
     name = "libraries-fus-ap-validation-com-jetbrains-fus-reporting-ap-validation-all",
-    jar = "@com_jetbrains_fus_reporting-ap-validation-all-2_0_250_http//file",
-    source_jar = "@com_jetbrains_fus_reporting-ap-validation-all-2_0_250-sources_http//file",
+    jar = "@com_jetbrains_fus_reporting-ap-validation-all-2_0_251_http//file",
+    source_jar = "@com_jetbrains_fus_reporting-ap-validation-all-2_0_251-sources_http//file",
     visibility = ["//visibility:public"],
 )
 

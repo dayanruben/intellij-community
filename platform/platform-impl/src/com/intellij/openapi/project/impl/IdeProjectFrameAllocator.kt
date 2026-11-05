@@ -238,7 +238,7 @@ internal class IdeProjectFrameAllocator(
             val fileEditorManager = FileEditorManager.getInstanceAsync(project) as FileEditorManagerImpl
             fileEditorManager.initJob.join()
             span("frame document component install", Dispatchers.UiWithModelAccess) {
-              frameHelper.toolWindowPane.setDocumentComponent(fileEditorManager.mainSplitters)
+              frameHelper.editorArea.setOwnerEditors(fileEditorManager.mainSplitters)
             }
           }
 
@@ -748,6 +748,61 @@ private fun activateProjectViewWhenRegistered(toolWindowManager: ToolWindowManag
   activateIfRegistered()
 }
 
+/**
+ * Preloads the services that the daemon needs once an editor shows, in the background of this scope.
+ * The caller makes sure that `FileEditorManager` exists first, because `DaemonCodeAnalyzer` uses it.
+ */
+internal fun CoroutineScope.preloadDaemonServices(project: Project) {
+  // DaemonCodeAnalyzer wants DaemonCodeAnalyzerSettings
+  val daemonCodeAnalyzerSettingsJob = launch {
+    serviceAsync<DaemonCodeAnalyzerSettings>()
+  }
+  launch {
+    // WolfTheProblemSolver uses PsiManager
+    project.serviceAsync<PsiManager>()
+    project.serviceAsync<WolfTheProblemSolver>()
+  }
+  launch {
+    daemonCodeAnalyzerSettingsJob.join()
+    project.serviceAsync<DaemonCodeAnalyzer>()
+  }
+}
+
+/**
+ * Restores the editors of a frame guest from its saved state, or presents the empty state of its editor area when there is none.
+ *
+ * The frame belongs to another project, so the gates of the startup UI, the startup measurements and the focus of a restored
+ * editor stay with [restoreEditors] of the frame owner. The caller puts the editor area of the guest into the frame first.
+ */
+internal suspend fun restoreFrameGuestEditors(project: Project, fileEditorManager: FileEditorManagerImpl) {
+  // `init` gives the saved state once, and the splitters it gives are the main splitters
+  val editorState = fileEditorManager.init().second
+  val editorComponent = fileEditorManager.mainSplitters
+  // the hold may mount or dispose the empty state, so this runs where the write-intent lock may be taken, see `restoreEditors`
+  withContext(NonCancellable + Dispatchers.EDT + ModalityState.any().asContextElement()) {
+    editorComponent.beginStartupEmptyStatePresentationHold()
+    if (editorState == null) {
+      editorComponent.markNoEditorsToRestore()
+      editorComponent.finishStartupEditorRestore()
+    }
+  }
+  try {
+    if (editorState != null) {
+      span("frame guest editor restoring") {
+        editorComponent.createEditors(state = editorState)
+      }
+    }
+  }
+  finally {
+    // a guest opens no editor of its own after the restore, so the editor area keeps what the restore left
+    withContext(NonCancellable + Dispatchers.EDT + ModalityState.any().asContextElement()) {
+      if (!project.isDisposed) {
+        editorComponent.endStartupEmptyStatePresentationHold()
+      }
+    }
+  }
+}
+
 private suspend fun restoreEditors(
   project: Project,
   fileEditorManager: FileEditorManagerImpl,
@@ -756,19 +811,7 @@ private suspend fun restoreEditors(
 ) {
   coroutineScope {
     // only after FileEditorManager.init - DaemonCodeAnalyzer uses FileEditorManager
-    // DaemonCodeAnalyzer wants DaemonCodeAnalyzerSettings
-    val daemonCodeAnalyzerSettingsJob = launch {
-      serviceAsync<DaemonCodeAnalyzerSettings>()
-    }
-    launch {
-      // WolfTheProblemSolver uses PsiManager
-      project.serviceAsync<PsiManager>()
-      project.serviceAsync<WolfTheProblemSolver>()
-    }
-    launch {
-      daemonCodeAnalyzerSettingsJob.join()
-      project.serviceAsync<DaemonCodeAnalyzer>()
-    }
+    preloadDaemonServices(project)
 
     val (editorComponent, editorState) = fileEditorManager.init()
     // the empty state may be built as soon as restoring is over, in parallel with the rest of the project open, but it must not be

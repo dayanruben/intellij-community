@@ -13,7 +13,7 @@ load("@community//build:project_model_manifest.bzl", "write_project_model_manife
 load("//build:host_platforms.bzl", "platform_parts")
 load(":dev_dist_build_date.bzl", "DEV_DIST_PINNED_BUILD_DATE_IN_SECONDS")
 load(":dev_dist_content.bzl", "DevDistContentInfo", "DevDistPlatformPayloadInfo")
-load(":dev_dist_plugin_descriptor.bzl", "DevDistProductInfo", "dev_dist_product_info_transition")
+load(":dev_dist_plugin_descriptor.bzl", "DevDistProductInfo", "dev_dist_check_product_stamp_class", "dev_dist_product_info_transition")
 
 IntellijDevBuildInputsInfo = provider(
     doc = "The exact Bazel inputs and label-to-path manifest made available to one reference.",
@@ -159,8 +159,35 @@ DevDistPlacementInfo = provider(
         "files": "Dictionary from a file destination to its `File`.",
         "trees": "Dictionary from a directory destination to a directory `File` that holds every entry below it at the same relative path.",
         "executables": "The file destinations that need the executable bit.",
+        "executable_copies": "Dictionary from an executable destination with a source file to the copy of that file, which a launch target links. See `dev_dist_placement`.",
     },
 )
+
+def dev_dist_placement(ctx, files, trees, executables):
+    """The `DevDistPlacementInfo` of a component, with one copy of each executable source file.
+
+    Analysis cannot see the mode of a source file. The mode on disk is not reliable either: an extracted repository
+    gets the modes of its archive, or `0555` from the repo contents cache. Bazel writes the copy executable. The
+    component declares the copy, so every launch target and every distribution over the component links the same file.
+    The composer still gets the source in the placement, because the component manifest names the source.
+    """
+    executable_copies = {}
+    for destination in executables:
+        file = files.get(destination)
+        if file == None or not file.is_source:
+            continue
+        copy = ctx.actions.declare_file("%s.executables/%s" % (ctx.label.name, destination))
+        ctx.actions.run_shell(
+            outputs = [copy],
+            inputs = [file],
+            command = 'cp "$1" "$2"',
+            arguments = [file.path, copy.path],
+            mnemonic = "DevLaunchExecutableCopy",
+            progress_message = "Copying the executable %s of %%{label}" % destination,
+            execution_requirements = {"no-cache": "1", "no-remote-exec": "1", "no-sandbox": "1"},
+        )
+        executable_copies[destination] = copy
+    return DevDistPlacementInfo(files = files, trees = trees, executables = executables, executable_copies = executable_copies)
 
 IntellijDevReferenceInfo = provider(
     doc = "A reference fragment, the second producer of a gate. No distribution composes it.",
@@ -178,7 +205,7 @@ IntellijDevDistInfo = provider(
         "home_prefix": "The directory below `home` that holds the home of the IDE: `Contents` for a macOS app, or `\"\"` for `home` itself. `home_prefix` of `dev_dist_product_files.bzl` states the rule.",
         "ide_config": "The config file used by PreBuiltDevMain.",
         "runtime_files": "Component artifacts used directly by a local launch.",
-        "placement": "The merged `DevDistPlacementInfo` of a local launch as `struct(files, trees, executables)`. None for a full distribution or a component without a placement.",
+        "placement": "The merged `DevDistPlacementInfo` of a local launch as `struct(files, trees, executables, executable_copies)`. None for a full distribution or a component without a placement.",
         "core_classpath": "The `core-classpath.txt` of a local launch as a file of its own, or None.",
         "plugin_classpath": "The `plugins/plugin-classpath.txt` of a local launch as a file of its own, or None.",
         "sibling_vm_options": "The sibling vmoptions file `<name>.dist.vmoptions` of an export, or None.",
@@ -355,7 +382,7 @@ def _project_model_tree_impl(ctx):
         # Hermetic. It reads its manifest and the execroot-relative sources that manifest names, writes only under its
         # output directory, and consults no environment variable, no home directory and no network, so it may be
         # sandboxed and the disk cache may keep it. The remote cache may not. The output is tens of thousands of small
-        # files, and every model edit re-keys it. Its consumers are the runtime module repository action and the
+        # files, and every model edit re-keys it. Its consumers are the runtime module facts action and the
         # references, and both run locally. A remote hit would download the whole tree to save a few seconds of local
         # copying.
         execution_requirements = {"no-remote-cache": "1"},
@@ -374,7 +401,7 @@ def _project_model_tree_impl(ctx):
 intellij_project_model_tree = rule(
     doc = """The checkout-shaped JPS project model tree.
 
-    Only the runtime module repository action and the references read the tree. No other action of a distribution
+    Only the runtime module facts action and the references read the tree. No other action of a distribution
     reads it. A consuming repository can declare one tree for many products and share it with every consumer of those
     products. One tree per consumer would repeat about 7 400 file copies for each one.
 
@@ -546,7 +573,7 @@ intellij_dev_fragment = rule(
 _COLLECTOR_ATTRS = {
     "collector": attr.label(executable = True, cfg = "exec", mandatory = True),
     "component_name": attr.string(mandatory = True, doc = "Identifies the component in its manifest and completeness check."),
-    "platform_prefix": attr.string(mandatory = True),
+    "platform_prefix": attr.string(mandatory = True, doc = "The `build/dev-build.json` key of the product. Only the progress message names it."),
     "target_platform": attr.string(default = ""),
 } | _TRACE_SPANS_ATTR
 
@@ -555,7 +582,6 @@ def _collect_component(ctx, files, collection_args, inputs, mnemonic, progress_m
     args = ctx.actions.args()
     args.add("--component-manifest=" + component_manifest.path)
     args.add("--kind=" + ctx.attr.component_name)
-    args.add("--platform-prefix=" + ctx.attr.platform_prefix)
     _add_target_platform_args(args, ctx.attr.target_platform)
     if main_class:
         args.add("--main-class=" + main_class)
@@ -734,7 +760,7 @@ def _packed_jars_component_impl(ctx):
             inputs = [catalogue, jar_list] + [source.metadata for record in records for source in _packed_sources(record)],
             mnemonic = "IntellijDevPackedJars",
             progress_message = "Naming %d packed %s jars and %d native trees for %%{label}" % (len(jars), ctx.attr.platform_prefix, len(trees)),
-            placement = DevDistPlacementInfo(files = placed_files, trees = placed_trees, executables = []),
+            placement = dev_dist_placement(ctx, placed_files, placed_trees, []),
             plugin_classpath_prefix = ctx.file.plugin_classpath_prefix,
             main_class = ctx.attr.main_class,
         )
@@ -775,7 +801,7 @@ def _packed_jars_component_impl(ctx):
         inputs = [metadata] + executable_lists + files,
         mnemonic = "IntellijDevFiles",
         progress_message = "Naming distribution files for %{label}",
-        placement = DevDistPlacementInfo(files = destinations, trees = {}, executables = executables),
+        placement = dev_dist_placement(ctx, destinations, {}, executables),
         main_class = ctx.attr.main_class,
     )
 
@@ -870,6 +896,7 @@ def _merge_placements(ctx, fragment_targets):
     files = {}
     trees = {}
     executables = []
+    executable_copies = {}
     owners = {}
     for target in fragment_targets:
         if DevDistPlacementInfo not in target:
@@ -883,11 +910,12 @@ def _merge_placements(ctx, fragment_targets):
                 owners[destination] = kind
                 into[destination] = file
         executables.extend(placement.executables)
+        executable_copies.update(placement.executable_copies)
     for destination in owners:
         for parent in _parents(destination):
             if parent in trees:
                 fail("%s: '%s' of %s is below '%s', which %s links as a whole" % (ctx.label, destination, owners[destination], parent, owners[parent]))
-    return struct(files = files, trees = trees, executables = executables)
+    return struct(files = files, trees = trees, executables = executables, executable_copies = executable_copies)
 
 # The token of a sibling vmoptions line that stands for the absolute path of the home of the export.
 _EXPORT_TOKEN = "${EXPORT}"
@@ -957,6 +985,7 @@ def _compose(ctx, fragment_targets):
         composition_spec,
         json.encode({
             "version": 1,
+            "platformPrefix": ctx.attr.platform_prefix,
             "expectedFragments": ctx.attr.expect_fragments,
             "additionalModules": ctx.attr.additional_modules,
             "bundledModules": ctx.attr.bundled_modules,
@@ -1045,6 +1074,7 @@ def _compose(ctx, fragment_targets):
 def _compose_fragments_impl(ctx):
     if ctx.attr.plugin_components and ctx.attr.product_info == None:
         fail("%s composes plugin components and names no product_info" % ctx.label, attr = "product_info")
+    dev_dist_check_product_stamp_class(ctx)
 
     # The plugin components follow the platform components. The composer checks the set of kinds, not their order.
     return _compose(ctx, ctx.attr.fragments + ctx.attr.plugin_components)
@@ -1054,17 +1084,25 @@ intellij_dev_fragments_dist = rule(
     attrs = {
         "composer": attr.label(executable = True, cfg = "exec", mandatory = True),
         "fragments": attr.label_list(providers = [IntellijDevFragmentInfo], mandatory = True),
+        "platform_prefix": attr.string(
+            mandatory = True,
+            doc = """The `build/dev-build.json` key of the product. The composer writes it as `platform.prefix` of `DevIdeConfig`,
+and the fingerprint hashes it. No component manifest states a product, so a plugin component serves every product.""",
+        ),
         "plugin_components": attr.label_list(
             providers = [IntellijDevFragmentInfo],
             cfg = dev_dist_product_info_transition,
             doc = """The plugin components of this product, composed after the components of `fragments`.
 
-Transitioned onto `product_info`: a packed plugin component reads the product through the flag, so one component target
-per plugin serves every product that bundles the plugin.""",
+Transitioned onto `product_info` and `stamp_class`. Each component keeps only its stamp class, so one component target
+per plugin serves every product of one stamp class.""",
         ),
         "product_info": attr.label(
             providers = [DevDistProductInfo],
             doc = "This product's `dev_dist_product_info`, which `plugin_components` are configured with. Required when that list is not empty.",
+        ),
+        "stamp_class": attr.string(
+            doc = "The mode of the product, the value of `dev_dist_stamp_class` for `plugin_components`. It must equal the `mode` of `product_info`.",
         ),
         "_allowlist_function_transition": attr.label(default = Label("@bazel_tools//tools/allowlists/function_transition_allowlist")),
         "local_launch": attr.bool(default = False, doc = "Compose metadata that refers to component runfiles instead of copying their contents."),

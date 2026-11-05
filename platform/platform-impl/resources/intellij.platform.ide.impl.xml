@@ -412,6 +412,9 @@
     <extensionPoint qualifiedName="com.intellij.pluginUpdateHandlerProvider"
                     interface="com.intellij.openapi.updateSettings.impl.PluginUpdateHandlerProvider"
                     dynamic="true"/>
+    <extensionPoint qualifiedName="com.intellij.smartModeProvider"
+                    interface="com.intellij.openapi.project.SmartModeProvider"
+                    dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.pluginUpdatesProvider"
                     interface="com.intellij.ide.plugins.newui.PluginUpdatesProvider"
                     dynamic="true"/>
@@ -532,6 +535,12 @@
       defaultValue="10000"
       description="How long the IDE waits, in milliseconds, before it repeats the progress sound signal"
       restartRequired="true"
+    />
+    <registryKey
+      key="editor.font.families"
+      defaultValue="true"
+      description="Shows the font families of text attributes in the editor. When this is off, the editor shows all text in the editor fonts."
+      restartRequired="false"
     />
     <registryKey
       key="ea.diagnostic.endpoint"
@@ -931,8 +940,7 @@
     <projectService serviceInterface="com.intellij.openapi.project.DumbService"
                     serviceImplementation="com.intellij.openapi.project.DumbServiceImpl"/>
     <projectService serviceInterface="com.intellij.openapi.project.SmartModeScheduler"
-                    serviceImplementation="com.intellij.openapi.project.AlwaysSmartModeScheduler"
-                    open="true"/>
+                    serviceImplementation="com.intellij.openapi.project.SmartModeSchedulerImpl"/>
     <initProjectActivity id="dumbServiceStartup" implementation="com.intellij.openapi.project.DumbServiceStartupActivity" order="last"/>
     <projectService serviceInterface="com.intellij.openapi.project.IncompleteDependenciesService"
                     serviceImplementation="com.intellij.openapi.project.IncompleteDependenciesServiceImpl"/>

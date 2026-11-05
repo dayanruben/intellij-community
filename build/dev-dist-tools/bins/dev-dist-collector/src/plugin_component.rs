@@ -5,8 +5,12 @@
 //! that Bazel packed and the files that the plugin copies. A top-level `jars` key selects the packed shape, and then
 //! the collector writes the classpath record itself.
 //!
-//! A copied file of the packed shape can be a tree: one directory artifact that the collector walks when it runs. Each
-//! directory and each regular file of it keeps its mode.
+//! A copied file of the packed shape can be a tree: one directory artifact that the collector walks when it runs. A
+//! tree declares no executable file, so each regular file has the mode 0644 and each directory 0755.
+//!
+//! A prepared spec can name `descriptorRemainder`: the remainder part that holds the assets which read the descriptor.
+//! Then `remainder` is the neutral part, which holds every other asset, and its `omitted` names each file asset that the
+//! neutral part packed and the mode of the component refuses. The collector drops those entries.
 //!
 //! A prepared spec can name `refusedModules`: the content modules that the product mode of the component refuses. The
 //! packer omitted every asset whose modules are all refused, so the collector drops the reused jars of those modules
@@ -29,6 +33,7 @@ struct SpecFile {
     version: i64,
     plugin_directory: String,
     remainder: Option<Remainder>,
+    descriptor_remainder: Option<Remainder>,
     assets: Option<String>,
     classpath: Option<String>,
     independent: Option<Vec<Independent>>,
@@ -43,6 +48,9 @@ struct SpecFile {
 pub(crate) struct Remainder {
     pub(crate) directory: String,
     pub(crate) metadata: String,
+    /// The file assets of this part that the component does not place: the mode refuses each of their modules.
+    #[serde(default)]
+    pub(crate) omitted: Vec<String>,
 }
 
 /// One reused jar. `artifact` is the module name of its `content_module_jar` target, the key that the asset rows of
@@ -92,6 +100,8 @@ pub(crate) struct PreparedSpec {
     pub(crate) version: u32,
     pub(crate) plugin_directory: String,
     pub(crate) remainder: Remainder,
+    /// The part of a split remainder that holds the assets which read the descriptor.
+    pub(crate) descriptor_remainder: Option<Remainder>,
     pub(crate) assets: String,
     pub(crate) classpath: String,
     pub(crate) independent: Vec<Independent>,
@@ -145,12 +155,20 @@ impl PluginComponentSpec {
             version,
             plugin_directory: spec.plugin_directory,
             remainder: spec.remainder.unwrap_or_default(),
+            descriptor_remainder: spec.descriptor_remainder,
             assets: spec.assets.unwrap_or_default(),
             classpath: spec.classpath.unwrap_or_default(),
             independent,
         };
         let mut metadata = vec![file, &spec.assets, &spec.classpath, &spec.remainder.metadata];
         let mut payload = vec![spec.remainder.directory.as_str()];
+        if let Some(part) = &spec.descriptor_remainder {
+            if !part.omitted.is_empty() {
+                bail!("the descriptor part of a remainder omits no asset");
+            }
+            metadata.push(&part.metadata);
+            payload.push(&part.directory);
+        }
         let mut identifiers = HashSet::new();
         for artifact in &spec.independent {
             if artifact.artifact.trim().is_empty() || !identifiers.insert(artifact.artifact.as_str()) {
@@ -179,6 +197,7 @@ impl PluginComponentSpec {
         }
         validate_plugin_directory(&spec.plugin_directory)?;
         if spec.remainder.is_some()
+            || spec.descriptor_remainder.is_some()
             || spec.assets.is_some()
             || spec.classpath.is_some()
             || spec.independent.is_some()
@@ -546,11 +565,43 @@ fn stated_entry_count(metadata: &str) -> anyhow::Result<usize> {
 fn collect_prepared(spec: &PreparedSpec) -> anyhow::Result<Vec<SourcedFile>> {
     let assets: Vec<Asset> = planfile::json::read(Path::new(&spec.assets))?;
     validate_assets(spec.version, &assets)?;
-    let remainder = filemeta::read(Path::new(&spec.remainder.metadata))?;
-    if stated_entry_count(&spec.remainder.metadata)? != remainder.len() {
-        bail!("duplicate remainder inventory entries");
+    // The entries of each remainder part with the directory that holds them. The parts of a split remainder write
+    // disjoint assets, so an entry that both state is a conflict.
+    let mut remainder: Vec<(Entry, &str)> = Vec::new();
+    for part in std::iter::once(&spec.remainder).chain(&spec.descriptor_remainder) {
+        let entries = filemeta::read(Path::new(&part.metadata))?;
+        if stated_entry_count(&part.metadata)? != entries.len() {
+            bail!("duplicate remainder inventory entries");
+        }
+        let omitted: HashSet<&str> = part.omitted.iter().map(String::as_str).collect();
+        if let Some(destination) = part
+            .omitted
+            .iter()
+            .find(|destination| !entries.iter().any(|entry| entry.relative_path == **destination))
+        {
+            bail!("the omitted asset {destination} is no file of the remainder");
+        }
+        remainder.extend(
+            entries
+                .into_iter()
+                .filter(|entry| !omitted.contains(entry.relative_path.as_str()))
+                .map(|entry| (entry, part.directory.as_str())),
+        );
     }
-    let mut remaining: HashMap<&str, &Entry> = remainder.iter().map(|entry| (entry.relative_path.as_str(), entry)).collect();
+    let directories: HashMap<&str, &str> = remainder
+        .iter()
+        .filter(|(entry, _)| entry.entry_type != EntryType::Directory)
+        .map(|(entry, directory)| (entry.relative_path.as_str(), *directory))
+        .collect();
+    let mut remaining: HashMap<&str, &Entry> = HashMap::with_capacity(remainder.len());
+    for (entry, _) in &remainder {
+        if let Some(previous) = remaining.insert(entry.relative_path.as_str(), entry)
+            && (previous != entry || entry.entry_type != EntryType::Directory)
+        {
+            bail!("two remainder parts state {}", entry.relative_path);
+        }
+    }
+    let directory_of = |relative: &str| directories.get(relative).copied().unwrap_or(spec.remainder.directory.as_str());
 
     let mut independent: HashMap<&str, SourcedFile> = HashMap::with_capacity(spec.independent.len());
     let mut native_trees: HashMap<&str, NativeTree> = HashMap::new();
@@ -610,11 +661,12 @@ fn collect_prepared(spec: &PreparedSpec) -> anyhow::Result<Vec<SourcedFile>> {
     tree_indexes.sort_by_key(|&index| std::cmp::Reverse(assets[index].destination.len()));
     let mut tree_entries: HashMap<usize, Vec<Entry>> = HashMap::with_capacity(tree_indexes.len());
     for index in tree_indexes {
-        let available: Vec<Entry> = remainder
-            .iter()
-            .filter(|entry| remaining.contains_key(entry.relative_path.as_str()))
-            .cloned()
-            .collect();
+        let mut available: Vec<Entry> = Vec::new();
+        for (entry, _) in &remainder {
+            if remaining.contains_key(entry.relative_path.as_str()) && !available.contains(entry) {
+                available.push(entry.clone());
+            }
+        }
         let owned = tree_inventory(&assets[index].destination, &available)?;
         for entry in &owned {
             remaining.remove(entry.relative_path.as_str());
@@ -648,7 +700,7 @@ fn collect_prepared(spec: &PreparedSpec) -> anyhow::Result<Vec<SourcedFile>> {
         }
         if asset.kind == AssetKind::Tree {
             for entry in tree_entries.get(&index).into_iter().flatten() {
-                let source = format!("{}/{}", spec.remainder.directory, entry.relative_path);
+                let source = format!("{}/{}", directory_of(&entry.relative_path), entry.relative_path);
                 let destination = format!("{}/{}", spec.plugin_directory, entry.relative_path);
                 files.push(tree_file(source, destination, entry));
             }
@@ -661,7 +713,7 @@ fn collect_prepared(spec: &PreparedSpec) -> anyhow::Result<Vec<SourcedFile>> {
                 };
                 SourcedFile {
                     metadata: Some(entry.clone()),
-                    ..SourcedFile::new(format!("{}/{}", spec.remainder.directory, asset.destination), "")
+                    ..SourcedFile::new(format!("{}/{}", directory_of(&asset.destination), asset.destination), "")
                 }
             }
             Producer::Independent => {
@@ -744,10 +796,10 @@ fn collect_packed(spec: &PackedSpec) -> anyhow::Result<Vec<SourcedFile>> {
             };
             // A Bazel sandbox can stage the root as a link to the directory, so the check follows a link.
             let root = Path::new(&copied.source);
-            let Some(metadata) = std::fs::metadata(root).ok().filter(std::fs::Metadata::is_dir) else {
+            if !std::fs::metadata(root).is_ok_and(|metadata| metadata.is_dir()) {
                 bail!("copied tree {} is not a directory: {}", copied.destination, copied.source);
-            };
-            files.push(CopiedTree::directory(&copied.source, &destination, &metadata));
+            }
+            files.push(CopiedTree::directory(&copied.source, &destination));
             tree.walk(root, "", &mut files)?;
             continue;
         }
@@ -767,8 +819,9 @@ struct CopiedTree<'a> {
 }
 
 impl CopiedTree<'_> {
-    /// Adds one entry per directory and per regular file below `directory`, in byte order of the names. Each entry
-    /// keeps its mode, as a tree of a prepared plugin does. The inventory hashes each file.
+    /// Adds one entry per directory and per regular file below `directory`, in byte order of the names. A copied tree
+    /// declares no executable file, so each file has the mode 0644 and each directory 0755. The walk reads no mode
+    /// from the disk. The inventory hashes each file.
     fn walk(&self, directory: &Path, relative: &str, files: &mut Vec<SourcedFile>) -> anyhow::Result<()> {
         let mut entries = std::fs::read_dir(directory)
             .and_then(Iterator::collect::<std::io::Result<Vec<_>>>)
@@ -791,11 +844,9 @@ impl CopiedTree<'_> {
             let path = entry.path();
             let file_type = entry.file_type().with_context(|| path.display().to_string())?;
             if file_type.is_dir() {
-                let metadata = entry.metadata().with_context(|| path.display().to_string())?;
                 files.push(Self::directory(
                     &format!("{}/{relative}", self.source),
                     &format!("{}/{relative}", self.destination),
-                    &metadata,
                 ));
                 self.walk(&path, &relative, files)?;
                 continue;
@@ -811,22 +862,20 @@ impl CopiedTree<'_> {
                     self.destination
                 );
             }
-            let mode = filemeta::permissions(&metadata);
-            files.push(SourcedFile {
-                executable: mode & 0o111 != 0,
-                mode: Some(mode),
-                ..SourcedFile::new(format!("{}/{relative}", self.source), format!("{}/{relative}", self.destination))
-            });
+            files.push(SourcedFile::new(
+                format!("{}/{relative}", self.source),
+                format!("{}/{relative}", self.destination),
+            ));
         }
         Ok(())
     }
 
-    /// The entry of one directory of the tree, with its mode.
-    fn directory(source: &str, destination: &str, metadata: &std::fs::Metadata) -> SourcedFile {
+    /// The entry of one directory of the tree, with the mode [`filemeta::DIRECTORY_MODE`].
+    fn directory(source: &str, destination: &str) -> SourcedFile {
         let entry = Entry {
             relative_path: destination.to_owned(),
             entry_type: EntryType::Directory,
-            mode: filemeta::permissions(metadata),
+            mode: filemeta::DIRECTORY_MODE,
             ..Entry::default()
         };
         SourcedFile {

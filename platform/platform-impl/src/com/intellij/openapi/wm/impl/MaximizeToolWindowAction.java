@@ -13,7 +13,7 @@ import com.intellij.openapi.actionSystem.impl.FusAwareAction;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.wm.ToolWindow;
-import com.intellij.openapi.wm.ToolWindowManager;
+import com.intellij.openapi.wm.ex.ToolWindowManagerEx;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
@@ -32,7 +32,8 @@ public final class MaximizeToolWindowAction extends AnAction implements DumbAwar
     if (project == null || project.isDisposed()) return;
     ToolWindow toolWindow = e.getData(PlatformDataKeys.TOOL_WINDOW);
     if (toolWindow == null) return;
-    ToolWindowManager manager = ToolWindowManager.getInstance(project);
+    ToolWindowManagerEx manager = ToolWindowManagerLifecycleKt.getToolWindowManagerForEvent(e);
+    if (manager == null) return;
     manager.setMaximized(toolWindow, !manager.isMaximized(toolWindow));
   }
 
@@ -54,7 +55,11 @@ public final class MaximizeToolWindowAction extends AnAction implements DumbAwar
       e.getPresentation().setEnabled(false);
       return;
     }
-    ToolWindowManager manager = ToolWindowManager.getInstance(project);
+    ToolWindowManagerEx manager = ToolWindowManagerLifecycleKt.getToolWindowManagerForEvent(e);
+    if (manager == null) {
+      e.getPresentation().setEnabled(false);
+      return;
+    }
     boolean maximized = manager.isMaximized(toolWindow);
     e.getPresentation().setText(maximized ?
                                 ActionsBundle.message("action.ResizeToolWindowMaximize.text.alternative") :

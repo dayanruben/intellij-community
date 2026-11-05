@@ -152,7 +152,7 @@ private typealias Mutation = ((WindowInfoImpl) -> Unit)
 @ApiStatus.Internal
 open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
   val project: Project,
-  @field:JvmField internal val isNewUi: Boolean,
+  @ApiStatus.Internal @field:JvmField val isNewUi: Boolean,
   private val isEdtRequired: Boolean,
   @JvmField internal val coroutineScope: CoroutineScope,
 ) : ToolWindowManagerEx(), Disposable {
@@ -172,6 +172,10 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
   internal var projectFrameTypeId: String? = null
   private val notifications = ToolWindowManagerNotifications(this)
   private val decorators = ToolWindowManagerDecorators(this)
+
+  /** The default pane of a project without a frame of its own, see [initDetachedDefaultPane]. No frame removes it, so [dispose] releases it. */
+  @Volatile
+  private var detachedDefaultPane: ToolWindowPane? = null
 
   private var projectFrame: JFrame?
     get() = state.projectFrame
@@ -307,6 +311,7 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
   }
 
   override fun dispose() {
+    detachedDefaultPane?.disposeDetached()
   }
 
   private fun getDefaultToolWindowPane() = toolWindowPanes.get(WINDOW_INFO_DEFAULT_TOOL_WINDOW_PANE_ID)!!
@@ -507,6 +512,25 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
       return true
     }
     return state.scheduledLayout.get()?.getInfo(id)?.isVisible == true
+  }
+
+  /**
+   * Gives a project that has no frame of its own a default pane that no frame shows.
+   * A tool window registration then works, and nothing is visible. [frame] is the frame that hosts the project.
+   * The tool windows of the extension point are not registered, and a task that [invokeLater] queued before this call is dropped.
+   */
+  internal suspend fun initDetachedDefaultPane(frame: JFrame) {
+    // a Swing component: created on the EDT, as IdeProjectFrameHelper.createCenterComponent creates the pane of a frame
+    val pane = withContext(Dispatchers.EDT + ModalityState.any().asContextElement()) {
+      ToolWindowPane.create(frame, coroutineScope, WINDOW_INFO_DEFAULT_TOOL_WINDOW_PANE_ID)
+    }
+    detachedDefaultPane = pane
+    doInit(
+      pane = pane,
+      connection = project.messageBus.connect(coroutineScope),
+      reopeningEditorJob = Job().also { it.complete() },
+      taskListDeferred = null,
+    )
   }
 
   @ApiStatus.Internal
@@ -1236,6 +1260,7 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
         task.id
       },
     )
+    toolWindow.stripeButtonVisibilityDefault = shouldShowStripeButtonByDefault(task.id, task.contentFactory, task.pluginDescriptor, isNewUi)
     if (task.hideOnEmptyContent) {
       toolWindow.setToHideOnEmptyContent(true)
     }
@@ -1317,7 +1342,7 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
 
   internal fun isButtonNeeded(task: RegisterToolWindowTaskData, info: WindowInfoImpl?, stripeManager: ToolWindowStripeManager): Boolean {
     return (task.shouldBeAvailable
-            && (info?.isShowStripeButton ?: !(isNewUi && isToolwindowOfBundledPlugin(task)))
+            && (info?.isShowStripeButton ?: shouldShowStripeButtonByDefault(task.id, task.contentFactory, task.pluginDescriptor, isNewUi))
             && stripeManager.allowToShowOnStripe(task.id, info == null, isNewUi))
   }
 

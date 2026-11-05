@@ -2,6 +2,7 @@
 package com.intellij.openapi.editor.colors;
 
 import com.intellij.codeHighlighting.RainbowHighlighter;
+import com.intellij.ide.ui.ColorBlindness;
 import com.intellij.ide.ui.UISettings;
 import com.intellij.openapi.Disposable;
 import com.intellij.idea.TestFor;
@@ -9,16 +10,22 @@ import com.intellij.lang.Language;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.DefaultLogger;
 import com.intellij.openapi.editor.DefaultLanguageHighlighterColors;
+import com.intellij.openapi.editor.HighlighterColors;
 import com.intellij.openapi.editor.colors.impl.AbstractColorsScheme;
+import com.intellij.openapi.editor.colors.impl.AppConsoleFontOptions;
 import com.intellij.openapi.editor.colors.impl.AppEditorFontOptions;
+import com.intellij.openapi.editor.colors.impl.DefaultColorsScheme;
 import com.intellij.openapi.editor.colors.impl.EditorColorsManagerImpl;
 import com.intellij.openapi.editor.colors.impl.EditorColorsSchemeImpl;
+import com.intellij.openapi.editor.colors.impl.EmptyColorScheme;
 import com.intellij.openapi.editor.colors.impl.FontPreferencesImpl;
 import com.intellij.openapi.editor.ex.util.LayeredTextAttributes;
 import com.intellij.openapi.editor.markup.EffectType;
 import com.intellij.openapi.editor.markup.FontFamilies;
 import com.intellij.openapi.editor.markup.TextAttributes;
+import com.intellij.openapi.options.Scheme;
 import com.intellij.openapi.options.SchemeManager;
+import com.intellij.openapi.options.SchemeState;
 import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.JDOMUtil;
 import com.intellij.openapi.util.Pair;
@@ -33,6 +40,7 @@ import com.intellij.util.ui.UIUtil;
 import org.assertj.core.api.Assertions;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -44,7 +52,19 @@ import java.awt.GraphicsEnvironment;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
+import java.util.function.Function;
 
 import static com.intellij.editor.EditorColorSchemeTestUtil.assertXmlOutputEquals;
 import static com.intellij.editor.EditorColorSchemeTestUtil.doTestWriteRead;
@@ -54,10 +74,12 @@ import static com.intellij.editor.EditorColorSchemeTestUtil.serializeWithFixedMe
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -1032,5 +1054,654 @@ public class EditorColorsSchemeImplTest {
     finally {
       TextAttributesKey.removeTextAttributesKey(tempKey.getExternalName());
     }
+  }
+
+  @Test
+  public void testColorChangeAfterCopyChangesOnlyOneScheme() {
+    ColorKey key = ColorKey.createColorKey("EditorColorsSchemeImplTest.copiedColor");
+    myScheme.setColor(key, Color.RED);
+    EditorColorsSchemeImpl copy = new EditorColorsSchemeImpl(null);
+    myScheme.copyTo(copy);
+    copy.setColor(key, Color.BLUE);
+    assertEquals(Color.RED, myScheme.getColor(key));
+    assertEquals(Color.BLUE, copy.getColor(key));
+  }
+
+  @Test
+  public void testCopyToKeepsNameParentAndDeletionFlagOfTarget() {
+    EditorColorsSchemeImpl source = new EditorColorsSchemeImpl(EditorColorsManager.getInstance().getDefaultScheme());
+    source.setName("Source");
+    source.setCanBeDeleted(false);
+    EditorColorsSchemeImpl target = new EditorColorsSchemeImpl(null);
+    target.setName("Target");
+    source.copyTo(target);
+    assertEquals("Target", target.getName());
+    assertNull(target.getParentScheme());
+    assertTrue(target.canBeDeleted());
+  }
+
+  @Test
+  public void testColorKeysDoNotChangeWithScheme() {
+    ColorKey first = ColorKey.createColorKey("EditorColorsSchemeImplTest.firstKey");
+    ColorKey second = ColorKey.createColorKey("EditorColorsSchemeImplTest.secondKey");
+    myScheme.setColor(first, Color.RED);
+    Set<ColorKey> keys = myScheme.getColorKeys();
+    myScheme.setColor(second, Color.BLUE);
+    assertEquals(Set.of(first), keys);
+    assertThrows(UnsupportedOperationException.class, () -> keys.add(second));
+  }
+
+  @Test
+  public void testDeprecatedBackgroundColorGoesToTextAttributes() throws Exception {
+    EditorColorsScheme scheme = loadScheme(
+      """
+        <scheme name="DeprecatedBackground" version="142" parent_scheme="Default">
+          <colors>
+            <option name="BACKGROUND" value="102030" />
+          </colors>
+          <attributes>
+            <option name="TEXT">
+              <value>
+                <option name="FOREGROUND" value="405060" />
+              </value>
+            </option>
+          </attributes>
+        </scheme>
+        """
+    );
+    TextAttributes text = ((AbstractColorsScheme)scheme).getDirectlyDefinedAttributes(HighlighterColors.TEXT);
+    assertNotNull(text);
+    assertEquals(new Color(0x102030), text.getBackgroundColor());
+    assertEquals(new Color(0x405060), text.getForegroundColor());
+  }
+
+  @Test
+  public void testDeprecatedBackgroundColorDoesNotChangeTextAttributesOfCopiedScheme() throws Exception {
+    TextAttributes text = new TextAttributes(Color.BLACK, Color.WHITE, null, null, Font.PLAIN);
+    myScheme.setAttributes(HighlighterColors.TEXT, text);
+    EditorColorsSchemeImpl copy = new EditorColorsSchemeImpl(null);
+    myScheme.copyTo(copy);
+    copy.readExternal(JDOMUtil.load(
+      """
+        <scheme name="Copy" version="142">
+          <colors>
+            <option name="BACKGROUND" value="102030" />
+          </colors>
+        </scheme>
+        """
+    ));
+    TextAttributes copiedText = copy.getDirectlyDefinedAttributes(HighlighterColors.TEXT);
+    assertNotNull(copiedText);
+    assertEquals(new Color(0x102030), copiedText.getBackgroundColor());
+    assertEquals(Color.WHITE, text.getBackgroundColor());
+    assertSame(text, myScheme.getDirectlyDefinedAttributes(HighlighterColors.TEXT));
+  }
+
+  @Test
+  public void testReaderOnOtherThreadSeesAllColorsOfOneRead() throws InterruptedException {
+    ColorKey first = ColorKey.createColorKey("EditorColorsSchemeImplTest.firstReadColor");
+    ColorKey second = ColorKey.createColorKey("EditorColorsSchemeImplTest.secondReadColor");
+    Element redColors = colorsElement("ff0000", first, second);
+    Element blueColors = colorsElement("0000ff", first, second);
+    myScheme.readColors(redColors);
+    AtomicBoolean stop = new AtomicBoolean();
+    AtomicInteger halfDone = new AtomicInteger();
+    AtomicReference<Throwable> readerFailure = new AtomicReference<>();
+    Thread reader = new Thread(() -> {
+      try {
+        while (!stop.get()) {
+          Map<ColorKey, Color> colors = myScheme.getDirectlyDefinedColors();
+          if (!Objects.equals(colors.get(first), colors.get(second))) {
+            halfDone.incrementAndGet();
+          }
+        }
+      }
+      catch (Throwable e) {
+        readerFailure.set(e);
+      }
+    }, "EditorColorsSchemeImplTest reader");
+    reader.start();
+    try {
+      for (int i = 0; i < 20_000; i++) {
+        myScheme.readColors(i % 2 == 0 ? blueColors : redColors);
+      }
+    }
+    finally {
+      stop.set(true);
+      reader.join();
+    }
+    assertNull(readerFailure.get());
+    assertEquals(0, halfDone.get());
+  }
+
+  @Test
+  public void testReaderOnOtherThreadSeesAllFontOptionsOfOneRead() throws Exception {
+    Element smallFont = JDOMUtil.load(fontOptionsScheme(14, "1.2"));
+    Element largeFont = JDOMUtil.load(fontOptionsScheme(20, "1.8"));
+    myScheme.readExternal(smallFont);
+    FontPreferences small = myScheme.getFontPreferences().getSnapshot();
+    myScheme.readExternal(largeFont);
+    FontPreferences large = myScheme.getFontPreferences().getSnapshot();
+    AtomicBoolean stop = new AtomicBoolean();
+    AtomicInteger halfDone = new AtomicInteger();
+    AtomicReference<Throwable> readerFailure = new AtomicReference<>();
+    Thread reader = new Thread(() -> {
+      try {
+        while (!stop.get()) {
+          FontPreferences current = myScheme.getFontPreferences().getSnapshot();
+          if (!sameSizeAndLineSpacing(current, small) && !sameSizeAndLineSpacing(current, large)) {
+            halfDone.incrementAndGet();
+          }
+        }
+      }
+      catch (Throwable e) {
+        readerFailure.set(e);
+      }
+    }, "EditorColorsSchemeImplTest font reader");
+    reader.start();
+    try {
+      for (int i = 0; i < 20_000; i++) {
+        myScheme.readExternal(i % 2 == 0 ? smallFont : largeFont);
+      }
+    }
+    finally {
+      stop.set(true);
+      reader.join();
+    }
+    assertNull(readerFailure.get());
+    assertEquals(0, halfDone.get());
+  }
+
+  @Test
+  public void testReaderOnOtherThreadSeesOnlyTheSetFontPreferences() throws InterruptedException {
+    FontPreferencesImpl ownFont = new FontPreferencesImpl();
+    ownFont.register(FontPreferences.DEFAULT_FONT_NAME, 25);
+    AtomicBoolean stop = new AtomicBoolean();
+    AtomicInteger halfDone = new AtomicInteger();
+    AtomicReference<Throwable> readerFailure = new AtomicReference<>();
+    Thread reader = new Thread(() -> {
+      try {
+        while (!stop.get()) {
+          FontPreferences preferences = myScheme.getFontPreferences();
+          if (preferences instanceof DelegatingFontPreferences) {
+            continue;
+          }
+          FontPreferences current = preferences.getSnapshot();
+          if (current.getSize2D(current.getFontFamily()) != 25f) {
+            halfDone.incrementAndGet();
+          }
+        }
+      }
+      catch (Throwable e) {
+        readerFailure.set(e);
+      }
+    }, "EditorColorsSchemeImplTest font preferences reader");
+    reader.start();
+    try {
+      for (int i = 0; i < 20_000; i++) {
+        myScheme.setFontPreferences(ownFont);
+        myScheme.setUseAppFontPreferencesInEditor();
+      }
+    }
+    finally {
+      stop.set(true);
+      reader.join();
+    }
+    assertNull(readerFailure.get());
+    assertEquals(0, halfDone.get());
+  }
+
+  @Test
+  public void testReadDoesNotMarkSchemeForSave() throws Exception {
+    myScheme.readExternal(JDOMUtil.load(fontOptionsScheme(14, "1.2")));
+    assertEquals(SchemeState.UNCHANGED, myScheme.getSchemeState());
+  }
+
+  @Test
+  public void testSetEditorFontSizeMarksSchemeForSave() {
+    myScheme.setEditorFontSize(15);
+    assertEquals(SchemeState.POSSIBLY_CHANGED, myScheme.getSchemeState());
+  }
+
+  @Test
+  public void testChangeDuringWriteKeepsSchemeMarkedForSave() {
+    AtomicBoolean changeOnce = new AtomicBoolean(true);
+    EditorColorsSchemeImpl scheme = new EditorColorsSchemeImpl(null) {
+      @Override
+      public @NotNull String getName() {
+        // writeExternal reads the name after it reads the snapshot
+        if (changeOnce.getAndSet(false)) {
+          setEditorFontSize(21);
+        }
+        return "ChangeDuringWrite";
+      }
+    };
+    Element written = new Element("scheme");
+    scheme.writeExternal(written);
+    assertNotEquals("21", optionValue(written, "EDITOR_FONT_SIZE"));
+    assertEquals(SchemeState.POSSIBLY_CHANGED, scheme.getSchemeState());
+  }
+
+  @Test
+  public void testFailedWriteKeepsSchemeMarkedForSave() {
+    EditorColorsSchemeImpl scheme = new EditorColorsSchemeImpl(null) {
+      @Override
+      public @NotNull String getName() {
+        throw new IllegalStateException("EditorColorsSchemeImplTest: the write fails");
+      }
+    };
+    scheme.setEditorFontSize(15);
+    assertThrows(IllegalStateException.class, () -> scheme.writeExternal(new Element("scheme")));
+    assertEquals(SchemeState.POSSIBLY_CHANGED, scheme.getSchemeState());
+  }
+
+  @Test
+  public void testReaderOnOtherThreadSeesOneConsoleFontSize() throws InterruptedException {
+    String firstFamily = "EditorColorsSchemeImplTest.firstConsoleFamily";
+    String secondFamily = "EditorColorsSchemeImplTest.secondConsoleFamily";
+    myScheme.setEditorFontSize(13);
+    myScheme.setConsoleFontName(firstFamily);
+    myScheme.setConsoleFontSize(20);
+    AtomicBoolean stop = new AtomicBoolean();
+    AtomicInteger halfDone = new AtomicInteger();
+    AtomicReference<Throwable> readerFailure = new AtomicReference<>();
+    Thread reader = new Thread(() -> {
+      try {
+        while (!stop.get()) {
+          if (myScheme.getConsoleFontSize2D() != 20f) {
+            halfDone.incrementAndGet();
+          }
+        }
+      }
+      catch (Throwable e) {
+        readerFailure.set(e);
+      }
+    }, "EditorColorsSchemeImplTest console font size reader");
+    reader.start();
+    try {
+      for (int i = 0; i < 20_000; i++) {
+        myScheme.setConsoleFontName(i % 2 == 0 ? secondFamily : firstFamily);
+      }
+    }
+    finally {
+      stop.set(true);
+      reader.join();
+    }
+    assertNull(readerFailure.get());
+    assertEquals(0, halfDone.get());
+  }
+
+  @Test
+  public void testResolveParentKeepsParentThatIsSetDuringTheResolve() throws Exception {
+    AbstractColorsScheme scheme = (AbstractColorsScheme)loadScheme(
+      """
+        <scheme name="LateParent" version="142" parent_scheme="NotLoadedYet" />
+        """
+    );
+    EditorColorsScheme defaultScheme = EditorColorsManager.getInstance().getDefaultScheme();
+    EditorColorsScheme emptyScheme = EmptyColorScheme.getEmptyScheme();
+    scheme.resolveParent(parentName -> {
+      scheme.setParent(emptyScheme);
+      return parentName.equals("NotLoadedYet") ? defaultScheme : null;
+    });
+    assertSame(emptyScheme, scheme.getParentScheme());
+  }
+
+  @Test
+  public void testWrittenUserCopyEqualsItsBundledSchemeUntilItChanges() {
+    EditorColorsSchemeImpl bundled = new EditorColorsSchemeImpl(EditorColorsManager.getInstance().getDefaultScheme());
+    bundled.setName("EditorColorsSchemeImplTest.Bundled");
+    bundled.setAttributes(HighlighterColors.TEXT, new TextAttributes(new Color(1, 2, 3), null, null, null, Font.PLAIN));
+    EditorColorsSchemeImpl userCopy = (EditorColorsSchemeImpl)bundled.clone();
+    userCopy.setName(Scheme.EDITABLE_COPY_PREFIX + bundled.getName());
+    Function<String, EditorColorsScheme> oldSchemeById = AbstractColorsScheme.getSchemeById;
+    AbstractColorsScheme.getSchemeById = name -> name.equals(bundled.getName()) ? bundled : oldSchemeById.apply(name);
+    try {
+      userCopy.writeExternal(new Element("scheme"));
+      assertEquals("true", userCopy.getMetaProperties().getProperty("partialSave"));
+      assertTrue(userCopy.settingsEqual(bundled));
+      userCopy.setAttributes(HighlighterColors.TEXT, new TextAttributes(new Color(4, 5, 6), null, null, null, Font.PLAIN));
+      assertFalse(userCopy.settingsEqual(bundled));
+    }
+    finally {
+      AbstractColorsScheme.getSchemeById = oldSchemeById;
+    }
+  }
+
+  @Test
+  public void testReaderOnOtherThreadAlwaysSeesMetaProperties() throws Exception {
+    Element first = JDOMUtil.load(metaInfoScheme("first"));
+    Element second = JDOMUtil.load(metaInfoScheme("second"));
+    myScheme.readExternal(first);
+    AtomicBoolean stop = new AtomicBoolean();
+    AtomicInteger halfDone = new AtomicInteger();
+    AtomicReference<Throwable> readerFailure = new AtomicReference<>();
+    Thread reader = new Thread(() -> {
+      try {
+        while (!stop.get()) {
+          if (myScheme.getMetaProperties().getProperty(META_PROPERTY) == null) {
+            halfDone.incrementAndGet();
+          }
+        }
+      }
+      catch (Throwable e) {
+        readerFailure.set(e);
+      }
+    }, "EditorColorsSchemeImplTest meta properties reader");
+    reader.start();
+    try {
+      for (int i = 0; i < 20_000; i++) {
+        myScheme.readExternal(i % 2 == 0 ? second : first);
+      }
+    }
+    finally {
+      stop.set(true);
+      reader.join();
+    }
+    assertNull(readerFailure.get());
+    assertEquals(0, halfDone.get());
+  }
+
+  @Test
+  public void testReadOfOldVersionWritesCurrentVersion() throws Exception {
+    EditorColorsScheme scheme = loadScheme(
+      """
+        <scheme name="OldVersion" version="141" parent_scheme="Default" />
+        """
+    );
+    Element written = serialize(scheme);
+    assertEquals(Integer.toString(AbstractColorsScheme.CURR_VERSION), written.getAttributeValue("version"));
+  }
+
+  @Test
+  public void testDefaultSchemeTakesItsNameFromEachRead() throws Exception {
+    DefaultColorsScheme scheme = new DefaultColorsScheme();
+    scheme.readExternal(JDOMUtil.load("<scheme name=\"FirstDefault\" version=\"142\" />"));
+    assertEquals("FirstDefault", scheme.getName());
+    assertEquals(Scheme.EDITABLE_COPY_PREFIX + "FirstDefault", scheme.getEditableCopyName());
+    scheme.readExternal(JDOMUtil.load("<scheme name=\"SecondDefault\" version=\"142\" />"));
+    assertEquals("SecondDefault", scheme.getName());
+  }
+
+  @Test
+  public void testAttributeChangeResetsTempAttributes() {
+    withTempKey("EditorColorsSchemeImplTest.attributeChangeTemp", tempKey -> {
+      myScheme.setAttributes(tempKey, plainAttributes(new Color(4, 5, 6)));
+      myScheme.setAttributes(HighlighterColors.TEXT, plainAttributes(new Color(1, 2, 3)));
+      assertNull(myScheme.getAttributes(tempKey));
+    });
+  }
+
+  @Test
+  public void testCopyToResetsTempAttributesOfTarget() {
+    withTempKey("EditorColorsSchemeImplTest.copyTemp", tempKey -> {
+      EditorColorsSchemeImpl source = new EditorColorsSchemeImpl(null);
+      source.setAttributes(HighlighterColors.TEXT, plainAttributes(new Color(1, 2, 3)));
+      myScheme.setAttributes(tempKey, plainAttributes(new Color(4, 5, 6)));
+      source.copyTo(myScheme);
+      assertNull(myScheme.getAttributes(tempKey));
+    });
+  }
+
+  @Test
+  public void testReadResetsTempAttributes() throws Exception {
+    Element read = JDOMUtil.load("""
+      <scheme name="ReadTemp" version="142">
+        <attributes>
+          <option name="TEXT">
+            <value>
+              <option name="FOREGROUND" value="ff0000" />
+            </value>
+          </option>
+        </attributes>
+      </scheme>
+      """);
+    withTempKey("EditorColorsSchemeImplTest.readTemp", tempKey -> {
+      myScheme.setAttributes(tempKey, plainAttributes(new Color(4, 5, 6)));
+      myScheme.readExternal(read);
+      assertNull(myScheme.getAttributes(tempKey));
+    });
+  }
+
+  @Test
+  public void testFontChangeKeepsTempAttributes() {
+    withTempKey("EditorColorsSchemeImplTest.fontChangeTemp", tempKey -> {
+      TextAttributes generated = plainAttributes(new Color(4, 5, 6));
+      myScheme.setAttributes(tempKey, generated);
+      myScheme.setEditorFontSize(20);
+      assertSame(generated, myScheme.getAttributes(tempKey));
+    });
+  }
+
+  @Test
+  public void testEditableCopyNameOfEmptySchemeUsesItsName() {
+    assertEquals(Scheme.EDITABLE_COPY_PREFIX + EmptyColorScheme.getSchemeName(), EmptyColorScheme.getEmptyScheme().getEditableCopyName());
+  }
+
+  @Test
+  public void testConsoleFontSizeIsEditorFontSizeInPresentationMode() {
+    myScheme.setEditorFontSize(13);
+    myScheme.setConsoleFontSize(20);
+    assertEquals(20f, myScheme.getConsoleFontSize2D());
+    inPresentationMode(() -> assertEquals(myScheme.getEditorFontSize2D(), myScheme.getConsoleFontSize2D()));
+  }
+
+  @Test
+  public void testToStringOfSchemeWithoutName() {
+    assertEquals("<unnamed scheme>", myScheme.toString());
+    myScheme.setName("Named");
+    assertEquals("Named", myScheme.toString());
+  }
+
+  @Test
+  public void testSettingsEqualIgnoresSeparateAppConsoleFont() {
+    EditorColorsScheme defaultScheme = EditorColorsManager.getInstance().getDefaultScheme();
+    EditorColorsSchemeImpl first = new EditorColorsSchemeImpl(defaultScheme);
+    EditorColorsSchemeImpl second = new EditorColorsSchemeImpl(defaultScheme);
+    withSeparateAppConsoleFont(() -> {
+      assertTrue(first.settingsEqual(second));
+      assertTrue(second.settingsEqual(first));
+    });
+  }
+
+  @Test
+  public void testWriteKeepsOwnConsoleFontWithSeparateAppConsoleFont() {
+    String consoleFontName = FontPreferencesTest.getExistingNonDefaultFontName();
+    myScheme.setName("OwnConsoleFont");
+    myScheme.setEditorFontSize(13);
+    myScheme.setConsoleFontName(consoleFontName);
+    myScheme.setConsoleFontSize(20);
+    myScheme.setConsoleLineSpacing(1.5f);
+    withSeparateAppConsoleFont(() -> {
+      Element written = myScheme.writeScheme();
+      assertEquals(consoleFontName, optionValue(written, "CONSOLE_FONT_NAME"));
+      assertEquals("20", optionValue(written, "CONSOLE_FONT_SIZE"));
+      assertEquals("1.5", optionValue(written, "CONSOLE_LINE_SPACING"));
+    });
+  }
+
+  @Test
+  public void testSetConsoleFontSizeKeepsOwnFontWithSeparateAppConsoleFont() {
+    String consoleFontName = FontPreferencesTest.getExistingNonDefaultFontName();
+    myScheme.setName("OwnConsoleFont");
+    myScheme.setEditorFontSize(13);
+    myScheme.setConsoleFontName(consoleFontName);
+    withSeparateAppConsoleFont(() -> myScheme.setConsoleFontSize(22));
+    Element written = myScheme.writeScheme();
+    assertEquals(consoleFontName, optionValue(written, "CONSOLE_FONT_NAME"));
+    assertEquals("22", optionValue(written, "CONSOLE_FONT_SIZE"));
+  }
+
+  @Test
+  public void testWriteKeepsOwnConsoleFontSizeInPresentationMode() {
+    myScheme.setName("OwnConsoleFont");
+    myScheme.setEditorFontSize(13);
+    myScheme.setConsoleFontSize(20);
+    inPresentationMode(() -> {
+      Element written = myScheme.writeScheme();
+      assertEquals("20", optionValue(written, "CONSOLE_FONT_SIZE"));
+    });
+  }
+
+  @Test
+  public void testSetConsoleFontNameKeepsOwnSizeInPresentationMode() {
+    String consoleFontName = FontPreferencesTest.getExistingNonDefaultFontName();
+    myScheme.setName("OwnConsoleFont");
+    myScheme.setEditorFontSize(13);
+    myScheme.setConsoleFontSize(20);
+    inPresentationMode(() -> myScheme.setConsoleFontName(consoleFontName));
+    Element written = myScheme.writeScheme();
+    assertEquals(consoleFontName, optionValue(written, "CONSOLE_FONT_NAME"));
+    assertEquals("20", optionValue(written, "CONSOLE_FONT_SIZE"));
+  }
+
+  @Test
+  @TestFor(issues = "IJPL-254840")
+  public void testSchemeWithMissingParentKeepsParentNameOnWrite() throws Exception {
+    EditorColorsScheme scheme = loadScheme(
+      """
+        <scheme name="MissingParent" version="142" parent_scheme="NonExistentParent" />
+        """
+    );
+    assertThrows(InvalidDataException.class, () -> EditorColorsManager.getInstance().resolveSchemeParent(scheme));
+    Element written = serialize(scheme);
+    assertEquals("NonExistentParent", written.getAttributeValue("parent_scheme"));
+  }
+
+  @Test
+  public void testReadColorsUsesColorBlindnessOfIde() {
+    UISettings settings = UISettings.getInstance();
+    ColorBlindness before = settings.getColorBlindness();
+    settings.setColorBlindness(ColorBlindness.protanopia);
+    try {
+      ColorKey key = ColorKey.createColorKey("EditorColorsSchemeImplTest.colorBlindnessColor");
+      Element option = new Element("option")
+        .setAttribute("name", key.getExternalName())
+        .setAttribute("value", "000000")
+        .setAttribute(ColorBlindness.protanopia.name(), "ff0000");
+      Element colors = new Element("colors").addContent(option);
+      myScheme.readColors(colors);
+      assertEquals(new Color(0xff0000), myScheme.getDirectlyDefinedColor(key));
+    }
+    finally {
+      settings.setColorBlindness(before);
+    }
+  }
+
+  @Test
+  public void testConcurrentFontChangesOfDelegatingSchemeAreKept() throws Exception {
+    ExecutorService executor = Executors.newFixedThreadPool(2);
+    try {
+      for (int i = 0; i < 2_000; i++) {
+        EditorColorsSchemeImpl scheme = new EditorColorsSchemeImpl(null);
+        CyclicBarrier barrier = new CyclicBarrier(2);
+        Future<?> sizeChange = executor.submit(() -> {
+          barrier.await();
+          scheme.setEditorFontSize(20f);
+          return null;
+        });
+        Future<?> lineSpacingChange = executor.submit(() -> {
+          barrier.await();
+          scheme.setLineSpacing(1.7f);
+          return null;
+        });
+        sizeChange.get();
+        lineSpacingChange.get();
+        assertEquals(20f, scheme.getEditorFontSize2D(), "iteration " + i);
+        assertEquals(1.7f, scheme.getLineSpacing(), "iteration " + i);
+      }
+    } finally {
+      executor.shutdownNow();
+      executor.awaitTermination(10, TimeUnit.SECONDS);
+    }
+  }
+
+  /**
+   * Runs {@code action} while the application console uses its own font instead of the editor font.
+   */
+  private static void withSeparateAppConsoleFont(@NotNull Runnable action) {
+    AppConsoleFontOptions consoleFontOptions = AppConsoleFontOptions.getInstance();
+    boolean useEditorFont = consoleFontOptions.isUseEditorFont();
+    consoleFontOptions.setUseEditorFont(false);
+    try {
+      action.run();
+    } finally {
+      consoleFontOptions.setUseEditorFont(useEditorFont);
+    }
+  }
+
+  private static void inPresentationMode(@NotNull Runnable action) {
+    UISettings settings = UISettings.getInstance();
+    boolean presentationMode = settings.getPresentationMode();
+    settings.setPresentationMode(true);
+    try {
+      action.run();
+    } finally {
+      settings.setPresentationMode(presentationMode);
+    }
+  }
+
+  private static final String META_PROPERTY = "EditorColorsSchemeImplTest.meta";
+
+  /**
+   * Runs {@code action} with a new temporary key and removes the key after the action.
+   */
+  private static void withTempKey(@NotNull String externalName, @NotNull Consumer<? super TextAttributesKey> action) {
+    TextAttributesKey tempKey = TextAttributesKey.createTempTextAttributesKey(externalName, null);
+    try {
+      action.accept(tempKey);
+    }
+    finally {
+      TextAttributesKey.removeTextAttributesKey(tempKey.getExternalName());
+    }
+  }
+
+  private static @NotNull TextAttributes plainAttributes(@NotNull Color foreground) {
+    return new TextAttributes(foreground, null, null, null, Font.PLAIN);
+  }
+
+  private static @NotNull String metaInfoScheme(@NotNull String value) {
+    return """
+      <scheme name="MetaInfo" version="142">
+        <metaInfo>
+          <property name="%s">%s</property>
+        </metaInfo>
+      </scheme>
+      """.formatted(META_PROPERTY, value);
+  }
+
+  private static @NotNull String fontOptionsScheme(int fontSize, @NotNull String lineSpacing) {
+    return """
+      <scheme name="FontOptions" version="142">
+        <option name="FONT_SCALE" value="1.0" />
+        <option name="LINE_SPACING" value="%s" />
+        <option name="EDITOR_FONT_SIZE" value="%d" />
+      </scheme>
+      """.formatted(lineSpacing, fontSize);
+  }
+
+  private static boolean sameSizeAndLineSpacing(@NotNull FontPreferences preferences1, @NotNull FontPreferences preferences2) {
+    return preferences1.getSize2D(preferences1.getFontFamily()) == preferences2.getSize2D(preferences2.getFontFamily()) &&
+           preferences1.getLineSpacing() == preferences2.getLineSpacing();
+  }
+
+  private static @Nullable String optionValue(@NotNull Element root, @NotNull String optionName) {
+    for (Element option : root.getChildren("option")) {
+      if (optionName.equals(option.getAttributeValue("name"))) {
+        return option.getAttributeValue("value");
+      }
+    }
+    return null;
+  }
+
+  private static @NotNull Element colorsElement(@NotNull String value, ColorKey @NotNull ... keys) {
+    Element colors = new Element("colors");
+    for (ColorKey key : keys) {
+      Element option = new Element("option")
+        .setAttribute("name", key.getExternalName())
+        .setAttribute("value", value);
+      colors.addContent(option);
+    }
+    return colors;
   }
 }

@@ -50,6 +50,7 @@ import com.intellij.util.ui.UIUtil
 import java.awt.Color
 import java.awt.Component
 import java.awt.Dimension
+import java.awt.FontMetrics
 import java.awt.GradientPaint
 import java.awt.Graphics
 import java.awt.Rectangle
@@ -58,6 +59,7 @@ import java.awt.image.BufferedImage
 import java.util.function.Supplier
 import javax.swing.Icon
 import javax.swing.UIManager
+import kotlin.math.abs
 
 internal abstract class AbstractSquareStripeButton(
   action: AnAction, presentation: Presentation,
@@ -274,7 +276,7 @@ private class SquareStripeButtonLookHorizontalText(button: SquareStripeButton): 
 
     val f = getTextFont()
     val fm = button.getFontMetrics(f)
-    val texts = getStripeSplitText()
+    val texts = getStripeSplitText(fm)
     val insets = button.insets
     val textPadding = if (UISettings.getInstance().compactMode) 4 else 6
     val textOffset = getTextOffset(button)
@@ -282,7 +284,6 @@ private class SquareStripeButtonLookHorizontalText(button: SquareStripeButton): 
     var y = iconPosition.y + iconLabelGap
     val totalWidth = button.width - insets.left - insets.right - JBUI.scale(textPadding * 2)
     val textHeight = fm.height
-    var firstX: Int? = null
 
     for (text in texts) {
       val textWidth = UIUtil.computeStringWidth(button, fm, text)
@@ -291,13 +292,7 @@ private class SquareStripeButtonLookHorizontalText(button: SquareStripeButton): 
         g2d.color = getForegroundColor()
         g2d.font = f
         UISettings.setupAntialiasing(g2d)
-        if (firstX == null || texts[0].length != texts[1].length) {
-          UIUtil.drawCenteredString(g2d, Rectangle(x, y, totalWidth, textHeight), text)
-          firstX = x.coerceAtLeast(x + (totalWidth - fm.stringWidth(text) - 1) / 2)
-        }
-        else {
-          g2d.drawString(text, firstX, y.coerceAtLeast(y + textHeight / 2 + fm.ascent * 2 / 5))
-        }
+        UIUtil.drawCenteredString(g2d, Rectangle(x, y, totalWidth, textHeight), text)
 
         if (textWidth > totalWidth) {
           val gradientWidth = JBUI.scale(3)
@@ -339,14 +334,39 @@ private class SquareStripeButtonLookHorizontalText(button: SquareStripeButton): 
   }
 
   private fun getLabelHeightWithGap(): Int {
-    return iconLabelGap + button.getFontMetrics(getTextFont()).height * getStripeSplitText().size
+    val fontMetrics = button.getFontMetrics(getTextFont())
+    return iconLabelGap + fontMetrics.height * getStripeSplitTextLineCount()
   }
 
   private fun getTextFont() = RelativeFont.TINY.derive(button.font)
 
-  private fun getStripeSplitText(): List<String> {
-    val text = (toolWindow.stripeShortTitleProvider?.get() ?: toolWindow.stripeTitleProvider.get()).trim()
-    return text.split(" ", limit = 2)
+  private fun getStripeSplitTextLineCount(): Int {
+    return if (getStripeText().contains(' ')) 2 else 1
+  }
+
+  private fun getStripeSplitText(fontMetrics: FontMetrics): List<String> {
+    val text = getStripeText()
+    val words = text.split(" ")
+    if (words.size <= 2) {
+      return words
+    }
+    return (1 until words.size)
+      .map { split(words, it, fontMetrics) }
+      .minBy { it.disbalance }
+      .lines
+  }
+
+  private fun getStripeText(): String = (toolWindow.stripeShortTitleProvider?.get() ?: toolWindow.stripeTitleProvider.get()).trim()
+
+  private data class Split(val lines: List<String>, val disbalance: Int)
+
+  private fun split(words: List<String>, index: Int, fontMetrics: FontMetrics): Split {
+    val left = words.subList(0, index).joinToString(" ")
+    val right = words.subList(index, words.size).joinToString(" ")
+    return Split(
+      lines = listOf(left, right),
+      disbalance = abs(UIUtil.computeStringWidth(button, fontMetrics, left) - UIUtil.computeStringWidth(button, fontMetrics, right)),
+    )
   }
 }
 

@@ -361,6 +361,9 @@ internal fun renderCrossHalfDevPluginTarget(
   packaging: DevDistSimplePackaging,
   descriptorLabel: String,
   index: DevDistBazelIndex,
+  stampClassModes: List<String> = emptyList(),
+  retainProductDescriptor: Boolean = false,
+  embedContentModules: Boolean = true,
   contentModuleJarLabel: (String) -> String? = { index.contentModuleJarLabel(it, dependentIsCommunity = index.planPackageIsCommunity) },
 ): String = buildString {
   val mainModule = packaging.mainModule
@@ -376,6 +379,9 @@ internal fun renderCrossHalfDevPluginTarget(
     values = packaging.reusedModules.map { contentModuleJarLabel(it) ?: error("Module '$it' has no content_module_jar label") }.sorted(),
   )
   appendStarlarkString(name = "descriptor", value = index.planLabel(descriptorLabel))
+  if (!embedContentModules) {
+    append("    embed_content_modules = False,\n")
+  }
   appendStarlarkStringList(name = "executable_files", values = packaging.executableFiles.sorted())
   appendStarlarkStringDict(name = "file_prefixes", rows = packaging.filePrefixes)
   appendStarlarkStringDict(name = "files", rows = packaging.files.mapValues { index.planLabel(it.value) })
@@ -394,6 +400,10 @@ internal fun renderCrossHalfDevPluginTarget(
   val testModules = packaging.testModules.toSet()
   appendStarlarkStringDict(name = "modules", rows = packaging.moduleTokens.filter { it !in testModules }.associateBy(::moduleLabel))
   appendStarlarkString(name = "plugin_directory", value = "plugins/${packaging.pluginDirectory}")
+  if (retainProductDescriptor) {
+    append("    retain_product_descriptor = True,\n")
+  }
+  appendStarlarkStringList(name = "stamp_class_modes", values = stampClassModes)
   appendStarlarkStringDict(
     name = "test_module_jars",
     rows = packaging.testModules.associateBy { module ->
@@ -462,7 +472,7 @@ private class CrossHalfDescriptorTarget(entry: PluginDescriptorEntry, product: S
     )
     appendStarlarkString(name = "main_module", value = entry.mainModule)
     // A variant of one operating system and one architecture states no row and no version suffix. The leaf derives both
-    // from the product's `marketplace_names`, which reaches it through the configuration.
+    // from `DEV_DIST_MARKETPLACE_NAMES`.
     if (!entry.derivesOsArchStamps) {
       appendStarlarkStringList(name = "markers", values = entry.markers)
     }

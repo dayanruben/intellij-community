@@ -80,19 +80,19 @@ _file = rule(
     attrs = {"content": attr.string(default = "{}\n")},
 )
 
-def _product_scoped_file_impl(ctx):
+def _stamp_class_scoped_file_impl(ctx):
     product = ctx.attr._product_info[DevDistProductInfo]
-    application_info = str(product.application_info.owner) if product.application_info != None else None
-    if application_info != ctx.attr.application_info:
-        fail("expected product info, got the application info %s" % application_info)
+    if product.application_info != None:
+        fail("expected the default product info, got the application info %s" % product.application_info.owner)
     output = ctx.actions.declare_file(ctx.label.name + ".xml")
-    ctx.actions.write(output, application_info + "\n")
+    ctx.actions.write(output, "<idea-plugin/>\n")
     return [DefaultInfo(files = depset([output]))]
 
-_product_scoped_file = rule(
-    implementation = _product_scoped_file_impl,
+# A descriptor source that fails unless the default product info reaches it. No descriptor of this suite retains its
+# `product-descriptor`, so its stamp class drops the product that a test or a consumer sets.
+_stamp_class_scoped_file = rule(
+    implementation = _stamp_class_scoped_file_impl,
     attrs = {
-        "application_info": attr.string(mandatory = True, doc = "The label of the application info that the product states."),
         "_product_info": attr.label(
             default = Label("//build:dev_dist_product_info"),
             providers = [DevDistProductInfo],
@@ -390,7 +390,7 @@ def _component_test_impl(ctx):
     for input_file in [remainder.metadata, remainder.assets, remainder.classpath]:
         asserts.true(env, input_file.short_path in _short_paths(action.inputs.to_list()))
     asserts.true(env, "--kind=" + ctx.attr.kind in action.argv)
-    asserts.true(env, "--platform-prefix=" + ctx.attr.platform_prefix in action.argv)
+    asserts.false(env, [argument for argument in action.argv if argument.startswith("--platform-prefix")])
     platform_arguments = [argument for argument in action.argv if argument.startswith("--os=") or argument.startswith("--arch=")]
     if ctx.attr.neutral:
         asserts.true(env, "--platform-neutral" in action.argv)
@@ -413,7 +413,6 @@ _component_test = analysistest.make(
         "remainder": attr.label(mandatory = True, cfg = dev_dist_product_info_transition, providers = [DevPluginRemainderInfo]),
         "neutral": attr.bool(doc = "Whether the component states no target platform."),
         "kind": attr.string(default = "plugin-test", doc = "The component name the collector receives as `--kind`."),
-        "platform_prefix": attr.string(default = "idea", doc = "The product's platform prefix the collector receives as `--platform-prefix`."),
     } | _PRODUCT_ATTRS,
 )
 
@@ -610,6 +609,46 @@ def _check_chain_shape(chain, component_visibility = ["//visibility:public"]):
     if visibility != component_visibility:
         fail("chain %s declares %s_component with the visibility %s; expected %s" % (chain, chain, visibility, component_visibility))
 
+def _split_part_test_impl(ctx):
+    """One part of a split remainder: its packer action names the part and the descriptor assets, and writes only its
+    own file assets. The neutral part reads no descriptor and writes no asset rows."""
+    env = analysistest.begin(ctx)
+    packs = [action for action in analysistest.target_actions(env) if action.mnemonic == "PackDevPluginRemainder"]
+    asserts.equals(env, 1, len(packs))
+    argv = packs[0].argv
+    asserts.true(env, "--part=" + ctx.attr.part in argv, str(argv))
+    asserts.true(env, "--descriptor-asset=lib/test.jar" in argv, str(argv))
+    written = sorted([file.path.split(".plugin/", 1)[1] for file in packs[0].outputs.to_list() if ".plugin/" in file.path])
+    asserts.equals(env, ctx.attr.files, written)
+    asserts.equals(env, ctx.attr.part == "descriptor", len([argument for argument in argv if argument.startswith("--classpath-descriptor=")]) == 1)
+    asserts.equals(env, ctx.attr.part == "descriptor", len([argument for argument in argv if argument.startswith("--assets=")]) == 1)
+    return analysistest.end(env)
+
+_split_part_test = analysistest.make(
+    _split_part_test_impl,
+    config_settings = _PRODUCT_CONFIG,
+    attrs = {
+        "part": attr.string(mandatory = True),
+        "files": attr.string_list(mandatory = True, doc = "The file assets the part writes, below the plugin directory."),
+    },
+)
+
+def _split_component_test_impl(ctx):
+    """The component of a split remainder names the neutral part as `remainder` and the other part as
+    `descriptorRemainder`, and places the files of both."""
+    env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
+    specs = [action for action in analysistest.target_actions(env) if [file for file in action.outputs.to_list() if file.basename.endswith(".collection.json")]]
+    asserts.equals(env, 1, len(specs))
+    spec = json.decode(specs[0].content)
+    asserts.true(env, spec["remainder"]["directory"].endswith("_neutral_remainder.plugin"), spec["remainder"]["directory"])
+    asserts.true(env, spec["descriptorRemainder"]["directory"].endswith("_remainder.plugin"), spec["descriptorRemainder"]["directory"])
+    placed = sorted([file.path.split(".plugin/", 1)[1] for file in target[IntellijDevFragmentInfo].payload.to_list() if ".plugin/" in file.path])
+    asserts.equals(env, ["lib/other.jar", "lib/test.jar"], placed)
+    return analysistest.end(env)
+
+_split_component_test = analysistest.make(_split_component_test_impl, config_settings = _PRODUCT_CONFIG)
+
 def _plan(variant, destination):
     """The plan file of a fixture: one jar packed from a layout-assets operation over the raw input. An analysis test
     runs no action, so the packer never reads it. The content states what the chain would pack."""
@@ -769,7 +808,10 @@ _REMAINDER_OUTPUTS_ATTRS = {
 _remainder_outputs_test = analysistest.make(_remainder_outputs_test_impl, config_settings = _PRODUCT_CONFIG, attrs = _REMAINDER_OUTPUTS_ATTRS)
 
 # The product of the refusal case: its mode is `frontend`, so a descriptor that refuses a module for that mode omits it.
-_FRONTEND_PRODUCT_CONFIG = {str(Label("//build:dev_dist_product_info")): str(Label(_PACKAGE + ":" + _SUITE + "_frontend_product_info"))}
+_FRONTEND_PRODUCT_CONFIG = {
+    str(Label("//build:dev_dist_product_info")): str(Label(_PACKAGE + ":" + _SUITE + "_frontend_product_info")),
+    str(Label("//build:dev_dist_stamp_class")): "frontend",
+}
 
 _refused_remainder_outputs_test = analysistest.make(_remainder_outputs_test_impl, config_settings = _FRONTEND_PRODUCT_CONFIG, attrs = _REMAINDER_OUTPUTS_ATTRS)
 
@@ -813,11 +855,9 @@ def dev_plugin_remainder_test_suite(name):
     dev_dist_product_info(
         name = product_info,
         application_info = _FIXTURE_APPLICATION_INFO,
-        platform_prefix = "idea",
     )
-    _product_scoped_file(
+    _stamp_class_scoped_file(
         name = descriptor_source,
-        application_info = str(_FIXTURE_APPLICATION_INFO),
         tags = ["manual"],
     )
     normal_main_module = "test.%s.normal" % name
@@ -1108,7 +1148,6 @@ def dev_plugin_remainder_test_suite(name):
     dev_dist_product_info(
         name = frontend_product_info,
         application_info = _FIXTURE_APPLICATION_INFO,
-        platform_prefix = "idea",
         mode = "frontend",
     )
     refusing_main_module = "test.%s.refusing" % name
@@ -1393,6 +1432,29 @@ def dev_plugin_remainder_test_suite(name):
         remainder = ":" + plan_chain + "_remainder",
     )
 
+    # A split remainder: the jar of the main module reads the descriptor, so the chain packs every other asset in a
+    # neutral part. The descriptor part packs the main jar and writes the rows and the record.
+    split_chain = name + "_split_chain"
+    dev_dist_complex_plugin_variant(
+        name = split_chain,
+        projection = ":" + plan_file,
+        execution_version = 1,
+        descriptor = ":" + normal_descriptor,
+        plugin_directory = "plugins/test",
+        component_name = "plugin-test",
+        target_platform = "linux_x64",
+        resource_inputs = {
+            ":" + normal_descriptor: "descriptor",
+            ":" + raw: "raw",
+        },
+        remainder_files = {"lib/test.jar": ["plugin-test"], "lib/other.jar": []},
+        tags = ["manual"],
+    )
+    split_tests = [split_chain + "_neutral_test", split_chain + "_descriptor_test", split_chain + "_component_test"]
+    _split_part_test(name = split_tests[0], target_under_test = ":" + split_chain + "_neutral_remainder", part = "neutral", files = ["lib/other.jar"])
+    _split_part_test(name = split_tests[1], target_under_test = ":" + split_chain + "_remainder", part = "descriptor", files = ["lib/test.jar"])
+    _split_component_test(name = split_tests[2], target_under_test = ":" + split_chain + "_component")
+
     # The derived form: one call, one chain per platform, the plan label `<main module>.<platform>.dev-plan.json` in
     # the package of the call and the descriptor entry derived, and the platform token substituted in a label.
     # `platform_plans` states that the call keeps a plan file per platform.
@@ -1605,8 +1667,7 @@ def dev_plugin_remainder_test_suite(name):
         class_tests.append(class_folded_test)
 
     # The chain class: `chain_class` keeps the chain stems of a second call of one plugin apart,
-    # `<main module>.<chain_class>[_<platform>]`. The call still reads the baseline plan file, and the collector stamps
-    # the platform prefix of the configured product.
+    # `<main module>.<chain_class>[_<platform>]`. The call still reads the baseline plan file.
     chain_class_module = "test.%s.chain_class" % name
     chain_class_platforms = ["linux_x64"]
     for platform in chain_class_platforms:
@@ -1691,6 +1752,7 @@ def dev_plugin_remainder_test_suite(name):
             plan_chain_graph_test,
             plan_chain_remainder_test,
             plan_chain_component_test,
+        ] + split_tests + [
             plan_home_test,
             archive_chain_test,
         ] + derived_tests + folded_tests + class_tests + refused_graph_tests,

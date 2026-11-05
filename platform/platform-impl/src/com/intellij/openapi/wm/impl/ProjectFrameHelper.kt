@@ -33,6 +33,7 @@ import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
 import com.intellij.openapi.options.advanced.AdvancedSettings
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.SystemInfoRt
 import com.intellij.openapi.wm.IdeFrame
 import com.intellij.openapi.wm.IdeGlassPane
@@ -58,6 +59,7 @@ import com.intellij.ui.ScreenUtil
 import com.intellij.ui.WindowResizeListenerEx
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.io.SuperUserStatus.isSuperUserOrNull
+import com.intellij.util.messages.SimpleMessageBusConnection
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.StartupUiUtil
 import com.intellij.util.ui.UIUtil
@@ -93,6 +95,9 @@ import javax.swing.SwingUtilities
 import javax.swing.WindowConstants
 
 private const val INIT_BOUNDS_KEY = "InitBounds"
+
+/** The status text relay of a frame guest while it is in a frame, see [ProjectFrameHelper.addGuest]. EDT only. */
+private val GUEST_STATUS_CONNECTION_KEY = Key.create<SimpleMessageBusConnection>("ProjectFrameHelper.guestStatusConnection")
 
 private val LOG: Logger
   get() = logger<ProjectFrameHelper>()
@@ -446,16 +451,51 @@ abstract class ProjectFrameHelper internal constructor(
     val project = project
     sink[IdeFrame.KEY] = this
     if (project == null || !project.isInitialized) return
-    sink[CommonDataKeys.PROJECT] = project
+    // a frame that shows guests gives the active one, see WindowManagerEx.getActiveProject
+    val active = IdeFrameGuests.activeProjectOf(project)
+    sink[CommonDataKeys.PROJECT] = active
+    // The tool windows belong to the project of the frame
     sink[PlatformDataKeys.LAST_ACTIVE_TOOL_WINDOWS] =
       (project.serviceIfCreated<ToolWindowManager>() as? ToolWindowManagerImpl)
         ?.getLastActiveToolWindows()?.toList()?.toTypedArray()
     sink[PlatformDataKeys.LAST_ACTIVE_FILE_EDITOR] =
-      (project.serviceIfCreated<FileEditorManager>() as? FileEditorManagerEx)
+      (active.serviceIfCreated<FileEditorManager>() as? FileEditorManagerEx)
         ?.selectedEditor
   }
 
   override fun getProject(): Project? = project
+
+  /**
+   * Shows [guest], a frame guest of the project of this frame, in this frame: the status bar shows the status text of [guest].
+   * The record of the guests is the window manager, see `WindowManagerEx.addFrameGuest`; this is the UI side of the join.
+   */
+  @RequiresEdt
+  internal open fun addGuest(guest: Project) {
+    if (isDisposed() || guest.getUserData(GUEST_STATUS_CONNECTION_KEY) != null) return
+    val statusBar = statusBar ?: return
+    // the connection ends with the frame, see [dispose], or when the guest leaves
+    val connection = guest.messageBus.connect(coroutineScope)
+    connection.subscribe(StatusBar.Info.TOPIC, statusBar)
+    guest.putUserData(GUEST_STATUS_CONNECTION_KEY, connection)
+  }
+
+  /** Takes [guest] out of the UI of this frame, see [addGuest]. */
+  @RequiresEdt
+  internal open fun removeGuest(guest: Project) {
+    guest.getUserData(GUEST_STATUS_CONNECTION_KEY)?.disconnect()
+    guest.putUserData(GUEST_STATUS_CONNECTION_KEY, null)
+  }
+
+  /** Shows [active], the new active project of this frame, see `WindowManagerEx.setActiveProject`. */
+  @RequiresEdt
+  internal open fun showActiveProject(active: Project) {
+  }
+
+  /** Puts [header] above the editor area of this frame, or takes it away with `null`. A frame without an editor area ignores it. */
+  @Internal
+  @RequiresEdt
+  open fun setEditorAreaHeader(header: JComponent?) {
+  }
 
   // any activities that will not access a workspace model
   // without [initializesStatusBar], the caller calls [initializeStatusBar] later
@@ -540,6 +580,7 @@ abstract class ProjectFrameHelper internal constructor(
   }
 
   open fun dispose() {
+    // the cancel also disconnects the status text relay of each frame guest, see [addGuest]
     coroutineScope.cancel()
     MouseGestureManager.getInstance().remove(this)
     balloonLayout?.let {

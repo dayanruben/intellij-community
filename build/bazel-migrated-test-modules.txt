@@ -141,6 +141,7 @@ intellij.platform.ide.concurrency.tests
 intellij.platform.ide.fileChooser.universal.tests
 intellij.platform.ide.hprof.tests
 intellij.platform.ide.impl.tests
+intellij.platform.ide.impl.wsl.tests
 intellij.platform.ide.initialConfigImport.tests
 intellij.platform.ide.nonModalWelcomeScreen.tests
 intellij.platform.ide.tabInEditor.tests
@@ -170,6 +171,7 @@ intellij.platform.lsp.impl.tests
 intellij.platform.lvcs.impl.tests
 intellij.platform.markdown.utils.tests
 intellij.platform.ml.impl.tests
+intellij.platform.multiverse.tests
 intellij.platform.navbar.frontend.tests
 intellij.platform.objectSerializer.tests
 intellij.platform.pluginGraph.tests
@@ -282,3 +284,4 @@ intellij.yaml.backend.tests
 intellij.yaml.tests
 kotlin.gradle.gradle-java.tests
 kotlin.gradle.gradle-java.tests.shared
+kotlin.jps.graphImplementationTests

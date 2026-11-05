@@ -1,12 +1,16 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.tools.projectWizard.wizard
 
+import com.intellij.gradle.testFramework.annotations.CsvCrossProductSource
+import com.intellij.gradle.testFramework.projectInfo.buildFile
+import com.intellij.gradle.testFramework.projectInfo.file
+import com.intellij.gradle.testFramework.projectInfo.settingsFile
+import com.intellij.gradle.testFramework.projectInfo.simpleJavaRootModuleInfo
 import com.intellij.gradle.toolingExtension.util.GradleVersionUtil
 import com.intellij.ide.projectWizard.NewProjectWizardConstants.Language.KOTLIN
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.WriteAction
 import com.intellij.openapi.externalSystem.service.execution.ExternalSystemJdkUtil
-import com.intellij.openapi.externalSystem.test.compileModules
 import com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.JavaSdkVersion
@@ -16,6 +20,7 @@ import com.intellij.openapi.util.ThrowableComputable
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.platform.testFramework.assertion.moduleAssertion.ModuleAssertions.assertModules
 import com.intellij.testFramework.closeProjectAsync
+import com.intellij.testFramework.compileModules
 import com.intellij.testFramework.junit5.RegistryKey
 import com.intellij.testFramework.withProjectAsync
 import com.intellij.util.asDisposable
@@ -23,11 +28,6 @@ import kotlinx.coroutines.runBlocking
 import org.jetbrains.kotlin.idea.test.KotlinTestUtils.getCurrentProcessJdkHome
 import org.jetbrains.kotlin.tools.projectWizard.gradle.isLessOrEqualToMaxJvmTarget
 import org.jetbrains.plugins.gradle.frameworkSupport.GradleDsl
-import org.jetbrains.plugins.gradle.testFramework.annotations.CsvCrossProductSource
-import org.jetbrains.plugins.gradle.testFramework.projectInfo.buildFile
-import org.jetbrains.plugins.gradle.testFramework.projectInfo.file
-import org.jetbrains.plugins.gradle.testFramework.projectInfo.settingsFile
-import org.jetbrains.plugins.gradle.testFramework.projectInfo.simpleJavaRootModuleInfo
 import org.jetbrains.plugins.gradle.util.GradleConstants.SYSTEM_ID
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse

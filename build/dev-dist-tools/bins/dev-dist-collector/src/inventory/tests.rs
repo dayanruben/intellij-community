@@ -6,6 +6,8 @@ use std::path::PathBuf;
 use testkit::{REFERENCE_CONTENT_HASHES, TempDir, WorkingDirectory, read_bytes, reference_bytes, require_error, write_file};
 
 use super::*;
+#[cfg(unix)]
+use crate::test_support::write_native_tree;
 
 fn decode_component_manifest(data: &[u8]) -> serde_json::Result<ComponentManifest> {
     serde_json::from_slice(data)
@@ -33,7 +35,6 @@ fn packed_jar(source: &str, relative_path: &str) -> JarRecord {
 fn header(kind: &str) -> ManifestHeader {
     ManifestHeader {
         kind: kind.into(),
-        platform_prefix: "idea".into(),
         os: "linux".into(),
         arch: "x64".into(),
         ..ManifestHeader::default()
@@ -324,12 +325,11 @@ fn manifest_ordering_and_escaping() {
         SourcedFile::new(&source, "lib/Z.jar"),
         SourcedFile::new(&source, "lib/a-b.jar"),
     ];
-    let mut header = header("files");
-    header.platform_prefix = "idea<test>".into();
+    let header = header("files<test>");
     write_manifest(&manifest_file, &header, &files).unwrap();
     let text = fs::read_to_string(&manifest_file).unwrap();
     assert!(
-        text.contains("inputs/a&b.jar") && text.contains("idea<test>"),
+        text.contains("inputs/a&b.jar") && text.contains("files<test>"),
         "wrong escaping: {text}"
     );
     let manifest = decode_component_manifest(text.as_bytes()).unwrap();
@@ -399,9 +399,9 @@ fn every_manifest_states_the_version_and_a_plugin_component_states_its_plugin() 
         &[],
     )
     .unwrap();
-    assert_eq!((manifest.version, manifest.plugin), (10, true));
+    assert_eq!((manifest.version, manifest.plugin), (11, true));
     let (manifest, _) = build_manifest(&header("files"), &[]).unwrap();
-    assert_eq!((manifest.version, manifest.plugin), (10, false));
+    assert_eq!((manifest.version, manifest.plugin), (11, false));
 }
 
 #[cfg(unix)]
@@ -476,25 +476,6 @@ fn metadata_catalogue_rejects_conflicts_and_stale_ownership() {
         attach_metadata(&files, &directory.path().join("catalogue.json")),
         "unknown field `Metadata`",
     );
-}
-
-/// Writes a native tree as the packer does and inventories it under the key prefix `native`. The tree is removed
-/// afterwards, because the collector must place its files from the inventory alone.
-#[cfg(unix)]
-fn write_native_tree(tree: &Path, files: &[(&str, u32)]) -> Vec<Entry> {
-    fs::create_dir_all(tree).unwrap();
-    for (name, mode) in files {
-        let target = tree.join(name);
-        write_file(&target, format!("native {name}"));
-        testkit::set_mode(&target, *mode);
-    }
-    let mut inventory = vec![filemeta::inspect(tree, "native").unwrap()];
-    for mut entry in filemeta::inventory(tree).unwrap() {
-        entry.relative_path = format!("native/{}", entry.relative_path);
-        inventory.push(entry);
-    }
-    fs::remove_dir_all(tree).unwrap();
-    inventory
 }
 
 #[cfg(unix)]

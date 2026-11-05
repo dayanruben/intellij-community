@@ -92,6 +92,9 @@ a:com.intellij.psi.AbstractFileViewProvider
 - com.intellij.openapi.util.UserDataHolderBase
 - com.intellij.psi.FileViewProvider
 - *p:cacheContentInVersionedEnvironment():Z
+*:com.intellij.psi.impl.AnyPsiChangeListenerBackgroundable
+- com.intellij.psi.impl.AnyPsiChangeListener
+- sf:TOPIC:com.intellij.util.messages.Topic
 c:com.intellij.psi.impl.GeneratedMarkerVisitor
 - com.intellij.psi.impl.source.tree.RecursiveTreeElementWalkingVisitor
 - *:<init>(com.intellij.lang.ASTNode):V
@@ -119,6 +122,9 @@ f:com.intellij.psi.impl.PsiModificationTrackerImpl
 - com.intellij.psi.impl.PsiTreeChangePreprocessor
 - com.intellij.psi.util.PsiModificationTracker
 - *:incLanguageModificationCount(com.intellij.lang.Language):V
+*:com.intellij.psi.impl.PsiTreeChangePreprocessorBackgroundable
+- com.intellij.psi.impl.PsiTreeChangePreprocessor
+- sf:EP:com.intellij.openapi.extensions.ProjectExtensionPointName
 f:com.intellij.psi.impl.file.PsiFileImplUtil
 - *s:setNonPhysicalFileDeleteHandler(com.intellij.psi.PsiFile,java.util.function.Consumer):V
 com.intellij.psi.impl.file.impl.FileManager

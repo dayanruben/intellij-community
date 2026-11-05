@@ -3,6 +3,7 @@ package com.intellij.psi;
 
 import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.extensions.RequiredElement;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.xmlb.annotations.Attribute;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
@@ -11,15 +12,27 @@ import org.jetbrains.annotations.Unmodifiable;
 import java.util.Collection;
 import java.util.Set;
 
-import static java.util.stream.Collectors.toSet;
-
 /**
- * Declares a base visitor class for language to speed up inspection runs.
+ * Registers a base visitor class for a language to speed up inspection runs.
  * <p>
- * When a {@link com.intellij.codeInspection.LocalInspectionTool}
- * returns inheritors of the declared visitor, then the inspection engine will be able
- * to infer PSI element classes that it would like to visit.
- * This makes it possible to skip irrelevant elements in a tree when inspections run.
+ * The optimizer starts with the visitor returned by {@link com.intellij.codeInspection.LocalInspectionTool#buildVisitor}.
+ * It examines the visitor's runtime class and intermediate superclasses, then stops before the registered base class.
+ * With multiple registered classes, the optimizer stops at the nearest one. Registration order does not matter.
+ * It infers accepted PSI types from the parameter types of their {@code visitXxx(...)} methods.
+ * The base class's methods do not contribute to the inferred types. Its visit methods must not contain inspection logic.
+ * <p>
+ * For example, register the Java base visitor in {@code plugin.xml}:
+ * <pre>{@code
+ * <extensions defaultExtensionNs="com.intellij">
+ *   <inspection.basicVisitor class="com.intellij.psi.JavaElementVisitor"/>
+ * </extensions>
+ * }</pre>
+ * A subclass that overrides only {@code visitMethod(PsiMethod)} then receives only elements that implement {@code PsiMethod}.
+ * The optimizer calls {@link PsiElement#accept(PsiElementVisitor)} only on matching elements.
+ * <p>
+ * For inferred types, overriding {@link PsiElementVisitor#visitElement(PsiElement)} requests all elements.
+ * The optimizer also visits all elements when no registered base class occurs in the visitor hierarchy.
+ * Visitors that implement {@link HintedPsiElementVisitor} provide their accepted PSI types directly.
  *
  * @see com.intellij.codeInsight.daemon.impl.InspectionVisitorOptimizer
  */
@@ -27,7 +40,7 @@ import static java.util.stream.Collectors.toSet;
 public final class BasicInspectionVisitorBean {
 
   /**
-   * {@link PsiElementVisitor} inheritor visitor class.
+   * Fully qualified name of the base class that extends {@link PsiElementVisitor}.
    */
   @Attribute("class")
   @RequiredElement
@@ -44,13 +57,14 @@ public final class BasicInspectionVisitorBean {
     }, null);
   }
 
+  /**
+   * Returns the registered base visitor class names.
+   */
   public static @NotNull @Unmodifiable Collection<String> getVisitorClasses() {
     Set<String> set = ourClasses;
     if (set != null) return set;
 
-    set = EP_NAME.getExtensionList().stream()
-      .map(x -> x.clazz)
-      .collect(toSet());
+    set = ContainerUtil.map2Set(EP_NAME.getExtensionList(), x -> x.clazz);
     ourClasses = set;
 
     return set;

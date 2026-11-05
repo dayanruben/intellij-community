@@ -52,6 +52,7 @@ def _community_product(tables, product):
     - `bundled_components(product)`: the bundled tier of the community component map, with every label spelled for
       the ultimate checkout.
     - `product_info_label(product)`: the label of the community product info of `product`.
+    - `product_mode(product)`: the mode of the community product `product`, its stamp class.
     """
     community = tables.community
     if community == None or product not in community.products:
@@ -377,6 +378,13 @@ def _product_info_label(tables, product):
         return community.product_info_label(product)
     return tables.product_info_label(product)
 
+def _product_mode(tables, product):
+    """The mode of `product`, the stamp class its plugin components are configured with."""
+    community = _community_product(tables, product)
+    if community != None:
+        return community.product_mode(product)
+    return tables.product_mode(product)
+
 def _platform_fragment_layout(tables, product):
     """The ordered platform components of one product, as `struct(suffix, fragment_name)` entries.
 
@@ -468,6 +476,7 @@ def _platform_set(tables, product, name, target_platform, visibility):
             name = repository + "_parts",
             plugins = _plugin_components(target_platform, catalogue.bundled).labels,
             product_info = tables.product_info_label(product),
+            stamp_class = tables.product_mode(product),
             tags = ["manual"],
         )
 
@@ -485,6 +494,7 @@ def _platform_set(tables, product, name, target_platform, visibility):
                 name = repository + "_frontend_parts",
                 plugins = _plugin_components(target_platform, frontend_catalogue.bundled, selected_modules = frontend_only).labels,
                 product_info = tables.product_info_label(product),
+                stamp_class = tables.product_mode(product),
                 tags = ["manual"],
             )
             frontend_attrs = {
@@ -505,7 +515,7 @@ def _platform_set(tables, product, name, target_platform, visibility):
             last_jars = order.last,
             plugins = ":" + repository + "_parts",
             ide_properties = [":%s_product_files/idea.properties" % name],
-            project_model_tree = tables.project_model_tree,
+            runtime_module_facts = tables.runtime_module_facts,
             bazel_targets_json = tables.bazel_targets_json,
             tags = ["manual"],
             **frontend_attrs
@@ -752,8 +762,10 @@ def _declare_fragments_dist(
             tags = ["manual"],
             composer = tables.composer,
             fragments = fragments,
+            platform_prefix = product,
             plugin_components = plugin_components,
             product_info = _product_info_label(tables, product),
+            stamp_class = _product_mode(tables, product),
             expect_fragments = expect_fragments,
             additional_modules = additional_modules,
             bundled_modules = bundled_components.modules,
@@ -1060,9 +1072,11 @@ def intellij_dev_dist_declarations(tables):
     - `platform_lib_fragment`, `runtime_module_repository_fragment`: the payload names of the input tables.
     - `platform_lib_payload(product)`: the `struct(packed, module_system_loaded)` of the packing targets of the `lib/`
       jars, as `dev_dist_packed_labels` returns it.
-    - `bazel_targets_json`, `project_model_tree`, `collector`, `composer`: the labels of the shared inputs and tools.
+    - `bazel_targets_json`, `project_model_tree`, `runtime_module_facts`, `collector`, `composer`: the labels of the
+      shared inputs and tools.
     - `build_package`: the package that declares the platform sets, for example `//build`.
     - `product_info_label(product)`: the label of the product info of `product`.
+    - `product_mode(product)`: the mode of `product`, its stamp class.
     - `launcher_jvm_flags(product, additional_modules, jvm_flags)`: the `jvm_flags` of a launcher, or `None`.
     - `check_before_run(name, jvm_flags, compile_clion_backend_before_run)`: checks the before-run step of a row, or
       `None`. No launcher runs the step.

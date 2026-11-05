@@ -5,13 +5,13 @@ package com.intellij.platform.eel.provider
 
 import com.intellij.platform.eel.EelOsFamily
 import com.intellij.platform.eel.EelPathBoundDescriptor
-import com.intellij.platform.util.annotations.VisibleToClasses
-import com.intellij.platform.util.annotations.paths.NioPath
 import com.intellij.platform.eel.channels.EelDelicateApi
 import com.intellij.platform.eel.path.EelPath
 import com.intellij.platform.eel.path.EelPathException
 import com.intellij.platform.eel.provider.utils.WindowsPathUtils
 import com.intellij.platform.eel.provider.utils.impl.localToIjent
+import com.intellij.platform.util.annotations.VisibleToClasses
+import com.intellij.platform.util.annotations.paths.NioPath
 import org.jetbrains.annotations.ApiStatus
 import java.nio.file.Path
 import java.nio.file.Paths
@@ -217,8 +217,12 @@ private val LOG = Logger.getLogger("com.intellij.platform.eel.provider.EelNioBri
     "com.intellij.python.pytools.backend.PyToolApiImpl",
     "com.intellij.python.pytools.backend.impl.EelExecutableDetectorKt",
     "com.intellij.python.ruff.codeinsight.RuffConfigCheckKt",
+    "com.intellij.python.sdk.backend.PythonSysPathKt",
     "com.intellij.python.terminal.PyVirtualEnvTerminalCustomizer",
     "com.intellij.python.terminal.shared.PathDto",
+    "com.intellij.rider.plugins.azureFunctions.azurite.AzuritePathService",
+    "com.intellij.rider.plugins.azureFunctions.coreTools.AzureFunctionsCoreToolsManager",
+    "com.intellij.rider.plugins.azureFunctions.coreTools.AzureFunctionsToolingFeedService",
     "com.intellij.rustrover.solana.runconfig.anchor.AnchorTestCommandLineStateTest",
     "com.intellij.rustrover.solana.settings.SolanaConfigurableKt",
     "com.intellij.rustrover.solana.util.SolanaConfigKt",
@@ -247,11 +251,7 @@ private val LOG = Logger.getLogger("com.intellij.platform.eel.provider.EelNioBri
     "com.jetbrains.python.debugger.PyEelPathMapper",
     "com.jetbrains.python.pathValidation.PlatformAndRoot",
     "com.jetbrains.python.sdk.add.v2.EelFileSystem",
-    "com.jetbrains.python.sdk.targetsFacade.PyTargetsIntrospectionFacadeLocal",
     "com.jetbrains.python.venvReader.VirtualEnvReader",
-    "com.jetbrains.rider.azureFunctions.azurite.AzuritePathService",
-    "com.jetbrains.rider.azureFunctions.coreTools.AzureFunctionsCoreToolsManager",
-    "com.jetbrains.rider.azureFunctions.coreTools.AzureFunctionsToolingFeedService",
     "com.jetbrains.rider.build.ExtendedBuildEvent",
     "com.jetbrains.rider.build.redesign.BuildToolWindowWidgetKt",
     "com.jetbrains.rider.debugger.attach.remoting.DebuggerForRemoteEnvironmentProvider",

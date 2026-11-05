@@ -42,13 +42,18 @@ public class PyPackageRequirementsInspectionTest extends PyInspectionTestCase {
   @Override
   public void setUp() throws Exception {
     super.setUp();
-    // The legacy flow gets a new SDK of the light project for each test, and the requirements file is next to the module.
-    PyProjectStructureTestUtilKt.ownModuleSdkForTests(myFixture.getModule());
     var cachedPackages = List.of("opster", "clevercss", "django", "test3", "pyzmq", "markdown", "pytest", "django-simple-captcha");
 
     replacePyPiPackageCacheService(myFixture.getProject(), cachedPackages);
     replacePythonPackageManagerServiceWithTestInstance(myFixture.getProject(), List.of());
     PyProjectStructureTestUtilKt.awaitPythonInterpreters(myFixture.getProject());
+  }
+
+  /** The inspection reads the declared packages of the last load, so the files that the test copied are loaded first. */
+  @Override
+  protected void configureInspection() {
+    PyProjectStructureTestUtilKt.loadDeclaredPackagesForTests(myFixture.getModule());
+    super.configureInspection();
   }
 
   public void testPartiallySatisfiedRequirementsTxt() {

@@ -66,6 +66,25 @@ class RuntimeModuleRepositoryMainTest {
   }
 
   @Test
+  fun `the facts mark a dependency that has a module descriptor`() {
+    writeProject()
+    writeInputs()
+
+    val facts = readRuntimeModuleFacts(tempDirectory.resolve("module-facts.json"))
+    assertThat(facts.findModule("foo.util")!!.dependencies.map { it.module to it.contentModule }).containsExactly("bar" to true, "baz" to false)
+    assertThat(facts.findModule("unknown")).isNull()
+  }
+
+  @Test
+  fun `the module facts are required`() {
+    writeProject()
+    val args = writeInputs().filterNot { it.startsWith("--module-facts=") }
+
+    assertThatThrownBy { generateRuntimeModuleRepositoryFromLayout(args) }
+      .hasMessageContaining("--module-facts is required")
+  }
+
+  @Test
   fun `a separate content module descriptor is used if the plugin descriptor holds none`() {
     writeProject()
     val separateDescriptor = tempDirectory.resolve("foo.core.xml")
@@ -189,8 +208,10 @@ class RuntimeModuleRepositoryMainTest {
     // one option comes from an argument file, as a Bazel action passes them
     val argumentFile = tempDirectory.resolve("arguments.txt")
     Files.write(argumentFile, listOf("--descriptor=suppressed.plugin=$suppressedDescriptor", "--ide-properties=$ideProperties"))
+    val factsFile = tempDirectory.resolve("module-facts.json")
+    writeRuntimeModuleFacts(JpsRuntimeModuleModel(loadProject(projectDir)).toFactsTable(), factsFile)
     return listOf(
-      "--project-dir=$projectDir",
+      "--module-facts=$factsFile",
       "--layout=$layoutFile",
       "--descriptor=foo.plugin=$fooDescriptor",
       "@$argumentFile",

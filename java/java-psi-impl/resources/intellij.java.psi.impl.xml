@@ -39,6 +39,8 @@
     <extensionPoint qualifiedName="com.intellij.custom.exception.handler" interface="com.intellij.codeInsight.CustomExceptionHandler" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.lang.inferredAnnotationProvider" interface="com.intellij.codeInsight.InferredAnnotationProvider" area="IDEA_PROJECT" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.lang.psiAugmentProvider" interface="com.intellij.psi.augment.PsiAugmentProvider" dynamic="true"/>
+    <extensionPoint qualifiedName="com.intellij.codeInsight.dataflowNullabilityContributor"
+                    interface="com.intellij.codeInsight.DataflowNullabilityContributor" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.psi.clsCustomNavigationPolicy" interface="com.intellij.psi.impl.compiled.ClsCustomNavigationPolicy" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.jvm.elementProvider" area="IDEA_PROJECT" interface="com.intellij.lang.jvm.facade.JvmElementProvider" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.java.elementFinder" area="IDEA_PROJECT" interface="com.intellij.psi.PsiElementFinder" dynamic="true"/>
@@ -106,6 +108,10 @@
                     serviceImplementation="com.intellij.lang.jvm.facade.JvmFacadeImpl"/>
     <projectService serviceInterface="com.intellij.psi.JavaPsiFacade"
                     serviceImplementation="com.intellij.psi.impl.JavaPsiFacadeImpl"/>
+
+    <!-- The defaults for a process without a Java backend, such as JetBrains Light. The Java plugin overrides each of them. -->
+    <projectService serviceInterface="com.intellij.openapi.roots.PackageIndex"
+                    serviceImplementation="com.intellij.core.CorePackageIndex" open="true"/>
     <psi.treeChangePreprocessor implementation="com.intellij.psi.impl.PsiJavaModuleTreeChangePreprocessor"/>
 
     <syntax.syntaxDefinition language="JAVA" implementationClass="com.intellij.java.frontback.psi.impl.syntax.JavaSyntaxDefinitionExtension"/>

@@ -5,15 +5,13 @@ import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.project.DumbAware
-import com.intellij.openapi.wm.ToolWindowManager
-import com.intellij.openapi.wm.ex.ToolWindowManagerEx
 import com.intellij.openapi.wm.impl.ToolWindowManagerImpl
+import com.intellij.openapi.wm.impl.getToolWindowManagerForEvent
 import com.intellij.toolWindow.ToolWindowEventSource
 
 internal class HideSideWindowsAction : AnAction(), DumbAware {
   override fun actionPerformed(e: AnActionEvent) {
-    val project = e.project ?: return
-    val toolWindowManager = ToolWindowManagerEx.getInstanceEx(project) as ToolWindowManagerImpl
+    val toolWindowManager = getToolWindowManagerForEvent(e) as? ToolWindowManagerImpl ?: return
     val id = toolWindowManager.activeToolWindowId ?: toolWindowManager.lastActiveToolWindowId ?: return
     val window = toolWindowManager.getToolWindow(id) ?: return
     if (HideToolWindowAction.Manager.shouldBeHiddenByShortCut(window)) {
@@ -23,13 +21,12 @@ internal class HideSideWindowsAction : AnAction(), DumbAware {
 
   override fun update(event: AnActionEvent) {
     val presentation = event.presentation
-    val project = event.project
-    if (project == null) {
+    val toolWindowManager = getToolWindowManagerForEvent(event)
+    if (toolWindowManager == null) {
       presentation.isEnabled = false
       return
     }
 
-    val toolWindowManager = ToolWindowManager.getInstance(project)
     if (toolWindowManager.activeToolWindowId == null) {
       val window = toolWindowManager.getToolWindow(toolWindowManager.lastActiveToolWindowId ?: return)
       presentation.isEnabled = window != null && HideToolWindowAction.Manager.shouldBeHiddenByShortCut(window)

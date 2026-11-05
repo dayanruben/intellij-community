@@ -5,9 +5,12 @@ import com.intellij.platform.util.io.storages.CommonKeyDescriptors.stringAsUTF8
 import com.intellij.platform.util.io.storages.database.DurableMapImplementation.KEY_VALUE_TOGETHER
 import com.intellij.platform.util.io.storages.database.spi.BlocksDatabaseFactory
 import com.intellij.platform.util.io.storages.database.DurableDatabaseFactory
+import com.intellij.platform.util.io.storages.database.impl.housekeeping.AsyncHousekeepingScheduler
 import com.intellij.platform.util.io.storages.database.impl.housekeeping.DatabaseHousekeepingCoordinator
+import com.intellij.platform.util.io.storages.database.impl.housekeeping.DatabaseHousekeepingScheduler
 import com.intellij.platform.util.io.storages.database.spi.housekeeping.Housekeeper
 import com.intellij.platform.util.io.storages.database.impl.housekeeping.HousekeepingRegistration
+import com.intellij.platform.util.io.storages.database.impl.housekeeping.OnDemandHousekeepingScheduler
 import com.intellij.platform.util.io.storages.database.spi.BlocksDatabase
 import com.intellij.platform.util.io.storages.database.spi.BlocksStore
 import com.intellij.platform.util.io.storages.database.spi.BlocksStore.Block.LifecycleState.ACTIVE
@@ -201,18 +204,17 @@ class DatabaseHousekeepingCoordinatorTest {
   @Test
   fun `scheduler uses each housekeeper delay without owning its executors`() {
     val blocksDatabase = TrackingBlocksDatabase()
-    val database = DurableDatabaseImpl(blocksDatabase)
     val fastRuns = CountDownLatch(2)
     val slowRun = CountDownLatch(1)
     var slowRunCount = 0
-    database.registerHousekeeper(Housekeeper {
-      fastRuns.countDown()
-      Duration.ofMillis(1)
-    })
 
     Executors.newSingleThreadScheduledExecutor(ConcurrencyUtil.newNamedThreadFactory("Housekeeping scheduler")).use { scheduler ->
       Executors.newSingleThreadExecutor(ConcurrencyUtil.newNamedThreadFactory("Housekeeping worker")).use { worker ->
-        database.startHousekeeping(scheduler, worker).use {
+        DurableDatabaseImpl(blocksDatabase) { coordinator -> AsyncHousekeepingScheduler(coordinator, scheduler, worker) }.use { database ->
+          database.registerHousekeeper(Housekeeper {
+            fastRuns.countDown()
+            Duration.ofMillis(1)
+          })
           database.registerHousekeeper(Housekeeper {
             slowRunCount++
             slowRun.countDown()
@@ -224,19 +226,77 @@ class DatabaseHousekeepingCoordinatorTest {
         }
         assertFalse(scheduler.isShutdown, "The database scheduler must not own the scheduling executor")
         assertFalse(worker.isShutdown, "The database scheduler must not own the housekeeping executor")
-        database.close()
       }
     }
   }
 
   @Test
-  fun `factory wrapper delegates database operations and leaves its executors open`(@TempDir directory: Path) {
+  fun `coordinator registers and unregisters housekeepers through scheduler interface`() {
+    val scheduler = TrackingHousekeepingScheduler()
+    DatabaseHousekeepingCoordinator { scheduler }.use { coordinator ->
+      val firstRegistration = coordinator.register(Housekeeper { TEST_DELAY })
+      assertEquals(setOf(firstRegistration), scheduler.registrations,
+                   "The scheduler must register the first housekeeper")
+
+      val laterRegistration = coordinator.register(Housekeeper { TEST_DELAY })
+      assertEquals(setOf(firstRegistration, laterRegistration), scheduler.registrations,
+                   "The scheduler must register later housekeepers")
+
+      laterRegistration.close()
+      assertEquals(setOf(firstRegistration), scheduler.registrations, "Closing a registration must unregister it")
+    }
+
+    assertTrue(scheduler.registrations.isEmpty(), "Closing the coordinator must unregister all housekeepers")
+  }
+
+  @Test
+  fun `on-demand scheduler runs all registered housekeepers and ignores their delays`() {
+    lateinit var scheduler: OnDemandHousekeepingScheduler
+    DatabaseHousekeepingCoordinator { coordinator ->
+      OnDemandHousekeepingScheduler(coordinator).also { scheduler = it }
+    }.use { coordinator ->
+      val runs = mutableSetOf<String>()
+      coordinator.register(Housekeeper {
+        runs.add("fast")
+        Duration.ofMillis(1)
+      })
+      coordinator.register(Housekeeper {
+        runs.add("slow")
+        TEST_DELAY
+      })
+
+      assertTrue(scheduler.runHousekeepingRound { false }, "A complete on-demand round must report completion")
+      assertEquals(setOf("fast", "slow"), runs, "An on-demand round must run every registered housekeeper")
+    }
+  }
+
+  @Test
+  fun `on-demand scheduler passes external cancellation to a housekeeper`() {
+    lateinit var scheduler: OnDemandHousekeepingScheduler
+    DatabaseHousekeepingCoordinator { coordinator ->
+      OnDemandHousekeepingScheduler(coordinator).also { scheduler = it }
+    }.use { coordinator ->
+      var cancellationChecks = 0
+      var cancellationObserved = false
+      coordinator.register(Housekeeper { cancellationRequested ->
+        cancellationObserved = cancellationRequested.asBoolean
+        TEST_DELAY
+      })
+
+      val completed = scheduler.runHousekeepingRound { cancellationChecks++ > 0 }
+      assertFalse(completed, "An externally cancelled on-demand round must not report completion")
+      assertTrue(cancellationObserved, "The active housekeeper must observe external cancellation")
+    }
+  }
+
+  @Test
+  fun `factory configured scheduler delegates database operations and leaves its executors open`(@TempDir directory: Path) {
     Executors.newSingleThreadScheduledExecutor(ConcurrencyUtil.newNamedThreadFactory("Housekeeping scheduler")).use { scheduler ->
       Executors.newSingleThreadExecutor(ConcurrencyUtil.newNamedThreadFactory("Housekeeping worker")).use { worker ->
         val factory = DurableDatabaseFactory(1024 * 1024)
           .housekeeping(scheduler, worker)
         val reconfiguredFactory = factory.fsyncOnClose(false)
-        assertSame(factory.housekeepingConfiguration(), reconfiguredFactory.housekeepingConfiguration(),
+        assertSame(factory.housekeepingSchedulerFactory(), reconfiguredFactory.housekeepingSchedulerFactory(),
                    "Other factory settings must preserve housekeeping")
         val database = reconfiguredFactory.open(directory)
         database.use {
@@ -246,9 +306,9 @@ class DatabaseHousekeepingCoordinatorTest {
           assertEquals("value", map.get("key"))
         }
 
-        assertTrue(database.isClosed, "Closing the wrapper must close the database")
-        assertFalse(scheduler.isShutdown, "The wrapper must not own the scheduling executor")
-        assertFalse(worker.isShutdown, "The wrapper must not own the housekeeping executor")
+        assertTrue(database.isClosed, "Closing the database must keep it closed")
+        assertFalse(scheduler.isShutdown, "The database must not own the scheduling executor")
+        assertFalse(worker.isShutdown, "The database must not own the housekeeping executor")
       }
     }
   }
@@ -256,10 +316,11 @@ class DatabaseHousekeepingCoordinatorTest {
   @Test
   fun `database releases its lock before a housekeeping round starts`() {
     val blocksDatabase = TrackingBlocksDatabase()
-    val database = DurableDatabaseImpl(blocksDatabase)
     Executors.newSingleThreadScheduledExecutor(ConcurrencyUtil.newNamedThreadFactory("Housekeeping scheduler")).use { scheduler ->
       Executors.newSingleThreadExecutor(ConcurrencyUtil.newNamedThreadFactory("Database lock observer")).use { observer ->
-        database.startHousekeeping(scheduler, Executor { it.run() }).use {
+        DurableDatabaseImpl(blocksDatabase) {
+          coordinator -> AsyncHousekeepingScheduler(coordinator, scheduler, Executor { it.run() })
+        }.use { database ->
           val completed = CountDownLatch(1)
           database.registerHousekeeper(Housekeeper {
             observer.submit { database.mapNames() }.get(10, TimeUnit.SECONDS)
@@ -270,18 +331,18 @@ class DatabaseHousekeepingCoordinatorTest {
         }
       }
     }
-    database.close()
   }
 
   @Test
   fun `database close waits for housekeeping before closing blocks`() {
     val blocksDatabase = TrackingBlocksDatabase()
-    val database = DurableDatabaseImpl(blocksDatabase)
     val housekeeper = BlockingHousekeeper()
 
     Executors.newFixedThreadPool(2, ConcurrencyUtil.newNamedThreadFactory("Housekeeping test worker")).use { executor ->
       Executors.newSingleThreadScheduledExecutor(ConcurrencyUtil.newNamedThreadFactory("Housekeeping scheduler")).use { scheduler ->
-        database.startHousekeeping(scheduler, executor)
+        val database = DurableDatabaseImpl(blocksDatabase) {
+          coordinator -> AsyncHousekeepingScheduler(coordinator, scheduler, executor)
+        }
         database.registerHousekeeper(housekeeper)
         assertTrue(housekeeper.started.await(10, TimeUnit.SECONDS), "Housekeeping must start before database close")
 
@@ -300,12 +361,13 @@ class DatabaseHousekeepingCoordinatorTest {
   fun `database close reports a block close failure after housekeeping stops`() {
     val blocksFailure = IOException("Expected block database close failure")
     val blocksDatabase = TrackingBlocksDatabase(blocksFailure)
-    val database = DurableDatabaseImpl(blocksDatabase)
     val housekeeper = BlockingHousekeeper()
 
     Executors.newFixedThreadPool(2, ConcurrencyUtil.newNamedThreadFactory("Housekeeping test worker")).use { executor ->
       Executors.newSingleThreadScheduledExecutor(ConcurrencyUtil.newNamedThreadFactory("Housekeeping scheduler")).use { scheduler ->
-        database.startHousekeeping(scheduler, executor)
+        val database = DurableDatabaseImpl(blocksDatabase) {
+          coordinator -> AsyncHousekeepingScheduler(coordinator, scheduler, executor)
+        }
         database.registerHousekeeper(housekeeper)
         assertTrue(housekeeper.started.await(10, TimeUnit.SECONDS), "Housekeeping must start before database close")
 
@@ -390,6 +452,21 @@ class DatabaseHousekeepingCoordinatorTest {
         assertEquals(liveValue, map.get("live"))
         assertEquals(replacementValue, map.get("updated"))
       }
+    }
+  }
+
+  private class TrackingHousekeepingScheduler : DatabaseHousekeepingScheduler {
+    private val registered = mutableSetOf<HousekeepingRegistration>()
+
+    val registrations: Set<HousekeepingRegistration>
+      get() = registered.toSet()
+
+    override fun register(registration: HousekeepingRegistration) {
+      registered.add(registration)
+    }
+
+    override fun unregister(registration: HousekeepingRegistration) {
+      registered.remove(registration)
     }
   }
 

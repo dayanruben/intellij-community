@@ -1,6 +1,12 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.gradle.importing.syncAction
 
+import com.intellij.gradle.testFramework.assertions.assertGradleBuildEntity
+import com.intellij.gradle.testFramework.assertions.assertGradleModuleEntities
+import com.intellij.gradle.testFramework.assertions.assertGradleProjectEntity
+import com.intellij.gradle.testFramework.util.createBuildFile
+import com.intellij.gradle.testFramework.util.createGradleWrapper
+import com.intellij.gradle.testFramework.util.createSettingsFile
 import com.intellij.openapi.externalSystem.util.ExternalSystemUtil
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.io.getResolvedPath
@@ -21,12 +27,6 @@ import org.jetbrains.plugins.gradle.model.projectModel.GradleProjectEntityId
 import org.jetbrains.plugins.gradle.service.syncAction.GradleSyncPhase
 import org.jetbrains.plugins.gradle.settings.GradleProjectSettings
 import org.jetbrains.plugins.gradle.settings.GradleSettings
-import org.jetbrains.plugins.gradle.testFramework.assertions.assertGradleBuildEntity
-import org.jetbrains.plugins.gradle.testFramework.assertions.assertGradleModuleEntities
-import org.jetbrains.plugins.gradle.testFramework.assertions.assertGradleProjectEntity
-import org.jetbrains.plugins.gradle.testFramework.util.createBuildFile
-import org.jetbrains.plugins.gradle.testFramework.util.createGradleWrapper
-import org.jetbrains.plugins.gradle.testFramework.util.createSettingsFile
 import org.junit.Test
 import org.junit.jupiter.api.Assertions
 import java.util.concurrent.atomic.AtomicBoolean

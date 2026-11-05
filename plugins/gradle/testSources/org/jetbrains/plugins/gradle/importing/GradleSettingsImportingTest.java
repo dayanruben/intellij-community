@@ -11,6 +11,7 @@ import com.intellij.execution.application.JavaApplicationRunConfigurationImporte
 import com.intellij.execution.configurations.RunConfiguration;
 import com.intellij.execution.jar.JarApplicationConfiguration;
 import com.intellij.execution.jar.JarApplicationRunConfigurationImporter;
+import com.intellij.gradle.testFramework.annotations.TargetVersions;
 import com.intellij.ide.impl.ProjectUtil;
 import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
@@ -41,7 +42,6 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.gradle.settings.GradleProjectSettings;
 import org.jetbrains.plugins.gradle.settings.GradleSettings;
 import org.jetbrains.plugins.gradle.settings.TestRunner;
-import org.jetbrains.plugins.gradle.tooling.annotation.TargetVersions;
 import org.junit.Test;
 
 import java.io.File;
@@ -53,8 +53,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import static com.intellij.gradle.testFramework.importing.TestGradleBuildScriptBuilder.extPluginVersionIsAtLeast;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.jetbrains.plugins.gradle.importing.TestGradleBuildScriptBuilder.extPluginVersionIsAtLeast;
 
 /**
  * Created by Nikita.Skvortsov

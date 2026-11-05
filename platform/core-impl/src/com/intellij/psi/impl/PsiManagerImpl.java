@@ -74,6 +74,10 @@ public final class PsiManagerImpl extends PsiManagerEx implements Disposable {
 
   private final AtomicInteger myBatchFilesProcessingModeCount = new AtomicInteger(0);
 
+  /**
+   * A subscriber gets a physical change on the EDT, inside the write action. A non-physical change runs in place, on any thread.
+   * Use {@link AnyPsiChangeListenerBackgroundable#TOPIC} to get a physical change in place too.
+   */
   @Topic.ProjectLevel
   public static final Topic<AnyPsiChangeListener> ANY_PSI_CHANGE_TOPIC = new Topic<>(AnyPsiChangeListener.class, Topic.BroadcastDirection.TO_PARENT);
 
@@ -268,7 +272,6 @@ public final class PsiManagerImpl extends PsiManagerEx implements Disposable {
 
   @Override
   public void beforeChildAddition(@NotNull PsiTreeChangeEventImpl event) {
-    beforeChange(true);
     event.setCode(PsiTreeChangeEventImpl.PsiEventType.BEFORE_CHILD_ADDITION);
     if (LOG.isDebugEnabled()) {
       LOG.debug("beforeChildAddition: event = " + event);
@@ -278,7 +281,6 @@ public final class PsiManagerImpl extends PsiManagerEx implements Disposable {
 
   @Override
   public void beforeChildRemoval(@NotNull PsiTreeChangeEventImpl event) {
-    beforeChange(true);
     event.setCode(PsiTreeChangeEventImpl.PsiEventType.BEFORE_CHILD_REMOVAL);
     if (LOG.isDebugEnabled()) {
       LOG.debug("beforeChildRemoval: child = " + logPsi(event.getChild()) + ", parent = " + logPsi(event.getParent()));
@@ -288,7 +290,6 @@ public final class PsiManagerImpl extends PsiManagerEx implements Disposable {
 
   @Override
   public void beforeChildReplacement(@NotNull PsiTreeChangeEventImpl event) {
-    beforeChange(true);
     event.setCode(PsiTreeChangeEventImpl.PsiEventType.BEFORE_CHILD_REPLACEMENT);
     if (LOG.isDebugEnabled()) {
       LOG.debug("beforeChildReplacement: oldChild = " + logPsi(event.getOldChild()));
@@ -298,7 +299,6 @@ public final class PsiManagerImpl extends PsiManagerEx implements Disposable {
 
   @Override
   public void beforeChildrenChange(@NotNull PsiTreeChangeEventImpl event) {
-    beforeChange(true);
     event.setCode(PsiTreeChangeEventImpl.PsiEventType.BEFORE_CHILDREN_CHANGE);
     if (LOG.isDebugEnabled()) {
       LOG.debug("beforeChildrenChange: parent = " + logPsi(event.getParent()));
@@ -308,7 +308,6 @@ public final class PsiManagerImpl extends PsiManagerEx implements Disposable {
 
   @Override
   public void beforeChildMovement(@NotNull PsiTreeChangeEventImpl event) {
-    beforeChange(true);
     event.setCode(PsiTreeChangeEventImpl.PsiEventType.BEFORE_CHILD_MOVEMENT);
     if (LOG.isDebugEnabled()) {
       LOG.debug("beforeChildMovement: child = " + logPsi(event.getChild()) + ", oldParent = " + logPsi(event.getOldParent()) + ", newParent = " + logPsi(event.getNewParent()));
@@ -318,7 +317,6 @@ public final class PsiManagerImpl extends PsiManagerEx implements Disposable {
 
   @Override
   public void beforePropertyChange(@NotNull PsiTreeChangeEventImpl event) {
-    beforeChange(true);
     event.setCode(PsiTreeChangeEventImpl.PsiEventType.BEFORE_PROPERTY_CHANGE);
     if (LOG.isDebugEnabled()) {
       LOG.debug("beforePropertyChange: element = " + logPsi(event.getElement()) + ", propertyName = " + event.getPropertyName() + ", oldValue = " +
@@ -338,7 +336,6 @@ public final class PsiManagerImpl extends PsiManagerEx implements Disposable {
       LOG.debug("childAdded: child = " + logPsi(event.getChild()) + ", parent = " + logPsi(event.getParent()));
     }
     fireEvent(event);
-    afterChange(true);
   }
 
   @Override
@@ -348,7 +345,6 @@ public final class PsiManagerImpl extends PsiManagerEx implements Disposable {
       LOG.debug("childRemoved: child = " + logPsi(event.getChild()) + ", parent = " + logPsi(event.getParent()));
     }
     fireEvent(event);
-    afterChange(true);
   }
 
   @Override
@@ -358,7 +354,6 @@ public final class PsiManagerImpl extends PsiManagerEx implements Disposable {
       LOG.debug("childReplaced: oldChild = " + logPsi(event.getOldChild()) + ", newChild = " + logPsi(event.getNewChild()) + ", parent = " + logPsi(event.getParent()));
     }
     fireEvent(event);
-    afterChange(true);
   }
 
   @Override
@@ -368,7 +363,6 @@ public final class PsiManagerImpl extends PsiManagerEx implements Disposable {
       LOG.debug("childMoved: child = " + logPsi(event.getChild()) + ", oldParent = " + logPsi(event.getOldParent()) + ", newParent = " + logPsi(event.getNewParent()));
     }
     fireEvent(event);
-    afterChange(true);
   }
 
   @Override
@@ -378,7 +372,6 @@ public final class PsiManagerImpl extends PsiManagerEx implements Disposable {
       LOG.debug("childrenChanged: parent = " + logPsi(event.getParent()));
     }
     fireEvent(event);
-    afterChange(true);
   }
 
   @Override
@@ -393,7 +386,6 @@ public final class PsiManagerImpl extends PsiManagerEx implements Disposable {
       );
     }
     fireEvent(event);
-    afterChange(true);
   }
 
   @ApiStatus.Internal
@@ -423,13 +415,36 @@ public final class PsiManagerImpl extends PsiManagerEx implements Disposable {
     Disposer.register(parentDisposable, () -> myTreeChangePreprocessorsBackgroundable.remove(preprocessor));
   }
 
+  private static boolean isBeforeEvent(@NotNull PsiTreeChangeEventImpl.PsiEventType code) {
+    switch (code) {
+      case BEFORE_CHILD_ADDITION:
+      case BEFORE_CHILD_REMOVAL:
+      case BEFORE_CHILD_REPLACEMENT:
+      case BEFORE_CHILD_MOVEMENT:
+      case BEFORE_CHILDREN_CHANGE:
+      case BEFORE_PROPERTY_CHANGE:
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  /**
+   * Fires {@code event}, and a physical change on both {@link AnyPsiChangeListenerBackgroundable#TOPIC} and {@link #ANY_PSI_CHANGE_TOPIC}.
+   * The legacy topic joins the EDT transfer of the legacy preprocessors for a before-event, and the one of the legacy listeners for an
+   * after-event. So it costs no extra jump to the EDT while a legacy consumer remains.
+   */
   private void fireEvent(@NotNull PsiTreeChangeEventImpl event) {
     boolean isRealTreeChange = event.getCode() != PsiTreeChangeEventImpl.PsiEventType.PROPERTY_CHANGED
                                && event.getCode() != PsiTreeChangeEventImpl.PsiEventType.BEFORE_PROPERTY_CHANGE;
+    boolean isBeforeEvent = isBeforeEvent(event.getCode());
 
     PsiFile file = event.getFile();
     if (file == null || PomModelImpl.shouldFirePhysicalPsiEvents(file)) {
       ThreadingAssertions.assertWriteAccess();
+    }
+    if (isBeforeEvent) {
+      myProject.getMessageBus().syncPublisher(AnyPsiChangeListenerBackgroundable.TOPIC).beforePsiChanged(true);
     }
     if (isRealTreeChange) {
       LOG.assertTrue(!myTreeChangeEventIsFiring, "Changes to PSI are not allowed inside event processing");
@@ -443,18 +458,7 @@ public final class PsiManagerImpl extends PsiManagerEx implements Disposable {
           LOG.error(PluginException.createByClass(e, preprocessor.getClass()));
         }
       }
-      if (!myTreeChangePreprocessors.isEmpty()) {
-        runWriteActionOnEdtRegardlessOfCurrentThread(() -> {
-          for (PsiTreeChangePreprocessor preprocessor : myTreeChangePreprocessors) {
-            try {
-              preprocessor.treeChanged(event);
-            } catch (Throwable e) {
-              LOG.error(PluginException.createByClass(e, preprocessor.getClass()));
-            }
-          }
-        });
-      }
-      for (PsiTreeChangePreprocessor preprocessor : PsiTreeChangePreprocessor.EP.getExtensions(myProject)) {
+      for (PsiTreeChangePreprocessorBackgroundable preprocessor : PsiTreeChangePreprocessorBackgroundable.EP.getExtensions(myProject)) {
         try {
           preprocessor.treeChanged(event);
         }
@@ -462,17 +466,43 @@ public final class PsiManagerImpl extends PsiManagerEx implements Disposable {
           LOG.error(e);
         }
       }
+      if (isBeforeEvent || !myTreeChangePreprocessors.isEmpty() || !PsiTreeChangePreprocessor.EP.getExtensions(myProject).isEmpty()) {
+        runWriteActionOnEdtRegardlessOfCurrentThread(() -> {
+          if (isBeforeEvent) {
+            myProject.getMessageBus().syncPublisher(ANY_PSI_CHANGE_TOPIC).beforePsiChanged(true);
+          }
+          for (PsiTreeChangePreprocessor preprocessor : myTreeChangePreprocessors) {
+            try {
+              preprocessor.treeChanged(event);
+            } catch (Throwable e) {
+              LOG.error(PluginException.createByClass(e, preprocessor.getClass()));
+            }
+          }
+          // Re-read the extensions. The list can change while the event waits for the EDT.
+          for (PsiTreeChangePreprocessor preprocessor : PsiTreeChangePreprocessor.EP.getExtensions(myProject)) {
+            try {
+              preprocessor.treeChanged(event);
+            }
+            catch (Throwable e) {
+              LOG.error(e);
+            }
+          }
+        });
+      }
       for (PsiTreeChangeListener listener : myTreeChangeListenersBackgroundable) {
         notifyPsiTreeChangeListener(event, listener);
       }
       List<PsiTreeChangeListener> listeners = PsiTreeChangeListener.EP.getExtensions(myProject);
-      if (!myTreeChangeListeners.isEmpty() || !listeners.isEmpty()) {
+      if (!isBeforeEvent || !myTreeChangeListeners.isEmpty() || !listeners.isEmpty()) {
         runWriteActionOnEdtRegardlessOfCurrentThread(() -> {
           for (PsiTreeChangeListener listener : myTreeChangeListeners) {
             notifyPsiTreeChangeListener(event, listener);
           }
           for (PsiTreeChangeListener listener : PsiTreeChangeListener.EP.getExtensions(myProject)) {
             notifyPsiTreeChangeListener(event, listener);
+          }
+          if (!isBeforeEvent) {
+            myProject.getMessageBus().syncPublisher(ANY_PSI_CHANGE_TOPIC).afterPsiChanged(true);
           }
         });
       }
@@ -481,6 +511,9 @@ public final class PsiManagerImpl extends PsiManagerEx implements Disposable {
       if (isRealTreeChange) {
         myTreeChangeEventIsFiring = false;
       }
+    }
+    if (!isBeforeEvent) {
+      myProject.getMessageBus().syncPublisher(AnyPsiChangeListenerBackgroundable.TOPIC).afterPsiChanged(true);
     }
   }
 
@@ -562,12 +595,27 @@ public final class PsiManagerImpl extends PsiManagerEx implements Disposable {
 
   @Override
   public void beforeChange(boolean isPhysical) {
-    myProject.getMessageBus().syncPublisher(ANY_PSI_CHANGE_TOPIC).beforePsiChanged(isPhysical);
+    myProject.getMessageBus().syncPublisher(AnyPsiChangeListenerBackgroundable.TOPIC).beforePsiChanged(isPhysical);
+    runLegacyAnyPsiChange(isPhysical, () -> myProject.getMessageBus().syncPublisher(ANY_PSI_CHANGE_TOPIC).beforePsiChanged(isPhysical));
   }
 
   @Override
   public void afterChange(boolean isPhysical) {
-    myProject.getMessageBus().syncPublisher(ANY_PSI_CHANGE_TOPIC).afterPsiChanged(isPhysical);
+    runLegacyAnyPsiChange(isPhysical, () -> myProject.getMessageBus().syncPublisher(ANY_PSI_CHANGE_TOPIC).afterPsiChanged(isPhysical));
+    myProject.getMessageBus().syncPublisher(AnyPsiChangeListenerBackgroundable.TOPIC).afterPsiChanged(isPhysical);
+  }
+
+  /**
+   * A legacy subscriber gets a physical change on the EDT. Without the write lock, nothing can move to the EDT, so the subscriber runs
+   * in place, as before the background write action.
+   */
+  private static void runLegacyAnyPsiChange(boolean isPhysical, @NotNull Runnable action) {
+    if (isPhysical && ApplicationManager.getApplication().isWriteAccessAllowed()) {
+      runWriteActionOnEdtRegardlessOfCurrentThread(action);
+    }
+    else {
+      action.run();
+    }
   }
 
   @Override

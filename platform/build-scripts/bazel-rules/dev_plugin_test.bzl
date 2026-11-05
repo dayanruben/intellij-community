@@ -17,9 +17,9 @@ _FIXTURE_APPLICATION_INFO = Label("//platform/build-scripts/bazel-rules:testdata
 _PACKAGE = "//platform/build-scripts/bazel-rules/dev-plugin-tests"
 _SUITE = "dev_plugin_tests"
 _PRODUCT_INFO = str(Label(_PACKAGE + ":" + _SUITE + "_product_info"))
-_NO_PREFIX_PRODUCT_INFO = str(Label(_PACKAGE + ":" + _SUITE + "_no_prefix_product_info"))
 _FRONTEND_PRODUCT_INFO = str(Label(_PACKAGE + ":" + _SUITE + "_frontend_product_info"))
 _PRODUCT_INFO_FLAG = str(Label("//build:dev_dist_product_info"))
+_STAMP_CLASS_FLAG = str(Label("//build:dev_dist_stamp_class"))
 _TRACE_SPANS = str(Label("//platform/build-scripts/bazel-rules:trace_spans"))
 _EMPTY_JAR = "PK\005\006" + ("\000" * 18)
 _MAIN_MODULE = "test.dev.plugin"
@@ -137,15 +137,17 @@ def _dev_plugin_test_impl(ctx):
     fragment = target[IntellijDevFragmentInfo]
     groups = target[OutputGroupInfo]
     actions = analysistest.target_actions(env)
-    packs = [action for action in actions if action.mnemonic == "PackDevPluginJar"]
+
+    # The component packs no jar. The descriptor jars target packs the jar of the main module, see
+    # `_dev_plugin_descriptor_jars_test`, and the inputs target packs the two other jars, see `_dev_plugin_inputs_test`.
+    asserts.equals(env, [], [action for action in actions if action.mnemonic == "PackDevPluginJar"])
     collects = [action for action in actions if action.mnemonic == "CollectDevPluginComponent"]
-    asserts.equals(env, 3, len(packs))
     asserts.equals(env, 1, len(collects))
 
-    # The component is neutral and states the product's platform prefix.
+    # The component is neutral and states no product.
     collect = collects[0]
     asserts.true(env, "--platform-neutral" in collect.argv)
-    asserts.true(env, "--platform-prefix=idea" in collect.argv)
+    asserts.false(env, [argument for argument in collect.argv if argument.startswith("--platform-prefix")])
     asserts.true(env, "--kind=" + _MAIN_MODULE in collect.argv)
     asserts.equals(env, [], [argument for argument in collect.argv if argument.startswith("--os=") or argument.startswith("--arch=")])
     asserts.equals(env, _MAIN_MODULE, fragment.name)
@@ -171,55 +173,29 @@ def _dev_plugin_test_impl(ctx):
     for file in payload:
         asserts.true(env, file in collect.inputs.to_list(), file.path)
 
-    # The main jar's flag file: the distribution name, the patch, the modules in order, then the library, as
-    # `JarPackager` orders the jar.
-    main = _pack_action(packs, "dev-plugin.jar")
     module_jars = [module[_KtJvmInfo].all_output_jars[0] for module in ctx.attr.modules]
     library_jars = ctx.attr.library[JavaInfo].transitive_runtime_jars.to_list()
-    main_argv = [_with_short_path(argument, main.inputs.to_list()) for argument in main.argv[1:]]
-    asserts.true(env, main_argv[0].startswith("output=") and main_argv[0].endswith("/lib/dev-plugin.jar"), main_argv[0])
-    asserts.true(env, main_argv[1].startswith("metadata-file=") and main_argv[1].endswith("/lib/dev-plugin.jar.json"), main_argv[1])
-    rest = main_argv[2:]
-    if ctx.attr.spans:
-        asserts.true(env, rest[0].startswith("trace-file=") and rest[0].endswith("/lib/dev-plugin.spans.json"), rest[0])
-        rest = rest[1:]
-    asserts.equals(env, "merge-entities=true", rest[0])
-    asserts.true(env, rest[1].startswith("patch=META-INF/plugin.xml=") and rest[1].endswith(_MAIN_MODULE + ".plugin.xml"), rest[1])
-    rest = rest[2:]
-    expected = ["module=" + jar.short_path for jar in module_jars] + ["library=" + jar.short_path for jar in library_jars]
-    asserts.equals(env, expected, rest)
 
-    # A jar that merges a test-only module takes its test jar and the writer flags of every other jar. Its one source
-    # is a module output, whose manifest survives without a flag. It has no directory entries.
-    tests_pack = _pack_action(packs, "tests.jar")
-    tests_argv = [_with_short_path(argument, tests_pack.inputs.to_list()) for argument in tests_pack.argv[1:]]
-    tests_flags = [argument for argument in tests_argv if not argument.startswith(("output=", "metadata-file=", "trace-file=", "module="))]
-    asserts.equals(env, ["merge-entities=true"], tests_flags)
-    asserts.equals(env, ["module=" + ctx.file.test_jar.short_path], [argument for argument in tests_argv if argument.startswith("module=")])
+    # The three jars are payload of the component, at the path the component would give them.
+    for basename in ["dev-plugin.jar", "tests.jar", "foo.jar"]:
+        placed = [file for file in payload if file.basename == basename]
+        asserts.equals(env, 1, len(placed), basename)
+        asserts.true(env, placed[0].short_path.endswith("/" + target.label.name + "/lib/" + basename), placed[0].short_path)
 
-    # A jar file token is one archive: the jar takes that file and nothing else.
-    single = _pack_action(packs, "foo.jar")
-    single_libraries = [argument for argument in single.argv if argument.startswith("library=")]
-    asserts.equals(env, 1, len(single_libraries))
-    asserts.true(env, single_libraries[0].endswith("/foo-1.2.3.jar"), single_libraries[0])
-    asserts.equals(env, [], [argument for argument in single.argv if argument.startswith("module=") or argument.startswith("patch=")])
-
-    # Every compiled input comes from the neutral configuration, not from the component's product configuration. Only
-    # the descriptor is product specific. The roots are compared, and not tested for `-ST-`: under an analysis test the
-    # neutral configuration still carries the analysis-test marker and therefore a hash of its own.
+    # The component has no stamp class, so its incoming transition drops the product that the test sets. Its compiled
+    # inputs, its descriptor and the component itself then share the neutral configuration, and no product packs it
+    # again. The roots are compared, and not tested for `-ST-`: under an analysis test the neutral configuration still
+    # carries the analysis-test marker and therefore a hash of its own.
     component_root = fragment.manifest.root.path
-    for action in packs:
-        for file in action.inputs.to_list():
-            if file.basename.endswith(".plugin.xml"):
-                asserts.equals(env, component_root, file.root.path, file.path)
-            elif not file.is_source:
-                asserts.false(env, component_root == file.root.path, file.path)
+    for file in payload:
+        if not file.is_source:
+            asserts.equals(env, component_root, file.root.path, file.path)
     reused = [jar for jar in payload if jar.short_path == content.jar.short_path]
     asserts.equals(env, 1, len(reused))
-    asserts.false(env, component_root == reused[0].root.path, reused[0].path)
+    asserts.equals(env, component_root, reused[0].root.path, reused[0].path)
     copied_helper = [file for file in payload if file.short_path == helper.short_path]
     asserts.equals(env, 1, len(copied_helper))
-    asserts.false(env, component_root == copied_helper[0].root.path, copied_helper[0].path)
+    asserts.equals(env, component_root, copied_helper[0].root.path, copied_helper[0].path)
 
     # The collector spec names every jar with its destination and the ready classpath descriptor. The jars come in
     # `classpath_jars` order, which puts the reused jar first here.
@@ -269,7 +245,7 @@ def _dev_plugin_test_impl(ctx):
     asserts.equals(env, [{"module": module} for module in content.member_modules], part["jars"][0]["members"])
 
     # The raw content: every merged module jar, the members of the reused content module jar, and every library the
-    # plugin names, the jar file token included. Neutral, like the packed inputs, so compared by short path.
+    # plugin names, the jar file token included. Neutral, like the packed inputs and the component itself.
     raw_content = target[DevDistContentInfo]
     asserts.equals(
         env,
@@ -281,8 +257,91 @@ def _dev_plugin_test_impl(ctx):
     asserts.equals(env, [jar.short_path for jar in library_jars], raw_libraries[str(ctx.attr.library.label)])
     asserts.equals(env, [ctx.file.single_jar.short_path], raw_libraries[str(ctx.attr.single_jar.label)])
     for file in raw_content.module_jars.to_list():
-        asserts.false(env, component_root == file.root.path, file.path)
+        asserts.equals(env, component_root, file.root.path, file.path)
     return analysistest.end(env)
+
+def _dev_plugin_descriptor_jars_test_impl(ctx):
+    """The descriptor jars target packs the jar of the main module with the patched descriptor.
+
+    The flag file names the distribution name, the patch, the modules in order, then the library, as `JarPackager`
+    orders the jar.
+    """
+    env = analysistest.begin(ctx)
+    packs = [action for action in analysistest.target_actions(env) if action.mnemonic == "PackDevPluginJar"]
+    asserts.equals(env, ["dev-plugin.jar"], [file.basename for action in packs for file in action.outputs.to_list() if file.extension == "jar"])
+    main = _pack_action(packs, "dev-plugin.jar")
+    module_jars = [module[_KtJvmInfo].all_output_jars[0] for module in ctx.attr.modules]
+    library_jars = ctx.attr.library[JavaInfo].transitive_runtime_jars.to_list()
+    main_argv = [_with_short_path(argument, main.inputs.to_list()) for argument in main.argv[1:]]
+    asserts.true(env, main_argv[0].startswith("output=") and main_argv[0].endswith("/lib/dev-plugin.jar"), main_argv[0])
+    asserts.true(env, main_argv[1].startswith("metadata-file=") and main_argv[1].endswith("/lib/dev-plugin.jar.json"), main_argv[1])
+    rest = main_argv[2:]
+    if ctx.attr.spans:
+        asserts.true(env, rest[0].startswith("trace-file=") and rest[0].endswith("/lib/dev-plugin.spans.json"), rest[0])
+        rest = rest[1:]
+    asserts.equals(env, "merge-entities=true", rest[0])
+    asserts.true(env, rest[1].startswith("patch=META-INF/plugin.xml=") and rest[1].endswith(_MAIN_MODULE + ".plugin.xml"), rest[1])
+    rest = rest[2:]
+    expected = ["module=" + jar.short_path for jar in module_jars] + ["library=" + jar.short_path for jar in library_jars]
+    asserts.equals(env, expected, rest)
+
+    return analysistest.end(env)
+
+_DESCRIPTOR_JARS_ATTRS = {
+    "library": attr.label(mandatory = True, providers = [JavaInfo]),
+    "modules": attr.label_list(mandatory = True, providers = [_KtJvmInfo]),
+    "spans": attr.bool(),
+}
+
+_dev_plugin_descriptor_jars_test = analysistest.make(
+    _dev_plugin_descriptor_jars_test_impl,
+    attrs = _DESCRIPTOR_JARS_ATTRS,
+    config_settings = {_PRODUCT_INFO_FLAG: _PRODUCT_INFO},
+)
+
+_dev_plugin_descriptor_jars_spans_test = analysistest.make(
+    _dev_plugin_descriptor_jars_test_impl,
+    attrs = _DESCRIPTOR_JARS_ATTRS,
+    config_settings = {_PRODUCT_INFO_FLAG: _PRODUCT_INFO, _TRACE_SPANS: True},
+)
+
+def _dev_plugin_inputs_test_impl(ctx):
+    """The inputs target packs every jar without the main module, in the neutral configuration.
+
+    It declares each jar below the name of the component, so a jar keeps the path the component gave it before.
+    """
+    env = analysistest.begin(ctx)
+    packs = [action for action in analysistest.target_actions(env) if action.mnemonic == "PackDevPluginJar"]
+    asserts.equals(env, ["foo.jar", "tests.jar"], sorted([file.basename for action in packs for file in action.outputs.to_list() if file.extension == "jar"]))
+    for action in packs:
+        jar = [file for file in action.outputs.to_list() if file.extension == "jar"][0]
+        asserts.true(env, jar.short_path.endswith("/" + ctx.attr.component_name + "/lib/" + jar.basename), jar.short_path)
+
+    # A jar that merges a test-only module takes its test jar and the writer flags of every other jar. Its one source
+    # is a module output, whose manifest survives without a flag. It has no directory entries.
+    tests_pack = _pack_action(packs, "tests.jar")
+    tests_argv = [_with_short_path(argument, tests_pack.inputs.to_list()) for argument in tests_pack.argv[1:]]
+    tests_flags = [argument for argument in tests_argv if not argument.startswith(("output=", "metadata-file=", "trace-file=", "module="))]
+    asserts.equals(env, ["merge-entities=true"], tests_flags)
+    asserts.equals(env, ["module=" + ctx.file.test_jar.short_path], [argument for argument in tests_argv if argument.startswith("module=")])
+
+    # A jar file token is one archive: the jar takes that file and nothing else.
+    single = _pack_action(packs, "foo.jar")
+    single_libraries = [argument for argument in single.argv if argument.startswith("library=")]
+    asserts.equals(env, 1, len(single_libraries))
+    asserts.true(env, single_libraries[0].endswith("/foo-1.2.3.jar"), single_libraries[0])
+    asserts.equals(env, [], [argument for argument in single.argv if argument.startswith("module=") or argument.startswith("patch=")])
+
+    return analysistest.end(env)
+
+_dev_plugin_inputs_test = analysistest.make(
+    _dev_plugin_inputs_test_impl,
+    attrs = {
+        "component_name": attr.string(mandatory = True),
+        "test_jar": attr.label(mandatory = True, allow_single_file = [".jar"]),
+    },
+    config_settings = {_PRODUCT_INFO_FLAG: _PRODUCT_INFO},
+)
 
 _DEV_PLUGIN_ATTRS = {
     "content_jar": attr.label(mandatory = True, providers = [ContentModuleJarInfo]),
@@ -347,25 +406,28 @@ def _mode_test_impl(ctx):
     merges a refused module with a kept one is packed whole.
     """
     env = analysistest.begin(ctx)
+    target = analysistest.target_under_test(env)
     actions = analysistest.target_actions(env)
-    packed = sorted([file.basename for action in actions if action.mnemonic == "PackDevPluginJar" for file in action.outputs.to_list() if file.basename.endswith(".jar")])
     specs = [action for action in actions if [file for file in action.outputs.to_list() if file.basename.endswith(".packed.json")]]
     asserts.equals(env, 1, len(specs))
     destinations = sorted([jar["destination"] for jar in json.decode(specs[0].content)["jars"]])
-    asserts.equals(env, sorted(ctx.attr.expected_packed), packed)
     asserts.equals(env, sorted(ctx.attr.expected_destinations), destinations)
-    merged = [action for action in actions if action.mnemonic == "PackDevPluginJar" and [file for file in action.outputs.to_list() if file.basename == "mode.jar"]]
-    asserts.equals(env, 1, len(merged))
-    asserts.true(env, [input for input in merged[0].inputs.to_list() if input.basename.endswith("split.jar")] != [], "the mixed jar keeps the refused module")
+
+    # The leaf embeds every content module, so its bytes read no mode. The jar of the main module then packs without
+    # the mode, in another configuration than the component of the frontend.
+    payload = target[IntellijDevFragmentInfo].payload.to_list()
+    asserts.equals(env, sorted([destination.split("/")[-1] for destination in ctx.attr.expected_destinations]), sorted([file.basename for file in payload]))
+    component_root = target[IntellijDevFragmentInfo].manifest.root.path
+    for file in payload:
+        asserts.false(env, component_root == file.root.path, file.path)
     return analysistest.end(env)
 
 _mode_test = analysistest.make(
     _mode_test_impl,
     attrs = {
-        "expected_packed": attr.string_list(mandatory = True),
         "expected_destinations": attr.string_list(mandatory = True),
     },
-    config_settings = {_PRODUCT_INFO_FLAG: _FRONTEND_PRODUCT_INFO},
+    config_settings = {_PRODUCT_INFO_FLAG: _FRONTEND_PRODUCT_INFO, _STAMP_CLASS_FLAG: "frontend"},
 )
 
 def _expected_failure_test_impl(ctx):
@@ -380,13 +442,6 @@ _failure_test = analysistest.make(
     expect_failure = True,
     attrs = _FAILURE_ATTRS,
     config_settings = {_PRODUCT_INFO_FLAG: _PRODUCT_INFO},
-)
-
-_no_prefix_failure_test = analysistest.make(
-    _expected_failure_test_impl,
-    expect_failure = True,
-    attrs = _FAILURE_ATTRS,
-    config_settings = {_PRODUCT_INFO_FLAG: _NO_PREFIX_PRODUCT_INFO},
 )
 
 def _declaration_test_impl(ctx):
@@ -470,16 +525,10 @@ def dev_plugin_test_suite(name):
     dev_dist_product_info(
         name = name + "_product_info",
         application_info = _FIXTURE_APPLICATION_INFO,
-        platform_prefix = "idea",
-    )
-    dev_dist_product_info(
-        name = name + "_no_prefix_product_info",
-        application_info = _FIXTURE_APPLICATION_INFO,
     )
     dev_dist_product_info(
         name = name + "_frontend_product_info",
         application_info = _FIXTURE_APPLICATION_INFO,
-        platform_prefix = "client",
         mode = "frontend",
     )
 
@@ -575,6 +624,22 @@ def dev_plugin_test_suite(name):
             spans = spans,
             test_jar = ":" + tests_lib + ".jar",
         )
+    for suffix, test_rule, spans in [("_test", _dev_plugin_descriptor_jars_test, False), ("_spans_test", _dev_plugin_descriptor_jars_spans_test, True)]:
+        tests.append(component + "_descriptor_jars" + suffix)
+        test_rule(
+            name = tests[-1],
+            target_under_test = ":" + component + "_descriptor_jars",
+            library = ":" + library,
+            modules = [":" + owner, ":" + split],
+            spans = spans,
+        )
+    tests.append(component + "_inputs_test")
+    _dev_plugin_inputs_test(
+        name = tests[-1],
+        target_under_test = ":" + component + "_inputs",
+        component_name = component,
+        test_jar = ":" + tests_lib + ".jar",
+    )
 
     for case, jars, classpath_jars, message, test_rule in [
         ("no_main", {"lib/x.jar": [_SPLIT_MODULE]}, [], "is merged into no jar", _failure_test),
@@ -582,7 +647,6 @@ def dev_plugin_test_suite(name):
         ("unknown_library", {"lib/x.jar": [_MAIN_MODULE, "//nowhere:lib"]}, [], "which `libraries` does not declare", _failure_test),
         ("twice", {"lib/x.jar": [_MAIN_MODULE, _MAIN_MODULE]}, [], "names module 'test.dev.plugin' twice", _failure_test),
         ("classpath", {"lib/x.jar": [_MAIN_MODULE], "lib/y.jar": [_SPLIT_MODULE]}, ["lib/y.jar"], "must name every jar once", _failure_test),
-        ("no_prefix", {"lib/x.jar": [_MAIN_MODULE]}, [], "requires a product configuration", _no_prefix_failure_test),
     ]:
         failing = name + "_failing_" + case
         dev_plugin(
@@ -690,7 +754,7 @@ def dev_plugin_test_suite(name):
     tests.append(_copies_macro_test(name, helper_token, resources_token, resources_prefix, tree_token))
 
     # One leaf serves a frontend product: it names the split module and the member as refused there. The distribution
-    # packs the mixed `lib/mode.jar` whole, packs no `lib/split.jar`, and places no reused member jar.
+    # places the mixed `lib/mode.jar` whole, places no `lib/split.jar`, and places no reused member jar.
     mode_owner = name + "_mode_owner"
     _fixture_module(name = mode_owner, module_name = _MODE_MODULE)
     dev_dist_plugin_descriptor(
@@ -711,13 +775,33 @@ def dev_plugin_test_suite(name):
             "lib/mode.jar": [_MODE_MODULE, _SPLIT_MODULE],
             "lib/split.jar": [_SPLIT_MODULE, library_token],
         },
+        stamp_class_modes = ["frontend"],
     )
     tests.append(mode_component + "_test")
     _mode_test(
         name = tests[-1],
         target_under_test = ":" + mode_component,
-        expected_packed = ["mode.jar"],
         expected_destinations = ["lib/mode.jar"],
     )
+
+    # A component must state the stamp class of its descriptor. Without the mode, the component would build under no
+    # mode, and its descriptor would embed no refused module.
+    for case, modes, retain, message in [
+        ("no_modes", [], False, "states the stamp class modes [], and its descriptor states [\"frontend\"]"),
+        ("retain", ["frontend"], True, "states retain_product_descriptor = True, and its descriptor states False"),
+    ]:
+        mismatch = name + "_stamp_class_" + case
+        dev_plugin(
+            name = mismatch,
+            main_module = _MODE_MODULE,
+            descriptor = ":" + dev_dist_plugin_descriptor_target_name(_MODE_MODULE),
+            plugin_directory = "plugins/mode",
+            modules = {":" + mode_owner: _MODE_MODULE},
+            jars = {"lib/mode.jar": [_MODE_MODULE]},
+            stamp_class_modes = modes,
+            retain_product_descriptor = retain,
+        )
+        tests.append(mismatch + "_test")
+        _failure_test(name = tests[-1], target_under_test = ":" + mismatch, expected_message = message)
 
     native.test_suite(name = name, tests = tests)

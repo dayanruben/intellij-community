@@ -3,13 +3,15 @@
 The layout of the repository is derived in Bazel. The platform payload states what each platform jar merges, and each
 plugin component states the layout part of its own jars, see `DevDistRuntimeLayoutInfo`. The plan generator states
 only the platform jars before and after the sorted range, see `dev_dist_platform_jar_order.bzl`. `runtime-layout` joins
-the parts into the `RuntimeModuleRepositoryLayout`, and `runtime_module_repository_generator` writes the repository
-from it, the project model and the plugin descriptors.
+the parts into the `RuntimeModuleRepositoryLayout` and selects the module facts of its modules from the facts of the
+project model, see `dev_dist_runtime_module_facts`. `runtime_module_repository_generator` writes the repository from
+the layout, the selected facts and the plugin descriptors.
 """
 
 load(":dev_dist_content.bzl", "DevDistPlatformPayloadInfo")
 load(":dev_dist_platform_jar_order.bzl", "platform_jar_order")
-load(":dev_dist_plugin_descriptor.bzl", "DEV_DIST_PRODUCT_INFO_ATTR", "dev_dist_product_info_transition")
+load(":dev_dist_plugin_descriptor.bzl", "DEV_DIST_PRODUCT_INFO_ATTR", "dev_dist_check_product_stamp_class", "dev_dist_product_info_transition")
+load(":dev_dist_tool_info.bzl", "dev_dist_tool_inputs")
 load(":dev_plugin.bzl", "DevDistRuntimeLayoutInfo")
 load(":intellij_dev_dist.bzl", "IntellijProjectModelTreeInfo")
 
@@ -19,6 +21,7 @@ DevDistRuntimeLayoutPartsInfo = provider(
 )
 
 def _dev_dist_runtime_layout_parts_impl(ctx):
+    dev_dist_check_product_stamp_class(ctx)
     plugins = [target[DevDistRuntimeLayoutInfo] for target in ctx.attr.plugins]
     return [
         DefaultInfo(files = depset([info.part for info in plugins] + [info.descriptor for info in plugins])),
@@ -99,16 +102,20 @@ def _dev_dist_runtime_module_repository_impl(ctx):
             inputs.append(info.descriptor)
 
     layout = ctx.actions.declare_file(ctx.label.name + ".runtime-module-repository-layout.json")
+    selected_facts = ctx.actions.declare_file(ctx.label.name + ".runtime-module-facts.json")
     layout_args = ctx.actions.args()
     layout_args.add_all(parts, format_each = "--part=%s")
     layout_args.add_all(frontend_parts, format_each = "--frontend-only-part=%s")
     layout_args.add(ctx.file.bazel_targets_json, format = "--bazel-targets=%s")
     layout_args.add(layout, format = "--output=%s")
+    layout_args.add(ctx.file.runtime_module_facts, format = "--module-facts=%s")
+    layout_args.add(selected_facts, format = "--selected-facts=%s")
     ctx.actions.run(
         mnemonic = "DevDistRuntimeLayout",
         executable = ctx.executable._runtime_layout,
-        inputs = depset(parts + frontend_parts + inputs + [ctx.file.bazel_targets_json]),
-        outputs = [layout],
+        tools = dev_dist_tool_inputs(ctx.attr._runtime_layout),
+        inputs = depset(parts + frontend_parts + inputs + [ctx.file.bazel_targets_json, ctx.file.runtime_module_facts]),
+        outputs = [layout, selected_facts],
         arguments = [layout_args],
         progress_message = "Assembling the runtime module repository layout of %{label}",
     )
@@ -116,11 +123,10 @@ def _dev_dist_runtime_module_repository_impl(ctx):
     # Every plugin of the layout by its descriptor module, as `RuntimeModuleRepositoryMain` requires.
     descriptor_args = ["--descriptor=%s=%s" % (module, descriptor.path) for module, descriptor in descriptors.items()]
 
-    project_tree = ctx.attr.project_model_tree[IntellijProjectModelTreeInfo].tree
     args = ctx.actions.args()
     args.set_param_file_format("multiline")
     args.use_param_file("@%s", use_always = True)
-    args.add("--project-dir=" + project_tree.path)
+    args.add(selected_facts, format = "--module-facts=%s")
     args.add(layout, format = "--layout=%s")
     args.add_all(descriptor_args)
     args.add_all(ctx.files.ide_properties, format_each = "--ide-properties=%s")
@@ -128,24 +134,70 @@ def _dev_dist_runtime_module_repository_impl(ctx):
     ctx.actions.run(
         mnemonic = "DevDistRuntimeModuleRepository",
         executable = ctx.executable._generator,
-        inputs = depset([project_tree, layout] + inputs + ctx.files.ide_properties),
+        inputs = depset([selected_facts, layout] + inputs + ctx.files.ide_properties),
         outputs = [ctx.outputs.compact, ctx.outputs.jar],
         arguments = [args],
-        # The project model tree is large and changes with every model edit, so this action uses the local disk cache
-        # only, as the references that read the tree do.
+        # The remote cache gave no gain for this action, see
+        # `build/docs/decisions/2026-11-04-a-packed-output-stays-out-of-the-remote-cache.md`.
         execution_requirements = {"block-network": "1", "no-remote-cache": "1", "no-remote-exec": "1"},
+        resource_set = _repository_resources,
         progress_message = "Generating the runtime module repository of %{label}",
     )
     return [
         DefaultInfo(files = depset([ctx.outputs.compact, ctx.outputs.jar])),
-        OutputGroupInfo(runtime_module_repository_layout = depset([layout])),
+        OutputGroupInfo(runtime_module_repository_layout = depset([layout, selected_facts])),
     ]
+
+def _repository_resources(_os, _inputs):
+    """The generator reads the selected module facts and the descriptors. It peaks at about 320 MB."""
+    return {"cpu": 1, "memory": 512}
+
+def _facts_writer_resources(_os, _inputs):
+    """The facts writer loads the project model. It peaks at about 740 MB."""
+    return {"cpu": 1, "memory": 1024}
+
+def _dev_dist_runtime_module_facts_impl(ctx):
+    output = ctx.actions.declare_file(ctx.label.name + ".json")
+    project_tree = ctx.attr.project_model_tree[IntellijProjectModelTreeInfo].tree
+    args = ctx.actions.args()
+    args.add("--project-dir=" + project_tree.path)
+    args.add(output, format = "--output=%s")
+    ctx.actions.run(
+        mnemonic = "DevDistRuntimeModuleFacts",
+        executable = ctx.executable._writer,
+        inputs = [project_tree],
+        outputs = [output],
+        arguments = [args],
+        # A remote hit downloads the 10 MB output, which takes about as long as the action on the measured link. So
+        # only the disk cache applies, see `build/docs/decisions/2026-11-04-a-packed-output-stays-out-of-the-remote-cache.md`.
+        execution_requirements = {"block-network": "1", "no-remote-cache": "1", "no-remote-exec": "1"},
+        resource_set = _facts_writer_resources,
+        progress_message = "Writing the runtime module facts of %{label}",
+    )
+    return [DefaultInfo(files = depset([output]))]
+
+dev_dist_runtime_module_facts = rule(
+    doc = """Writes the runtime module facts of every module of a project model tree, see `RuntimeModuleFactsTable`.
+
+One target serves every product. The runtime layout of a product selects the facts of its modules, so an edit of the
+project model re-runs the repository action of a product only when a fact of one of its modules changes.""",
+    implementation = _dev_dist_runtime_module_facts_impl,
+    attrs = {
+        "project_model_tree": attr.label(mandatory = True, providers = [IntellijProjectModelTreeInfo]),
+        "_writer": attr.label(
+            default = "//platform/build-scripts/runtime-module-repository:runtime_module_facts_writer",
+            executable = True,
+            cfg = "exec",
+        ),
+    },
+)
 
 dev_dist_runtime_module_repository = rule(
     doc = """Writes `modules/module-descriptors.dat` and `modules/module-descriptors.jar` of a dev distribution.
 
 The two files are predeclared outputs, `<name>.home/modules/module-descriptors.dat` and `.jar`, so a component places
-them by label. The output group `runtime_module_repository_layout` holds the layout the repository is generated from.
+them by label. The output group `runtime_module_repository_layout` holds the layout and the selected module facts that
+the repository is generated from.
 """,
     implementation = _dev_dist_runtime_module_repository_impl,
     outputs = {
@@ -166,7 +218,11 @@ them by label. The output group `runtime_module_repository_layout` holds the lay
         "frontend_last_jars": attr.string_list(doc = "The platform jars of the embedded frontend after the sorted range."),
         "frontend_plugins": attr.label(providers = [DevDistRuntimeLayoutPartsInfo], doc = "The layout parts of the plugins that only the embedded frontend bundles."),
         "ide_properties": attr.label_list(allow_files = True, doc = "The `idea.properties` of the product, which can suppress plugins."),
-        "project_model_tree": attr.label(mandatory = True, providers = [IntellijProjectModelTreeInfo]),
+        "runtime_module_facts": attr.label(
+            mandatory = True,
+            allow_single_file = [".json"],
+            doc = "The runtime module facts of the project model, see `dev_dist_runtime_module_facts`.",
+        ),
         "bazel_targets_json": attr.label(mandatory = True, allow_single_file = [".json"]),
         "_runtime_layout": attr.label(default = "//platform/build-scripts/bazel-rules:runtime_layout", executable = True, cfg = "exec"),
         "_generator": attr.label(

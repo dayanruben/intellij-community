@@ -6,6 +6,7 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.util.SystemInfoRt
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.ui.ComponentUtil
+import com.intellij.util.containers.ContainerUtil
 import com.intellij.util.ui.EdtInvocationManager
 import com.intellij.util.ui.MacScrollbarPreferences
 import java.awt.AWTEvent
@@ -14,8 +15,6 @@ import java.awt.Graphics2D
 import java.awt.Toolkit
 import java.awt.event.AWTEventListener
 import java.awt.event.MouseEvent
-import java.lang.ref.Reference
-import java.lang.ref.WeakReference
 import java.util.concurrent.atomic.AtomicReference
 import javax.swing.JComponent
 import javax.swing.JScrollBar
@@ -158,11 +157,11 @@ internal open class MacScrollBarUI : DefaultScrollBarUI {
     super.installUI(c)
     if (SystemInfoRt.isMac) {
       updateStyle(CURRENT_STYLE())
+      processReferences(toAdd = this, toRemove = null, list = null)
     }
     else {
       updateStyle(MacScrollbarStyle.Overlay)
     }
-    processReferences(toAdd = this, toRemove = null, list = null)
     val listener = MOVEMENT_LISTENER.getAndSet(null)
     if (listener != null) {
       Toolkit.getDefaultToolkit().addAWTEventListener(listener, AWTEvent.MOUSE_MOTION_EVENT_MASK)
@@ -170,7 +169,9 @@ internal open class MacScrollBarUI : DefaultScrollBarUI {
   }
 
   override fun uninstallUI(c: JComponent) {
-    processReferences(toAdd = null, toRemove = this, list = null)
+    if (SystemInfoRt.isMac) {
+      processReferences(toAdd = null, toRemove = this, list = null)
+    }
     super.uninstallUI(c)
   }
 
@@ -224,34 +225,26 @@ private abstract class MacScrollbarNative<T> : Runnable, () -> T? {
   }
 }
 
-private val UI = ArrayList<Reference<MacScrollBarUI>>()
+private val UI: MutableSet<MacScrollBarUI> = ContainerUtil.createWeakSet()
 
 /**
- * Processes references in the static list of references synchronously.
- * This method removes all cleared references and the reference specified to remove,
- * collects objects from other references into the specified list and
- * adds the reference specified to add.
+ * Processes the static weak set of installed UIs synchronously.
+ * This method removes the object specified to remove,
+ * collects the other objects into the specified list and
+ * adds the object specified to add.
  *
- * @param toAdd    the object to add to the static list of references (ignored if `null`)
- * @param toRemove the object to remove from the static list of references (ignored if `null`)
+ * @param toAdd    the object to add to the static set (ignored if `null`)
+ * @param toRemove the object to remove from the static set (ignored if `null`)
  * @param list     the list to collect all available objects (ignored if `null`)
  */
 private fun processReferences(toAdd: MacScrollBarUI?, toRemove: MacScrollBarUI?, list: MutableList<MacScrollBarUI>?) {
   synchronized(UI) {
-    val iterator = UI.iterator()
-    while (iterator.hasNext()) {
-      val reference = iterator.next()
-      val ui = reference.get()
-      if (ui == null || ui === toRemove) {
-        iterator.remove()
-      }
-      else {
-        list?.add(ui)
-      }
+    if (toRemove != null) {
+      UI.remove(toRemove)
     }
-
+    list?.addAll(UI)
     if (toAdd != null) {
-      UI.add(WeakReference(toAdd))
+      UI.add(toAdd)
     }
   }
 }

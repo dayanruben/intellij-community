@@ -260,9 +260,7 @@ object CollaborationToolsUIUtil {
   }
 
   fun getFocusBorderInset(): Int {
-    val bw: Int = if (UIUtil.isUnderDefaultMacTheme()) 3 else DarculaUIUtil.BW.unscaled.toInt()
-    val lw: Int = if (UIUtil.isUnderDefaultMacTheme()) 0 else DarculaUIUtil.LW.unscaled.toInt()
-    return bw + lw
+    return DarculaUIUtil.BW.unscaled.toInt() + DarculaUIUtil.LW.unscaled.toInt()
   }
 
   fun wrapWithLimitedSize(component: JComponent, maxWidth: Int? = null, maxHeight: Int? = null): JComponent {
@@ -285,12 +283,14 @@ object CollaborationToolsUIUtil {
     }
   }
 
-  fun getLabelBackground(hexColor: String): JBColor {
-    val color = ColorUtil.fromHex(hexColor)
-    return JBColor(color, ColorUtil.darker(color, 3))
+  @Suppress("UseJBColor")
+  fun getLabelBackgroundAndForeground(hexColor: String): Pair<JBColor, JBColor> {
+    val regularBackground = ColorUtil.fromHex(hexColor)
+    val darkBackground = ColorUtil.darker(regularBackground, 3)
+    val regularForeground = if (ColorUtil.isDark(regularBackground)) Color.WHITE else Color.BLACK
+    val darkForeground = if (ColorUtil.isDark(darkBackground)) Color.WHITE else Color.BLACK
+    return JBColor(regularBackground, darkBackground) to JBColor(regularForeground, darkForeground)
   }
-
-  fun getLabelForeground(bg: Color): Color = if (ColorUtil.isDark(bg)) JBColor.WHITE else JBColor.BLACK
 
   /**
    * Use method for different sizes depending on the type of UI (old/new).

@@ -1,6 +1,8 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.gradle.importing
 
+import com.intellij.gradle.testFramework.importing.GradleImportingTestCase
+import com.intellij.gradle.testFramework.junit4.VersionMatcherRule
 import com.intellij.openapi.application.edtWriteAction
 import com.intellij.openapi.externalSystem.importing.ImportSpec
 import com.intellij.openapi.externalSystem.importing.ImportSpecBuilder
@@ -18,7 +20,6 @@ import com.intellij.testFramework.runInEdtAndWait
 import com.intellij.toolWindow.ToolWindowHeadlessManagerImpl
 import groovy.util.Node
 import kotlinx.coroutines.runBlocking
-import org.jetbrains.plugins.gradle.tooling.VersionMatcherRule
 import org.junit.Test
 import org.junit.runners.Parameterized
 import java.io.File

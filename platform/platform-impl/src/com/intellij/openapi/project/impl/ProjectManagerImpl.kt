@@ -27,6 +27,7 @@ import com.intellij.ide.SaveAndSyncHandler
 import com.intellij.ide.cancelAndJoinBlocking
 import com.intellij.ide.cancelAndTryJoin
 import com.intellij.ide.frameInfo
+import com.intellij.ide.frameOwner
 import com.intellij.ide.impl.OpenProjectTask
 import com.intellij.ide.impl.ProjectUtil
 import com.intellij.ide.impl.runUnderModalProgressIfIsEdt
@@ -107,6 +108,7 @@ import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.openapi.wm.WindowManager
 import com.intellij.openapi.wm.ex.WindowManagerEx
 import com.intellij.openapi.wm.ex.isBackgroundActivitiesSuppressed
+import com.intellij.openapi.wm.impl.IdeFrameGuests
 import com.intellij.openapi.wm.impl.welcomeScreen.WelcomeFrame
 import com.intellij.platform.PROJECT_NEWLY_CREATED
 import com.intellij.platform.PROJECT_NEWLY_OPENED
@@ -417,7 +419,9 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
   override fun prepareProjectsForExit(checkCanClose: Boolean): PreparedProjectCloseBatch? {
     ThreadingAssertions.assertWriteIntentReadAccess()
     check(!ApplicationManager.getApplication().isWriteAccessAllowed)
+    // a frame guest closes before the owner of its frame, so an owner never releases a frame that still shows a guest
     val projects = (openProjects.toList() + listOfNotNull(LightEditUtil.getProjectIfCreated())).distinct()
+      .sortedBy { if (IdeFrameGuests.isFrameGuest(it)) 0 else 1 }
     // a light project is closed by `closeProject` without a save, so it has no veto and no preparation
     val heavyProjects = projects.filter { !it.isDisposed && !isLight(it) }
     if (checkCanClose && !heavyProjects.all { canClose(it) }) {
@@ -480,7 +484,8 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
       projectImpl.setTemporarilyDisposed(false)
     }
     else if (!isProjectOpened(project) && !LightEdit.owns(project)) {
-      if (dispose) {
+      // a project that is disposed already is closed already
+      if (dispose && !project.isDisposed) {
         if (project is ComponentManagerEx) {
           project.stopServicePreloading()
         }
@@ -495,7 +500,8 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
       return true
     }
 
-    if (checkCanClose && !canClose(project)) {
+    val guests = frameGuestsToCloseWith(project)
+    if (checkCanClose && !canCloseWithGuests(project, guests)) {
       return false
     }
 
@@ -516,9 +522,58 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
         return@withDisabledAutoSaveBlocking false
       }
 
+      // the owner is sure to close now, so a guest never closes for an owner that stays open
+      if (!closeFrameGuests(owner = project, askedGuests = guests, saveProject = saveProject, checkCanClose = checkCanClose)) {
+        return@withDisabledAutoSaveBlocking false
+      }
+
       closePreparedProject(project, dispose, projectCloseStartedMs, projectSaveSettingsDurationMs)
       true
     }
+  }
+
+  /**
+   * The open frame guests of [project] that its close asks for a veto. They close with [project], before it, so no guest
+   * stays open with a released frame, see [closeFrameGuests]. A guest whose open is in progress is not asked: its open ends
+   * as cancelled when [project] closes. An exit closes every project itself, the guests before the owners, see
+   * [prepareProjectsForExit].
+   */
+  private fun frameGuestsToCloseWith(project: Project): List<Project> {
+    if (ApplicationManagerEx.getApplicationEx().isExitInProgress) return emptyList()
+    return IdeFrameGuests.frameGuestsOf(project).filter { !it.isDisposed && it.frameGuestOpening == null }
+  }
+
+  /**
+   * Asks the close handlers of [project] and of each open guest in [guests] once, before any of them closes.
+   * A guest that is still opening is not asked, as any project that is not open. A guest whose owner asked already is not asked again.
+   */
+  private fun canCloseWithGuests(project: Project, guests: List<Project>): Boolean {
+    if (project.getUserData(FRAME_GUEST_CLOSE_ASKED_KEY) == true) return true
+    return canClose(project) && guests.all { !isProjectOpened(it) || canClose(it) }
+  }
+
+  /**
+   * Closes the frame guests of [owner] one by one, at the point of no return of its close: [owner] saved and confirmed its
+   * close, so no guest closes for an owner that stays open. A guest whose open is in progress is not closed here: its
+   * allocator ends the open as cancelled, see [FrameGuestOpening.endForOwnerClose], and the open closes the guest on its own.
+   * A guest that finished its open after the veto check is not in [askedGuests], and its own close asks it.
+   * A guest that stays open stops the close, and the guests closed before it stay closed.
+   */
+  private fun closeFrameGuests(owner: Project, askedGuests: List<Project>, saveProject: Boolean, checkCanClose: Boolean): Boolean {
+    if (ApplicationManagerEx.getApplicationEx().isExitInProgress) return true
+    for (guest in IdeFrameGuests.frameGuestsOf(owner)) {
+      if (guest.isDisposed || guest.frameGuestOpening?.endForOwnerClose() == true) continue
+      val asked = guest in askedGuests
+      if (asked) guest.putUserData(FRAME_GUEST_CLOSE_ASKED_KEY, true)
+      val closed = try {
+        closeProject(project = guest, saveProject = saveProject, dispose = true, checkCanClose = checkCanClose)
+      }
+      finally {
+        if (asked) guest.putUserData(FRAME_GUEST_CLOSE_ASKED_KEY, null)
+      }
+      if (!closed) return false
+    }
+    return true
   }
 
   private fun prepareProjectClose(project: Project) {
@@ -794,22 +849,7 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
   }
 
   private fun getProjectToClose(options: OpenProjectTask): Project? {
-    options.projectToClose?.let {
-      if (!it.isDefault) {
-        return it
-      }
-    }
-    val openProjects = openProjects
-    if (openProjects.isEmpty()) return null
-
-    // if several projects are opened, ask to reuse not last opened project frame, but last focused (to avoid focus switching)
-    val lastFocusedFrame = IdeFocusManager.getGlobalInstance().lastFocusedFrame
-    var projectToClose = lastFocusedFrame?.project
-    if (projectToClose == null || projectToClose is LightEditCompatible) {
-      projectToClose = openProjects.last()
-    }
-
-    return projectToClose
+    return resolveProjectToClose(options, openProjects.toList(), lastFocusedProject = { IdeFocusManager.getGlobalInstance().lastFocusedFrame?.project })
   }
 
   private suspend fun doOpenAsync(options: OpenProjectTask, projectIdentityFile: Path): Project? {
@@ -931,6 +971,8 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
       }
 
       if (unitTestMode) {
+        // a frame guest leaves the record here too; the rest of `failedToOpenProject` has no place in a test
+        frameAllocator.projectNotLoaded(cannotConvertException = null)
         throw e
       }
 
@@ -962,13 +1004,7 @@ open class ProjectManagerImpl : ProjectManagerEx(), Disposable {
   }
 
   protected open fun createFrameAllocator(projectStoreBaseDir: Path, options: OpenProjectTask): ProjectFrameAllocator {
-    val app = ApplicationManager.getApplication()
-    if (app.isHeadlessEnvironment || app.isUnitTestMode) {
-      return HeadlessProjectFrameAllocator()
-    }
-    else {
-      return IdeProjectFrameAllocator(options, projectStoreBaseDir)
-    }
+    return createProjectFrameAllocator(options, projectStoreBaseDir)
   }
 
   private suspend fun cancelProjectOpening(project: Project?, e: CancellationException? = null) {
@@ -1381,6 +1417,13 @@ private fun message(e: Throwable): String {
 private val LOG = logger<ProjectManagerImpl>()
 
 private val LISTENERS_IN_PROJECT_KEY = Key.create<MutableList<ProjectManagerListener>>("LISTENERS_IN_PROJECT_KEY")
+
+/**
+ * Set on a frame guest while the close of its owner closes it: the owner close asked the close handlers of the guest
+ * already, see `ProjectManagerImpl.closeProject`. Used under the write-intent lock.
+ */
+private val FRAME_GUEST_CLOSE_ASKED_KEY = Key.create<Boolean>("Project.FrameGuestCloseAsked")
+
 private val CLOSE_HANDLER_EP = ExtensionPointName<ProjectCloseHandler>("com.intellij.projectCloseHandler")
 
 private fun getListeners(project: Project): List<ProjectManagerListener> = project.getUserData(LISTENERS_IN_PROJECT_KEY) ?: emptyList()
@@ -1502,11 +1545,38 @@ class UnableToSaveProjectNotification(project: Project, readOnlyFiles: List<Virt
 /**
  * Whether the frame of [options] is initialized early: the frame content starts after the pre-init extensions of the project,
  * in parallel with the rest of the project preparation.
- * A new project gets it only when its opener asks with [OpenProjectTask.initFrameEarlyForNewProject].
+ * A new project gets it only when its opener asks with [OpenProjectTask.initFrameEarlyForNewProject], or when the project is a
+ * frame guest: the record of a guest must exist before its startup activities run, and only this path waits for the pre-init.
  */
 @VisibleForTesting
 internal fun isFrameInitializedEarly(options: OpenProjectTask): Boolean {
-  return (!options.isNewProject || options.initFrameEarlyForNewProject) && options.beforeOpen == null && options.project == null
+  val initFrameEarly = !options.isNewProject || options.initFrameEarlyForNewProject || options.frameOwner != null
+  return initFrameEarly && options.beforeOpen == null && options.project == null
+}
+
+/**
+ * The project whose frame the open of [options] may reuse, or `null` when the open takes no frame of another project.
+ *
+ * A frame guest takes no frame, so there is none to reuse. A project to close that is a frame guest stands for the owner of its
+ * frame. With several open projects, the frame of the last focused project is reused, so the focus does not switch.
+ * [lastFocusedProject] is read only then.
+ */
+@VisibleForTesting
+internal fun resolveProjectToClose(
+  options: OpenProjectTask,
+  openProjects: List<Project>,
+  lastFocusedProject: () -> Project?,
+  ownerOf: (Project) -> Project = IdeFrameGuests::frameOwnerOf,
+): Project? {
+  if (options.frameOwner != null) return null
+  options.projectToClose?.let {
+    if (!it.isDefault) {
+      return ownerOf(it)
+    }
+  }
+  if (openProjects.isEmpty()) return null
+  val projectToClose = lastFocusedProject()?.takeIf { it !is LightEditCompatible } ?: openProjects.last()
+  return ownerOf(projectToClose)
 }
 
 private class ProjectInitHelper(
@@ -1534,6 +1604,10 @@ private class ProjectInitHelper(
 
   fun notifyInit(project: Project) {
     initProjectDeferred.complete(project)
+  }
+
+  override fun cancelOpening(cause: CancellationException) {
+    cs.cancel(cause)
   }
 }
 

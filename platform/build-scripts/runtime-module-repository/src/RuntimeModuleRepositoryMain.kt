@@ -10,7 +10,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.system.exitProcess
 
-private const val PROJECT_DIR_OPTION = "--project-dir"
+private const val MODULE_FACTS_OPTION = "--module-facts"
 private const val LAYOUT_OPTION = "--layout"
 private const val DESCRIPTOR_OPTION = "--descriptor"
 private const val CONTENT_MODULE_DESCRIPTOR_OPTION = "--content-module-descriptor"
@@ -21,7 +21,7 @@ private const val OUTPUT_DIR_OPTION = "--output-dir"
  * Writes `modules/module-descriptors.dat` and `modules/module-descriptors.jar` of a distribution. It needs no build context.
  *
  * The options:
- * - `--project-dir=<dir>`: the JPS project model tree.
+ * - `--module-facts=<file>`: the [RuntimeModuleFactsTable] of the modules of the layout, see `RuntimeModuleFactsMain`.
  * - `--layout=<file>`: the [RuntimeModuleRepositoryLayout] of the distribution.
  * - `--descriptor=<module>=<file>`: the plugin descriptor of the plugin that [RuntimeModuleRepositoryPluginLayout.descriptorModule] names.
  *   Give one for each plugin of the layout. The descriptor has its `xi:include` references inlined. Each `<content><module>` element holds the descriptor of its
@@ -45,7 +45,7 @@ fun main(args: Array<String>) {
 
 internal fun generateRuntimeModuleRepositoryFromLayout(args: List<String>) {
   val options = parseOptions(expandArgumentFiles(args))
-  val projectDir = Path.of(options.single(PROJECT_DIR_OPTION))
+  val model = readRuntimeModuleFacts(Path.of(options.single(MODULE_FACTS_OPTION)))
   val layout = readRuntimeModuleRepositoryLayout(Path.of(options.single(LAYOUT_OPTION)))
   val descriptorFiles = options.keyedPaths(DESCRIPTOR_OPTION)
   val contentModuleDescriptorFiles = options.keyedPaths(CONTENT_MODULE_DESCRIPTOR_OPTION)
@@ -80,7 +80,7 @@ internal fun generateRuntimeModuleRepositoryFromLayout(args: List<String>) {
     pluginDescriptorsData = pluginDescriptorsData,
     pluginConfigurationModuleToDistributionEntries = pluginConfigurationModuleToDistributionEntries,
     additionalFrontendOnlyPluginModules = additionalFrontendOnlyPluginModules,
-    project = loadProject(projectDir),
+    model = model,
   )
   saveRuntimeModuleRepository(repository, outputDir.resolve(RUNTIME_REPOSITORY_MODULES_DIR_NAME))
 }
@@ -102,7 +102,7 @@ private fun readEmbeddedContentModuleDescriptors(pluginDescriptor: ByteArray): M
   return result
 }
 
-private fun loadProject(projectDir: Path): JpsProject {
+internal fun loadProject(projectDir: Path): JpsProject {
   // The repository needs only the names, the dependencies and the source roots of modules and libraries, so the library roots can stay unresolved.
   val pathVariables = mapOf("MAVEN_REPOSITORY" to projectDir.resolve(".m2").toString())
   return JpsSerializationManager.getInstance().loadProject(projectDir.toString(), pathVariables, false)
@@ -137,7 +137,7 @@ private class Options(private val values: Map<String, List<String>>) {
 }
 
 private val knownOptions = setOf(
-  PROJECT_DIR_OPTION, LAYOUT_OPTION, DESCRIPTOR_OPTION, CONTENT_MODULE_DESCRIPTOR_OPTION, IDE_PROPERTIES_OPTION, OUTPUT_DIR_OPTION,
+  MODULE_FACTS_OPTION, LAYOUT_OPTION, DESCRIPTOR_OPTION, CONTENT_MODULE_DESCRIPTOR_OPTION, IDE_PROPERTIES_OPTION, OUTPUT_DIR_OPTION,
 )
 
 private fun parseOptions(args: List<String>): Options {

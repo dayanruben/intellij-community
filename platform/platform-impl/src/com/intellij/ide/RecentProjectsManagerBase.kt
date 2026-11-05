@@ -44,6 +44,7 @@ import com.intellij.openapi.wm.IdeFrame
 import com.intellij.openapi.wm.WindowManager
 import com.intellij.openapi.wm.ex.ProjectFrameTypeService
 import com.intellij.openapi.wm.ex.WindowManagerEx
+import com.intellij.openapi.wm.impl.IdeFrameGuests
 import com.intellij.openapi.wm.impl.FrameInfo
 import com.intellij.openapi.wm.impl.IDE_FRAME_EVENT_LOG
 import com.intellij.openapi.wm.impl.IdeFrameImpl
@@ -345,6 +346,7 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
       }
 
       for (project in openProjects) {
+        if (IdeFrameGuests.isFrameGuest(project)) continue
         val path = getProjectPath(project)?.invariantSeparatorsPathString ?: continue
         val info = state.additionalInfo.get(path) ?: continue
         info.opened = true
@@ -507,7 +509,7 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
   override fun setActivationTimestamp(project: Project, timestamp: Long) {
     LOG.trace { "setActivationTimestamp: project=$project, timestamp=$timestamp" }
 
-    if (disableUpdatingRecentInfo.get()) {
+    if (disableUpdatingRecentInfo.get() || IdeFrameGuests.isFrameGuest(project)) {
       LOG.trace { "setActivationTimestamp: updating recent info is disabled" }
       return
     }
@@ -539,7 +541,7 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
   internal fun projectOpened(project: Project, openTimestamp: Long) {
     LOG.trace { "projectOpened: project=$project, openTimestamp=$openTimestamp" }
 
-    if (disableUpdatingRecentInfo.get() || LightEdit.owns(project)) {
+    if (disableUpdatingRecentInfo.get() || LightEdit.owns(project) || IdeFrameGuests.isFrameGuest(project)) {
       LOG.trace { "projectOpened: updating recent info is disabled" }
       return
     }
@@ -909,6 +911,10 @@ open class RecentProjectsManagerBase(coroutineScope: CoroutineScope) :
   }
 
   private fun updateProjectInfo(project: Project, windowManager: WindowManagerImpl, writeLastProjectInfo: Boolean, appClosing: Boolean) {
+    if (windowManager.isFrameGuest(project)) {
+      // the frame belongs to another project, and the info of the frame is recorded for that project
+      return
+    }
     val frameHelper = windowManager.getFrameHelper(project)
     if (frameHelper == null) {
       LOG.warn("Cannot update frame info (project=${project.name}, reason=frame helper is not found)")
@@ -1082,7 +1088,8 @@ int32 "extendedState"
       else {
         val manager = getInstanceEx()
         val windowManager = WindowManager.getInstance() as WindowManagerImpl
-        for ((index, project) in openProjects.withIndex()) {
+        // a frame guest records no frame info, so the first project with a frame of its own writes the last frame info
+        openProjects.filter { !windowManager.isFrameGuest(it) }.forEachIndexed { index, project ->
           manager.updateProjectInfo(project = project,
                                     windowManager = windowManager,
                                     writeLastProjectInfo = index == 0,
@@ -1196,9 +1203,14 @@ value class ProjectNameOrPathIfNotYetComputed(@JvmField val nameOnlyByProjectPat
 
 @Internal
 data class OpenProjectImplOptions(
-  @JvmField val recentProjectMetaInfo: RecentProjectMetaInfo,
+  @JvmField val recentProjectMetaInfo: RecentProjectMetaInfo? = null,
   @JvmField val frameInfo: FrameInfo? = null,
   @JvmField val frame: IdeFrameImpl? = null,
+  /**
+   * The project whose frame shows the opened project. The project then opens as a frame guest: it gets no frame of its own,
+   * see `GuestProjectFrameAllocator`.
+   */
+  @JvmField val frameOwner: Project? = null,
 )
 
 val OpenProjectTask.frame: IdeFrameImpl?
@@ -1209,6 +1221,9 @@ val OpenProjectTask.frameInfo: FrameInfo?
 
 val OpenProjectTask.recentProjectMetaInfo: RecentProjectMetaInfo?
   @Internal get() = (effectiveImplOptions as OpenProjectImplOptions?)?.recentProjectMetaInfo
+
+val OpenProjectTask.frameOwner: Project?
+  @Internal get() = (effectiveImplOptions as? OpenProjectImplOptions)?.frameOwner
 
 @Internal
 interface SystemDock {

@@ -74,7 +74,6 @@ a:com.intellij.openapi.editor.colors.impl.AbstractColorsScheme
 - sf:NAME_KEY_PROPERTY:java.lang.String
 - sf:NULL_COLOR_MARKER:java.awt.Color
 - s:getSchemeById:java.util.function.Function
-- p:parentScheme:com.intellij.openapi.editor.colors.EditorColorsScheme
 - <init>():V
 - p:<init>(com.intellij.openapi.editor.colors.EditorColorsScheme):V
 - ps:areDelegatingOrEqual(com.intellij.openapi.editor.colors.FontPreferences,com.intellij.openapi.editor.colors.FontPreferences):Z
@@ -189,12 +188,10 @@ c:com.intellij.openapi.editor.colors.impl.DefaultColorsScheme
 - getColor(com.intellij.openapi.editor.colors.ColorKey,Z):java.awt.Color
 - getEditableCopyName():java.lang.String
 - p:getKeyDefaults(com.intellij.openapi.editor.colors.TextAttributesKey):com.intellij.openapi.editor.markup.TextAttributes
-- getName():java.lang.String
 - getSchemeState():com.intellij.openapi.options.SchemeState
 - hasEditableCopy():Z
 - isReadOnly():Z
 - isVisible():Z
-- readExternal(org.jdom.Element):V
 - setAttributes(com.intellij.openapi.editor.colors.TextAttributesKey,com.intellij.openapi.editor.markup.TextAttributes):V
 - setColor(com.intellij.openapi.editor.colors.ColorKey,java.awt.Color):V
 c:com.intellij.openapi.editor.colors.impl.EditorColorsSchemeImpl

@@ -30,6 +30,7 @@ import com.intellij.psi.impl.source.tree.TreeElement;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.ClearableClassValue;
 import com.intellij.util.containers.CollectionFactory;
+import com.intellij.util.containers.HashSetQueue;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Unmodifiable;
@@ -69,8 +70,12 @@ public final class InspectionVisitorOptimizer {
 
   @ApiStatus.Internal
   public static @NotNull @Unmodifiable List<? extends Class<?>> getAcceptingPsiTypes(@NotNull PsiElementVisitor visitor) {
-    if (!useOptimizedVisitors) return ALL_ELEMENTS_VISIT_LIST;
-
+    if (PsiElementVisitor.EMPTY_VISITOR == visitor) {
+      return List.of();
+    }
+    if (!useOptimizedVisitors) {
+      return ALL_ELEMENTS_VISIT_LIST;
+    }
     List<? extends Class<?>> acceptingPsiTypes;
     if (visitor instanceof HintedPsiElementVisitor hinted) {
       acceptingPsiTypes = hinted.getHintPsiElements();
@@ -108,7 +113,7 @@ public final class InspectionVisitorOptimizer {
     Set<Class<?>> uniqueElementClasses = CollectionFactory.createSmallMemoryFootprintSet(100);
     for (int i = 0; i < elements.size(); i++) {
       PsiElement element = elements.get(i);
-      Class<? extends PsiElement> elementClass = element.getClass();
+      Class<?> elementClass = getElementClass(element);
 
       // this check guarantees that items are unique in value collections, so we can use simple lists inside
       if (uniqueElementClasses.add(elementClass)) {
@@ -122,10 +127,18 @@ public final class InspectionVisitorOptimizer {
     return targetPsiClasses;
   }
 
+  /**
+   * Keep the parameter typed as {@code Object} so javac emits {@code invokevirtual Object.getClass}.
+   * Calling through {@code PsiElement} emits {@code invokeinterface} and can contend on JVM locks during method resolution.
+   */
+  private static @NotNull Class<?> getElementClass(@NotNull Object element) {
+    return element.getClass();
+  }
+
   private Set<Class<?>> getVisitorAcceptClasses(@NotNull List<? extends Class<?>> acceptingPsiTypes) {
     Map<Class<?>, Collection<Class<?>>> targetPsiClasses = myTargetPsiClasses;
     if (acceptingPsiTypes.size() == 1) {
-      return Set.copyOf(targetPsiClasses.getOrDefault(acceptingPsiTypes.get(0), Collections.emptyList()));
+      return Set.copyOf(targetPsiClasses.getOrDefault(acceptingPsiTypes.getFirst(), Collections.emptyList()));
     }
 
     Set<Class<?>> accepts = null;
@@ -151,56 +164,54 @@ public final class InspectionVisitorOptimizer {
 
   private static final ClearableClassValue<Class<?>[]> SELF_AND_SUPERS = new ClearableClassValue<>() {
     @Override
-    public Class<?> @NotNull [] computeValueImpl(@NotNull Class<?> type) {
-      return getAllSupers(type);
-    }
-
-    private static Class<?> @NotNull [] getAllSupers(@NotNull Class<?> clazz) {
-      Collection<Class<?>> supers = new HashSet<>();
+    public Class<?> @NotNull [] computeValueImpl(@NotNull Class<?> clazz) {
+      if (isExcluded(clazz)) {
+        return ArrayUtil.EMPTY_CLASS_ARRAY;
+      }
+      HashSetQueue<Class<?>> supers = new HashSetQueue<>();
       supers.add(clazz);
-      addInterfaces(clazz, supers);
-
-      Class<?> superClass = clazz.getSuperclass();
-      while (superClass != null) {
-        if (superClass != Object.class) {
-          supers.add(superClass);
-          addInterfaces(superClass, supers);
+      for (Class<?> aClass : supers) {
+        for (Class<?> anInterface : aClass.getInterfaces()) {
+          if (!isExcluded(anInterface)) {
+            supers.add(anInterface);
+          }
         }
-        superClass = superClass.getSuperclass();
+        Class<?> superClass = aClass.getSuperclass();
+        if (superClass != null && superClass != Object.class && !isExcluded(superClass)) {
+          supers.add(superClass);
+        }
       }
-
-      supers.removeIf(aSuper -> aSuper == UserDataHolder.class
-                                || aSuper == UserDataHolderBase.class
-                                || aSuper == UserDataHolderEx.class
-                                || aSuper == CompositePsiElement.class
-                                || aSuper == StubBasedPsiElementBase.class
-                                || aSuper == ASTNode.class
-                                || aSuper == ReparseableASTNode.class
-                                || aSuper == ElementBase.class
-                                || aSuper == Cloneable.class
-                                || aSuper == Iconable.class
-                                || aSuper == Serializable.class
-                                || aSuper == PomTarget.class
-                                || aSuper == Queryable.class
-                                || aSuper == Navigatable.class
-                                || aSuper == AtomicReference.class
-                                || aSuper == NavigationItem.class
-                                || aSuper == NavigatablePsiElement.class
-                                || aSuper == PsiElementBase.class
-                                || aSuper == TreeElement.class
-                                || aSuper == LeafElement.class
-                                || aSuper == ASTDelegatePsiElement.class);
-      return supers.toArray(ArrayUtil.EMPTY_CLASS_ARRAY);
-    }
-
-    private static void addInterfaces(@NotNull Class<?> clazz, @NotNull Collection<? super Class<?>> supers) {
-      Class<?>[] interfaces = clazz.getInterfaces();
-      Collections.addAll(supers, interfaces);
-      for (Class<?> anInterface : interfaces) {
-        Collections.addAll(supers, getAllSupers(anInterface));
-      }
+      return supers.isEmpty() ? ArrayUtil.EMPTY_CLASS_ARRAY : supers.toArray(ArrayUtil.EMPTY_CLASS_ARRAY);
     }
   };
+
+  private static boolean isExcluded(Class<?> clazz) {
+    return excludedClasses.contains(clazz);
+  }
+
+  private static final Set<Class<?>> excludedClasses = Set.of(
+      ASTDelegatePsiElement.class
+    , ASTNode.class
+    , AtomicReference.class
+    , Cloneable.class
+    , CompositePsiElement.class
+    , ElementBase.class
+    , Iconable.class
+    , LeafElement.class
+    , Navigatable.class
+    , NavigationItem.class
+    , NavigatablePsiElement.class
+    , PomTarget.class
+    , PsiElementBase.class
+    , Queryable.class
+    , ReparseableASTNode.class
+    , Serializable.class
+    , StubBasedPsiElementBase.class
+    , TreeElement.class
+    , UserDataHolder.class
+    , UserDataHolderBase.class
+    , UserDataHolderEx.class
+  );
 
   public void acceptElements(@NotNull List<? extends PsiElement> elements, @NotNull PsiElementVisitor elementVisitor) {
     List<? extends Class<?>> acceptingPsiTypes = getAcceptingPsiTypes(elementVisitor);
@@ -225,7 +236,7 @@ public final class InspectionVisitorOptimizer {
         //noinspection ForLoopReplaceableByForEach
         for (int i = 0; i < elements.size(); i++) {
           PsiElement element = elements.get(i);
-          if (accepts.contains(element.getClass())) {
+          if (accepts.contains(getElementClass(element))) {
             ProgressManager.checkCanceled();
             consumer.accept(element);
           }

@@ -6,7 +6,6 @@ import com.intellij.openapi.editor.colors.EditorColorsScheme;
 import com.intellij.openapi.editor.colors.TextAttributesKey;
 import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.options.SchemeState;
-import org.jdom.Element;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -14,30 +13,36 @@ import org.jetbrains.annotations.Nullable;
 import java.awt.Color;
 
 public class DefaultColorsScheme extends AbstractColorsScheme {
-  private String myName;
-
   public DefaultColorsScheme() {
     super(null);
   }
 
   @Override
-  public @Nullable TextAttributes getAttributes(TextAttributesKey key) {
+  public @Nullable TextAttributes getAttributes(@Nullable TextAttributesKey key) {
     return key == null ? null : getAttributes(key, true);
   }
 
   @Override
-  public @Nullable TextAttributes getAttributes(TextAttributesKey key, boolean useDefaults) {
-    if (key == null) return null;
-    TextAttributes attrs = attributesMap.get(key.getExternalName());
-    if (attrs != null) return attrs;
-
+  public @Nullable TextAttributes getAttributes(@Nullable TextAttributesKey key, boolean useDefaults) {
+    if (key == null) {
+      return null;
+    }
+    TextAttributes attrs = getSnapshot().getAttributes(key.getExternalName());
+    if (attrs != null) {
+      return attrs;
+    }
     TextAttributesKey fallbackKey = key.getFallbackAttributeKey();
     TextAttributes fallback = fallbackKey == null ? null : getFallbackAttributes(fallbackKey);
-    if (fallback != null && fallback != INHERITED_ATTRS_MARKER) return fallback;
-
-    if (!useDefaults) return null;
+    if (fallback != null && fallback != INHERITED_ATTRS_MARKER) {
+      return fallback;
+    }
+    if (!useDefaults) {
+      return null;
+    }
     TextAttributes keyDefaults = getKeyDefaults(key);
-    if (keyDefaults != null) return keyDefaults;
+    if (keyDefaults != null) {
+      return keyDefaults;
+    }
     return fallbackKey == null ? null : getKeyDefaults(fallbackKey);
   }
 
@@ -51,28 +56,23 @@ public class DefaultColorsScheme extends AbstractColorsScheme {
   }
 
   public @Nullable Color getColor(@NotNull ColorKey key, boolean useDefaults) {
-    Color color = colorMap.get(key);
-    if (color != null) return color == NULL_COLOR_MARKER ? null : color;
-
+    Color color = getSnapshot().getColor(key);
+    if (color != null) {
+      return color == NULL_COLOR_MARKER ? null : color;
+    }
     ColorKey fallbackKey = key.getFallbackColorKey();
     Color fallback = fallbackKey == null ? null : getFallbackColor(fallbackKey);
-    if (fallback != null && fallback != INHERITED_COLOR_MARKER) return fallback;
-
-    if (!useDefaults) return null;
+    if (fallback != null && fallback != INHERITED_COLOR_MARKER) {
+      return fallback;
+    }
+    if (!useDefaults) {
+      return null;
+    }
     Color keyDefaults = key.getDefaultColor();
-    if (keyDefaults != null) return keyDefaults;
+    if (keyDefaults != null) {
+      return keyDefaults;
+    }
     return fallbackKey == null ? null : fallbackKey.getDefaultColor();
-  }
-
-  @Override
-  public void readExternal(@NotNull Element parentNode) {
-    super.readExternal(parentNode);
-    myName = parentNode.getAttributeValue(NAME_ATTR);
-  }
-
-  @Override
-  public @NotNull String getName() {
-    return myName;
   }
 
   @Override
@@ -102,7 +102,7 @@ public class DefaultColorsScheme extends AbstractColorsScheme {
   }
 
   public @NonNls @NotNull String getEditableCopyName() {
-    return EDITABLE_COPY_PREFIX + myName;
+    return EDITABLE_COPY_PREFIX + getName();
   }
 
   @Override

@@ -393,7 +393,7 @@ fn prepared_component_uses_only_metadata() {
     args.push("--trace-file=component.spans.json".into());
     run_collector(&args).assert_success();
     let manifest = read_json("component.json");
-    assert_eq!((&manifest["version"], &manifest["plugin"]), (&json!(10), &json!(true)));
+    assert_eq!((&manifest["version"], &manifest["plugin"]), (&json!(11), &json!(true)));
     let entries = manifest_entries("component.json");
     assert_eq!(entries.len(), fixture.assets.len());
     for (destination, source, mode, hash) in [
@@ -716,7 +716,7 @@ fn packed_component_writes_the_manifest_and_the_classpath() {
     let manifest = read_json("component.json");
     assert_eq!(
         [&manifest["version"], &manifest["plugin"], &manifest["os"], &manifest["arch"]],
-        [&json!(10), &json!(true), &json!("linux"), &json!("x64")]
+        [&json!(11), &json!(true), &json!("linux"), &json!("x64")]
     );
     let copied_hash = xxh3::hash_file(Path::new("resources/helper.sh")).unwrap();
     let entries = manifest_entries("component.json");
@@ -800,7 +800,6 @@ fn packed_component_is_platform_neutral() {
     run_collector(&[
         "--component-manifest=component.json",
         "--kind=plugins_json",
-        "--platform-prefix=idea",
         "--platform-neutral",
         "--plugin-component=component-spec.json",
         "--plugin-classpath-part=component.plugin-classpath-part",
@@ -1028,8 +1027,8 @@ fn tree_spec() -> Value {
     spec
 }
 
-/// A tree with a nested file, as a Bazel action leaves it: read-only files, one of them a program, and one file with
-/// a mode of its own.
+/// A tree with a nested file, with the modes that a Bazel action or a umask can leave: read-only files, one of them with
+/// the executable bits, and one file and one directory with a mode of their own.
 #[cfg(unix)]
 fn write_tree_fixture() {
     use std::os::unix::fs::PermissionsExt;
@@ -1050,7 +1049,7 @@ fn write_tree_fixture() {
 
 #[cfg(unix)]
 #[test]
-fn packed_component_walks_a_copied_tree_and_keeps_the_modes() {
+fn packed_component_walks_a_copied_tree_and_reads_no_mode() {
     let _directory = WorkingDirectory::enter();
     write_tree_fixture();
     run_collector(&plugin_component_args()).assert_success();
@@ -1061,15 +1060,16 @@ fn packed_component_walks_a_copied_tree_and_keeps_the_modes() {
         .filter(|(path, _)| path.starts_with("plugins/json/web"))
         .map(|(_, entry)| entry)
         .collect();
-    // A directory keeps its mode too. The manifest maps the read-only 0o555 of a Bazel output to 0o755.
+    // A copied tree declares no executable file, so the modes on disk change nothing: each directory has 0755, and each
+    // file has the conventional mode 0644.
     assert_eq!(
         copied,
         [
             &json!({"relativePath": "plugins/json/web", "type": "directory", "mode": 0o755}),
-            &json!({"relativePath": "plugins/json/web/assets", "type": "directory", "mode": 0o700}),
-            &json!({"relativePath": "plugins/json/web/assets/app.js", "type": "component-file", "hash": hash("tree/web/assets/app.js"), "source": "tree/web/assets/app.js", "mode": 0o600}),
+            &json!({"relativePath": "plugins/json/web/assets", "type": "directory", "mode": 0o755}),
+            &json!({"relativePath": "plugins/json/web/assets/app.js", "type": "component-file", "hash": hash("tree/web/assets/app.js"), "source": "tree/web/assets/app.js"}),
             &json!({"relativePath": "plugins/json/web/bin", "type": "directory", "mode": 0o755}),
-            &json!({"relativePath": "plugins/json/web/bin/run.sh", "type": "component-file", "hash": hash("tree/web/bin/run.sh"), "executable": true, "source": "tree/web/bin/run.sh"}),
+            &json!({"relativePath": "plugins/json/web/bin/run.sh", "type": "component-file", "hash": hash("tree/web/bin/run.sh"), "source": "tree/web/bin/run.sh"}),
             &json!({"relativePath": "plugins/json/web/index.html", "type": "component-file", "hash": hash("tree/web/index.html"), "source": "tree/web/index.html"}),
         ]
     );
@@ -1170,4 +1170,98 @@ fn packed_component_refuses_an_invalid_tree_copy() {
         write_json("component-spec.json", &spec);
         require_refused(name, &[message]);
     }
+}
+
+/// The manifest of a packed plugin with a copied tree does not depend on the umask or on the modes in the tree. A child
+/// run collects under each umask, once with a tree of mode 0555, as Bazel leaves an output, and once with files of mode
+/// 0644.
+#[cfg(unix)]
+#[test]
+fn the_manifest_does_not_depend_on_the_umask_or_the_tree_modes() {
+    let Some(setup) = testkit::rerun_under_shell_with_equal_output(
+        "plugin_component::tests::the_manifest_does_not_depend_on_the_umask_or_the_tree_modes",
+        &["umask 022", "umask 077"],
+    ) else {
+        return;
+    };
+    let mut outputs = Vec::new();
+    for input_mode in [0o555, 0o644] {
+        let _directory = WorkingDirectory::enter();
+        write_packed_fixture(&tree_spec());
+        write_file("tree/web/index.html", "<html/>\n");
+        write_file("tree/web/bin/run.sh", "#!/bin/sh\n");
+        for name in ["tree/web/index.html", "tree/web/bin/run.sh"] {
+            testkit::set_mode(name, input_mode);
+        }
+        // A directory keeps its search bits, so the walk can enter it.
+        for name in ["tree/web/bin", "tree/web"] {
+            testkit::set_mode(name, input_mode | 0o111);
+        }
+        run_collector(&plugin_component_args()).assert_success();
+        outputs.push(std::fs::read("component.json").unwrap());
+        // The test directory must stay removable.
+        for name in ["tree/web/bin", "tree/web"] {
+            testkit::set_mode(name, 0o755);
+        }
+    }
+    assert!(outputs[0] == outputs[1], "the tree modes changed the manifest under `{setup}`");
+    testkit::report_child_output(&outputs[0]);
+}
+
+/// A split remainder: the neutral part holds the program and the link, the descriptor part holds the main jar. The neutral
+/// part also packed a refused jar, which its `omitted` names, and the component places it not. Each file comes from the
+/// directory of its part.
+#[cfg(unix)]
+#[test]
+fn prepared_component_reads_the_two_parts_of_a_split_remainder() {
+    let _directory = WorkingDirectory::enter();
+    let mut fixture = Prepared::new();
+    fixture.spec["remainder"] =
+        json!({"directory": "payload/neutral", "metadata": "metadata/neutral.json", "omitted": ["lib/refused.jar"]});
+    fixture.spec["descriptorRemainder"] = json!({"directory": "payload/descriptor", "metadata": "metadata/descriptor.json"});
+    fixture.write();
+    let neutral = vec![
+        file_entry("bin/tool", 11, 13, 0o750),
+        inspected_link("bin/current", "./tool"),
+        file_entry("lib/refused.jar", 31, 9, 0o644),
+    ];
+    write_raw_inventory("metadata/neutral.json", &neutral);
+    write_raw_inventory("metadata/descriptor.json", &[file_entry("lib/demo.jar", 10, 12, 0o644)]);
+    run_collector(&plugin_component_args()).assert_success();
+    let entries = manifest_entries("component.json");
+    assert_eq!(entries.len(), fixture.assets.len());
+    assert_eq!(entries["plugins/demo/lib/demo.jar"]["source"], "payload/descriptor/lib/demo.jar");
+    assert_eq!(entries["plugins/demo/bin/tool"]["source"], "payload/neutral/bin/tool");
+    assert!(!entries.contains_key("plugins/demo/lib/refused.jar"), "the omitted jar was placed");
+    for output in ["component.json", "component.plugin-classpath-part"] {
+        std::fs::remove_file(output).unwrap();
+    }
+
+    for (name, neutral_omitted, descriptor_entries, message) in [
+        (
+            "an omitted file that the part lacks",
+            json!(["lib/absent.jar"]),
+            vec![file_entry("lib/demo.jar", 10, 12, 0o644)],
+            "the omitted asset lib/absent.jar is no file of the remainder",
+        ),
+        (
+            "a file that both parts state",
+            json!(["lib/refused.jar"]),
+            vec![file_entry("lib/demo.jar", 10, 12, 0o644), file_entry("bin/tool", 11, 13, 0o750)],
+            "two remainder parts state bin/tool",
+        ),
+    ] {
+        fixture.spec["remainder"]["omitted"] = neutral_omitted;
+        fixture.write();
+        write_raw_inventory("metadata/neutral.json", &neutral);
+        write_raw_inventory("metadata/descriptor.json", &descriptor_entries);
+        require_refused(name, &[message]);
+    }
+    fixture.spec["remainder"]["omitted"] = json!([]);
+    fixture.spec["descriptorRemainder"]["omitted"] = json!(["lib/demo.jar"]);
+    fixture.write();
+    require_refused(
+        "an omitted file of the descriptor part",
+        &["the descriptor part of a remainder omits no asset"],
+    );
 }

@@ -4,13 +4,16 @@ package com.intellij.platform.projectView.frontend.impl
 import com.intellij.ide.SelectInTarget
 import com.intellij.ide.dnd.DnDAction
 import com.intellij.ide.projectView.NodeSortKey
+import com.intellij.ide.projectView.impl.ProjectViewFrontendState
 import com.intellij.ide.util.treeView.DefaultTreeModelWithCachedPresentation
 import com.intellij.openapi.application.UI
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
+import com.intellij.platform.ide.productMode.IdeProductMode
 import com.intellij.platform.projectView.actions.ProjectViewActionSupport
 import com.intellij.platform.projectView.actions.ProjectViewOptionMenuUpdater
+import com.intellij.platform.projectView.actions.fromDTO
 import com.intellij.platform.projectView.frontend.actions.SplitProjectViewSelectInTarget
 import com.intellij.platform.projectView.pane.ProjectViewActivateStateEvent
 import com.intellij.platform.projectView.pane.ProjectViewChildRemoved
@@ -42,6 +45,7 @@ import com.intellij.platform.projectView.pane.SUPER_ROOT_ID
 import com.intellij.platform.projectView.pane.SuperRootModel
 import com.intellij.platform.projectView.settings.NestingRuleDTO
 import com.intellij.platform.projectView.settings.ProjectViewPaneOptionDTO
+import com.intellij.platform.projectView.settings.ProjectViewPaneSettingsService
 import com.intellij.platform.projectView.settings.ProjectViewPaneSettingsStateDTO
 import com.intellij.pom.Navigatable
 import com.intellij.ui.LoadingNode
@@ -57,6 +61,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
@@ -76,12 +81,11 @@ internal class FrontendProjectViewPaneTreeModel(
   private val project: Project,
   internal val descriptor: ProjectViewPaneDescriptorImpl,
 ) {
-  internal val treeModel = DefaultTreeModelWithCachedPresentation()
+  internal val treeModel = DefaultTreeModelWithCachedPresentation().apply {
+    childrenLoader = { node -> if (node is Node) preloadChildren(node) }
+  }
   internal val rootChildren: StateFlow<List<TreePath>>
     field = MutableStateFlow(emptyList())
-  
-  internal val hasCachedPresentation: Boolean
-    get() = treeModel.cachedPresentation != null
 
   private val optionSupport = ActionSupport()
 
@@ -139,10 +143,16 @@ internal class FrontendProjectViewPaneTreeModel(
     // but we don't want to flash the loading node every time that happens (e.g., when visiting the tree).
     // 2. If the children are not loaded, but there are still some children already (cached nodes),
     // we definitely don't want to add a loading node into the mix.
-    // So only when loading the children for the first time (!isChildrenLoaded) and there are no nodes, we add a loading node.
-    if (!parent.isChildrenLoaded && parent.childCount == 0) {
-      LOG.debug { "Inserting a temporary loading node into $parent" }
-      treeModel.insertChild(parent, 0, LoadingNode())
+    // So only when loading the children for the first time (not LOADED) and there are no nodes, we add a loading node.
+    when (parent.childrenState) {
+      ChildrenState.NOT_LOADED, ChildrenState.LOADING -> {
+        parent.childrenState = ChildrenState.LOADING
+        if (parent.childCount == 0) {
+          LOG.debug { "Inserting a temporary loading node into $parent" }
+          treeModel.insertChild(parent, 0, LoadingNode())
+        }
+      }
+      ChildrenState.LOADED -> { }
     }
     sendRequest(ProjectViewPaneLoadChildrenRequest(nodeId))
   }
@@ -167,6 +177,21 @@ internal class FrontendProjectViewPaneTreeModel(
   internal fun requestLoadChildren(nodeId: Long) {
     val result = loadRequests.trySend(nodeId)
     check(result.isSuccess)
+  }
+
+  /**
+   * Requests the backend to load the children of the given node once. Called by the children preloader through the [treeModel].
+   *
+   * Unlike [requestLoadChildren], it does nothing if the children are loaded or loading.
+   */
+  private fun preloadChildren(node: Node) {
+    when (node.childrenState) {
+      ChildrenState.NOT_LOADED -> {
+        node.childrenState = ChildrenState.LOADING
+        requestLoadChildren(node.id)
+      }
+      ChildrenState.LOADING, ChildrenState.LOADED -> { }
+    }
   }
 
   /**
@@ -217,7 +242,7 @@ internal class FrontendProjectViewPaneTreeModel(
             rootChildren.value = parent.children().toList().mapNotNull { (it as? Node)?.treePath }
           }
         }
-        parent.isChildrenLoaded = true
+        parent.childrenState = ChildrenState.LOADED
       }
       is ProjectViewNodeAdded -> {
         val parent = getNodeById(event.parentId) ?: return
@@ -389,14 +414,17 @@ internal class FrontendProjectViewPaneTreeModel(
 
   internal suspend fun awaitNodeChildren(node: Node, condition: () -> Boolean): List<Node>? {
     if (!condition()) return null
-    if (!node.isChildrenLoaded) { // request in the case it wasn't requested before
-      loadChildren(node.id)
+    when (node.childrenState) {
+      // Request also when loading, because the backend drops a request between two sessions.
+      ChildrenState.NOT_LOADED, ChildrenState.LOADING -> loadChildren(node.id)
+      ChildrenState.LOADED -> { }
     }
     var epoch = 0L
     while (condition()) {
-      if (node.isChildrenLoaded) {
-        // The cast to Node should be safe now, as isChildrenLoaded implies no cached children.
-        return node.children().asSequence().map { it as Node }.toList()
+      when (node.childrenState) {
+        ChildrenState.NOT_LOADED, ChildrenState.LOADING -> { }
+        // The cast to Node should be safe now, as LOADED implies no cached children.
+        ChildrenState.LOADED -> return node.children().asSequence().map { it as Node }.toList()
       }
       epoch = updateEpoch.first { it > epoch }
     }
@@ -419,14 +447,33 @@ internal class FrontendProjectViewPaneTreeModel(
     override fun canNavigateToSource(): Boolean = model.canNavigateToSource()
   }
 
+  /**
+   * Gives the actions the option states of the pane and sends the option changes to the pane.
+   *
+   * On the frontend, this class takes the values of the [ProjectViewFrontendState] options from that component, not from the pane.
+   * It also changes these options in that component, without a request to the pane.
+   */
   private inner class ActionSupport : ProjectViewActionSupport {
     private val actionState = MutableStateFlow<ProjectViewPaneSettingsStateDTO?>(null)
+    private val frontendState = ProjectViewFrontendState.getInstance(project)
 
-    override fun getActionState(): ProjectViewPaneSettingsStateDTO? = actionState.value
+    override fun getActionState(): ProjectViewPaneSettingsStateDTO? {
+      val actionState = actionState.value
+      if (!IdeProductMode.isFrontend) return actionState
+      return actionState?.withFrontendOptions(frontendState.options.value)
+    }
 
-    override fun getActionStateFlow(): Flow<ProjectViewPaneSettingsStateDTO?> = actionState.asStateFlow()
+    override fun getActionStateFlow(): Flow<ProjectViewPaneSettingsStateDTO?> {
+      if (!IdeProductMode.isFrontend) return actionState.asStateFlow()
+      return combine(actionState, frontendState.options) { actionState, options -> actionState?.withFrontendOptions(options) }
+    }
 
     override fun requestOptionValueChange(option: ProjectViewPaneOptionDTO, newValue: Boolean) {
+      if (IdeProductMode.isFrontend && frontendState.options.value.getFrontendOwnedValue(option) != null) {
+        ProjectViewPaneSettingsService.getInstance(project).setOptionSelected(option.fromDTO(), newValue)
+        ProjectViewOptionMenuUpdater.getInstance(project).updateMenu()
+        return
+      }
       sendRequest(ProjectViewPaneChangeOptionValueRequest(option, newValue))
     }
 
@@ -455,7 +502,7 @@ internal class Node(
   val projectViewNode: ProjectViewNodeModelImpl<*>
     get() = userObject as ProjectViewNodeModelImpl<*>
 
-  var isChildrenLoaded: Boolean = false
+  var childrenState: ChildrenState = ChildrenState.NOT_LOADED
 
   val id: Long
     get() = projectViewNode.id
@@ -470,7 +517,32 @@ internal class Node(
   override fun toString(): String = "{${if (isLeaf) "-" else "+"}[${projectViewNode.id}] ${projectViewNode.presentation.mainText}}"
 }
 
+internal enum class ChildrenState {
+  NOT_LOADED,
+  LOADING,
+  LOADED,
+}
+
 internal val Node.treePath: TreePath
   get() = CachingTreePath(path)
+
+private fun ProjectViewPaneSettingsStateDTO.withFrontendOptions(options: ProjectViewFrontendState.Options): ProjectViewPaneSettingsStateDTO {
+  return copy(optionStates = optionStates.mapValues { (option, optionState) ->
+    val frontendValue = options.getFrontendOwnedValue(option)
+    if (frontendValue == null) optionState else optionState.copy(isSelected = frontendValue)
+  })
+}
+
+/**
+ * Returns the value of an option that [ProjectViewFrontendState] owns, or `null` if the pane owns the option.
+ */
+private fun ProjectViewFrontendState.Options.getFrontendOwnedValue(option: ProjectViewPaneOptionDTO): Boolean? {
+  return when (option) {
+    ProjectViewPaneOptionDTO.AUTOSCROLL_TO_SOURCE -> autoscrollToSource
+    ProjectViewPaneOptionDTO.OPEN_DIRECTORIES_WITH_SINGLE_CLICK -> openDirectoriesWithSingleClick
+    ProjectViewPaneOptionDTO.AUTOSCROLL_FROM_SOURCE -> autoscrollFromSource
+    else -> null
+  }
+}
 
 private val LOG = logger<FrontendProjectViewPaneTreeModel>()

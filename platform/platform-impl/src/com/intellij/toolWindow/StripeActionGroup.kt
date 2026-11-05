@@ -48,6 +48,7 @@ import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.ex.ToolWindowManagerEx
 import com.intellij.openapi.wm.ex.ToolWindowManagerListener
 import com.intellij.openapi.wm.impl.AbstractSquareStripeButton
+import com.intellij.openapi.wm.impl.IdeFrameGuests
 import com.intellij.openapi.wm.impl.SquareStripeButton
 import com.intellij.openapi.wm.impl.SquareStripeButtonLook
 import com.intellij.openapi.wm.impl.ToolWindowImpl
@@ -89,7 +90,7 @@ class StripeActionGroup: ActionGroup(), DumbAware {
   }
 
   override fun getChildren(e: AnActionEvent?): Array<AnAction> {
-    val project = e?.project ?: return emptyArray()
+    val project = e?.let(IdeFrameGuests::frameOwnerOf) ?: return emptyArray()
     val twm = ToolWindowManagerEx.getInstanceEx(project)
     val toolWindows = ToolWindowsGroup.getToolWindowActions(project, false)
     val actions = toolWindows.sortedBy { getOrder(twm, it.toolWindowId) }.mapNotNullTo(ArrayList(), myFactory::get)
@@ -131,11 +132,11 @@ class StripeActionGroup: ActionGroup(), DumbAware {
     }
 
     private fun isSelected(e: AnActionEvent): Boolean {
-      return e.project?.let { ToolWindowManagerEx.getInstanceEx(it) }?.getToolWindow(toolWindowId)?.isVisible == true
+      return IdeFrameGuests.frameOwnerOf(e)?.let { ToolWindowManagerEx.getInstanceEx(it) }?.getToolWindow(toolWindowId)?.isVisible == true
     }
 
     private fun setSelected(e: AnActionEvent, state: Boolean) {
-      val project = e.project ?: return
+      val project = IdeFrameGuests.frameOwnerOf(e) ?: return
       val twm = ToolWindowManager.getInstance(project)
       val toolWindowId = toolWindowId
       val toolWindow = twm.getToolWindow(toolWindowId)
@@ -176,7 +177,7 @@ class StripeActionGroup: ActionGroup(), DumbAware {
 
         override fun addNotify() {
           super.addNotify()
-          project = PlatformDataKeys.PROJECT.getData(dataContext)
+          project = PlatformDataKeys.PROJECT.getData(dataContext)?.let(IdeFrameGuests::frameOwnerOf)
           project?.service<ButtonsRepaintService>()?.trackButton(this)
         }
 
@@ -194,7 +195,7 @@ class StripeActionGroup: ActionGroup(), DumbAware {
     }
 
     private fun getChildren(e: AnActionEvent?): List<AnAction> {
-      val project = e?.project ?: return emptyList()
+      val project = e?.let(IdeFrameGuests::frameOwnerOf) ?: return emptyList()
       val children = ToolWindowsGroup.getToolWindowActions(project, false).map { ac ->
         object : AnActionWrapper(ac) {
           override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT

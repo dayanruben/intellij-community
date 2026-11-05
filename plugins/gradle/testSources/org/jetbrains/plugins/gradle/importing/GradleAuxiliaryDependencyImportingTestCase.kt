@@ -1,7 +1,9 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.gradle.importing
 
 import com.intellij.buildsystem.model.unified.UnifiedCoordinates
+import com.intellij.gradle.testFramework.importing.GradleImportingTestCase
+import com.intellij.gradle.testFramework.junit4.VersionMatcherRule
 import com.intellij.openapi.externalSystem.model.project.LibraryPathType
 import com.intellij.openapi.roots.LibraryOrderEntry
 import com.intellij.openapi.util.SystemInfo
@@ -10,7 +12,6 @@ import com.intellij.testFramework.utils.io.deleteRecursively
 import org.assertj.core.api.Assertions.assertThat
 import org.jetbrains.plugins.gradle.service.cache.GradleLocalCacheHelper
 import org.jetbrains.plugins.gradle.settings.GradleSystemSettings
-import org.jetbrains.plugins.gradle.tooling.VersionMatcherRule
 import org.junit.Assume
 import org.junit.runners.Parameterized
 import org.junit.runners.Parameterized.Parameter

@@ -110,7 +110,7 @@ class PythonInterpreterRegistry(private val project: Project, private val scope:
           val interpreters = compute()
           state.value = Computed(interpreters)
           // The roots of an interpreter that the registry no longer holds are of no use, see PythonInterpreterDetails.
-          project.serviceIfCreated<PythonInterpreterDetails>()?.retain(interpreters.mapTo(mutableSetOf()) { it.key })
+          project.serviceIfCreated<PythonInterpreterRoots>()?.retain(interpreters.mapTo(mutableSetOf()) { it.key })
         }
     }
   }
@@ -251,7 +251,7 @@ class PythonInterpreterRegistry(private val project: Project, private val scope:
       addSdk(sdk)
     }
     try {
-      pythonSdkType().setupSdkPaths(sdk)
+      PythonInterpreterPathsSetup.getInstance(project).setUpPaths(registered)
     }
     catch (e: Throwable) {
       // Do not leave a broken SDK in the table.
@@ -431,7 +431,6 @@ class PythonInterpreterRegistry(private val project: Project, private val scope:
     data.associatedModulePath = key.ownerDir.toString()
     applyRecord(data, record)
     val sdk = newSdk(homePath, data, suggestedName = null, knownVersion = record.version)
-    applySdkFields(sdk, record)
     holdSdk(key, sdk)
     return sdk
   }
@@ -470,7 +469,7 @@ class PythonInterpreterRegistry(private val project: Project, private val scope:
    * SDK without an owner, so it ends there.
    */
   private fun sdkTableChanges(): Flow<Unit> =
-    merge(PythonInterpreterDetails.getInstance(project).changes, moduleChanges())
+    merge(PythonInterpreterDetails.getInstance(project).changes.map { }, moduleChanges())
 
   private fun moduleChanges(): Flow<Unit> =
     project.workspaceModel.eventLog.filter { it.getChanges(ModuleEntity::class.java).isNotEmpty() }.map { }

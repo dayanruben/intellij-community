@@ -373,22 +373,26 @@ def _runtime_module_repository_test_impl(ctx):
     asserts.equals(env, [by_module["test.natives"], by_module["test.packed"], "lib/ext/nested.jar"], [jar["destination"] for jar in part["jars"]])
     asserts.equals(env, [{"module": "test.packed"}], [member for member in part["jars"][1]["members"] if "module" in member])
 
-    # The assembly reads the part and bazel-targets.json. The generator reads the layout, the project model tree and the
-    # core descriptor, and writes the two predeclared files.
+    # The assembly reads the part, bazel-targets.json and the module facts, and writes the layout and the selected facts.
+    # The generator reads the layout, the selected facts and the core descriptor, and writes the two predeclared files.
     assemblies = [action for action in actions if action.mnemonic == "DevDistRuntimeLayout"]
     asserts.equals(env, 1, len(assemblies))
     layout = target[OutputGroupInfo].runtime_module_repository_layout.to_list()
-    asserts.equals(env, 1, len(layout))
+    asserts.equals(env, 2, len(layout))
     if assemblies:
         asserts.true(env, "--part=" + parts[0].outputs.to_list()[0].path in assemblies[0].argv)
-
+        asserts.true(env, "--module-facts=" + ctx.file.module_facts.path in assemblies[0].argv)
+        asserts.true(env, ctx.file.module_facts in assemblies[0].inputs.to_list())
         asserts.equals(env, layout, assemblies[0].outputs.to_list())
     generators = [action for action in actions if action.mnemonic == "DevDistRuntimeModuleRepository"]
     asserts.equals(env, 1, len(generators))
     if generators:
         asserts.equals(env, ["module-descriptors.dat", "module-descriptors.jar"], [file.basename for file in generators[0].outputs.to_list()])
+        generator_inputs = generators[0].inputs.to_list()
         for file in layout + [ctx.file.core_descriptor]:
-            asserts.true(env, file in generators[0].inputs.to_list(), file.path)
+            asserts.true(env, file in generator_inputs, file.path)
+        asserts.false(env, ctx.file.module_facts in generator_inputs, "the generator reads only the selected facts")
+        asserts.equals(env, [], [file.path for file in generator_inputs if file.is_directory])
         asserts.equals(env, generators[0].outputs.to_list(), target[DefaultInfo].files.to_list())
     return analysistest.end(env)
 
@@ -397,6 +401,7 @@ _runtime_module_repository_test = analysistest.make(
     attrs = {
         "payload": attr.label(mandatory = True, providers = [DevDistPlatformPayloadInfo]),
         "core_descriptor": attr.label(mandatory = True, allow_single_file = True),
+        "module_facts": attr.label(mandatory = True, allow_single_file = True),
     },
 )
 
@@ -861,7 +866,6 @@ def dev_dist_content_test_suite(name):
     dev_dist_product_info(
         name = product_info,
         application_info = _FIXTURE_APPLICATION_INFO,
-        platform_prefix = "idea",
     )
     second_library = name + "_second_library"
     _fake_library(name = second_library)
@@ -875,6 +879,7 @@ def dev_dist_content_test_suite(name):
         plugins = [":" + plugin_contents[0], ":" + plugin_contents[1]],
         deps = [":" + plugin_contents[2]],
         product_info = ":" + product_info,
+        stamp_class = "",
     )
     tests.append(plugin_content + "_test")
     _plugin_content_test(
@@ -887,6 +892,7 @@ def dev_dist_content_test_suite(name):
         name = refused_plugin_content,
         plugins = [":" + raw_owner],
         product_info = ":" + product_info,
+        stamp_class = "",
         tags = ["manual"],
     )
     tests.append(refused_plugin_content + "_test")
@@ -925,7 +931,7 @@ def dev_dist_content_test_suite(name):
         preloaded_manifests = [":" + fixture + ".data"],
         tags = ["manual"],
     )
-    repository_files = [name + "_repository_core.xml", name + "_repository_targets.json"]
+    repository_files = [name + "_repository_core.xml", name + "_repository_targets.json", name + "_repository_facts.json"]
     for file in repository_files:
         native.genrule(name = file + "_file", outs = [file], cmd = "echo '{}' > $@", tags = ["manual"])
     repository = name + "_runtime_module_repository"
@@ -936,7 +942,7 @@ def dev_dist_content_test_suite(name):
         core_descriptor = ":" + repository_files[0],
         first_jars = [],
         last_jars = ["ext/nested.jar"],
-        project_model_tree = ":" + fixture,
+        runtime_module_facts = ":" + repository_files[2],
         bazel_targets_json = ":" + repository_files[1],
         tags = ["manual"],
     )
@@ -946,6 +952,7 @@ def dev_dist_content_test_suite(name):
         target_under_test = ":" + repository,
         payload = ":" + payload,
         core_descriptor = ":" + repository_files[0],
+        module_facts = ":" + repository_files[2],
     )
 
     # The platform jar rule refuses a named jar that the payload does not pack, and a library-only jar outside `last_jars`.
@@ -961,7 +968,7 @@ def dev_dist_content_test_suite(name):
             core_descriptor = ":" + repository_files[0],
             first_jars = first_jars,
             last_jars = last_jars,
-            project_model_tree = ":" + fixture,
+            runtime_module_facts = ":" + repository_files[2],
             bazel_targets_json = ":" + repository_files[1],
             tags = ["manual"],
         )
@@ -987,6 +994,7 @@ def dev_dist_content_test_suite(name):
         name = distribution,
         composer = ":" + fixture,
         fragments = [":" + component for component in production],
+        platform_prefix = "idea",
         expect_fragments = production,
         tags = ["manual"],
     )
@@ -1005,6 +1013,7 @@ def dev_dist_content_test_suite(name):
             name = sibling,
             composer = ":" + fixture,
             fragments = [":" + component for component in production],
+            platform_prefix = "idea",
             expect_fragments = production,
             sibling_vm_options = ["-Da=1", "-Dexport=${EXPORT}/x"],
             output_base = "/output-base",
@@ -1024,6 +1033,7 @@ def dev_dist_content_test_suite(name):
             name = refused,
             composer = ":" + fixture,
             fragments = [":" + component for component in production],
+            platform_prefix = "idea",
             expect_fragments = production,
             local_launch = local_launch,
             sibling_vm_options = lines,

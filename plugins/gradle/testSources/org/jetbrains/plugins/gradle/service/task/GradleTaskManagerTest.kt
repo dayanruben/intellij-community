@@ -2,6 +2,9 @@
 package org.jetbrains.plugins.gradle.service.task
 
 import com.intellij.execution.process.ProcessOutputType
+import com.intellij.gradle.testFramework.importing.GradleImportingTestCase.Companion.requireJdkHome
+import com.intellij.gradle.testFramework.jvm.JavaVersionRestriction
+import com.intellij.gradle.testFramework.util.createBuildFile
 import com.intellij.openapi.application.runWriteAction
 import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskId
 import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskNotificationListener
@@ -18,13 +21,10 @@ import com.intellij.testFramework.fixtures.IdeaTestFixtureFactory
 import org.gradle.tooling.LongRunningOperation
 import org.gradle.util.GradleVersion
 import org.jetbrains.plugins.gradle.frameworkSupport.buildscript.GradleBuildScriptBuilder
-import org.jetbrains.plugins.gradle.importing.GradleImportingTestCase.Companion.requireJdkHome
 import org.jetbrains.plugins.gradle.service.execution.GradleExecutionContext
 import org.jetbrains.plugins.gradle.service.project.GradleExecutionHelperExtension
 import org.jetbrains.plugins.gradle.settings.DistributionType
 import org.jetbrains.plugins.gradle.settings.GradleExecutionSettings
-import org.jetbrains.plugins.gradle.testFramework.util.createBuildFile
-import org.jetbrains.plugins.gradle.tooling.JavaVersionRestriction
 import org.jetbrains.plugins.gradle.util.GradleConstants
 import org.jetbrains.plugins.gradle.util.GradleUtil
 import org.junit.Test
