@@ -9,7 +9,6 @@ import org.jetbrains.intellij.build.impl.createBuildContext
 import org.jetbrains.intellij.build.impl.qodana.QodanaProductProperties
 import org.jetbrains.intellij.build.io.copyDir
 import org.jetbrains.intellij.build.io.copyFileToDir
-import org.jetbrains.intellij.build.kotlin.KotlinBinaries
 import org.jetbrains.intellij.build.productLayout.CommunityModuleSets
 import org.jetbrains.intellij.build.productLayout.CommunityProductFragments
 import org.jetbrains.intellij.build.productLayout.ProductModulesContentSpec
@@ -25,6 +24,8 @@ val IDEA_COMMUNITY_MAVEN_ARTIFACTS_ADDITIONAL_MODULES: PersistentList<String> = 
   "intellij.platform.vcs.testFramework",
   "intellij.platform.externalSystem.testFramework",
   "intellij.platform.uast.testFramework",
+  "intellij.platform.testFramework.buildView",
+  "intellij.platform.testFramework.structureView",
   "intellij.maven.testFramework",
   "intellij.tools.reproducibleBuilds.diff",
   "intellij.space.java.jps",
@@ -279,11 +280,6 @@ inline fun ideaCommunityMacCustomizer(
 
   rootDirectoryName { _, _ -> "IntelliJ IDEA OSS.app" }
 
-  executableFilePatterns { base, _, _, _ ->
-    val kotlinExecutables = KotlinBinaries.kotlinCompilerExecutables
-    (base + kotlinExecutables).filterNot { it == "plugins/**/*.sh" }
-  }
-
   configure()
 }
 
@@ -293,10 +289,6 @@ inline fun ideaCommunityLinuxCustomizer(
 ): LinuxDistributionCustomizer = linuxCustomizer(projectHome) {
 
   rootDirectoryName { _, _ -> "idea-oss" }
-
-  executableFilePatterns { base, _, _, _, _ ->
-    base.plus(KotlinBinaries.kotlinCompilerExecutables).filterNot { it == "plugins/**/*.sh" }
-  }
 
   configure()
 }

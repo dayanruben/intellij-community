@@ -3,6 +3,7 @@ package org.jetbrains.idea.devkit.navigation
 
 import com.intellij.codeInsight.codeVision.CodeVisionEntry
 import com.intellij.codeInsight.codeVision.ui.model.ClickableTextCodeVisionEntry
+import com.intellij.codeInsight.codeVision.ui.model.TextCodeVisionEntry
 import com.intellij.codeInsight.navigation.ItemWithPresentation
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.readAction
@@ -55,12 +56,83 @@ internal class DescriptorsIncludingContentModuleCodeVisionProviderTest {
 
     testCodeVision("""
       <!-- copyright -->
-      /*<# block [Included in 1 descriptor] #>*/
-      <idea-plugin>
+      <idea-plugin>/*<# [Included in 1 descriptor] #>*/
         <!-- any -->
       </idea-plugin>
       """.trimIndent(),
       expectedTooltip = "Content module test.module is included in 1 plugin XML descriptor",
+    )
+  }
+
+  @Test
+  fun testSingleIncludingPlugin() {
+    createModuleWithModuleDescriptor("declaring.module", "META-INF/plugin.xml", """
+      <idea-plugin>
+        <id>com.example.myplugin</id>
+        <content>
+          <module name="test.module"/>
+        </content>
+      </idea-plugin>
+      """.trimIndent()
+    )
+
+    testCodeVision("""
+      <idea-plugin>/*<# [Included in 'com.example.myplugin' plugin] #>*/
+        <!-- any -->
+      </idea-plugin>
+      """.trimIndent(),
+      expectedTooltip = "Content module test.module is included in 1 plugin XML descriptor",
+    )
+  }
+
+  @Test
+  fun testSingleIncludingPluginWithoutId() {
+    createModuleWithModuleDescriptor("declaring.module", "META-INF/plugin.xml", """
+      <idea-plugin>
+        <name>My Example Plugin</name>
+        <content>
+          <module name="test.module"/>
+        </content>
+      </idea-plugin>
+      """.trimIndent()
+    )
+
+    testCodeVision("""
+      <idea-plugin>/*<# [Included in 'My Example Plugin' plugin] #>*/
+        <!-- any -->
+      </idea-plugin>
+      """.trimIndent(),
+      expectedTooltip = "Content module test.module is included in 1 plugin XML descriptor",
+    )
+  }
+
+  @Test
+  fun testMultipleIncludingPlugins() {
+    createModuleWithModuleDescriptor("declaring.module.1", "META-INF/plugin.xml", """
+      <idea-plugin>
+        <id>com.example.myplugin.one</id>
+        <content>
+          <module name="test.module"/>
+        </content>
+      </idea-plugin>
+      """.trimIndent()
+    )
+    createModuleWithModuleDescriptor("declaring.module.2", "META-INF/plugin.xml", """
+      <idea-plugin>
+        <id>com.example.myplugin.two</id>
+        <content>
+          <module name="test.module"/>
+        </content>
+      </idea-plugin>
+      """.trimIndent()
+    )
+
+    testCodeVision("""
+      <idea-plugin>/*<# [Included in 2 descriptors] #>*/
+        <!-- any -->
+      </idea-plugin>
+      """.trimIndent(),
+      expectedTooltip = "Content module test.module is included in 2 plugin XML descriptors",
     )
   }
 
@@ -79,8 +151,7 @@ internal class DescriptorsIncludingContentModuleCodeVisionProviderTest {
     )
 
     testCodeVision("""
-      /*<# block [Included in 1 descriptor] #>*/
-      <idea-plugin>
+      <idea-plugin>/*<# [Included in 1 descriptor] #>*/
         <!-- any -->
       </idea-plugin>
       """.trimIndent(),
@@ -109,8 +180,7 @@ internal class DescriptorsIncludingContentModuleCodeVisionProviderTest {
     )
 
     testCodeVision("""
-      /*<# block [Included in 2 descriptors] #>*/
-      <idea-plugin>
+      <idea-plugin>/*<# [Included in 2 descriptors] #>*/
         <!-- any -->
       </idea-plugin>
       """.trimIndent(),
@@ -130,8 +200,7 @@ internal class DescriptorsIncludingContentModuleCodeVisionProviderTest {
     )
 
     testCodeVision("""
-      /*<# block [Included in 1 descriptor] #>*/
-      <idea-plugin>
+      <idea-plugin>/*<# [Included in 1 descriptor] #>*/
         <!-- any -->
       </idea-plugin>
       """.trimIndent(),
@@ -152,8 +221,7 @@ internal class DescriptorsIncludingContentModuleCodeVisionProviderTest {
     )
 
     testCodeVision("""
-      /*<# block [Included in 1 descriptor] #>*/
-      <idea-plugin>
+      <idea-plugin>/*<# [Included in 1 descriptor] #>*/
         <dependencies>
           <module name="intellij.platform.frontend"/>
           <module name="intellij.platform.rpc"/>
@@ -176,8 +244,7 @@ internal class DescriptorsIncludingContentModuleCodeVisionProviderTest {
     )
 
     testCodeVision("""
-      /*<# block [Included in 1 descriptor] #>*/
-      <idea-plugin>
+      <idea-plugin>/*<# [Included in 1 descriptor] #>*/
         <dependencies>
           <module name="intellij.platform.frontend"/>
         </dependencies>
@@ -293,6 +360,20 @@ internal class DescriptorsIncludingContentModuleCodeVisionProviderTest {
       ),
       popupTargets.sorted(),
     )
+  }
+
+  @Test
+  fun testPreview() {
+    val previewPath = "codeVisionProviders/${DescriptorsIncludingContentModuleCodeVisionProvider.ID}/preview.xml"
+    val previewText = DescriptorsIncludingContentModuleCodeVisionProvider::class.java.classLoader.getResource(previewPath)!!.readText()
+    myFixture.configureByText("preview.xml", previewText)
+
+    val provider = DescriptorsIncludingContentModuleCodeVisionProvider()
+    provider.preparePreview(myFixture.editor, myFixture.file)
+    val (range, entry) = runReadActionBlocking { provider.computeForEditor(myFixture.editor, myFixture.file) }.single()
+
+    assertEquals(0, range.startOffset)
+    assertEquals("Included in 2 descriptors", (entry as TextCodeVisionEntry).text)
   }
 
   private fun testCodeVision(

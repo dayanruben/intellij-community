@@ -55,6 +55,15 @@ val communityPluginValidationOptions: PluginValidationOptions = PluginValidation
     "com.intellij.directoryIndexExcludePolicy" to existingDirectoryIndexExcludePoliciesInCommunity,
   ),
   existingPackageAttributes = existingPackageAttributesInCommunity,
+  modulesContainingBothPluginDescriptorAndModuleDescriptorToIgnore = setOf(
+    //todo: remove plugin.xml from these two modules, it shouldn't be needed after dev build start generating test plugins automatically
+    "intellij.vcs.git.testFramework",
+    "intellij.python.community.services.systemPython.tests",
+  ),
+  modulesWithXIncludeReferencingFilesFromOtherModulesToIgnore = mapOf(
+    "intellij.android.design-plugin.descriptor" to "*",
+    "intellij.android.plugin.descriptor" to "*",
+  )
 )
 
 class CommunityPluginModelTest {

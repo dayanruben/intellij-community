@@ -3,6 +3,7 @@ package org.jetbrains.intellij.build
 
 import kotlinx.collections.immutable.PersistentList
 import kotlinx.collections.immutable.persistentListOf
+import org.jetbrains.intellij.build.impl.commonExecutableFilePatterns
 import org.jetbrains.intellij.build.impl.support.RepairUtilityBuilder
 import org.jetbrains.intellij.build.impl.support.bundleRepairUtility
 import java.nio.file.Path
@@ -88,6 +89,9 @@ class LinuxCustomizerBuilder @PublishedApi internal constructor(private val proj
    * @return the current handler, or `null` if none is set
    */
   fun getCopyAdditionalFilesHandler(): ((Path, JvmArchitecture, BuildContext) -> Unit)? = copyAdditionalFilesHandler
+
+  /** Returns the handler that [executableFilePatterns] set, so that a wrapper can extend it, or `null`. */
+  fun getExecutableFilePatternsHandler(): ((Sequence<String>, Boolean, JvmArchitecture, LibcImpl, BuildContext) -> Sequence<String>)? = executableFilePatternsHandler
 
   /**
    * Adds custom logic for copying additional files to the Linux distribution.
@@ -187,13 +191,7 @@ open class LinuxDistributionCustomizer {
 
   open fun generateExecutableFilesPatterns(includeRuntime: Boolean, arch: JvmArchitecture, targetLibcImpl: LibcImpl, context: BuildContext): Sequence<String> {
     val basePatterns = if (context.isLanguageServer) sequenceOf("bin/${context.productProperties.baseFileName}")
-    else sequenceOf(
-      "bin/*.sh",
-      "plugins/**/*.sh",
-      "bin/fsnotifier",
-      "bin/restarter",
-      "bin/${context.productProperties.baseFileName}",
-    )
+    else commonExecutableFilePatterns(OsFamily.LINUX).asSequence() + "bin/${context.productProperties.baseFileName}"
 
     val rtPatterns = if (includeRuntime) {
       val distribution =
@@ -208,8 +206,7 @@ open class LinuxDistributionCustomizer {
     return basePatterns +
            rtPatterns +
            RepairUtilityBuilder.executableFilesPatterns(context) +
-           extraExecutables +
-           context.getExtraExecutablePattern(OsFamily.LINUX)
+           extraExecutables
   }
 
   /**

@@ -7,6 +7,7 @@ import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.colors.CodeInsightColors;
+import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.editor.ex.MarkupIterator;
 import com.intellij.openapi.editor.ex.MarkupModelEx;
 import com.intellij.openapi.editor.ex.RangeHighlighterEx;
@@ -113,6 +114,59 @@ public class MarkupModelTest {
 
       assertEquals(List.of(true, true, false), fontStyleChanges);
     });
+  }
+
+  @Test
+  public void testFontFamiliesIteratorFindsHighlightersWithForcedFontFamilies() {
+    myFixture.runTest(() -> {
+      myFixture.initText("abc\ndef");
+      Document document = getDocument(myFixture.getFile());
+      MarkupModelEx markupModel = (MarkupModelEx)DocumentMarkupModel.forDocument(document, myFixture.getProject(), true);
+      assertIteratorEmpty(markupModel.overlappingFontFamiliesIterator(0, document.getTextLength()));
+      TextAttributes withFontFamilies = attributes(Color.RED, FontFamilies.of("Noto Serif"));
+      TextAttributes withoutFontFamilies = new TextAttributes(null, Color.RED, null, null, Font.PLAIN);
+      RangeHighlighterEx exact =
+        (RangeHighlighterEx)markupModel.addRangeHighlighter(0, 1, 0, withFontFamilies, HighlighterTargetArea.EXACT_RANGE);
+      RangeHighlighterEx lines =
+        (RangeHighlighterEx)markupModel.addRangeHighlighter(4, 5, 0, withFontFamilies, HighlighterTargetArea.LINES_IN_RANGE);
+      markupModel.addRangeHighlighter(2, 3, 0, withoutFontFamilies, HighlighterTargetArea.EXACT_RANGE);
+      assertThat(fontFamiliesHighlighters(markupModel, document)).containsExactlyInAnyOrder(exact, lines);
+
+      exact.setTextAttributes(withoutFontFamilies);
+      assertThat(fontFamiliesHighlighters(markupModel, document)).containsExactly(lines);
+
+      markupModel.changeAttributesInBatch(exact, highlighter -> highlighter.setTextAttributes(withFontFamilies));
+      assertThat(fontFamiliesHighlighters(markupModel, document)).containsExactlyInAnyOrder(exact, lines);
+
+      lines.dispose();
+      assertThat(fontFamiliesHighlighters(markupModel, document)).containsExactly(exact);
+    });
+  }
+
+  @Test
+  public void testFilteredFontFamiliesIteratorSkipsHighlightersThatTheEditorHides() {
+    myFixture.runTest(() -> {
+      myFixture.initText("abc\ndef");
+      Document document = getDocument(myFixture.getFile());
+      MarkupModelEx markupModel = (MarkupModelEx)DocumentMarkupModel.forDocument(document, myFixture.getProject(), true);
+      TextAttributes withFontFamilies = attributes(Color.RED, FontFamilies.of("Noto Serif"));
+      RangeHighlighterEx shown =
+        (RangeHighlighterEx)markupModel.addRangeHighlighter(0, 1, 0, withFontFamilies, HighlighterTargetArea.EXACT_RANGE);
+      RangeHighlighterEx hidden =
+        (RangeHighlighterEx)markupModel.addRangeHighlighter(4, 5, 0, withFontFamilies, HighlighterTargetArea.EXACT_RANGE);
+      hidden.setEditorFilter(_ -> false);
+      MarkupModelEx filteredMarkupModel = ((EditorEx)myFixture.getEditor()).getFilteredDocumentMarkupModel();
+
+      assertThat(fontFamiliesHighlighters(filteredMarkupModel, document)).containsExactly(shown);
+    });
+  }
+
+  private static List<RangeHighlighterEx> fontFamiliesHighlighters(MarkupModelEx markupModel, Document document) {
+    try (MarkupIterator<RangeHighlighterEx> iterator = markupModel.overlappingFontFamiliesIterator(0, document.getTextLength())) {
+      List<RangeHighlighterEx> result = new ArrayList<>();
+      iterator.forEachRemaining(result::add);
+      return result;
+    }
   }
 
   private static TextAttributes attributes(Color background, FontFamilies fontFamilies) {

@@ -197,14 +197,26 @@ public final class IdeaJdk extends JavaDependentSdkType implements JavaSdkType {
 
     String plugins = home + File.separator + PLUGINS_DIR + File.separator;
     appendIdeaLibrary(plugins + "java", result);
-    appendIdeaLibrary(plugins + "JavaEE", result, "javaee-impl.jar", "jpa-javax-console.jar", "jpa-jakarta-console.jar",
-                      "jpa-console-common.jar");
+    // "JavaEE" is the directory of the JavaEE plugin in older IDEs
+    for (String javaeeDirName : List.of("javaee-platform", "JavaEE")) {
+      appendIdeaLibrary(plugins + javaeeDirName, result, "javaee-impl.jar", "jpa-javax-console.jar", "jpa-jakarta-console.jar",
+                        "jpa-console-common.jar");
+    }
     appendIdeaLibrary(plugins + "PersistenceSupport", result, "persistence-impl.jar");
-    appendIdeaLibrary(plugins + "DatabaseTools", result, "grid.jar", "grid-core.jar", "database-impl.jar", "jdbc-console.jar");
+    // "DatabaseTools" is the directory of the Database Tools plugin in older IDEs
+    for (String databaseDirName : List.of("database", "DatabaseTools")) {
+      appendIdeaLibrary(plugins + databaseDirName, result, "grid.jar", "grid-core.jar", "database-impl.jar", "jdbc-console.jar");
+    }
     appendIdeaLibrary(plugins + "css", result, "css.jar");
-    appendIdeaLibrary(plugins + "uml", result, "uml-support.jar");
-    appendIdeaLibrary(plugins + "Spring", result,
-                      "spring.jar", "spring-el.jar", "spring-jsf.jar", "spring-persistence-integration.jar");
+    // "uml" is the directory of the Diagrams plugin in older IDEs
+    for (String diagramDirName : List.of("diagram", "uml")) {
+      appendIdeaLibrary(plugins + diagramDirName, result, "diagram-plugin.jar", "uml-support.jar");
+    }
+    // "Spring" is the directory of the Spring plugin in older IDEs
+    for (String springDirName : List.of("spring-core", "Spring")) {
+      appendIdeaLibrary(plugins + springDirName, result,
+                        "spring-core-plugin.jar", "spring.jar", "spring-el.jar", "spring-jsf.jar", "spring-persistence-integration.jar");
+    }
     return VfsUtilCore.toVirtualFileArray(result);
   }
 

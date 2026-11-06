@@ -815,6 +815,201 @@ class PyTypeInferenceCspTest : PyCodeInsightTestCase() {
     """.trimIndent())
 
   @Test
+  @TestFor(issues = ["PY-90274"])
+  fun `default function arguments simple`() = test("""
+      def f[T](p: T = 1) -> T : return p
+      res = f()
+      # └ TYPE Literal[1]
+      """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-90274"])
+  fun `default function arguments conflicts with non-default argument`() = test("""
+      def f[T](p0: T, p1: T = 1) -> T : return p0
+      res = f("s")
+      # └ TYPE Literal["s", 1]
+      """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-90274"])
+  fun `multiple default function arguments conflict`() = test("""
+      def f[T](p0: T = "s", p1: T = 1) -> T : return p0
+      res = f()
+      # └ TYPE Literal["s", 1]
+      """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-90274"])
+  fun `default matching union member leaves T unsolved`() = test("""
+      def f[T](p: T | int = 1) -> T: ...
+      res = f()
+      # └ TYPE Unknown
+      """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-90274"])
+  fun `default not matching union member solves T`() = test("""
+      def f[T](p: T | str = 1) -> T: ...
+      res = f()
+      # └ TYPE Literal[1]
+      """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-90274"])
+  fun `None default not matching union member solves T`() = test("""
+      def f[T = int](p: T | str = None) -> T: ...
+      res = f()
+      # └ TYPE None
+      """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-90274"])
+  fun `None default solves T with protocol bound that accepts None`() = test("""
+      from collections.abc import Hashable
+      def f[T: Hashable](p: T = None) -> T: ...
+      res = f()
+      # └ TYPE None
+      """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-90274"])
+  fun `None default solves T with union bound that contains None`() = test("""
+      def f[T: int | None](p: T = None) -> T: ...
+      res = f()
+      # └ TYPE None
+      """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-90274"])
+  fun `None default solves T with None constraint`() = test("""
+      def f[T: (str, None)](p: T = None) -> T: ...
+      res = f()
+      # └ TYPE None
+      """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-90274"])
+  fun `default matching union member falls back to default type argument`() = test("""
+      def f[T = int](p: T | str = "") -> T: ...
+      res = f()
+      # └ TYPE int
+      """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-90274"])
+  fun `default function arguments located in other file`() = test("""
+      from mod import f
+      res = f()
+      # └ TYPE Literal[1]
+      """.trimIndent(), "mod.py" to """
+      def f[T](p: T = 1) -> T: ...
+      """)
+
+  @Test
+  @TestFor(issues = ["PY-90274"])
+  fun `default function arguments located in other file conflict with default type argument`() = test("""
+      from mod import f
+      res = f()
+      # └ TYPE Literal[1]
+      """.trimIndent(), "mod.py" to """
+      def f[T = str](p: T = 1) -> T: ...
+      """)
+
+  @Test
+  @TestFor(issues = ["PY-90274"])
+  fun `default function arguments with nested T uninferrable`() = test("""
+      def f[T](p: list[T] = []) -> list[T]: ...
+      res = f()
+      # └ TYPE list[Unknown]
+      """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-90274"])
+  fun `default function arguments with nested T inferrable`() = test("""
+      def f[T](p: list[T] = [1]) -> list[T]: ...
+      res = f()
+      # └ TYPE list[int]
+      """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-90274"])
+  fun `default function arguments with nested T inferrable from default`() = test("""
+      def f[T = int](p: list[T] = []) -> list[T]: ...
+      res = f()
+      # └ TYPE list[int]
+      """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-90274"])
+  fun `default function arguments conflict with default type argument`() = test("""
+      def f[T = str](p: T = 1) -> T: ...
+      res = f()
+      # └ TYPE Literal[1]
+      """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-90274"])
+  fun `default function arguments with nested call with default argument`() = test("""
+      def g[S](s: S = 1) -> S: ...
+      def f[T](p: T = g()) -> T: ...
+      res = f()
+      # └ TYPE Literal[1]
+      """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-90274"])
+  fun `default function arguments with callable as default`() = test("""
+      from typing import Callable
+      def f[T](cb: Callable[[], T] = lambda: 1) -> T: ...
+      res = f()
+      # └ TYPE Literal[1]
+      """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-90274"])
+  fun `default function arguments located in other scope`() = test("""
+      class A:
+          D = "s"
+          def m[T](self, p: T = D) -> T: ...
+      a = A()
+      res = a.m()
+      # └ TYPE str
+      """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-90274"])
+  fun `ellipsis default solves T`() = test("""
+      def f[T = int](a: T = ...) -> T: ...
+      res = f()
+      # └ TYPE EllipsisType
+      """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-90274"])
+  fun `ellipsis default in stub leaves T to its default`() = test("""
+      from stub import f
+      res = f()
+      # └ TYPE str # this is debatable
+      """.trimIndent(), "stub.pyi" to """
+      def f[T = str](p: T = ...) -> T: ...
+      """)
+
+  @Test
+  @TestFor(issues = ["PY-90274"])
+  fun `ellipsis default in overload leaves T to its default`() = test("""
+      from typing import overload
+
+      @overload
+      def f[T = int](a: T = ...) -> T: ...
+      @overload
+      def f(a: str, b: int) -> str: ...
+      def f(a=None, b=0): ...
+
+      res = f()
+      # └ TYPE int # this is debatable
+      """.trimIndent())
+
+  @Test
   @TestFor(issues = ["PY-92184"])
   fun `tuple in generic explicit is valid`() = test("""
       from typing import Literal

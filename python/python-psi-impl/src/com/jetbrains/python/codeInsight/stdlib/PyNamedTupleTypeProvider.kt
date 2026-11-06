@@ -49,6 +49,7 @@ import com.jetbrains.python.psi.types.PyTypeUtil
 import com.jetbrains.python.psi.types.PyTypeUtil.notNullToRef
 import com.jetbrains.python.psi.types.PyUnionType
 import com.jetbrains.python.psi.types.TypeEvalContext
+import org.jetbrains.annotations.ApiStatus
 import kotlin.contracts.ExperimentalContracts
 import kotlin.contracts.contract
 
@@ -83,7 +84,8 @@ class PyNamedTupleTypeProvider : PyTypeProviderBase() {
   }
 
   override fun prepareCalleeTypeForCall(type: PyType?, callee: PyExpression, context: TypeEvalContext): Ref<PyType?>? {
-    return if (type is PyNamedTupleType) Ref.create(type) else null
+    if (type !is PyNamedTupleType) return null
+    return Ref.create(generateGenericConstructorType(type, context) ?: type)
   }
 
   override fun getMemberTypes(type: PyType, name: String, location: PyExpression?, direction: AccessDirection, context: PyResolveContext): List<PyTypeMember>? {
@@ -118,6 +120,18 @@ class PyNamedTupleTypeProvider : PyTypeProviderBase() {
 
       return cls.getSuperClassTypes(context).any(isTypingNT)
     }
+
+    /**
+     * Returns true if [attribute] is a field of a class that inherits directly from typing `NamedTuple`.
+     * A field has an annotation and is not a `ClassVar`.
+     * An instance also cannot change an unannotated class attribute, but this function does not include it.
+     */
+    @ApiStatus.Internal
+    fun isNamedTupleField(attribute: PyTargetExpression, context: TypeEvalContext): Boolean {
+      if (attribute.annotationValue == null || !PyUtil.isClassAttribute(attribute) || PyTypingTypeProvider.isClassVar(attribute, context)) return false
+      val cls = attribute.containingClass ?: return false
+      return isTypingNamedTupleDirectInheritor(cls, context)
+    }
   }
 }
 
@@ -141,12 +155,11 @@ private fun getFieldTypeForTypingNTFunctionInheritor(referenceExpression: PyRefe
 }
 
 /**
- * Applies [typeArguments] to the fields of a generic named tuple.
+ * Parameterizes a generic named tuple with [typeArguments].
  *
- * A named tuple type reports its field types as its type arguments. So [PyTypeChecker.parameterizeType] cannot
- * bind the type parameters of the class. This function maps the type parameters to [typeArguments]. It then
- * rewrites each field type. For `class Base(NamedTuple, Generic[T])` with the field `path: T`, `Base[str]`
- * gets `path: str`.
+ * The function maps the type parameters of the class to [typeArguments]. It keeps the result as the type arguments
+ * of the named tuple, and rewrites each field type. For `class Base(NamedTuple, Generic[T])` with the field `path: T`,
+ * `Base[str]` gets the type argument `str` and the field `path: str`.
  *
  * The function returns `null` when the class is not generic, or when the type arguments do not match the
  * type parameters.
@@ -156,22 +169,34 @@ internal fun parameterizeNamedTupleType(
   typeArguments: List<PyType?>,
   context: TypeEvalContext,
 ): PyNamedTupleType? {
-  val typeParameters = PyTypeChecker.findGenericDefinitionType(type.pyClass, context)?.typeArguments ?: return null
-  if (typeParameters.isEmpty()) return null
+  val genericDefinitionType = PyTypeChecker.findGenericDefinitionType(type.pyClass, context) ?: return null
   val substitutions = PyTypeChecker.mapTypeParametersToSubstitutions(
-    typeParameters,
+    genericDefinitionType.typeArguments,
     typeArguments,
     PyTypeParameterMapping.Option.MAP_UNMATCHED_EXPECTED_TYPES_TO_ANY,
     PyTypeParameterMapping.Option.USE_DEFAULTS,
   ) ?: return null
-  val fields = type.fields.entries.associateTo(NTFields()) { (name, field) ->
-    // A field without a type parameter keeps its type. `substitutePlainly` also keeps a literal tuple,
-    // because a parameterization must not widen the declared type of a field.
-    val fieldType = if (field.type.hasGenerics(context)) PyTypeChecker.substitute(field.type, substitutions, context)
-    else field.type
-    name to PyNamedTupleType.FieldTypeAndDefaultValue(fieldType, field.defaultValue)
-  }
-  return PyNamedTupleType(type.pyClass, type.name, fields, type.isDefinition, type.isTyped, type.declarationElement)
+  val classTypeArguments = (PyTypeChecker.substitute(genericDefinitionType, substitutions, context) as? PyClassType)?.typeArguments
+                           ?: return null
+  return type.mapTypes(
+    // A field without a type parameter keeps its type, because a parameterization must not widen the declared type of a field.
+    { fieldType -> if (fieldType.hasGenerics(context)) PyTypeChecker.substitute(fieldType, substitutions, context) else fieldType },
+    { classTypeArguments },
+  )
+}
+
+/**
+ * The constructor signature of the generic named tuple class [type]: the fields as parameters, and the named tuple
+ * parameterized with its own type parameters as the return type. The generic call then binds the type parameters,
+ * as for a dataclass, so `Base(42)` of `class Base[T](NamedTuple)` with the field `foo: T` gives `Base[int]`.
+ *
+ * Returns `null` when [type] is not the definition of a typed generic named tuple, or is already parameterized.
+ */
+private fun generateGenericConstructorType(type: PyNamedTupleType, context: TypeEvalContext): PyCallableType? {
+  if (!type.isDefinition || !type.isTyped || type.typeArguments.isNotEmpty()) return null
+  val typeParameters = PyTypeChecker.findGenericDefinitionType(type.pyClass, context)?.typeArguments ?: return null
+  val returnType = parameterizeNamedTupleType(type.toInstance(), typeParameters, context) ?: return null
+  return PyCallableTypeImpl(type.getParameters(context), returnType)
 }
 
 private fun getNamedTupleReplaceType(referenceExpression: PyReferenceExpression, context: TypeEvalContext): PyCallableType? {

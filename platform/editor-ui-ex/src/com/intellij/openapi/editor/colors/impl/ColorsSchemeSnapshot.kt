@@ -3,6 +3,7 @@ package com.intellij.openapi.editor.colors.impl
 
 import com.intellij.openapi.editor.colors.ColorKey
 import com.intellij.openapi.editor.colors.EditorColorsScheme
+import com.intellij.openapi.editor.markup.FontFamilies
 import com.intellij.openapi.editor.markup.TextAttributes
 import kotlinx.collections.immutable.PersistentMap
 import kotlinx.collections.immutable.persistentHashMapOf
@@ -35,6 +36,12 @@ class ColorsSchemeSnapshot private constructor(
   private val attributes: PersistentMap<String, TextAttributes>, // the text attributes by the external name of their key
   private val tempAttributes: PersistentMap<String, TextAttributes>, // the text attributes of temporary keys, see TextAttributesKey.isTemp
 ) {
+  /**
+   * The font families of [attributes] and [tempAttributes], or `null` before the first [textAttributesFontFamilies] call.
+   */
+  @Volatile
+  private var textAttributesFontFamilies: Set<FontFamilies>? = null
+
   fun schemeName(): String? = schemeName
 
   fun parentScheme(): EditorColorsScheme? = parentScheme
@@ -60,6 +67,26 @@ class ColorsSchemeSnapshot private constructor(
    * The map is unmodifiable.
    */
   fun attributes(): Map<String, TextAttributes> = attributes
+
+  /**
+   * Returns the font families of the text attributes that the scheme defines itself, of temporary keys included.
+   * The parent scheme does not count. The snapshot computes the set once.
+   */
+  fun textAttributesFontFamilies(): Set<FontFamilies> {
+    val current = textAttributesFontFamilies
+    if (current != null) {
+      return current
+    }
+    synchronized(this) {
+      val again = textAttributesFontFamilies
+      if (again != null) {
+        return again
+      }
+      val computed = collectFontFamilies(attributes.values, tempAttributes.values)
+      textAttributesFontFamilies = computed
+      return computed
+    }
+  }
 
   fun getColor(key: ColorKey): Color? {
     return colors[key]
@@ -299,4 +326,17 @@ private fun <K, V : Any> removeValues(map: PersistentMap<K, V>, predicate: BiPre
     return map
   }
   return result.build()
+}
+
+private fun collectFontFamilies(vararg groups: Collection<TextAttributes>): Set<FontFamilies> {
+  val result = HashSet<FontFamilies>()
+  for (group in groups) {
+    for (attributes in group) {
+      val fontFamilies = attributes.fontFamilies
+      if (fontFamilies != null) {
+        result.add(fontFamilies)
+      }
+    }
+  }
+  return java.util.Set.copyOf(result)
 }

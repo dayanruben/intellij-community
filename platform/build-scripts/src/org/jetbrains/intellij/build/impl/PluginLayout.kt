@@ -13,15 +13,15 @@ import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.ApiStatus.Obsolete
 import org.jetbrains.intellij.build.BuildContext
 import org.jetbrains.intellij.build.BuildOptions
+import org.jetbrains.intellij.build.CompatibleBuildRange
 import org.jetbrains.intellij.build.CustomAssetDescriptor
 import org.jetbrains.intellij.build.JvmArchitecture
 import org.jetbrains.intellij.build.LazySource
 import org.jetbrains.intellij.build.OsFamily
 import org.jetbrains.intellij.build.PluginBundlingRestrictions
-import org.jetbrains.intellij.build.CompatibleBuildRange
-import org.jetbrains.intellij.build.dev.DevPluginLayoutAssetOwner
-import org.jetbrains.intellij.build.dev.DevPluginLayoutAssetSource
-import org.jetbrains.intellij.build.dev.DevPluginLayoutAssetSpec
+import org.jetbrains.intellij.build.dev.LayoutAssetOwner
+import org.jetbrains.intellij.build.dev.LayoutAssetSource
+import org.jetbrains.intellij.build.dev.LayoutAssetSpec
 import org.jetbrains.intellij.build.impl.BuildUtils.checkedReplace
 import java.nio.file.Path
 
@@ -121,7 +121,7 @@ class PluginLayout(val mainModule: String, @Internal @JvmField val auto: Boolean
    * [PluginLayoutSpec.withDevDistSourceTree]. Production packs none of them.
    */
   @Internal
-  var devDistSourceTrees: PersistentList<DevPluginLayoutAssetSource.ModuleDirectory> = persistentListOf()
+  var devDistSourceTrees: PersistentList<LayoutAssetSource.ModuleDirectory> = persistentListOf()
     private set
 
   /**
@@ -220,7 +220,7 @@ class PluginLayout(val mainModule: String, @Internal @JvmField val auto: Boolean
     private set
 
   /**
-   * The platform resource generators. The dev-distribution generator plans each one from its [DevPluginLayoutAssetSpec],
+   * The platform resource generators. The dev-distribution generator plans each one from its [LayoutAssetSpec],
    * and the spec states whether the classic dev build runs it. See [PluginLayoutBuilder.withGeneratedPlatformResources].
    */
   @ApiStatus.Internal
@@ -238,18 +238,16 @@ class PluginLayout(val mainModule: String, @Internal @JvmField val auto: Boolean
   /** The custom assets that a build packs, see [selectForBuild]. */
   internal fun customAssetsFor(classicDev: Boolean): List<CustomAssetDescriptor> = selectForBuild(customAssets, classicDev)
 
-  @ApiStatus.Internal
-  var executablePatterns: PersistentMap<SupportedDistribution, PersistentList<String>> = persistentMapOf()
+  /** The executable files that [PluginLayoutBuilder.withExecutable] declared, in the order of the declarations. */
+  @Internal
+  var executableDeclarations: PersistentList<ExecutableFileDeclaration> = persistentListOf()
     private set
 
-  /**
-   * The patterns [PluginLayoutBuilder.withPlatformExecutable] registered, one list per distribution it named.
-   *
-   * A plain map, unlike [executablePatterns]: a caller outside the layout builders is not expected to know
-   * `kotlinx.collections.immutable`.
-   */
+  /** The paths, relative to the plugin directory, that [distribution] ships with the executable bit. A path can be a glob. */
   @Internal
-  fun getExecutablePatterns(): Map<SupportedDistribution, List<String>> = executablePatterns
+  fun executableFiles(distribution: SupportedDistribution): List<String> {
+    return executableDeclarations.filter { distribution in it.distributions }.map { it.path }
+  }
 
   val hasPlatformSpecificResources: Boolean
     get() = platformResourceGenerators.isNotEmpty() || customAssets.any { it.platformSpecific != null }
@@ -294,15 +292,13 @@ class PluginLayout(val mainModule: String, @Internal @JvmField val auto: Boolean
       return layout
     }
 
-    // we cannot break compatibility / risk to change the existing plugin dir name
-    @Deprecated("A new plugin takes the directory name of its main module. Use `pluginAuto`.")
+    @Deprecated("Use `pluginAuto` instead")
     @Suppress("DEPRECATION")
     fun pluginAutoWithCustomDirName(mainModuleName: String, body: (PluginLayoutSpec) -> Unit): PluginLayout {
       return plugin(mainModuleName = mainModuleName, auto = true, body = body)
     }
 
-    // we cannot break compatibility / risk to change the existing plugin dir name
-    @Deprecated("A new plugin takes the directory name of its main module. Use `pluginAuto`.")
+    @Deprecated("Use `pluginAuto` instead")
     @Suppress("DEPRECATION")
     fun pluginAutoWithCustomDirName(mainModuleName: String, dirName: String, body: (PluginLayoutSpec) -> Unit): PluginLayout {
       return plugin(mainModuleName, auto = true) { spec ->
@@ -410,18 +406,18 @@ class PluginLayout(val mainModule: String, @Internal @JvmField val auto: Boolean
 
     /**
      * A resource generator that states its own development layout, such as `CidrDependencyResource`.
-     * A generator that is code only takes the overload with a [DevPluginLayoutAssetSpec].
+     * A generator that is code only takes the overload with a [LayoutAssetSpec].
      */
-    fun <T> withGeneratedResources(resource: T) where T : ResourceGenerator, T : DevPluginLayoutAssetOwner {
+    fun <T> withGeneratedResources(resource: T) where T : ResourceGenerator, T : LayoutAssetOwner {
       layout.resourceGenerators += resource
     }
 
     /**
      * A resource generator. The dev-distribution generator plans it from [layoutAssetSpec], and
-     * [DevPluginLayoutAssetSpec.OMITTED] states that the dev distribution leaves its files out.
-     * [DevPluginLayoutAssetSpec.runsInClassicDev] states whether the classic dev build also runs [generator].
+     * [LayoutAssetSpec.OMITTED] states that the dev distribution leaves its files out.
+     * [LayoutAssetSpec.runsInClassicDev] states whether the classic dev build also runs [generator].
      */
-    fun withGeneratedResources(layoutAssetSpec: DevPluginLayoutAssetSpec, generator: ResourceGenerator) {
+    fun withGeneratedResources(layoutAssetSpec: LayoutAssetSpec, generator: ResourceGenerator) {
       layout.resourceGenerators += DeclaredPluginLayoutResourceGenerator(layoutAssetSpec, generator)
     }
 
@@ -431,7 +427,7 @@ class PluginLayout(val mainModule: String, @Internal @JvmField val auto: Boolean
      * filegroup of the directory in the package of the module. Production packs nothing for it.
      */
     @Internal
-    fun withDevDistSourceTree(tree: DevPluginLayoutAssetSource.ModuleDirectory) {
+    fun withDevDistSourceTree(tree: LayoutAssetSource.ModuleDirectory) {
       require(tree.exclusions.isEmpty()) { "A dev-distribution source tree states no exclusions: $tree" }
       layout.devDistSourceTrees += tree
     }
@@ -455,13 +451,13 @@ class PluginLayout(val mainModule: String, @Internal @JvmField val auto: Boolean
       layout.resourceGenerators += LibraryResourceGenerator(libraryName = libraryName, targetPath = relativeOutputPath)
     }
 
-    fun withCustomAsset(layoutAssetSpec: DevPluginLayoutAssetSpec, lazySourceSupplier: (context: BuildContext) -> LazySource?) {
+    fun withCustomAsset(layoutAssetSpec: LayoutAssetSpec, lazySourceSupplier: (context: BuildContext) -> LazySource?) {
       layout.customAssets += DeclaredPluginLayoutCustomAsset(layoutAssetSpec, customAsset(platform = null, lazySourceSupplier))
     }
 
     fun withCustomAsset(
       platform: SupportedDistribution,
-      layoutAssetSpec: DevPluginLayoutAssetSpec,
+      layoutAssetSpec: LayoutAssetSpec,
       lazySourceSupplier: (context: BuildContext) -> LazySource?,
     ) {
       layout.customAssets += DeclaredPluginLayoutCustomAsset(layoutAssetSpec, customAsset(platform, lazySourceSupplier))
@@ -480,13 +476,13 @@ class PluginLayout(val mainModule: String, @Internal @JvmField val auto: Boolean
 
     /**
      * A platform resource generator. The dev-distribution generator plans it from [layoutAssetSpec], and
-     * [DevPluginLayoutAssetSpec.OMITTED] states that the dev distribution leaves its files out.
-     * [DevPluginLayoutAssetSpec.runsInClassicDev] states whether the classic dev build also runs [generator].
+     * [LayoutAssetSpec.OMITTED] states that the dev distribution leaves its files out.
+     * [LayoutAssetSpec.runsInClassicDev] states whether the classic dev build also runs [generator].
      * See [platformResourceGenerators].
      */
     fun withGeneratedPlatformResources(
       platform: SupportedDistribution,
-      layoutAssetSpec: DevPluginLayoutAssetSpec,
+      layoutAssetSpec: LayoutAssetSpec,
       generator: ResourceGenerator,
     ) {
       val declared = DeclaredPluginLayoutResourceGenerator(layoutAssetSpec, generator)
@@ -494,12 +490,11 @@ class PluginLayout(val mainModule: String, @Internal @JvmField val auto: Boolean
     }
 
     /**
-     * Add platform-specific executable file pattern.
-     * Pattern is relative to plugin root directory.
+     * Declares that [distributions] ship [path] with the executable bit.
+     * [path] is relative to the plugin directory, and it can be a glob.
      */
-    fun withPlatformExecutable(platform: SupportedDistribution, pattern: String) {
-      val existing = layout.executablePatterns.get(platform) ?: persistentListOf()
-      layout.executablePatterns = layout.executablePatterns.putting(platform, existing.adding(pattern))
+    fun withExecutable(path: String, distributions: Collection<SupportedDistribution> = SUPPORTED_DISTRIBUTIONS) {
+      layout.executableDeclarations = layout.executableDeclarations.adding(ExecutableFileDeclaration(path, distributions.toSet()))
     }
 
     /**
@@ -526,7 +521,7 @@ class PluginLayout(val mainModule: String, @Internal @JvmField val auto: Boolean
     }
 
     fun withDeprecatedPostProcessor(
-      layoutAssetSpec: DevPluginLayoutAssetSpec,
+      layoutAssetSpec: LayoutAssetSpec,
       layoutPatcher: LayoutPatcher,
       pluginXmlPatcher: DeprecatedPostScrambleProcessor,
     ) {
@@ -551,7 +546,7 @@ class PluginLayout(val mainModule: String, @Internal @JvmField val auto: Boolean
        * (with stripped `intellij` prefix and `plugin` suffix, and dots replaced by dashes).
        * **Don't set this property for new plugins**; it is temporarily added to keep the layout of old plugins unchanged.
        */
-      @Deprecated("A new plugin takes the directory name of its main module.")
+      @Deprecated("Plugins shouldn't specify custom directory names to simplify build scripts and migration to Bazel")
       set(value) {
         field = value
         directoryNameSetExplicitly = true
@@ -581,6 +576,7 @@ class PluginLayout(val mainModule: String, @Internal @JvmField val auto: Boolean
        * prefix and dots replaced by dashes).
        * **Don't set this property for new plugins**; it is temporarily added to keep the layout of old plugins unchanged.
        */
+      @Deprecated("Plugins shouldn't specify custom JAR names to simplify build scripts and migration to Bazel")
       set(value) {
         layout.mainJarName = value
       }

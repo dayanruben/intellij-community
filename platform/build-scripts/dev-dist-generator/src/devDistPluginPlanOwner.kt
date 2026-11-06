@@ -5,8 +5,8 @@ package com.intellij.platform.buildScripts.devDistGenerator
 import com.intellij.platform.buildScripts.pluginModelTool.PluginSymbolicVariant
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.intellij.build.PluginBundlingRestrictions
-import org.jetbrains.intellij.build.dev.DevPluginLayoutAssetOwner
 import org.jetbrains.intellij.build.dev.DevPluginPreparationRecipe
+import org.jetbrains.intellij.build.dev.LayoutAssetOwner
 import org.jetbrains.intellij.build.dev.snapshotDevPluginPreparationOperation
 import org.jetbrains.intellij.build.dev.snapshotDevPluginPreparationRecipe
 import org.jetbrains.intellij.build.devDist.CanonicalJarRecipe
@@ -141,7 +141,7 @@ private fun originalLayoutState(layout: PluginLayout): List<Any?> {
     layout.patchers.toList(), layout.resourcePaths.toList(), layout.resourceGenerators.toList(),
     layout.customAssets.map { listOf(it, it.relativePath, it.platformSpecific) },
     layout.platformResourceGenerators.mapValues { it.value.toList() },
-    layout.executablePatterns.mapValues { it.value.toList() }, layout.getDeprecatedPostScrambleProcessor().toList(),
+    layout.executableDeclarations.toList(), layout.getDeprecatedPostScrambleProcessor().toList(),
     restrictions.supportedOs.toList(), restrictions.supportedArch.toList(), restrictions.includeInDistribution,
     restrictions === PluginBundlingRestrictions.MARKETPLACE,
     layout.semanticVersioning, layout.versionEvaluator, layout.versionSuffix, layout.rawPluginXmlPatcher, layout.pluginXmlPatcher,
@@ -175,7 +175,7 @@ private fun canonicalLayoutValue(value: Any?): Any? {
       value
     }
     else {
-      LayoutCallbackKey(value.javaClass, (value as? DevPluginLayoutAssetOwner)?.devPluginLayoutAssetSpec)
+      LayoutCallbackKey(value.javaClass, (value as? LayoutAssetOwner)?.layoutAssetSpec)
     }
   }
 }

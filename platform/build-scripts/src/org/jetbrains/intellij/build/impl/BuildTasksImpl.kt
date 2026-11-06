@@ -333,16 +333,7 @@ private fun buildOsSpecificDistributions(context: BuildContext): List<Distributi
 
     val ideaPropertyFileContent = createIdeaPropertyFile(context)
 
-    spanBuilder("Adjust executable permissions on common dist").use {
-      val matchers = SUPPORTED_DISTRIBUTIONS.mapNotNull {
-        getOsDistributionBuilder(os = it.os, libcImpl = it.libcImpl, context = context)
-      }.flatMap { builder ->
-        JvmArchitecture.entries.flatMap { arch ->
-          builder.generateExecutableFilesMatchers(includeRuntime = true, arch = arch).keys
-        }
-      }
-      updateExecutablePermissions(context.paths.distAllDir, matchers)
-    }
+    updateExecutablePermissions(context.paths.distAllDir, executableFilesMatchers = emptyList())
 
     taskScope(joiner = Joiner.awaitAllOrThrow()) {
       val tasks = SUPPORTED_DISTRIBUTIONS.mapNotNull { (os, arch, libcImpl) ->
@@ -1006,10 +997,8 @@ private fun crossPlatformZip(
   val fileSystem = FileSystems.getDefault()
   val crossPlatformPluginPatterns = crossPlatformBuiltPlugins
     .flatMap { descriptor ->
-      descriptor.layout.executablePatterns.flatMap { (_, patterns) ->
-        patterns.map { pattern ->
-          fileSystem.getPathMatcher("glob:plugins/${descriptor.layout.directoryName}/$pattern")
-        }
+      descriptor.layout.executableDeclarations.map { declaration ->
+        fileSystem.getPathMatcher("glob:plugins/${descriptor.layout.directoryName}/${declaration.path}")
       }
     }
 

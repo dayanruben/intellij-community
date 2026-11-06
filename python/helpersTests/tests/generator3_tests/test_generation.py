@@ -356,6 +356,10 @@ class SkeletonGenerationTest(FunctionalGeneratorTestCase):
     def test_static_method(self):
         self.check_generator_output('mod', 'mod.py')
 
+    def test_split_module_imports_only_local_bases(self):
+        # A module with 30 classes or more is split into a package with a module per class
+        self.check_generator_output('mod', 'mod.py')
+
 
 class MultiModuleGenerationTest(FunctionalGeneratorTestCase):
     default_generator_extra_args = ['--name-pattern', 'mod?']
@@ -373,22 +377,17 @@ class MultiModuleGenerationTest(FunctionalGeneratorTestCase):
         self.assertIn('_ast.py', builtin_mod_skeletons)
         self.assertIn('sys.py', builtin_mod_skeletons)
 
-    # `pyexpat`, when imported, adds two additional synthetic modules in `sys.modules`:
-    # `pyexpat.model` and `pyexpat.errors`. `_elementtree` is also among builtin names,
-    # and it itself imports `pyexpat`. After we process the skeleton for `_elementtree`,
-    # we remove entries for `pyexpat`, `pyexpat.model` and `pyexpat.errors` from `sys.modules`.
-    # However, for some reason, specifically on Python 3.9.25, subsequent import of
-    # `pyexpat` doesn't introduce these synthetic modules into `sys.modules` anymore.
-
-    # TODO figure out why this is not true for some interpreters
-    # @unittest.skipUnless('pyexpat' in sys.builtin_module_names, "pyexpat must be a built-in module")
-    # def test_pyexpat_layout_in_builtins(self):
-    #     self.run_generator(extra_args=['--builtins-only'], extra_syspath=[])
-    #     self.assertFalse(os.path.exists(os.path.join(self.temp_skeletons_dir, 'pyexpat.py')))
-    #     self.assertTrue(os.path.isdir(os.path.join(self.temp_skeletons_dir, 'pyexpat')))
-    #     self.assertNonEmptyFile(os.path.join(self.temp_skeletons_dir, 'pyexpat', '__init__.py'))
-    #     self.assertTrue(os.path.exists(os.path.join(self.temp_skeletons_dir, 'pyexpat', 'model.py')))
-    #     self.assertTrue(os.path.exists(os.path.join(self.temp_skeletons_dir, 'pyexpat', 'errors.py')))
+    # `pyexpat` adds the synthetic modules `pyexpat.model` and `pyexpat.errors` to `sys.modules`.
+    # The built-in `_elementtree` imports `pyexpat`, so a pooled worker that processed `_elementtree`
+    # earlier already has them in `sys.modules` when it gets to `pyexpat`.
+    @unittest.skipUnless('pyexpat' in sys.builtin_module_names, "pyexpat must be a built-in module")
+    def test_pyexpat_layout_in_builtins(self):
+        self.run_generator(extra_args=['--builtins-only'], extra_syspath=[])
+        self.assertFalse(os.path.exists(os.path.join(self.temp_skeletons_dir, 'pyexpat.py')))
+        self.assertTrue(os.path.isdir(os.path.join(self.temp_skeletons_dir, 'pyexpat')))
+        self.assertNonEmptyFile(os.path.join(self.temp_skeletons_dir, 'pyexpat', '__init__.py'))
+        self.assertTrue(os.path.exists(os.path.join(self.temp_skeletons_dir, 'pyexpat', 'model.py')))
+        self.assertTrue(os.path.exists(os.path.join(self.temp_skeletons_dir, 'pyexpat', 'errors.py')))
 
     def test_pyexpat_layout(self):
         self.run_generator(extra_args=['--name', "pyexpat"], extra_syspath=[])
@@ -441,6 +440,15 @@ class MultiModuleGenerationTest(FunctionalGeneratorTestCase):
         # (no skeleton for mod1.so is generated) regardless of the new discovery logic.
         self.check_generator_output()
 
+    def test_binaries_with_own_stubs_are_skipped(self):
+        # "mod1.so" has "mod1.pyi" next to it, and "mod3/ext.so" is covered by the stub-only
+        # package "mod3-stubs". The skeleton generated for "mod1" earlier is also removed.
+        self.check_generator_output(extra_args=['--name-pattern', 'mod*'])
+
+    def test_synthetic_submodules_imported_by_previous_module(self):
+        # "mod1" imports "mod2", which registers the synthetic submodule "mod2.sub" in `sys.modules`.
+        # The pooled worker processes "mod1" first, and "mod2.sub" must still be restored for "mod2".
+        self.check_generator_output()
 
 class StatePassingGenerationTest(FunctionalGeneratorTestCase):
     default_generator_extra_args = ['--state-file', '-',

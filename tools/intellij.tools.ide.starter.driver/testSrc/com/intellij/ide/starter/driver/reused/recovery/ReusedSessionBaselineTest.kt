@@ -213,7 +213,7 @@ class ReusedSessionBaselineTest {
     }
   }
 
-  /** The IDE holds the database open, so a reused session never rewinds it, with or without a restart. */
+  /** The IDE holds the database open, so live recovery never rewinds it. */
   @Test
   fun `a config database of the running IDE is neither tracked nor restored`(@TempDir tempDir: Path) {
     val context = createDummyTestContext("config-database", tempDir.resolve("runtime"))
@@ -231,6 +231,53 @@ class ReusedSessionBaselineTest {
 
       baseline.restore(context)
       assertEquals("changed", databaseFile.readText())
+    }
+  }
+
+  /** `ResourceVersions` records the extraction in a config database, which live recovery does not rewind. */
+  @Test
+  fun `settings recovery keeps the extracted plugin resources`(@TempDir tempDir: Path) {
+    val context = createDummyTestContext("extracted-resources", tempDir.resolve("runtime"))
+    ReusedSessionBaseline(cachedTestContextOf(context)).use { baseline ->
+      baseline.capture(context, emptyList(), emptyList())
+      val extractedFile = context.paths.configDir.resolve("extensions/com.intellij.database/data/aggregators/AVG.groovy").apply {
+        parent.createDirectories()
+        writeText("extracted")
+      }
+
+      val recoveryPlan = baseline.settingsRecoveryPlan(context)
+      baseline.restore(context)
+
+      assertFalse(recoveryPlan.requiresRestart)
+      assertTrue(recoveryPlan.changedFileSpecs.isEmpty())
+      assertTrue(recoveryPlan.deletedFileSpecs.isEmpty())
+      assertEquals("extracted", extractedFile.readText())
+    }
+  }
+
+  /** No IDE runs before a restart, so the restart takes the config databases of the cached context. */
+  @Test
+  fun `a restart rewinds the config databases to the cached context`(@TempDir tempDir: Path) {
+    val cachedContext = createDummyTestContext("config-database-cached", tempDir.resolve("cached"))
+    cachedContext.paths.configDir.resolve("app-internal-state.db").apply {
+      parent.createDirectories()
+      writeText("cached")
+    }
+    val context = createDummyTestContext("config-database-current", tempDir.resolve("current"))
+    val databaseFile = context.paths.configDir.resolve("app-internal-state.db").apply {
+      parent.createDirectories()
+      writeText("cached")
+    }
+    val brokenPluginsFile = context.paths.configDir.resolve("updatedBrokenPlugins.db")
+    ReusedSessionBaseline(cachedTestContextOf(cachedContext)).use { baseline ->
+      baseline.capture(context, emptyList(), emptyList())
+      databaseFile.writeText("changed")
+      brokenPluginsFile.writeText("created")
+
+      baseline.restoreBeforeStart(context)
+
+      assertEquals("cached", databaseFile.readText())
+      assertFalse(brokenPluginsFile.exists())
     }
   }
 }

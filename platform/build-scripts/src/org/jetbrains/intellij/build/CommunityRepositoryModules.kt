@@ -7,11 +7,11 @@ import kotlinx.collections.immutable.PersistentList
 import kotlinx.collections.immutable.persistentListOf
 import org.jetbrains.intellij.build.dependencies.BuildDependenciesDownloader
 import org.jetbrains.intellij.build.dependencies.BuildDependenciesExtractOptions
-import org.jetbrains.intellij.build.dev.DevPluginLayoutAsset
-import org.jetbrains.intellij.build.dev.DevPluginLayoutAssetMapping
-import org.jetbrains.intellij.build.dev.DevPluginLayoutAssetSource
-import org.jetbrains.intellij.build.dev.DevPluginLayoutAssetSpec
-import org.jetbrains.intellij.build.dev.DevPluginLayoutAssetTransform
+import org.jetbrains.intellij.build.dev.LayoutAsset
+import org.jetbrains.intellij.build.dev.LayoutAssetMapping
+import org.jetbrains.intellij.build.dev.LayoutAssetSource
+import org.jetbrains.intellij.build.dev.LayoutAssetSpec
+import org.jetbrains.intellij.build.dev.LayoutAssetTransform
 import org.jetbrains.intellij.build.impl.BundledMavenDownloader
 import org.jetbrains.intellij.build.impl.LibraryPackMode
 import org.jetbrains.intellij.build.impl.ModuleItem
@@ -49,7 +49,6 @@ import java.util.Locale
 fun getCommunityRepositoryPlugins(): PersistentList<PluginLayout> {
   return persistentListOf(
     plugin("intellij.ant") { spec ->
-      spec.mainJarName = "antIntegration.jar"
       spec.withModule("intellij.ant.jps", "ant-jps.jar")
 
       spec.withGeneratedResources(ANT_DISTRIBUTION_DEV_SPEC) { dir, buildContext ->
@@ -79,8 +78,6 @@ fun getCommunityRepositoryPlugins(): PersistentList<PluginLayout> {
       spec.bundlingRestrictions.supportedOs = persistentListOf(OsFamily.WINDOWS)
     },
     plugin("intellij.java.guiForms.designer") { spec ->
-      spec.directoryName = "uiDesigner"
-      spec.mainJarName = "uiDesigner.jar"
       spec.withModule("intellij.java.guiForms.jps", "jps/java-guiForms-jps.jar")
     },
     CommunityKotlinPluginBuilder.kotlinPlugin(),
@@ -90,8 +87,7 @@ fun getCommunityRepositoryPlugins(): PersistentList<PluginLayout> {
     pluginAuto(listOf("intellij.xpath")) { spec ->
       spec.withModule("intellij.xpath.rt", "rt/xslt-rt.jar")
     },
-    pluginAutoWithCustomDirName("intellij.tasks.core") { spec ->
-      spec.directoryName = "tasks"
+    pluginAuto("intellij.tasks.core") { spec ->
       spec.withModule("intellij.tasks")
       spec.withModule("intellij.tasks.compatibility")
       spec.withModule("intellij.tasks.java")
@@ -206,11 +202,10 @@ fun getCommunityRepositoryPlugins(): PersistentList<PluginLayout> {
       spec.withModule("intellij.junit.v6.rt", "junit6-rt.jar")
     },
     plugin("intellij.testng") { spec ->
-      spec.mainJarName = "testng-plugin.jar"
       spec.withModule("intellij.testng.rt", "testng-rt.jar")
     },
     pluginAuto(listOf("intellij.devkit")) { spec ->
-      spec.withModule("intellij.devkit.jps")
+      spec.withModule("intellij.devkit.jps", "devkit-jps.jar")
 
       spec.bundlingRestrictions.includeInDistribution = PluginDistribution.NOT_FOR_PUBLIC_BUILDS
     },
@@ -223,11 +218,9 @@ fun getCommunityRepositoryPlugins(): PersistentList<PluginLayout> {
       spec.withModuleLibrary(libraryName = "JaCoCo", moduleName = "intellij.java.coverage", relativeOutputPath = "jacoco.jar")
     },
     plugin("intellij.java.decompiler") { spec ->
-      spec.directoryName = "java-decompiler"
-      spec.mainJarName = "java-decompiler.jar"
       spec.withModule("intellij.java.decompiler.engine", spec.mainJarName)
     },
-    pluginAutoWithCustomDirName("intellij.javaFX.community", "javaFX") { spec ->
+    pluginAuto("intellij.javaFX.community") { spec ->
       spec.withModule("intellij.javaFX.jps")
       spec.withModule("intellij.javaFX.common", "javaFX-common.jar")
       spec.withModule("intellij.javaFX.sceneBuilder", "rt/sceneBuilderBridge.jar")
@@ -262,9 +255,7 @@ fun getCommunityRepositoryPlugins(): PersistentList<PluginLayout> {
     pluginAuto(listOf("intellij.findUsagesMl")) { spec ->
       spec.bundlingRestrictions.includeInDistribution = PluginDistribution.NOT_FOR_RELEASE
     },
-    pluginAutoWithCustomDirName("intellij.lombok.plugin") { spec ->
-      spec.directoryName = "lombok"
-    },
+    pluginAuto(listOf("intellij.lombok.plugin")),
     pluginAuto(listOf("intellij.compilation.charts")) { spec ->
       spec.withModule("intellij.compilation.charts.jps")
     },
@@ -759,10 +750,8 @@ private fun createAndroidPluginLayout(
   }
 }
 
-fun groovyPlugin(additionalModules: List<String> = emptyList(), addition: ((PluginLayout.PluginLayoutSpec) -> Unit)? = null): PluginLayout {
-  return pluginAutoWithCustomDirName("intellij.groovy") { spec ->
-    spec.directoryName = "Groovy"
-    spec.mainJarName = "Groovy.jar"
+fun groovyPlugin(additionalModules: List<String> = emptyList(), addition: ((PluginLayout.PluginLayoutBuilder) -> Unit)? = null): PluginLayout {
+  return pluginAuto("intellij.groovy") { spec ->
     spec.withModules(
       listOf(
         "intellij.groovy.psi",
@@ -784,26 +773,26 @@ fun groovyPlugin(additionalModules: List<String> = emptyList(), addition: ((Plug
 }
 
 
-private fun webpLayoutAssetSpec(os: OsFamily, arch: JvmArchitecture): DevPluginLayoutAssetSpec {
-  return DevPluginLayoutAssetSpec(
+private fun webpLayoutAssetSpec(os: OsFamily, arch: JvmArchitecture): LayoutAssetSpec {
+  return LayoutAssetSpec(
     sources = listOf(downloadArchive("@libwebp_natives//:files", "libwebp.tar.gz")),
     assets = listOf(webpLayoutAsset(os, arch)),
   )
 }
 
-private fun allWebpLayoutAssetSpec(): DevPluginLayoutAssetSpec {
-  return DevPluginLayoutAssetSpec(
+private fun allWebpLayoutAssetSpec(): LayoutAssetSpec {
+  return LayoutAssetSpec(
     sources = listOf(downloadArchive("@libwebp_natives//:files", "libwebp.tar.gz")),
     assets = SUPPORTED_DISTRIBUTIONS.map { (os, arch, _) -> webpLayoutAsset(os, arch) },
   )
 }
 
-private fun webpLayoutAsset(os: OsFamily, arch: JvmArchitecture): DevPluginLayoutAsset {
-  return DevPluginLayoutAsset(
+private fun webpLayoutAsset(os: OsFamily, arch: JvmArchitecture): LayoutAsset {
+  return LayoutAsset(
     destination = "lib/libwebp/${os.dirName}/${arch.dirName}",
     sources = listOf(0),
-    transform = DevPluginLayoutAssetTransform.archiveTree(
-      mappings = listOf(DevPluginLayoutAssetMapping(
+    transform = LayoutAssetTransform.archiveTree(
+      mappings = listOf(LayoutAssetMapping(
         pattern = "${os.osName}-${arch.archName}/${os.libraryName("webp_jni")}",
         stripComponents = 1,
       )),
@@ -811,15 +800,15 @@ private fun webpLayoutAsset(os: OsFamily, arch: JvmArchitecture): DevPluginLayou
   )
 }
 
-private fun terminalLayoutAssetSpec(os: OsFamily, arch: JvmArchitecture): DevPluginLayoutAssetSpec {
+private fun terminalLayoutAssetSpec(os: OsFamily, arch: JvmArchitecture): LayoutAssetSpec {
   val platformDirectory = "${os.osName.lowercase()}-${arch.archName.lowercase()}"
-  return DevPluginLayoutAssetSpec(
+  return LayoutAssetSpec(
     sources = listOf(downloadArchive("@libghostty_vt//:files", "libghostty-vt.zip.zst")),
-    assets = listOf(DevPluginLayoutAsset(
+    assets = listOf(LayoutAsset(
       destination = "libghostty-vt/$platformDirectory",
       sources = listOf(0),
-      transform = DevPluginLayoutAssetTransform.archiveTree(
-        mappings = listOf(DevPluginLayoutAssetMapping(
+      transform = LayoutAssetTransform.archiveTree(
+        mappings = listOf(LayoutAssetMapping(
           pattern = "$platformDirectory/${os.libraryName("ghostty-vt")}",
           stripComponents = 1,
         )),
@@ -828,60 +817,60 @@ private fun terminalLayoutAssetSpec(os: OsFamily, arch: JvmArchitecture): DevPlu
   )
 }
 
-private fun jcefLayoutAssetSpec(os: OsFamily, arch: JvmArchitecture): DevPluginLayoutAssetSpec {
-  return DevPluginLayoutAssetSpec(
+private fun jcefLayoutAssetSpec(os: OsFamily, arch: JvmArchitecture): LayoutAssetSpec {
+  return LayoutAssetSpec(
     sources = listOf(downloadArchive("@jcef_${devLaunchPlatform(os, arch)}//:files", "jcef.tar.gz")),
-    assets = listOf(DevPluginLayoutAsset(
+    assets = listOf(LayoutAsset(
       destination = "jcef",
       sources = listOf(0),
-      transform = DevPluginLayoutAssetTransform.archiveTree(
+      transform = LayoutAssetTransform.archiveTree(
         stripComponents = 1,
         mappings = listOf(
-          DevPluginLayoutAssetMapping(pattern = "jcef/**", stripComponents = 1),
-          DevPluginLayoutAssetMapping(),
+          LayoutAssetMapping(pattern = "jcef/**", stripComponents = 1),
+          LayoutAssetMapping(),
         ),
       ),
     )),
   )
 }
 
-private fun mavenDistributionLayoutAssetSpec(): DevPluginLayoutAssetSpec {
-  return DevPluginLayoutAssetSpec(
+private fun mavenDistributionLayoutAssetSpec(): LayoutAssetSpec {
+  return LayoutAssetSpec(
     sources = listOf(downloadArchive("@bundled_maven//:files", "apache-maven-bin.zip")),
-    assets = listOf(DevPluginLayoutAsset(
+    assets = listOf(LayoutAsset(
       destination = "lib/maven3",
       sources = listOf(0),
-      transform = DevPluginLayoutAssetTransform.archiveTree(stripComponents = 1),
+      transform = LayoutAssetTransform.archiveTree(stripComponents = 1),
     )),
   )
 }
 
-private fun maven3LibrariesLayoutAssetSpec(): DevPluginLayoutAssetSpec {
-  return DevPluginLayoutAssetSpec(
+private fun maven3LibrariesLayoutAssetSpec(): LayoutAssetSpec {
+  return LayoutAssetSpec(
     sources = listOf(
       mavenLibrariesDirectory("@bundled_maven3_libraries//:files", "maven3-libraries"),
       mavenLibrariesDirectory("@bundled_maven_telemetry_libraries//:files", "maven-telemetry-libraries"),
     ),
     assets = listOf(0, 1).map { source ->
-      DevPluginLayoutAsset(destination = "lib/intellij.maven.server3", sources = listOf(source), mode = 420)
+      LayoutAsset(destination = "lib/intellij.maven.server3", sources = listOf(source), mode = 420)
     },
   )
 }
 
-private fun maven4LibrariesLayoutAssetSpec(): DevPluginLayoutAssetSpec {
-  return DevPluginLayoutAssetSpec(
+private fun maven4LibrariesLayoutAssetSpec(): LayoutAssetSpec {
+  return LayoutAssetSpec(
     sources = listOf(mavenLibrariesDirectory("@bundled_maven_telemetry_libraries//:files", "maven-telemetry-libraries")),
-    assets = listOf(DevPluginLayoutAsset(destination = "lib/intellij.maven.server4", sources = listOf(0), mode = 420)),
+    assets = listOf(LayoutAsset(destination = "lib/intellij.maven.server4", sources = listOf(0), mode = 420)),
   )
 }
 
 /** The jars of one `dev_launch_*` Maven repository, as a tree. The repository holds nothing else, so a layout names no versioned jar. */
-private fun mavenLibrariesDirectory(label: String, fileName: String): DevPluginLayoutAssetSource.BazelTarget {
-  return DevPluginLayoutAssetSource.BazelTarget(label = label, kind = "directory", fileName = fileName, prefix = "")
+private fun mavenLibrariesDirectory(label: String, fileName: String): LayoutAssetSource.BazelTarget {
+  return LayoutAssetSource.BazelTarget(label = label, kind = "directory", fileName = fileName, prefix = "")
 }
 
-private fun downloadArchive(label: String, fileName: String): DevPluginLayoutAssetSource.BazelTarget {
-  return DevPluginLayoutAssetSource.BazelTarget(label = label, kind = "archive", fileName = fileName)
+private fun downloadArchive(label: String, fileName: String): LayoutAssetSource.BazelTarget {
+  return LayoutAssetSource.BazelTarget(label = label, kind = "archive", fileName = fileName)
 }
 
 /** The content hash of the jSerialComm native zip. Keep in lockstep with `jserialcomm_url` in the launch deps. */
@@ -892,13 +881,13 @@ private fun jSerialCommDownloadUrl(): String =
   "https://cache-redirector.jetbrains.com/files/p/ij/intellij-build-dependencies/jSerialComm/$JSERIALCOMM_NATIVE_HASH/jSerialComm.zip"
 
 /** The native jSerialComm archive unpacked into the serial-monitor plugin's `bin/`. */
-private fun jSerialCommLayoutAssetSpec(): DevPluginLayoutAssetSpec {
-  return DevPluginLayoutAssetSpec(
+private fun jSerialCommLayoutAssetSpec(): LayoutAssetSpec {
+  return LayoutAssetSpec(
     sources = listOf(downloadArchive("@jserialcomm_natives//:files", "jSerialComm.zip")),
-    assets = listOf(DevPluginLayoutAsset(
+    assets = listOf(LayoutAsset(
       destination = "bin",
       sources = listOf(0),
-      transform = DevPluginLayoutAssetTransform.archiveTree(),
+      transform = LayoutAssetTransform.archiveTree(),
     )),
   )
 }
@@ -918,14 +907,14 @@ fun PlatformLayout.withRestarter() {
   }
 }
 
-private fun restarterLayoutAssetSpec(os: OsFamily, arch: JvmArchitecture): DevPluginLayoutAssetSpec {
-  return DevPluginLayoutAssetSpec(
+private fun restarterLayoutAssetSpec(os: OsFamily, arch: JvmArchitecture): LayoutAssetSpec {
+  return LayoutAssetSpec(
     sources = listOf(downloadArchive("@restarter//:files", "restarter.tar.gz")),
-    assets = listOf(DevPluginLayoutAsset(
+    assets = listOf(LayoutAsset(
       destination = "bin",
       sources = listOf(0),
-      transform = DevPluginLayoutAssetTransform.archiveTree(
-        mappings = listOf(DevPluginLayoutAssetMapping(pattern = NativeBinaryDownloader.restarterArchivePath(os, arch), stripComponents = 1)),
+      transform = LayoutAssetTransform.archiveTree(
+        mappings = listOf(LayoutAssetMapping(pattern = NativeBinaryDownloader.restarterArchivePath(os, arch), stripComponents = 1)),
       ),
       mode = 493, // 0755: an executable
     )),
@@ -947,7 +936,7 @@ private fun copyMavenLibraries(libraries: List<BundledMavenDownloader.MavenLibra
  * The dev distribution omits the Ant distribution of the Ant plugin. The plugin is a marketplace plugin that no
  * dev-distribution product includes, and it finds `community/lib/ant` itself when it runs from sources.
  */
-private val ANT_DISTRIBUTION_DEV_SPEC: DevPluginLayoutAssetSpec = DevPluginLayoutAssetSpec.OMITTED
+private val ANT_DISTRIBUTION_DEV_SPEC: LayoutAssetSpec = LayoutAssetSpec.OMITTED
 
 private fun copyAnt(mainModule: String, pluginDir: Path, context: BuildContext): List<DistributionFileEntry> {
   val antDir = pluginDir.resolve("dist")

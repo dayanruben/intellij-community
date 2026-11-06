@@ -2,7 +2,9 @@
 package org.intellij.plugins.markdown.editor.livepreview
 
 import com.intellij.ide.rpc.DocumentPatchVersion
+import com.intellij.ide.trustedProjects.TrustedProjects
 import com.intellij.openapi.editor.ex.DocumentEx
+import com.intellij.testFramework.TrustedProjectsTestUtil
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import org.intellij.plugins.markdown.MarkdownBundle
 import org.intellij.plugins.markdown.editor.livepreview.MarkdownLivePreviewSpec.AlertType
@@ -140,6 +142,19 @@ class MarkdownLivePreviewSpecTest : BasePlatformTestCase() {
     )
     val other = images("![a](//example.org/a.png) ![b](data:text/plain,text)")
     assertEquals(listOf("//example.org/a.png", "data:text/plain,text"), other.map { it.destination })
+  }
+
+  fun testImagesAreNotRenderedInUntrustedProject() {
+    TrustedProjectsTestUtil.withTrustedProjectsCheckEnabled {
+      TrustedProjects.setProjectTrusted(project, false)
+      try {
+        myFixture.configureByText("test.md", "![local](image.png)\n\n![remote](https://example.org/image.png)")
+        assertEmpty(computeLivePreviewSpecs(myFixture.file, myFixture.editor).elements.filterIsInstance<MarkdownLivePreviewSpec.Image>())
+      }
+      finally {
+        TrustedProjects.setProjectTrusted(project, true)
+      }
+    }
   }
 
   fun testFileUriIsALocalImageDestination() {
@@ -303,10 +318,10 @@ class MarkdownLivePreviewSpecTest : BasePlatformTestCase() {
     }
   }
 
-  fun testNestedAndUnsupportedHeadingsAreNotReported() {
+  fun testListAndUnsupportedHeadingsAreNotReported() {
     val content = """
       |- # list heading
-      |> ## quote heading
+      |
       |```markdown
       |### code heading
       |```
@@ -314,8 +329,7 @@ class MarkdownLivePreviewSpecTest : BasePlatformTestCase() {
       |#### html heading
       |</section>
       |
-      |> Quoted setext heading
-      |> ---------------------
+      |> - ##### quoted list heading
       |
       |####### too deep
       |
@@ -327,6 +341,34 @@ class MarkdownLivePreviewSpecTest : BasePlatformTestCase() {
 
     assertEquals(1, heading.level)
     assertEquals("# top-level heading", content.substring(heading.range.startOffset, heading.range.endOffset))
+  }
+
+  fun testQuotedAndAlertHeadingsCoverTheirLines() {
+    val content = """
+      |> # one
+      |
+      |> > ## two
+      |
+      |  >### three
+      |
+      |> [!NOTE]
+      |> #### four
+      |
+      |> Quoted *five*
+      |> ---
+    """.trimMargin()
+    val headings = headings(content)
+    val lines = headings.map { content.substring(it.range.startOffset, it.range.endOffset) }
+
+    assertEquals(listOf("> # one", "> > ## two", "  >### three", "> #### four", "> Quoted *five*"), lines)
+    assertEquals(listOf(1, 2, 3, 4, 2), headings.map { it.level })
+    assertEquals(listOf("one", "two", "three", "four", "Quoted five"), headings.map { it.body().text() })
+    for ([heading, line] in headings.zip(lines)) {
+      for (span in heading.body().select("span[md-src-pos]")) {
+        val [start, end] = span.attr("md-src-pos").split("..").map(String::toInt)
+        assertEquals(span.toString(), span.wholeText(), line.substring(start, end))
+      }
+    }
   }
 
   fun testUnorderedListBulletsUseDepthPlaceholders() {

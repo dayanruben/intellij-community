@@ -10,6 +10,9 @@ jps_test(
         "@community//plugins/kotlin/jvm-debugger/test:testData",
     ] + all_test_dep_targets,
     sandbox = True,
+    tags = [
+        "kotlin-jvm-debugger-tests",
+    ],
     runtime_deps = [
         ":kotlin-jvm-debugger-test_test_lib",
         "//:main",
@@ -64,6 +67,8 @@ jvm_library(
         "//platform/vcs/plugin",
         "//plugins/gradle/plugin",
         "//plugins/gradle/java/plugin",
+        "//community-resources:customization",
+        "//platform/main/intellij.platform.monolith.main:monolith-main",
     ],
     deps = [
         # do not sort,

@@ -21,6 +21,7 @@ import com.intellij.util.io.jackson.writeStringField
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import org.jetbrains.jps.model.JpsProject
+import org.jetbrains.jps.model.java.JpsJavaExtensionService
 import org.jetbrains.jps.model.module.JpsModule
 import org.junit.jupiter.api.DynamicContainer
 import org.junit.jupiter.api.DynamicTest
@@ -45,15 +46,6 @@ val COMMUNITY_CORE_PLUGINS = listOf(
   CorePluginDescription(mainModuleName = "intellij.idea.community.customization", rootPluginXmlName = "IdeaPlugin.xml"),
   CorePluginDescription(mainModuleName = "intellij.pycharm.community", rootPluginXmlName = "PyCharmCorePlugin.xml"),
   CorePluginDescription(mainModuleName = "intellij.mps.resources"),
-)
-
-/**
- * Defines a variant of a plugin with a custom value of system property used in `includeUnless`/`includeIf` directives. 
- */
-data class PluginVariantWithDynamicIncludes(
-  val mainModuleName: String,
-  val systemPropertyName: String,
-  val systemPropertyValue: String,
 )
 
 data class PluginValidationOptions(
@@ -109,6 +101,20 @@ data class PluginValidationOptions(
    * to be registered as `open`.
    */
   val externallyOverriddenServices: Set<String> = emptySet(),
+
+  /**
+   * A single module shouldn't contain both a plugin descriptor and a content module descriptor.
+   * This set is temporarily introduced to avoid reporting errors for a few existing cases.
+   */
+  val modulesContainingBothPluginDescriptorAndModuleDescriptorToIgnore: Set<String> = emptySet(),
+
+  /**
+   * xi:include directives should not refer to files located in other modules.
+   * This map is temporarily introduced to avoid reporting errors for existing cases.
+   * It maps the name of a module to the short name of the file from another module which the module includes.
+   * Use `*` as the value if the module includes multiple such files.
+   */
+  val modulesWithXIncludeReferencingFilesFromOtherModulesToIgnore: Map<String, String> = emptyMap(),
 )
 
 /**
@@ -222,6 +228,15 @@ internal class PluginModelValidator(
       .associateBy { it.sourceModule.name }
     for (pluginInfo in allMainModulesOfPlugins) {
       checkPluginMainDescriptor(pluginInfo.descriptor, pluginInfo.sourceModule, pluginInfo)
+      val contentModuleInMainModule = contentModuleNameToFileInfo[pluginInfo.sourceModule.name]
+      if (contentModuleInMainModule != null && pluginInfo.sourceModule.name !in validationOptions.modulesContainingBothPluginDescriptorAndModuleDescriptorToIgnore) {
+        reportError("""
+            |Module '${pluginInfo.sourceModule.name}' contains `META-INF/plugin.xml` and also is registered as a content module.
+            |Such cases complicate build scripts and should be avoided. Extract `plugin.xml` to a separate `.plugin` module to fix this.
+            """.trimMargin(),
+            sourceModule = pluginInfo.sourceModule,
+        )
+      }
       checkContent(
         contentElements = pluginInfo.descriptor.contentModules,
         referencingModuleInfo = pluginInfo,
@@ -306,33 +321,54 @@ internal class PluginModelValidator(
       checkDepends(pluginInfo, descriptor)
     }
 
-    for (contentModuleDescriptor in sourceCodeBasedPluginModel.contentModuleDescriptorsIncludedViaXiInclude) {
-      val moduleName = contentModuleDescriptor.nameWithoutExtension
-      val moduleInfo = moduleNameToInfo[moduleName] ?: continue
-      val pluginInfo = contentModuleToContainingPlugins[moduleName]?.firstOrNull()
-      if (pluginInfo != null) {
-        reportError(
-          """
-            |Module '$moduleName' is registered as a content module in '${pluginInfo.pluginId}', but its descriptor ${contentModuleDescriptor.name}
-            |is also included via xi:include tag. 
-            |It is not allowed, because it means that the classloader for the module is configured differently in different cases, and it's
-            |not possible to automatically determine the dependencies for the module.
-          """.trimMargin(),
-          moduleInfo.sourceModule,
-          mapOf("descriptorFile" to moduleInfo.descriptorFile),
-        )
-      }
-      else {
+    val corePluginModuleNames = validationOptions.pluginModelBuilderOptions.corePluginDescriptions.mapTo(HashSet()) { it.mainModuleName }
+    val ignoredXIncludesFromOtherModules = validationOptions.modulesWithXIncludeReferencingFilesFromOtherModulesToIgnore
+    val actualIgnoredXIncludesFromOtherModules = HashMap<String, MutableSet<String>>()
+    for ((val sourceModule, val targetModule, val sourceFile, val targetFile) in sourceCodeBasedPluginModel.resolvedXIncludeDirectives) {
+      if (targetModule.name == targetFile.nameWithoutExtension
+          && JpsJavaExtensionService.getInstance().findSourceFileInProductionRoots(targetModule, targetFile.name) != null) {
         reportError(
           message = """
-                    |File '${contentModuleDescriptor.name}' is named as a content module descriptor, but actually it's included via xi:include tag.
-                    |Such configuration causes confusion, and it's better to avoid it.
+                    |File '${targetFile.name}' is named as a content module descriptor, but actually it's included via xi:include tag.
+                    |Such configurations cause confusion and would require special handling, so they must be avoided.
                     |If it's really hard to register it as a real plugin content module (even with loading=embedded), rename the file and 
                     |move it to META-INF directory to avoid confusion.
                   """.trimMargin(),
-          moduleInfo.sourceModule,
-          params = mapOf("descriptorFile" to moduleInfo.descriptorFile)
+          sourceModule,
+          params = mapOf("descriptorFile" to targetFile)
         )
+        continue
+      }
+
+      //we don't have a proper replacement for such cases yet, so they are allowed
+      val isModuleSetInclusion = sourceModule.name in corePluginModuleNames && targetFile.name.startsWith("intellij.moduleSets.")
+      if (sourceModule != targetModule && !isModuleSetInclusion) {
+        val ignoredTargetFileName = ignoredXIncludesFromOtherModules[sourceModule.name]
+        if (ignoredTargetFileName == "*" || ignoredTargetFileName == targetFile.name) {
+          actualIgnoredXIncludesFromOtherModules.computeIfAbsent(sourceModule.name) { HashSet() }.add(targetFile.name)
+        }
+        else {
+          reportError(
+            message = """
+                    |File '${sourceFile.name}' from module '${sourceModule.name}' includes a file
+                    |'${targetFile.name}' located in a different module '${targetModule.name}'.
+                    |Such inclusion creates an implicit dependency between modules, it complicates static validation and build scripts.
+                    |Most probably, this can be resolved by converting '${targetFile.name}' to a content module.
+                    """.trimMargin(),
+            sourceModule = sourceModule,
+            params = mapOf("sourceFile" to sourceFile, "targetFile" to targetFile)
+          )
+        }
+      }
+    }
+    for ((module, ignoredTargetFileName) in ignoredXIncludesFromOtherModules) {
+      val actualTargetFileNames = actualIgnoredXIncludesFromOtherModules[module]
+      if (actualTargetFileNames == null) {
+        println("Obsolete entry for module $module in modulesWithXIncludeReferencingFilesFromOtherModulesToIgnore")
+      }
+      else if (ignoredTargetFileName == "*" && actualTargetFileNames.size == 1) {
+        println("Entry for module $module in modulesWithXIncludeReferencingFilesFromOtherModulesToIgnore uses '*', " +
+                "but the module includes only '${actualTargetFileNames.single()}', so specify this name instead")
       }
     }
 

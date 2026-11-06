@@ -10,7 +10,6 @@ import com.intellij.collaboration.ui.codereview.diff.UnifiedCodeReviewItemPositi
 import com.intellij.collaboration.ui.icon.IconsProvider
 import com.intellij.collaboration.util.ComputedResult
 import com.intellij.collaboration.util.RefComparisonChange
-import com.intellij.diff.util.Side
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import com.intellij.platform.util.coroutines.childScope
@@ -19,18 +18,15 @@ import git4idea.changes.GitTextFilePatchWithHistory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.mapNotNull
 import org.jetbrains.plugins.gitlab.api.dto.GitLabUserDTO
 import org.jetbrains.plugins.gitlab.data.GitLabImageLoader
 import org.jetbrains.plugins.gitlab.mergerequest.data.GitLabMergeRequest
 import org.jetbrains.plugins.gitlab.mergerequest.data.GitLabMergeRequestNewDiscussionPosition
 import org.jetbrains.plugins.gitlab.mergerequest.data.GitLabNoteLocation
-import org.jetbrains.plugins.gitlab.mergerequest.data.mapToLocation
 import org.jetbrains.plugins.gitlab.mergerequest.diff.GitLabMergeRequestDiffViewModel
 import org.jetbrains.plugins.gitlab.mergerequest.ui.details.model.GitLabPersistentMergeRequestChangesViewedState
 import org.jetbrains.plugins.gitlab.mergerequest.ui.filterInFile
 import org.jetbrains.plugins.gitlab.mergerequest.ui.review.GitLabMergeRequestDiscussionsViewModels
-import org.jetbrains.plugins.gitlab.mergerequest.ui.review.mapToLocation
 import org.jetbrains.plugins.gitlab.mergerequest.util.GitLabMergeRequestDiscussionUtil
 import org.jetbrains.plugins.gitlab.mergerequest.util.toLocations
 
@@ -95,15 +91,15 @@ internal class GitLabMergeRequestDiffReviewViewModelImpl(
     diffVm.newDiscussions.filterInFile(change).stateInNow(cs, emptyList())
 
   override val locationsWithDiscussions: StateFlow<Set<DiffLineLocation>> = GitLabMergeRequestDiscussionUtil
-    .createDiscussionsPositionsFlow(mergeRequest, discussionsViewOption).toLocations {
-      it.mapToLocation(diffData, Side.LEFT)?.let { DiffLineLocation(it.side, it.lineIdx) }
-    }.stateInNow(cs, emptySet())
+    .createDiscussionsPositionsFlow(mergeRequest, discussionsViewOption)
+    .toLocations { it.mapToDiffLineLocation(diffData) }
+    .stateInNow(cs, emptySet())
 
   override val locationsWithNewDiscussions: StateFlow<Set<DiffLineLocation>> =
     discussionsContainer.newDiscussions
-      .flatMapLatestEach {
-        it.position.mapNotNull { pos -> pos.mapToLocation(diffData)?.let { DiffLineLocation(it.side, it.lineIdx) } }
-      }.map { locations -> locations.toSet() }
+      .flatMapLatestEach { noteVm ->
+        noteVm.position.map { it.position.mapToDiffLineLocation(diffData) }
+      }.map { locations -> locations.filterNotNullTo(mutableSetOf()) }
       .stateInNow(cs, emptySet())
 
   override fun requestNewDiscussion(location: GitLabNoteLocation, focus: Boolean) {
@@ -114,7 +110,10 @@ internal class GitLabMergeRequestDiffReviewViewModelImpl(
   }
 
   override fun cancelNewDiscussion(lineLocation: DiffLineLocation) {
-    discussionsContainer.cancelNewDiscussion(lineLocation)
+    val vm = discussionsContainer.newDiscussions.value.find { vm ->
+      vm.position.value.position.mapToDiffLineLocation(diffData) == lineLocation
+    } ?: return
+    discussionsContainer.cancelNewDiscussion(vm)
   }
 
   override fun markViewed() {

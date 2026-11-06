@@ -133,7 +133,11 @@ object PluginInstaller {
       throw IllegalArgumentException("Plugin is bundled: " + pluginDescriptor.getPluginId())
     }
 
-    var uninstalledWithoutRestart = !pluginDescriptor.isEnabled() || unloadDynamicPlugin(pluginDescriptor)
+    // A disabled plugin is unloaded but stays in the plugin set. Skip unloading only when the plugin is
+    // also gone from the plugin set. Otherwise, `installFromDisk` finds the stale descriptor on the next
+    // install of the same plugin and schedules it after a restart. Scenario: install/uninstall/install.
+    val pluginRemoved = !pluginDescriptor.isLoaded && PluginManagerCore.getPlugin(pluginDescriptor.pluginId) == null
+    var uninstalledWithoutRestart = pluginRemoved || unloadDynamicPlugin(pluginDescriptor)
     if (uninstalledWithoutRestart) {
       try {
         LOG.debug("Deleting dynamic plugin from disk: " + pluginDescriptor.getPluginPath())
@@ -395,8 +399,19 @@ object PluginInstaller {
         return
       }
 
+      // TODO: drop this early load of the dependencies once IJPL-260375 is resolved.
+      // the plugin can load without a restart only after the plugins that it requires are loaded
+      var areDependenciesLoaded = true
+      for ((installFile, pluginDesc) in operation.pendingDynamicPluginInstalls) {
+        val installed = installAndLoadDynamicPlugin(installFile, parent, pluginDesc)
+        if (!installed) {
+          areDependenciesLoaded = false
+        }
+      }
+
       val oldFile = if (installedPlugin != null && !installedPlugin.isBundled) installedPlugin.getPluginPath() else null
-      var isRestartRequired =
+      val isRestartRequired =
+        !areDependenciesLoaded ||
         oldFile != null ||
         operation.isRestartRequired ||
         runWithModalProgressBlocking( // FIXME this is an ad-hoc fix for accessing BGT-method from EDT
@@ -407,12 +422,6 @@ object PluginInstaller {
         ) {
           !DynamicPlugins.checkCanLoadWithoutRestart(pluginDescriptor)
         }
-      for (dynamicPluginInstall in operation.pendingDynamicPluginInstalls) {
-        val installed = installAndLoadDynamicPlugin(dynamicPluginInstall.file, parent, dynamicPluginInstall.pluginDescriptor)
-        if (!installed) {
-          isRestartRequired = true
-        }
-      }
 
       if (isRestartRequired) {
         installAfterRestart(pluginDescriptor, file, oldFile, false)

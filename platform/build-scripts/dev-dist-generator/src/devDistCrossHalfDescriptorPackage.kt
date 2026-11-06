@@ -362,7 +362,6 @@ internal fun renderCrossHalfDevPluginTarget(
   descriptorLabel: String,
   index: DevDistBazelIndex,
   stampClassModes: List<String> = emptyList(),
-  retainProductDescriptor: Boolean = false,
   embedContentModules: Boolean = true,
   contentModuleJarLabel: (String) -> String? = { index.contentModuleJarLabel(it, dependentIsCommunity = index.planPackageIsCommunity) },
 ): String = buildString {
@@ -382,7 +381,7 @@ internal fun renderCrossHalfDevPluginTarget(
   if (!embedContentModules) {
     append("    embed_content_modules = False,\n")
   }
-  appendStarlarkStringList(name = "executable_files", values = packaging.executableFiles.sorted())
+  appendStarlarkStringList(name = "executables", values = packaging.executables.sorted())
   appendStarlarkStringDict(name = "file_prefixes", rows = packaging.filePrefixes)
   appendStarlarkStringDict(name = "files", rows = packaging.files.mapValues { index.planLabel(it.value) })
   append("    jars = {\n")
@@ -400,9 +399,6 @@ internal fun renderCrossHalfDevPluginTarget(
   val testModules = packaging.testModules.toSet()
   appendStarlarkStringDict(name = "modules", rows = packaging.moduleTokens.filter { it !in testModules }.associateBy(::moduleLabel))
   appendStarlarkString(name = "plugin_directory", value = "plugins/${packaging.pluginDirectory}")
-  if (retainProductDescriptor) {
-    append("    retain_product_descriptor = True,\n")
-  }
   appendStarlarkStringList(name = "stamp_class_modes", values = stampClassModes)
   appendStarlarkStringDict(
     name = "test_module_jars",

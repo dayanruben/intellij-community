@@ -32,17 +32,14 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.stateIn
 import org.jetbrains.plugins.gitlab.api.dto.GitLabUserDTO
 import org.jetbrains.plugins.gitlab.data.GitLabImageLoader
 import org.jetbrains.plugins.gitlab.mergerequest.data.GitLabMergeRequest
 import org.jetbrains.plugins.gitlab.mergerequest.data.GitLabMergeRequestNewDiscussionPosition
 import org.jetbrains.plugins.gitlab.mergerequest.data.GitLabNoteLocation
-import org.jetbrains.plugins.gitlab.mergerequest.data.mapToLocation
 import org.jetbrains.plugins.gitlab.mergerequest.ui.filterInFile
 import org.jetbrains.plugins.gitlab.mergerequest.ui.review.GitLabMergeRequestDiscussionsViewModels
-import org.jetbrains.plugins.gitlab.mergerequest.ui.review.mapToLocation
 import org.jetbrains.plugins.gitlab.mergerequest.util.GitLabMergeRequestDiscussionUtil
 import org.jetbrains.plugins.gitlab.mergerequest.util.toLines
 
@@ -129,11 +126,9 @@ internal class GitLabMergeRequestEditorReviewFileViewModelImpl(
 
   override val linesWithDiscussions: StateFlow<Set<Int>> =
     GitLabMergeRequestDiscussionUtil
-      .createDiscussionsPositionsFlow(mergeRequest, discussionsViewOption).toLines {
-        it.mapToLocation(diffData, Side.RIGHT)?.takeIf {
-          it.startSide == Side.RIGHT && it.side == Side.RIGHT
-        }?.lineIdx
-      }.stateInNow(cs, emptySet())
+      .createDiscussionsPositionsFlow(mergeRequest, discussionsViewOption)
+      .toLines { it.mapToEditorLine(diffData) }
+      .stateInNow(cs, emptySet())
 
   override val canNavigate: Boolean = diffData.isCumulative
 
@@ -142,10 +137,8 @@ internal class GitLabMergeRequestEditorReviewFileViewModelImpl(
 
   override val linesWithNewDiscussions: StateFlow<Set<Int>> =
     discussionsContainer.newDiscussions.flatMapLatestEach {
-      it.position.mapNotNull { pos ->
-        pos.mapToLocation(diffData)?.takeIf { loc -> loc.startSide == Side.RIGHT && loc.side == Side.RIGHT }?.lineIdx
-      }
-    }.map { lines -> lines.toSet() }.stateInNow(cs, emptySet())
+      it.position.map { pos -> pos.position.mapToEditorLine(diffData) }
+    }.map { lines -> lines.filterNotNullTo(mutableSetOf()) }.stateInNow(cs, emptySet())
 
   override fun requestNewDiscussion(location: GitLabNoteLocation, focus: Boolean) {
     val position = GitLabMergeRequestNewDiscussionPosition.calcFor(diffData, location).let {
@@ -155,7 +148,11 @@ internal class GitLabMergeRequestEditorReviewFileViewModelImpl(
   }
 
   override fun cancelNewDiscussion(lineLocation: DiffLineLocation) {
-    discussionsContainer.cancelNewDiscussion(lineLocation)
+    if (lineLocation.first != Side.RIGHT) return
+    val vm = discussionsContainer.newDiscussions.value.find { vm ->
+      vm.position.value.position.mapToEditorLine(diffData) == lineLocation.second
+    } ?: return
+    discussionsContainer.cancelNewDiscussion(vm)
   }
 
   override fun lookupNextComment(line: Int, additionalIsVisible: (String) -> Boolean): String? =

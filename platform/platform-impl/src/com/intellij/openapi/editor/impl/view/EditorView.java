@@ -68,8 +68,10 @@ import java.awt.font.LineMetrics;
 import java.awt.geom.AffineTransform;
 import java.awt.geom.Point2D;
 import java.text.Bidi;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 
 /**
@@ -420,7 +422,7 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
       return snapshot
         .withFontRenderContext(newFontRenderContext)
         .withMetrics(EditorViewMetrics.UNINITIALIZED)
-        .withFontResolver(createFontResolver(newFontRenderContext, snapshot.fontResolver().publishedFontFamilies()))
+        .withFontResolver(createFontResolver(newFontRenderContext, snapshot.fontResolver().resolvedFontFamilies()))
         .withTabSize(newTabSize)
         .withBidiFlags(newBidiFlags)
         .withRtlEnabled(myEditor.getSettings().isRtlEnabled())
@@ -642,14 +644,6 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
   }
 
   /**
-   * Returns an upper bound of {@link #getCodePointWidth} for a printable ASCII character in any font style.
-   * The bound does not apply to a character grid.
-   */
-  float getMaxPrintableAsciiWidth() {
-    return getFontResolver().editorFonts().maxPrintableAsciiWidth();
-  }
-
-  /**
    * Returns the font resolver of the current font settings.
    * {@link #reinitSettings} and a render context change build the resolver at once.
    * A reader before the first {@link #reinitSettings} creates a resolver without font families.
@@ -669,14 +663,14 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
   }
 
   /**
-   * Publishes font families values: the resolver creates their fonts now, so that the layout and the paint only read them.
+   * Resolves font families values: the resolver creates their fonts now, so that the layout and the paint only read them.
    * The caller then lays out the text with these values again.
    * It is safe to call on any thread.
    *
    * @return whether a value was new
    * @see EditorFontResolver#withFontFamilies
    */
-  boolean publishFontFamilies(Collection<FontFamilies> values) {
+  public boolean resolveFontFamilies(Collection<FontFamilies> values) {
     while (true) {
       EditorViewSnapshot snapshot = mySnapshot;
       EditorFontResolver resolver = snapshot.fontResolver();
@@ -695,7 +689,10 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
   }
 
   /**
-   * Creates the font resolver of the current font settings for the render context, with the fonts of the font families.
+   * Creates the font resolver of the current font settings for the render context.
+   * It resolves the font families, the font families of the text attributes of the scheme, and the font families of the editor highlighter.
+   * See {@link EditorColorsScheme#getTextAttributesFontFamilies()} and {@link EditorHighlighter#getTextAttributesFontFamilies()}.
+   * So the text of the editor highlighter gets the fonts of its font families.
    * Like {@link #createNewMetrics}, it can run on any thread.
    */
   private @NotNull EditorFontResolver createFontResolver(FontRenderContext context, Collection<FontFamilies> fontFamilies) {
@@ -707,8 +704,20 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
       context,
       specialCharacterFont,
       fontFamiliesEnabled,
-      fontFamilies
+      withSourceFontFamilies(fontFamilies, colorsScheme)
     );
+  }
+
+  private Collection<FontFamilies> withSourceFontFamilies(Collection<FontFamilies> fontFamilies, EditorColorsScheme scheme) {
+    Set<FontFamilies> schemeFontFamilies = scheme.getTextAttributesFontFamilies();
+    Set<FontFamilies> highlighterFontFamilies = myEditor.getHighlighter().getTextAttributesFontFamilies();
+    if (schemeFontFamilies.isEmpty() && highlighterFontFamilies.isEmpty()) {
+      return fontFamilies;
+    }
+    List<FontFamilies> result = new ArrayList<>(fontFamilies);
+    result.addAll(schemeFontFamilies);
+    result.addAll(highlighterFontFamilies);
+    return result;
   }
 
   Insets getInsets() {
@@ -777,8 +786,19 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
     }
   }
 
+  /**
+   * Returns the width estimate of the widest character in the editor fonts and in the resolved font families.
+   * The width estimates before the layout use it.
+   */
   float getMaxCharWidth() {
     return getSnapshotWithMetrics().maxCharWidth();
+  }
+
+  /**
+   * Returns the metrics of the editor fonts. They do not cover the font families of the text.
+   */
+  EditorViewMetrics getMetrics() {
+    return getSnapshotWithMetrics().metrics();
   }
 
   public int getBidiFlags() {
@@ -793,11 +813,16 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
     return mySnapshot.prefixAttributes();
   }
 
+  /**
+   * Returns the current snapshot with all its lazy values: the metrics, the tab size, the font resolver and the prefix layout.
+   * It computes the values that the snapshot does not have yet.
+   */
   public @NotNull EditorViewSnapshot getSnapshot() {
     while (true) {
       EditorViewSnapshot snapshot = mySnapshot;
       if (snapshot.metrics() != EditorViewMetrics.UNINITIALIZED &&
           snapshot.tabSize() != -1 &&
+          snapshot.fontResolver() != EditorFontResolver.UNINITIALIZED &&
           snapshot.prefixLayout() != NOT_INITIALIZED_PREFIX) {
         return snapshot;
       }
@@ -1025,7 +1050,7 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
       EditorViewSnapshot newSnapshot = snapshot
         .withFontRenderContext(newContext)
         .withMetrics(EditorViewMetrics.UNINITIALIZED)
-        .withFontResolver(createFontResolver(newContext, snapshot.fontResolver().publishedFontFamilies()))
+        .withFontResolver(createFontResolver(newContext, snapshot.fontResolver().resolvedFontFamilies()))
         .withPrefixLayout(NOT_INITIALIZED_PREFIX);
       if (SNAPSHOT_UPDATER.compareAndSet(this, snapshot, newSnapshot)) {
         return true;

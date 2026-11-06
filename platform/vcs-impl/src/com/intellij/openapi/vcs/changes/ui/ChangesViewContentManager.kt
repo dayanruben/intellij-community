@@ -6,7 +6,6 @@ import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DataKey
 import com.intellij.openapi.actionSystem.ToggleAction
-import com.intellij.openapi.application.WriteIntentReadAction
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
@@ -325,7 +324,16 @@ fun MessageBusConnection.subscribeOnVcsToolWindowLayoutChanges(updateLayout: Run
     override fun toolWindowMappingChanged() = updateLayout.run()
   })
   subscribe(ToolWindowManagerListener.TOPIC, object : ToolWindowManagerListener {
-    override fun stateChanged(toolWindowManager: ToolWindowManager) = WriteIntentReadAction.run { updateLayout.run() }
+    override fun stateChanged(
+      toolWindowManager: ToolWindowManager,
+      toolWindow: ToolWindow,
+      changeType: ToolWindowManagerListener.ToolWindowManagerEventType,
+    ) {
+      if (toolWindow.id != ToolWindowId.COMMIT && toolWindow.id != ToolWindowId.VCS) {
+        return
+      }
+      updateLayout.run()
+    }
   })
 }
 

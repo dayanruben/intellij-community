@@ -28,13 +28,14 @@ import org.jetbrains.intellij.build.buildSpan
 import org.jetbrains.intellij.build.classPath.bundledPluginsWithIdeaClassloader
 import org.jetbrains.intellij.build.classPath.platformLibraryJarDestination
 import org.jetbrains.intellij.build.classPath.splitDistributionCoreClassPathJarNames
-import org.jetbrains.intellij.build.dev.DevPluginLayoutAssetSource
+import org.jetbrains.intellij.build.dev.LayoutAssetSource
 import org.jetbrains.intellij.build.devDist.isNativeTreeAsset
 import org.jetbrains.intellij.build.impl.BazelTargetsInfo
 import org.jetbrains.intellij.build.impl.DevPlatformPatchOwner
 import org.jetbrains.intellij.build.impl.LibraryPackMode
 import org.jetbrains.intellij.build.impl.PlatformLayout
 import org.jetbrains.intellij.build.impl.PluginLayout
+import org.jetbrains.intellij.build.impl.commonExecutableFilePatterns
 import org.jetbrains.intellij.build.impl.createContentModuleFilter
 import org.jetbrains.intellij.build.impl.createPlatformLayout
 import org.jetbrains.intellij.build.impl.createProductModeContentModuleFilter
@@ -606,7 +607,6 @@ private fun renderCrossHalfDevPluginTargets(sections: DevDistBuildSections): Map
       descriptorLabel = descriptorLabel,
       index = sections.index,
       stampClassModes = descriptorEntry.stampClassModes,
-      retainProductDescriptor = descriptorEntry.retainProductDescriptor,
       embedContentModules = descriptorEntry.embedsContentModules,
       contentModuleJarLabel = sections::contentModuleJarLabel,
     ))
@@ -2254,7 +2254,7 @@ internal fun collectPlatformAssets(layout: PlatformLayout, properties: ProductPr
           "A platform dist file on $hostPlatform must be one archive-tree asset with no strip count: ${asset.destination}"
         }
         require(asset.mode != 0) { "A platform dist file on $hostPlatform must state its mode: ${asset.destination}" }
-        val source = requireNotNull(spec.sources.get(asset.sources.single()) as? DevPluginLayoutAssetSource.BazelTarget) {
+        val source = requireNotNull(spec.sources.get(asset.sources.single()) as? LayoutAssetSource.BazelTarget) {
           "A platform dist file on $hostPlatform must read a download repository as a Bazel target: ${asset.destination}"
         }
         val repository = requireNotNull(DOWNLOAD_ARCHIVE_LABEL.matchEntire(source.label)?.groupValues?.get(1)) {
@@ -2290,11 +2290,14 @@ internal fun collectPlatformAssets(layout: PlatformLayout, properties: ProductPr
     for (arch in JvmArchitecture.entries) {
       val hostPlatform = hostPlatformName(os, arch)
       val platformFiles = files.getOrPut(hostPlatform) { ArrayList() }
+      // A native is executable when a common pattern of production names it: a library and a Windows file are not.
+      val executables = commonExecutableFilePatterns(os).map { FileSystems.getDefault().getPathMatcher("glob:$it") }
       for (native in nativeBinFiles(communityHome = communityRoot, os = os, arch = arch)) {
+        val path = "bin/${native.fileName}"
         platformFiles.add(PlatformAssetFile(
           source = index.planLabel("${COMMUNITY_REPOSITORY_PREFIX}bin:${binDir.relativize(native).invariantSeparatorsPathString}"),
-          path = "bin/${native.fileName}",
-          executable = true,
+          path = path,
+          executable = executables.any { it.matches(Path.of(path)) },
         ))
       }
       for (file in properties.additionalOsSpecificFiles(os, arch)) {

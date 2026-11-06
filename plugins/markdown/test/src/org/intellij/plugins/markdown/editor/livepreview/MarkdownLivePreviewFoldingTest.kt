@@ -49,6 +49,7 @@ import com.intellij.util.DocumentUtil
 import com.intellij.util.ui.JBUI
 import kotlinx.coroutines.CoroutineScope
 import org.intellij.plugins.markdown.MarkdownBundle
+import org.intellij.plugins.markdown.MarkdownTestingUtil
 import org.intellij.plugins.markdown.highlighting.MarkdownHighlighterColors
 import org.intellij.plugins.markdown.publishSpecsAndWait
 import java.awt.Color
@@ -65,8 +66,10 @@ import javax.imageio.ImageIO
 import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
+import kotlin.math.abs
 
 class MarkdownLivePreviewFoldingTest : BasePlatformTestCase() {
+
 
   override fun setUp() {
     super.setUp()
@@ -89,7 +92,7 @@ class MarkdownLivePreviewFoldingTest : BasePlatformTestCase() {
     editor.settings.isCaretRowShown = false
     editor.colorsScheme.setAttributes(MarkdownHighlighterColors.CODE_SPAN, TextAttributes(null, Color.RED, null, null, Font.PLAIN))
 
-    val image = paintEditor()
+    val image = MarkdownTestingUtil.paintEditor(editor)
     val content = editor.offsetToXY(3)
     val y = content.y + editor.lineHeight / 2
 
@@ -501,6 +504,76 @@ class MarkdownLivePreviewFoldingTest : BasePlatformTestCase() {
     assertEquals(start + "code".length, clickHeading { it.widthInPixels - 1 })
   }
 
+  fun testBodySizeHeadingTextSitsInItsLineAsRegularText() {
+    val content = "###### Title\nTitle\n\ntail"
+    configure("$content<caret>")
+    val editor = myFixture.editor as EditorImpl
+    val fold = headingFolds().single()
+    val background = editor.colorsScheme.defaultBackground
+    val headingRows = paintHeading(fold, background).paintedRows(background)
+    val lineY = editor.offsetToXY(content.indexOf("\nTitle") + 1).y
+    val editorImage = BufferedImage(fold.widthInPixels, lineY + editor.lineHeight, BufferedImage.TYPE_INT_RGB)
+    val graphics = editorImage.createGraphics()
+    try {
+      editor.contentComponent.setSize(editorImage.width, editorImage.height)
+      editor.contentComponent.paint(graphics)
+    }
+    finally {
+      graphics.dispose()
+    }
+    val lineRows = editorImage.getSubimage(0, lineY, editorImage.width, editor.lineHeight).paintedRows(background)
+
+    assertEquals("An h6 has the body font size, so it takes one line", editor.lineHeight, fold.heightInPixels)
+    assertTrue("The heading paints rows $headingRows, the line below paints rows $lineRows",
+               abs(headingRows.first - lineRows.first) <= 1 && abs(headingRows.last - lineRows.last) <= 1)
+  }
+
+  fun testQuotedHeadingTextStartsWhereQuotedTextStarts() {
+    configure("# Title\n\ntail<caret>")
+    val bearing = paintedHeadingColumns().first
+    val content = "> # Title\n> text\n\ntail"
+    configure("$content<caret>")
+    val editor = myFixture.editor
+    val fold = headingFolds().single()
+    val textX = editor.offsetToXY(content.indexOf("text")).x - editor.offsetToXY(content.indexOf("> text")).x
+    val headingX = paintedHeadingColumns().first - bearing
+
+    assertEquals(0 to content.indexOf('\n'), fold.startOffset to fold.endOffset)
+    assertTrue("The heading text starts at $headingX, the quoted text at $textX", abs(headingX - textX) <= 1)
+  }
+
+  fun testNestedQuoteRulesKeepTheirXOnAHeadingLine() {
+    val content = "> > # Title\n> > text\n\ntail"
+    configure("$content<caret>")
+    val textLine = content.indexOf("> > text")
+    val rules = paintedRules()
+
+    assertEquals(1, headingFolds().size)
+    for (marker in listOf(0, 2)) {
+      val headingX = rules.getValue(marker).x
+      val textX = rules.getValue(textLine + marker).x
+      assertTrue("The rule of the marker at $marker is at $headingX, the rule below it at $textX", abs(headingX - textX) <= 1)
+    }
+  }
+
+  fun testClickOnAQuotedHeadingPlacesTheCaretAtTheClickedSource() {
+    val content = "before\n> > # Title\n\nafter"
+    configure("$content<caret>")
+    EditorTestUtil.setEditorVisibleSize(myFixture.editor, 80, 12)
+    val text = paintedHeadingColumns()
+
+    assertEquals(content.indexOf("Title"), clickHeading { text.first + 1 })
+    val last = clickHeading { text.last }
+    assertTrue("$last", last in content.indexOf("\n\n") - 1..content.indexOf("\n\n"))
+  }
+
+  fun testQuoteRuleCoversTheWholeHeadingHeight() {
+    configure("> # Title\n\ntail<caret>")
+    val fold = headingFolds().single()
+
+    assertEquals(fold.heightInPixels, paintedRules().values.single().height + 1)
+  }
+
   fun testImageInAHeadingStaysBelowTheHeadingWhenTheHeadingShowsItsSource() {
     addPng(200, 200)
     val content = "before\n\n# Parent ![image1](image.png)\n\ntail"
@@ -799,7 +872,7 @@ class MarkdownLivePreviewFoldingTest : BasePlatformTestCase() {
   fun testRapidCheckboxClicksDoNotWaitForHighlighting() {
     val content = "- [ ] first\n- [ ] second\n\ntail"
     configure("$content<caret>")
-    val (first, second) = checkboxInlays()
+    val [first, second] = checkboxInlays()
     clickCheckbox(first)
     assertTrue(first.renderer.checked)
     clickCheckbox(first)
@@ -1295,10 +1368,12 @@ class MarkdownLivePreviewFoldingTest : BasePlatformTestCase() {
   fun testPlaceholdersShowTheBackgroundOfTheirText() {
     configure("- > - item\n\ntail<caret>")
     val editor = myFixture.editor
+    // The background of the quote ends at the right edge of the visible area.
+    EditorTestUtil.setEditorVisibleSize(editor, 80, 12)
     editor.colorsScheme.setAttributes(MarkdownHighlighterColors.BLOCK_QUOTE, TextAttributes(null, Color.RED, null, null, Font.PLAIN))
-    val (listBullet, marker, quotedBullet) = concealedLivePreviewRegions(editor)
+    val [listBullet, marker, quotedBullet] = concealedLivePreviewRegions(editor)
 
-    var image = paintEditor()
+    var image = MarkdownTestingUtil.paintEditor(editor)
     assertFalse("A bullet before the quote must keep the editor background", Color.RED.rgb == placeholderBackground(image, listBullet))
     assertEquals(Color.RED.rgb, placeholderBackground(image, marker))
     assertEquals(Color.RED.rgb, placeholderBackground(image, quotedBullet))
@@ -1306,7 +1381,7 @@ class MarkdownLivePreviewFoldingTest : BasePlatformTestCase() {
     // A diff change paints its lines above the quote background.
     val change = TextAttributes(null, Color.GREEN, null, null, Font.PLAIN)
     editor.markupModel.addRangeHighlighter(0, 1, HighlighterLayer.SELECTION - 1, change, HighlighterTargetArea.LINES_IN_RANGE)
-    image = paintEditor()
+    image = MarkdownTestingUtil.paintEditor(editor)
     for (region in listOf(listBullet, marker, quotedBullet)) {
       assertEquals("The placeholder at ${region.startOffset} must show the change", Color.GREEN.rgb, placeholderBackground(image, region))
     }
@@ -1319,7 +1394,7 @@ class MarkdownLivePreviewFoldingTest : BasePlatformTestCase() {
     val document = editor.document
     val concealedRules = paintedRules()
     assertEquals(9, concealedRules.size)
-    for ((marker, bounds) in concealedRules) {
+    for ([marker, bounds] in concealedRules) {
       assertEquals("The rule must start at the x position of its marker", editor.offsetToXY(marker).x, bounds.x)
     }
     val outerRules = (0..2).map { concealedRules.getValue(document.getLineStartOffset(it)) }
@@ -1418,9 +1493,9 @@ class MarkdownLivePreviewFoldingTest : BasePlatformTestCase() {
     )
     configureProjectFile("![alt](image.svg)\n\ntail")
 
-    val source = waitForImageInlay().renderer.source!!
-    assertEquals(90, source.width)
-    assertEquals(45, source.height)
+    (val width, val height) = waitForImageInlay().renderer.source!!
+    assertEquals(90, width)
+    assertEquals(45, height)
   }
 
   fun testDataUriImageRendersWithTheSizeFromTheImageEngine() {
@@ -1944,6 +2019,12 @@ class MarkdownLivePreviewFoldingTest : BasePlatformTestCase() {
     return columns.first()..columns.last()
   }
 
+  private fun BufferedImage.paintedRows(background: Color): IntRange {
+    val rows = (0 until height).filter { y -> (0 until width).any { x -> getRGB(x, y) != background.rgb } }
+    assertNotEmpty(rows)
+    return rows.first()..rows.last()
+  }
+
   private fun paintHeading(fold: CustomFoldRegion, background: Color): BufferedImage {
     val bitmap = BufferedImage(fold.widthInPixels, fold.heightInPixels, BufferedImage.TYPE_INT_RGB)
     val graphics = bitmap.createGraphics()
@@ -2169,20 +2250,6 @@ class MarkdownLivePreviewFoldingTest : BasePlatformTestCase() {
     }
     result.append(text, offset, text.length)
     return result.toString()
-  }
-
-  private fun paintEditor(): BufferedImage {
-    val component = myFixture.editor.contentComponent
-    component.size = component.preferredSize
-    val image = BufferedImage(component.width, component.height, BufferedImage.TYPE_INT_RGB)
-    val graphics = image.createGraphics()
-    try {
-      component.paint(graphics)
-    }
-    finally {
-      graphics.dispose()
-    }
-    return image
   }
 
   /** Returns the pixel at the top right of a placeholder, clear of its glyph and of a blockquote rule. */

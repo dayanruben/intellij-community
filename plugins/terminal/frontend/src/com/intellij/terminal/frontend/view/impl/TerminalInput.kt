@@ -20,12 +20,12 @@ import org.jetbrains.plugins.terminal.block.ui.sanitizeLineSeparators
 import org.jetbrains.plugins.terminal.fus.ReworkedTerminalUsageCollector
 import org.jetbrains.plugins.terminal.fus.TerminalStartupFusInfo
 import org.jetbrains.plugins.terminal.fus.TerminalTabOpeningWay
-import org.jetbrains.plugins.terminal.session.TerminalGridSize
 import org.jetbrains.plugins.terminal.session.impl.TerminalClearBufferEvent
 import org.jetbrains.plugins.terminal.session.impl.TerminalInputEvent
 import org.jetbrains.plugins.terminal.session.impl.TerminalResizeEvent
 import org.jetbrains.plugins.terminal.session.impl.TerminalSession
 import org.jetbrains.plugins.terminal.session.impl.TerminalWriteBytesEvent
+import org.jetbrains.plugins.terminal.session.impl.dto.TerminalGridGeometryDto
 import org.jetbrains.plugins.terminal.util.getNow
 import org.jetbrains.plugins.terminal.util.wrapInBracketedPaste
 import org.jetbrains.plugins.terminal.view.impl.TerminalSendTextOptions
@@ -169,12 +169,13 @@ class TerminalInput(
   }
 
   /**
-   * Note that resize events sent before the terminal session is initialized will be ignored.
+   * Sends [newGeometry] to the session and returns `true` if the session is initialized.
+   * Otherwise, sends nothing and returns `false`.
    */
-  fun sendResize(newSize: TerminalGridSize) {
-    terminalSessionDeferred.getNow() ?: return
-    val event = TerminalResizeEvent(newSize)
-    sendEvent(event)
+  fun sendResize(newGeometry: TerminalGridGeometryDto): Boolean {
+    terminalSessionDeferred.getNow() ?: return false
+    sendEvent(TerminalResizeEvent(newGeometry))
+    return true
   }
 
   fun sendEvent(event: TerminalInputEvent) {

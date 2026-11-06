@@ -4,6 +4,7 @@ package com.intellij.internal.jcef.test
 import com.intellij.internal.jcef.test.aggrtest.AggressiveRouterTest
 import com.intellij.internal.jcef.test.cases.ContextMenu
 import com.intellij.internal.jcef.test.cases.BadSslCertificateTest
+import com.intellij.internal.jcef.test.cases.ClipboardTest
 import com.intellij.internal.jcef.test.cases.DetailedFrame
 import com.intellij.internal.jcef.test.cases.DevToolsTest
 import com.intellij.internal.jcef.test.cases.FullscreenDemo
@@ -92,8 +93,7 @@ internal class JBCefTestAppFrame : JFrame() {
                    NotificationDisplayType.BALLOON,
                    true,
                    null,
-                   null,
-                   null)
+                   null) { null }
           })
           val notification = NOTIFICATION_GROUP.getValue().createNotification(
             "Can't register test custom schemes.",
@@ -111,6 +111,7 @@ internal class JBCefTestAppFrame : JFrame() {
   private val testCases: List<TestCase> = listOf(
     KeyboardEvents(),
     ContextMenu(),
+    ClipboardTest(),
     ResourceHandler(),
     PerformanceTest(),
     DetailedFrame(),

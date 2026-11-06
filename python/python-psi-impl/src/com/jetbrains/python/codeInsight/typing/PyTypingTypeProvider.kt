@@ -135,6 +135,7 @@ import com.jetbrains.python.psi.types.PyTypeFormType
 import com.jetbrains.python.psi.types.PyTypeParameterMapping
 import com.jetbrains.python.psi.types.PyTypeParameterType
 import com.jetbrains.python.psi.types.PyTypeUtil
+import com.jetbrains.python.psi.types.PyTypeUtil.asUnionSequence
 import com.jetbrains.python.psi.types.PyTypeUtil.convertToType
 import com.jetbrains.python.psi.types.PyTypeUtil.derefOrUnknown
 import com.jetbrains.python.psi.types.PyTypeUtil.toKeywordContainerType
@@ -224,7 +225,11 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
       return Ref(param.toKeywordContainerType(type) ?: PyAnyType.unknown)
     }
     if (PyNames.NONE == param.defaultValueText) {
-      return Ref(PyUnionType.unionOrUnknown(type, PyBuiltinCache.getInstance(param).noneType ?: PyAnyType.unknown))
+      val noneType = PyBuiltinCache.getInstance(param).noneType
+      // A type variable that admits `None` is solved by the `None` default, so the parameter type is not widened
+      if (type.asUnionSequence().none { it is PyTypeVarType && it.admitsNone(noneType, context.typeContext) }) {
+        return Ref(PyUnionType.unionOrUnknown(type, noneType ?: PyAnyType.unknown))
+      }
     }
     if (context.typeContext.maySwitchToAST(param)) {
       val defaultValue = param.defaultValue
@@ -1132,13 +1137,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
       val results: MutableList<PyClassType> = ArrayList()
       for (superClassExpression in getSuperClassExpressions(pyClass)) {
         val type = getType(superClassExpression, context).derefOrUnknown()
-        if (type is PyNamedTupleType && superClassExpression is PySubscriptionExpression) {
-          // A named tuple type reports its field types as its type arguments.
-          // The type arguments of the class must come from the superclass expression, as in `class Sub(Base[str])`.
-          val typeArguments = staticWithCustomContext(context) { getIndexTypes(superClassExpression, it) }
-          results.add(PyCollectionTypeImpl(type.pyClass, false, typeArguments))
-        }
-        else if (type is PyClassType) {
+        if (type is PyClassType) {
           results.add(type)
         }
       }
@@ -3168,4 +3167,13 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
       }
     }
   }
+}
+
+/**
+ * Tells if the solver may set this type variable to `None`.
+ * This is the case when the type variable has no bound, a bound that accepts `None`, or a constraint that accepts `None`.
+ */
+private fun PyTypeVarType.admitsNone(noneType: PyType?, context: TypeEvalContext): Boolean {
+  if (constraints.isNotEmpty()) return noneType != null && constraints.any { PyTypeChecker.match(it, noneType, context) }
+  return bound == null || noneType != null && PyTypeChecker.match(bound, noneType, context)
 }

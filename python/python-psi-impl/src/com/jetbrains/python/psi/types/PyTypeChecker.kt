@@ -34,6 +34,7 @@ import com.jetbrains.python.psi.PyExpression
 import com.jetbrains.python.psi.PyFile
 import com.jetbrains.python.psi.PyFunction
 import com.jetbrains.python.psi.PyListLiteralExpression
+import com.jetbrains.python.psi.PyNamedParameter
 import com.jetbrains.python.psi.PySequenceExpression
 import com.jetbrains.python.psi.PyStarExpression
 import com.jetbrains.python.psi.PyTargetExpression
@@ -351,11 +352,11 @@ object PyTypeChecker {
   }
 
   /** Best-effort reason a protocol member didn't match, used as the breakdown node above the type leaf. */
-  private fun protocolMemberFailureMessage(protocolMember: PyTypeMember, candidates: List<PyTypeMember>): ProblemMessage {
+  private fun protocolMemberFailureMessage(protocolMember: PyTypeMember, candidates: List<PyTypeMember>, context: TypeEvalContext): ProblemMessage {
     val name = protocolMember.name
     val candidate = candidates.singleOrNull()
     if (candidate != null) {
-      if (protocolMember.isWritable && !candidate.isWritable) {
+      if (PyTypeUtil.isSettable(protocolMember, context) && !PyTypeUtil.isSettable(candidate, context)) {
         return PyPsiBundle.problemMessage("INSP.type.checker.breakdown.member.not.writable", name)
       }
       if (protocolMember.isClassVar != candidate.isClassVar) {
@@ -1342,15 +1343,15 @@ object PyTypeChecker {
       for (subclassElementMember in subclassElementMembers) {
         val isMatchingProtocolMember = recordFrameBool(
           protocolContext,
-          { protocolMemberFailureMessage(protocolMember, subclassElementMembers) },
+          { protocolMemberFailureMessage(protocolMember, subclassElementMembers, context) },
           // The subclass's type for the attribute, so the Attribute step can report the attribute's own types when the
           // mismatch is buried inside a parameterized type (`list[set[int]]` vs `list[set[None]]`).
           { protocolMember.name?.let {
               PyMismatchStep.Attribute(it,
-                                       subclassElementType(expected, actual, subclassElementMember, actualSubstitutions, protocolContext)
+                                       subclassElementType(expected, actual, subclassElementMember, subclassElementMember.type, actualSubstitutions, protocolContext)
                                          ?.let { t -> codifiedType(protocolContext, t) },
                                        codifiedType(protocolContext, protocolElementType)) } },
-          { isMatchingProtocolMember(expected, actual, protocolMember, subclassElementMember, protocolElementType, actualSubstitutions, protocolContext) }
+          { isMatchingProtocolMember(expected, actual, protocolMember, subclassElementMember, protocolElementType, expectedSubstitutions, actualSubstitutions, protocolContext) }
         )
         if (isMatchingProtocolMember) {
           matchingMembers.add(subclassElementMember)
@@ -1361,12 +1362,10 @@ object PyTypeChecker {
     return result
   }
 
-  private fun isMatchingProtocolMember(expected: PyClassType, actual: PyClassType, protocolMember: PyTypeMember, subclassElementMember: PyTypeMember, protocolElementType: PyType?, actualSubstitutions: GenericSubstitutions, protocolContext: MatchContext): Boolean  {
-    val protocolMemberElement = protocolMember.element
-    val subclassMemberElement = subclassElementMember.element
-    val isWritableProtocolMember = protocolMemberElement is PyTargetExpression && PyExpectedVarianceJudgment.isEffectivelyReadOnly(protocolMemberElement, protocolContext.context)
-    val isWritableSubclassMember = subclassMemberElement is PyTargetExpression && PyExpectedVarianceJudgment.isEffectivelyReadOnly(subclassMemberElement, protocolContext.context)
-    if (isWritableProtocolMember && !isWritableSubclassMember) {
+  private fun isMatchingProtocolMember(expected: PyClassType, actual: PyClassType, protocolMember: PyTypeMember, subclassElementMember: PyTypeMember, protocolElementType: PyType?, expectedSubstitutions: GenericSubstitutions, actualSubstitutions: GenericSubstitutions, protocolContext: MatchContext): Boolean  {
+    val context = protocolContext.context
+    val isSettableProtocolMember = PyTypeUtil.isSettable(protocolMember, context)
+    if (isSettableProtocolMember && !PyTypeUtil.isSettable(subclassElementMember, context)) {
       return false
     }
     if (protocolMember.isDeletable && !subclassElementMember.isDeletable) {
@@ -1378,20 +1377,33 @@ object PyTypeChecker {
       return false
     }
 
-    val subclassElementType = subclassElementType(expected, actual, subclassElementMember, actualSubstitutions, protocolContext)
-    return match(protocolElementType, subclassElementType, protocolContext).getOrDefault(true)
+    val subclassElementType = subclassElementType(expected, actual, subclassElementMember, subclassElementMember.type, actualSubstitutions, protocolContext)
+    if (!match(protocolElementType, subclassElementType, protocolContext).getOrDefault(true)) {
+      return false
+    }
+    if (isSettableProtocolMember) {
+      // The write type is contravariant. For a plain attribute, it is the member type, so the member is invariant.
+      val protocolWriteType = substitute(dropSelfInProtocolMember(expected, protocolMember.writeType(context), context),
+                                         expectedSubstitutions, context)
+      val subclassWriteType = subclassElementType(expected, actual, subclassElementMember, subclassElementMember.writeType(context), actualSubstitutions, protocolContext)
+        .widenClassObjectLiteral(context)
+      return match(subclassWriteType, protocolWriteType, protocolContext).getOrDefault(true)
+    }
+    return true
   }
 
   /** The subclass member's element type as compared against the protocol: `self` bound to [actual] and dropped, then
    *  the subclass's own type substitutions applied. */
   private fun subclassElementType(
-    expected: PyClassType, actual: PyClassType, subclassElementMember: PyTypeMember,
+    expected: PyClassType, actual: PyClassType, subclassElementMember: PyTypeMember, subclassElementType: PyType?,
     actualSubstitutions: GenericSubstitutions, protocolContext: MatchContext,
   ): PyType? {
     val context = protocolContext.context
-    var subclassElementType = substituteSelfInProtocolMember(actual, subclassElementMember.type, context)
-    subclassElementType = dropSelfInProtocolMember(expected, subclassElementType, context)
-    return substitute(subclassElementType, actualSubstitutions, context)
+    var result = substituteSelfInProtocolMember(actual, subclassElementType, context)
+    result = dropSelfInProtocolMember(expected, result, context)
+    result = substitute(result, actualSubstitutions, context)
+    // An unannotated attribute can take any value of its class, so its inferred literal type widens to the class.
+    return if (subclassElementMember.isUnannotatedAttribute()) PyLiteralType.upcastLiteralToClassDeep(result, context) else result
   }
 
   private fun match(expectedProtocol: PyClassType, actualModule: PyModuleType, matchContext: MatchContext): Boolean {
@@ -1433,6 +1445,41 @@ object PyTypeChecker {
     return true
   }
 
+  /**
+   * Returns true when the member is a plain attribute without a type annotation.
+   */
+  private fun PyTypeMember.isUnannotatedAttribute(): Boolean {
+    val target = element as? PyTargetExpression ?: return false
+    return target.annotationValue == null && target.typeCommentAnnotation == null
+  }
+
+  /**
+   * Returns the type that the member accepts on a write.
+   * For a property with a setter, it is the type of the value parameter of the setter.
+   * For a plain attribute, it is the member type.
+   */
+  private fun PyTypeMember.writeType(context: TypeEvalContext): PyType? {
+    val setter = setter
+    if (setter is PyFunction && setter !== getter) {
+      val valueParam = setter.parameterList.parameters
+        .filterIsInstance<PyNamedParameter>()
+        .lastOrNull { !it.isSelf }
+      if (valueParam != null) return context.getType(valueParam)
+    }
+    return type
+  }
+
+  /**
+   * Widens a class object of a literal type to a class object of the literal class, for example `type[Literal[1]]` to `type[int]`.
+   */
+  private fun PyType?.widenClassObjectLiteral(context: TypeEvalContext): PyType? {
+    if (this is PyInstantiableType<*> && this.isDefinition) {
+      val widenedInstance = PyLiteralType.upcastLiteralToClassDeep(this.toInstance(), context)
+      return (widenedInstance as? PyInstantiableType<*>)?.toClass() ?: widenedInstance
+    }
+    return this
+  }
+
   private fun dropSelfInProtocolMember(classType: PyClassType, elementType: PyType?, context: TypeEvalContext): PyType? {
     if (elementType is PyCallableType) {
       if (PyUtil.isInitOrNewMethod(elementType.callable) || !classType.isDefinition) {
@@ -1447,6 +1494,12 @@ object PyTypeChecker {
    * For an instance, it also replaces `Self` in the member with [classType].
    */
   private fun substituteSelfInProtocolMember(classType: PyClassType, elementType: PyType?, context: TypeEvalContext): PyType? {
+    // A member of type `Self` has no self parameter to bind, for example `object.__class__`. Bind `Self` directly.
+    if (elementType is PySelfType) {
+      val selfSubstitutions = GenericSubstitutions()
+      selfSubstitutions.selfType = classType.toInstance()
+      return substitute(elementType, selfSubstitutions, context)
+    }
     if (elementType !is PyCallableType) return elementType
     val parameters = elementType.getParameters(context)
     if (parameters.isNullOrEmpty() || !parameters.first().isSelf) return elementType
@@ -1494,6 +1547,10 @@ object PyTypeChecker {
     if (expected is PyNamedTupleType &&
         (actual !is PyNamedTupleType || !actual.pyClass.isSubclass(expected.pyClass, context.context))) {
       return Optional.of(false)
+    }
+    // The fields of a generic named tuple follow from the type arguments of its class, so the type arguments are matched.
+    if (expected is PyNamedTupleType && expected.isParameterized) {
+      return Optional.of(matchGenerics(expected, actual, context))
     }
     if (actual.isHomogeneous) {
       // The type tuple[Any, ...] is consistent with any tuple
@@ -1898,7 +1955,8 @@ object PyTypeChecker {
 
   /** @see [expandTupleTypeParameters] */
   private fun shouldExpandElementwiseCollectionType(classType: PyClassType): Boolean {
-    if (classType is PyTupleType) {
+    // The type arguments of a named tuple belong to its class, not to its elements.
+    if (classType is PyTupleType && classType !is PyNamedTupleType) {
       return !classType.isHomogeneous
     }
     return false
@@ -2070,7 +2128,7 @@ object PyTypeChecker {
 
   /**
    * The declared type parameter at [typeArgumentIndex] of [genericType]'s class, or null when there isn't one
-   * (no generic class, a tuple, or an index past the declared parameters). Used both to find the
+   * (no generic class, a plain tuple, or an index past the declared parameters). Used both to find the
    * variance and to name the parameter in breakdowns.
    */
   private fun findTypeParameter(
@@ -2079,7 +2137,7 @@ object PyTypeChecker {
     context: MatchContext,
   ): PyTypeParameterType? {
     if (genericType == null) return null
-    if (genericType is PyTupleType) return null
+    if (genericType is PyTupleType && genericType !is PyNamedTupleType) return null
     val genericDefType = findGenericDefinitionType(genericType.pyClass, context.context)
     return genericDefType?.typeArguments?.getOrNull(typeArgumentIndex) as? PyTypeParameterType
   }
@@ -2629,6 +2687,10 @@ object PyTypeChecker {
           typedDictType.declaredTypeParameters,
           substituteTypeArguments(typedDictType.typeArgumentsOrDeclaredParameters.orEmpty()),
         )
+      }
+
+      override fun visitPyNamedTupleType(namedTupleType: PyNamedTupleType): PyType {
+        return namedTupleType.mapTypes({ clone(it) }, { substituteTypeArguments(it) })
       }
 
       override fun visitPyTupleType(tupleType: PyTupleType): PyType {

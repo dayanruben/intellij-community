@@ -11,6 +11,7 @@ import com.intellij.database.datagrid.GridUtil;
 import com.intellij.database.datagrid.GridUtilCore;
 import com.intellij.database.datagrid.ModelIndex;
 import com.intellij.database.run.ui.GridEditGuard;
+import com.intellij.database.run.ui.ResultViewWithCells;
 import com.intellij.database.run.ui.grid.editors.GridCellEditorFactory.ValueFormatterResult;
 import com.intellij.database.run.ui.grid.renderers.DefaultTextRendererFactory;
 import com.intellij.ide.highlighter.HighlighterFactory;
@@ -57,13 +58,9 @@ import com.intellij.util.textCompletion.TextCompletionUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import javax.swing.Action;
-import javax.swing.JComponent;
 import javax.swing.JScrollBar;
 import javax.swing.JScrollPane;
-import javax.swing.KeyStroke;
 import java.awt.Dimension;
-import java.awt.event.ActionEvent;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.util.EventObject;
@@ -129,8 +126,8 @@ public class GridCellEditorTextField extends EditorTextField implements Disposab
   public Dimension getPreferredSize() {
     Dimension size = super.getPreferredSize();
     Editor editor = getEditor();
-    if (editor instanceof EditorEx && !editor.isOneLineMode()) {
-      JScrollPane scrollPane = ((EditorEx)editor).getScrollPane();
+    if (editor instanceof EditorEx editorEx && !editor.isOneLineMode()) {
+      JScrollPane scrollPane = editorEx.getScrollPane();
       JScrollBar verticalScrollBar = scrollPane.getVerticalScrollBar();
       if (verticalScrollBar != null) {
         size.width += verticalScrollBar.getWidth();
@@ -217,15 +214,11 @@ public class GridCellEditorTextField extends EditorTextField implements Disposab
 
       @Override
       public void actionPerformed(@NotNull AnActionEvent e) {
-        JComponent gridComponent = myGrid.getPreferredFocusedComponent();
-
         KeyEvent keyEvent = (KeyEvent)e.getInputEvent();
-        KeyStroke stroke = KeyStroke.getKeyStroke(keyEvent.getKeyCode(), keyEvent.getModifiers());
-        Object actionKey = gridComponent.getInputMap(WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).get(stroke);
-        Action tabAction = gridComponent.getActionMap().get(actionKey);
-        if (tabAction != null) {
-          tabAction.actionPerformed(new ActionEvent(gridComponent, keyEvent.getID(), keyEvent.toString(), keyEvent.getWhen(), keyEvent.getModifiers()));
-        }
+        if (keyEvent == null) return;
+        // Cell editors open only in a view with cells.
+        ResultViewWithCells view = (ResultViewWithCells)myGrid.getResultView();
+        view.moveLead(keyEvent.isShiftDown() ? ResultViewWithCells.LeadMove.PREVIOUS_CELL : ResultViewWithCells.LeadMove.NEXT_CELL);
       }
     };
     GridUtil.registerAction(editor, action, tabAndShiftTab);

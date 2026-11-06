@@ -329,6 +329,49 @@ class PyExpectedVarianceJudgmentTest : PyCodeInsightTestCase() {
     """.trimIndent())
 
   @Test
+  @TestFor(issues = ["PY-87917"])
+  fun `Named tuple field`() = test("""
+    from typing import NamedTuple
+    class A[T](NamedTuple):
+        attr: T  # read-only
+    #         └ EXPECTED_VARIANCE COVARIANT
+    """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-90863"])
+  fun `Attribute of a subclass of a frozen dataclass`() = test("""
+    from dataclasses import dataclass
+    @dataclass(frozen=True)
+    class Base:
+        pass
+    class A[T](Base):
+        attr: T  # read-only
+    #         └ EXPECTED_VARIANCE COVARIANT
+    """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-90863"])
+  @TestCaseOptions(additionalSdkRoots = [SdkRoot("packages", OrderRootTypeEnum.CLASSES)])
+  fun `Attrs frozen attribute`() = test("""
+    import attrs
+    @attrs.frozen
+    class A[T]:
+        attr: T  # read-only
+    #         └ EXPECTED_VARIANCE COVARIANT
+    """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-90863"])
+  fun `Attribute of a dataclass_transform base class with frozen_default`() = test("""
+    from typing import dataclass_transform
+    @dataclass_transform(frozen_default=True)
+    class ModelBase: ...
+    class A[T](ModelBase):
+        attr: T  # read-only
+    #         └ EXPECTED_VARIANCE COVARIANT
+    """.trimIndent())
+
+  @Test
   fun `String literal type`() = test("""
     from dataclasses import dataclass
     @dataclass(frozen=True)

@@ -9,6 +9,7 @@ import com.intellij.database.datagrid.ModelIndex;
 import com.intellij.database.datagrid.ModelIndexSet;
 import com.intellij.database.datagrid.RawIndexConverter;
 import com.intellij.database.datagrid.ResultView;
+import com.intellij.database.datagrid.ResultViewSelectionListener;
 import com.intellij.database.datagrid.ViewIndex;
 import com.intellij.database.extractors.DisplayType;
 import com.intellij.database.run.ui.DataAccessType;
@@ -31,10 +32,10 @@ import javax.swing.KeyStroke;
 import javax.swing.table.TableCellEditor;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Font;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseListener;
 import java.util.Map;
-import java.util.function.Consumer;
 
 import static com.intellij.database.run.ui.grid.GridColorSchemeUtil.doGetForeground;
 import static com.intellij.database.run.ui.grid.GridColorSchemeUtil.doGetSelectionBackground;
@@ -139,6 +140,12 @@ public class TreeTableResultView implements ResultView, ResultViewWithCells {
     return new DataGridSearchSession(myResultPanel.getProject(), myResultPanel, newFindModel, previousFilterComponent);
   }
 
+  /** The font of the tree, the view's focus component; the text renderer matches its size in the tree and in the table. */
+  @Override
+  public @NotNull Font getCellFont() {
+    return myTreeTable.getTree().getFont();
+  }
+
   @Override
   public boolean isCellEditingAllowed() {
     return false;
@@ -174,8 +181,9 @@ public class TreeTableResultView implements ResultView, ResultViewWithCells {
   }
 
   @Override
-  public void addSelectionChangedListener(@NotNull Consumer<Boolean> listener) {
-    myTreeTable.getTree().getSelectionModel().addTreeSelectionListener(e -> listener.accept(false));  //TODO
+  public void addSelectionChangedListener(@NotNull ResultViewSelectionListener listener) {
+    // TODO the tree table doesn't report adjusting selections
+    myTreeTable.getTree().getSelectionModel().addTreeSelectionListener(e -> listener.selectionChanged(false));
   }
 
   @Override
@@ -227,6 +235,10 @@ public class TreeTableResultView implements ResultView, ResultViewWithCells {
   public void editSelectedCell() {
 
   }
+
+  /** The tree view opens no cell editors, which are the only callers. */
+  @Override
+  public void moveLead(@NotNull LeadMove move) { }
 
   @Override
   public void editSelectedCellWithValue(Object value) {

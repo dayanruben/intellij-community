@@ -8,6 +8,9 @@ jps_test(
         "@community//plugins/kotlin/jvm-debugger/test:testData",
     ] + all_test_dep_targets,
     sandbox = True,
+    tags = [
+        "kotlin-jvm-debugger-tests",
+    ],
     runtime_deps = [
         ":parcelize_test_lib",
         "//:main",
@@ -39,6 +42,8 @@ jvm_library(
         "//aether-dependency-resolver/plugin",
         "//platform/testRunner/plugin",
         "//platform/vcs/plugin",
+        "//community-resources:customization",
+        "//platform/main/intellij.platform.monolith.main:monolith-main",
     ],
     deps = [
         # do not sort,

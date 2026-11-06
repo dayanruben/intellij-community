@@ -8,10 +8,17 @@ import com.intellij.database.datagrid.ResultView;
 import com.intellij.util.ObjectUtils;
 import org.jetbrains.annotations.NotNull;
 
+/** Stores, restores and changes the grid's scroll position. */
 public interface GridScrollPositionManager {
   String SCROLL_POSITION_MANAGER_KEY = "GridScrollPositionManager";
 
   void scrollSelectionToVisible();
+
+  /**
+   * Scrolls as little as needed to show the cell and keeps the selection.
+   * On an axis where the cell doesn't scroll, as in a pinned column, or isn't shown, the scroll stays.
+   */
+  void scrollCellToVisible(@NotNull ModelIndex<GridRow> row, @NotNull ModelIndex<GridColumn> column);
 
   static @NotNull GridScrollPositionManager get(@NotNull ResultView resultView, @NotNull DataGrid grid) {
     GridScrollPositionManager manager =
@@ -42,6 +49,10 @@ public interface GridScrollPositionManager {
 
     @Override
     public void scrollSelectionToVisible() {
+    }
+
+    @Override
+    public void scrollCellToVisible(@NotNull ModelIndex<GridRow> row, @NotNull ModelIndex<GridColumn> column) {
     }
 
     @Override

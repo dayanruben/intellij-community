@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.devkit.workspaceModel
 
 import com.intellij.configurationStore.StoreReloadManager
@@ -10,8 +10,8 @@ import com.intellij.devkit.workspaceModel.codegen.writer.CodeWriter
 import com.intellij.ide.impl.OpenProjectTask
 import com.intellij.java.workspace.entities.JavaSourceRootPropertiesEntity
 import com.intellij.java.workspace.entities.javaSourceRoots
-import com.intellij.openapi.application.readAction
 import com.intellij.openapi.application.edtWriteAction
+import com.intellij.openapi.application.readAction
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.IntelliJProjectUtil
 import com.intellij.openapi.project.Project
@@ -26,7 +26,7 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.openapi.vfs.findDirectory
 import com.intellij.openapi.vfs.findOrCreateDirectory
-import com.intellij.platform.backend.workspace.toVirtualFileUrl
+import com.intellij.platform.backend.workspace.storeAndGet
 import com.intellij.platform.backend.workspace.workspaceModel
 import com.intellij.platform.workspace.jps.JpsProjectConfigLocation
 import com.intellij.platform.workspace.jps.entities.ContentRootEntity
@@ -34,7 +34,6 @@ import com.intellij.platform.workspace.jps.entities.ModuleEntity
 import com.intellij.platform.workspace.jps.entities.ModuleSourceDependency
 import com.intellij.platform.workspace.jps.entities.SourceRootEntity
 import com.intellij.platform.workspace.jps.entities.modifyContentRootEntity
-import com.intellij.platform.workspace.jps.entities.sourceRoots
 import com.intellij.platform.workspace.jps.serialization.impl.ErrorReporter
 import com.intellij.platform.workspace.jps.serialization.impl.JpsProjectEntitiesLoader
 import com.intellij.platform.workspace.jps.serialization.impl.JpsProjectSerializers
@@ -48,8 +47,8 @@ import com.intellij.platform.workspace.storage.url.VirtualFileUrl
 import com.intellij.pom.PomManager
 import com.intellij.testFramework.IdeaTestUtil
 import com.intellij.testFramework.IndexingTestUtil.Companion.suspendUntilIndexesAreReady
-import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.PlatformTestUtil
+import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.fixtures.IdeaTestExecutionPolicy
 import com.intellij.testFramework.junit5.fixture.disposableFixture
 import com.intellij.testFramework.junit5.fixture.projectFixture
@@ -64,7 +63,6 @@ import com.intellij.workspaceModel.ide.impl.jps.serialization.CachingJpsFileCont
 import com.intellij.workspaceModel.ide.impl.jps.serialization.SerializationContextForTests
 import com.intellij.workspaceModel.ide.impl.jps.serialization.saveAffectedEntities
 import com.intellij.workspaceModel.ide.legacyBridge.impl.java.JAVA_SOURCE_ROOT_ENTITY_TYPE_ID
-import com.intellij.workspaceModel.ide.legacyBridge.impl.java.JAVA_TEST_ROOT_ENTITY_TYPE_ID
 import com.maddyhome.idea.copyright.CopyrightProfile
 import junit.framework.AssertionFailedError
 import kotlinx.coroutines.runBlocking
@@ -119,13 +117,14 @@ abstract class AbstractAllIntellijEntitiesGenerationTest {
     }
 
     val wsm = project.workspaceModel
+    val vfuManager = wsm.getVirtualFileUrlManager()
     //@formatter:off
     wsm.update("Setup project roots") {
       val module = ModuleEntity("${this@AbstractAllIntellijEntitiesGenerationTest.javaClass.simpleName}_${testName}_module", listOf(ModuleSourceDependency), NonPersistentEntitySource)
-      val contentRoot = ContentRootEntity(projectRoot.toVirtualFileUrl(wsm.getVirtualFileUrlManager()), emptyList(), NonPersistentEntitySource)
+      val contentRoot = ContentRootEntity(vfuManager.storeAndGet(projectRoot), emptyList(), NonPersistentEntitySource)
       module.contentRoots += contentRoot
-      contentRoot.sourceRoots += SourceRootEntity(actualSrcRoot.toVirtualFileUrl(wsm.getVirtualFileUrlManager()), JAVA_SOURCE_ROOT_ENTITY_TYPE_ID, NonPersistentEntitySource)
-      val genSourceRoot = SourceRootEntity(actualGenRoot.toVirtualFileUrl(wsm.getVirtualFileUrlManager()), JAVA_SOURCE_ROOT_ENTITY_TYPE_ID, NonPersistentEntitySource)
+      contentRoot.sourceRoots += SourceRootEntity(vfuManager.storeAndGet(actualSrcRoot), JAVA_SOURCE_ROOT_ENTITY_TYPE_ID, NonPersistentEntitySource)
+      val genSourceRoot = SourceRootEntity(vfuManager.storeAndGet(actualGenRoot), JAVA_SOURCE_ROOT_ENTITY_TYPE_ID, NonPersistentEntitySource)
       genSourceRoot.javaSourceRoots += JavaSourceRootPropertiesEntity(generated = true, packagePrefix = "", entitySource = NonPersistentEntitySource)
       contentRoot.sourceRoots += genSourceRoot
 
@@ -351,31 +350,16 @@ abstract class AbstractAllIntellijEntitiesGenerationTest {
     return false
   }
 
-  private fun findGenSourceRoot(sourceRoot: SourceRootEntity): SourceRootEntity? {
-    val closest = sourceRoot.javaSourceRoots.firstOrNull { it.generated }
-    if (closest != null) {
-      return closest.sourceRoot
-    }
-    val contentRoot = sourceRoot.contentRoot
-    val inContentRoot = contentRoot.sourceRoots.flatMap { it.javaSourceRoots }.firstOrNull { it.generated }
-    if (inContentRoot != null) {
-      return inContentRoot.sourceRoot
-    }
-    if (sourceRoot.rootTypeId != JAVA_TEST_ROOT_ENTITY_TYPE_ID)
-      return null
-    val testGenSourceRoot = sourceRoot.contentRoot.module.sourceRoots.flatMap { it.javaSourceRoots }.firstOrNull { it.generated }?.takeIf {
-      it.sourceRoot.url.presentableUrl.endsWith("/testGen")
-    }
-    return testGenSourceRoot?.sourceRoot
-  }
+  private fun findGenSourceRoot(sourceRoot: SourceRootEntity): SourceRootEntity? = WorkspaceModelGenerator.findGenSourceRoot(sourceRoot)
 
   private fun createGenSourceRoot(storage: MutableEntityStorage, sourceRoot: SourceRootEntity): SourceRootEntity {
     val genFolderVirtualFile =
       VfsUtil.createDirectories("${sourceRoot.contentRoot.url.presentableUrl}/${WorkspaceModelGenerator.GENERATED_FOLDER_NAME}")
     val javaSourceRoot = sourceRoot.javaSourceRoots.first()
     val updatedContentRoot = storage.modifyContentRootEntity(sourceRoot.contentRoot) {
-      this.sourceRoots += SourceRootEntity(genFolderVirtualFile.toVirtualFileUrl(virtualFileManager),
-                                           sourceRoot.rootTypeId, sourceRoot.entitySource) {
+      this.sourceRoots += SourceRootEntity(virtualFileManager.storeAndGet(genFolderVirtualFile),
+                                           sourceRoot.rootTypeId,
+                                           sourceRoot.entitySource) {
         javaSourceRoots = listOf(JavaSourceRootPropertiesEntity(true, javaSourceRoot.packagePrefix, javaSourceRoot.entitySource))
       }
     }
@@ -402,10 +386,10 @@ abstract class AbstractAllIntellijEntitiesGenerationTest {
 
     @JvmStatic
     fun modules(): List<Arguments> = runBlocking {
-      val (storage, jpsProjectSerializer) = loadProjectIntellijProject()
+      val [storage, jpsProjectSerializer] = loadProjectIntellijProject()
 
       val modulesToCheck = findModulesWhichRequireWorkspace(storage)
-      modulesToCheck.map { (module, source) ->
+      modulesToCheck.map { [module, source] ->
         Arguments.of(module.name, module, source, storage, jpsProjectSerializer)
       }
     }

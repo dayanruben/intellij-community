@@ -41,11 +41,6 @@
 
     <implicitToStringSearch implementation="com.intellij.psi.impl.search.ImplicitToStringSearcher"/>
 
-    <filetype.stubBuilder filetype="CLASS" implementationClass="com.intellij.psi.impl.compiled.ClassFileStubBuilder"/>
-    <filetype.decompiler filetype="CLASS" implementationClass="com.intellij.psi.impl.compiled.ClassFileDecompiler"/>
-    <fileType.fileViewProviderFactory filetype="CLASS" implementationClass="com.intellij.psi.ClassFileViewProviderFactory"/>
-    <psi.classFileDecompiler id="clsStubBuilder" implementation="com.intellij.psi.impl.compiled.ClsDecompilerImpl" order="last"/>
-
     <notificationGroup id="jps configuration error"
                        toolWindowId="Build"
                        displayType="TOOL_WINDOW"
@@ -94,7 +89,7 @@
     <applicationService serviceInterface="com.intellij.psi.JavaDirectoryService"
                         serviceImplementation="com.intellij.psi.impl.file.JavaDirectoryServiceImpl"/>
     <applicationService serviceInterface="com.intellij.openapi.projectRoots.JavaVersionService"
-                        serviceImplementation="com.intellij.openapi.projectRoots.JavaVersionServiceImpl"/>
+                        serviceImplementation="com.intellij.openapi.projectRoots.JavaVersionServiceImpl" overrides="true"/>
     <applicationService
       serviceInterface="com.intellij.codeInsight.generation.OverrideImplementExploreUtil$MemberImplementorExplorersProvider"
       serviceImplementation="com.intellij.codeInsight.generation.MemberImplementorExplorersProviderImpl"/>
@@ -102,8 +97,6 @@
                         serviceImplementation="com.intellij.psi.impl.CommonReferenceProviderTypesImpl"/>
     <applicationService serviceInterface="com.intellij.psi.impl.file.PsiPackageImplementationHelper"
                         serviceImplementation="com.intellij.psi.impl.file.PsiPackageImplementationHelperImpl"/>
-    <applicationService serviceInterface="com.intellij.psi.codeStyle.JavaFileCodeStyleFacadeFactory"
-                        serviceImplementation="com.intellij.psi.codeStyle.JavaFileCodeStyleFacadeImpl$Factory"/>
 
     <projectService serviceImplementation="com.intellij.jarRepository.RemoteRepositoriesConfiguration"/>
     <projectService serviceImplementation="com.intellij.jarRepository.services.MavenRepositoryServicesManager"/>
@@ -123,14 +116,12 @@
                     serviceImplementation="com.intellij.ide.util.TreeClassChooserFactoryImpl"/>
     <projectService serviceInterface="com.intellij.psi.impl.JavaPsiImplementationHelper"
                     serviceImplementation="com.intellij.psi.impl.JavaPsiImplementationHelperImpl"/>
-    <projectService serviceInterface="com.intellij.psi.codeStyle.JavaCodeStyleSettingsFacade"
-                    serviceImplementation="com.intellij.psi.codeStyle.JavaCodeStyleSettingsFacadeImpl"/>
     <projectService serviceInterface="com.intellij.psi.JavaCodeFragmentFactory"
                     serviceImplementation="com.intellij.psi.impl.JavaCodeFragmentFactoryImpl"/>
     <projectService serviceInterface="com.intellij.openapi.roots.LanguageLevelProjectExtension"
                     serviceImplementation="com.intellij.openapi.roots.impl.LanguageLevelProjectExtensionImpl"/>
     <projectService serviceInterface="com.intellij.psi.codeStyle.JavaCodeStyleManager"
-                    serviceImplementation="com.intellij.psi.impl.source.codeStyle.JavaCodeStyleManagerImpl"/>
+                    serviceImplementation="com.intellij.psi.impl.source.codeStyle.JavaCodeStyleManagerImpl" overrides="true"/>
     <projectService serviceInterface="com.intellij.codeInsight.NullableNotNullManager" open="true"
                     serviceImplementation="com.intellij.codeInsight.NullableNotNullManagerImpl"/>
     <projectService serviceInterface="com.intellij.codeInsight.ExternalAnnotationsManager" open="true"
@@ -1021,10 +1012,6 @@
     <lookup.actionProvider implementation="com.intellij.codeInsight.completion.ExcludeLoggerFromCompletionLookupActionProvider"
                            id="loggerExcludeFromCompletion"/>
     <lookup.actionProvider implementation="com.intellij.codeInsight.completion.ImportStaticLookupActionProvider" id="importStatic"/>
-    <fileType fileNames="module-info.java" name="Java module" fieldName="INSTANCE"
-              implementationClass="com.intellij.ide.highlighter.JavaModuleFileType"/>
-    <fileType extensions="snippet" name="JSHELL" language="JShellLanguage" fieldName="INSTANCE"
-              implementationClass="com.intellij.ide.highlighter.JShellFileType"/>
     <codeInsight.createFieldFromUsageHelper language="JAVA"
                                             implementationClass="com.intellij.codeInsight.daemon.impl.quickfix.JavaCreateFieldFromUsageHelper"/>
     <expressionConverter implementationClass="com.intellij.refactoring.introduceParameter.JavaExpressionConverter" language="JAVA"/>
@@ -1057,8 +1044,6 @@
     <errorQuickFixProvider implementation="com.intellij.codeInsight.daemon.impl.analysis.JavaErrorQuickFixProvider"/>
 
     <searchEverywhereResultsEqualityProvider implementation="com.intellij.ide.JavaClassAndFileEqualityProvider"/>
-
-    <packageDirectoryProvider implementation="com.intellij.psi.impl.file.JavaPackageDirectoryProvider" id="default"/>
 
     <java.externalAnnotation.locationProvider
       implementation="com.intellij.codeInsight.externalAnnotation.location.JBBundledAnnotationsProvider"/>
@@ -1134,7 +1119,6 @@
 
     <trigramIndexFilterExcludeExtension implementation="com.intellij.java.JavaLibrarySourcesExcludingIndexFilterExtension"/>
 
-    <virtualFileCustomDataProvider implementation="com.intellij.ide.JavaCodeStyleSettingsCustomDataSynchronizer"/>
     <consoleFilterProvider implementation="com.intellij.java.impl.nullaway.NullAwayFilterProvider"/>
 
     <!--from JavaAnalaysisPlugin.xml for java.analysis.impl-->

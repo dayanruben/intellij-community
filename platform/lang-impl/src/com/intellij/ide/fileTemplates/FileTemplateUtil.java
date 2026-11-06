@@ -5,15 +5,19 @@ import com.intellij.application.options.CodeStyle;
 import com.intellij.ide.IdeBundle;
 import com.intellij.ide.fileTemplates.impl.CustomFileTemplate;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.FileTypes;
 import com.intellij.openapi.fileTypes.ex.FileTypeManagerEx;
+import com.intellij.openapi.progress.ProgressManager;
+import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.ClassLoaderUtil;
+import com.intellij.openapi.util.ThrowableComputable;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.io.FileUtilRt;
 import com.intellij.openapi.util.text.StringUtil;
@@ -24,6 +28,7 @@ import com.intellij.psi.PsiElement;
 import com.intellij.testFramework.LightVirtualFile;
 import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.ui.EDT;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import org.apache.velocity.VelocityContext;
 import org.apache.velocity.exception.VelocityException;
@@ -36,6 +41,7 @@ import org.apache.velocity.runtime.parser.node.ASTStringLiteral;
 import org.apache.velocity.runtime.parser.node.Node;
 import org.apache.velocity.runtime.parser.node.SimpleNode;
 import org.apache.velocity.util.StringUtils;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -51,6 +57,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
 import java.util.regex.Pattern;
 
@@ -290,9 +297,34 @@ public final class FileTemplateUtil {
                                                        @Nullable Map<String, Object> propsMap,
                                                        final @NotNull PsiDirectory directory,
                                                        @Nullable ClassLoader classLoader) throws Exception {
-    Project project = directory.getProject();
-    FileTemplateManager.getInstance(project).addRecentName(template.getName());
+    return createFromPreparedTemplate(prepareFromTemplate(template, fileName, propsMap, directory, classLoader));
+  }
 
+  /**
+   * Merges the template with its properties without creating the file.
+   *
+   * <p>Runs the {@link DefaultTemplatePropertiesProvider} extensions and {@link CreateFromTemplateHandler#prepareProperties}.
+   * Requires a read action and may run on a background thread.
+   *
+   * @param props not modified
+   * @throws Exception when the handler requires a file name and none is given, or when the template cannot be parsed
+   */
+  @ApiStatus.Experimental
+  public static @NotNull PreparedFileTemplate prepareFromTemplate(@NotNull FileTemplate template,
+                                                                  @Nullable String fileName,
+                                                                  @NotNull Properties props,
+                                                                  @NotNull PsiDirectory directory) throws Exception {
+    Map<String, Object> map = new HashMap<>();
+    putAll(map, props);
+    return prepareFromTemplate(template, fileName, map, directory, null);
+  }
+
+  private static @NotNull PreparedFileTemplate prepareFromTemplate(@NotNull FileTemplate template,
+                                                                   @Nullable String fileName,
+                                                                   @Nullable Map<String, Object> propsMap,
+                                                                   @NotNull PsiDirectory directory,
+                                                                   @Nullable ClassLoader classLoader) throws Exception {
+    Project project = directory.getProject();
     if (propsMap == null) {
       Properties p = FileTemplateManager.getInstance(project).getDefaultProperties();
       propsMap = new HashMap<>();
@@ -331,20 +363,68 @@ public final class FileTemplateUtil {
     handler.prepareProperties(propsMap);
 
     Map<String, Object> props_ = propsMap;
-    String fileName_ = fileName;
     String mergedText = ClassLoaderUtil.computeWithClassLoader(
       classLoader != null ? classLoader : FileTemplateUtil.class.getClassLoader(),
       () -> template.getText(props_));
     String templateText = StringUtil.convertLineSeparators(mergedText);
+    return new PreparedFileTemplate(template, handler, directory, fileName, templateText, propsMap);
+  }
+
+  /**
+   * Computes {@code computable} in a non-blocking read action under a modal progress that cannot be canceled,
+   * with the alternative resolve of the caller.
+   *
+   * <p>A write action restarts {@code computable}, so it must be idempotent.
+   * On a background thread or inside a write action, it runs in a blocking read action in place.
+   */
+  @ApiStatus.Experimental
+  public static <T, E extends Exception> T computeUnderModalProgress(@NotNull Project project,
+                                                                     @NotNull ThrowableComputable<T, E> computable) throws E {
+    if (!EDT.isCurrentThreadEdt() || ApplicationManager.getApplication().isWriteAccessAllowed()) {
+      return ReadAction.computeBlocking(computable);
+    }
+    DumbService dumbService = DumbService.getInstance(project);
+    boolean alternativeResolve = dumbService.isAlternativeResolveEnabled();
+    try {
+      return ProgressManager.getInstance().runProcessWithProgressSynchronously(
+        () -> ReadAction.nonBlocking(() -> alternativeResolve ? dumbService.computeWithAlternativeResolveEnabled(computable)
+                                                              : computable.compute())
+          .executeSynchronously(),
+        IdeBundle.message("progress.title.preparing.file.from.template"), false, project);
+    }
+    catch (Exception e) {
+      // executeSynchronously throws a checked exception wrapped in an undeclared ExecutionException
+      if (e instanceof ExecutionException && e.getCause() instanceof Exception cause) {
+        @SuppressWarnings("unchecked") E checked = (E)cause;
+        throw checked;
+      }
+      throw e;
+    }
+  }
+
+  /**
+   * Creates the file of a template merged by {@link #prepareFromTemplate} and records the template as recently used.
+   * Call it on the EDT.
+   *
+   * @return usually a {@link com.intellij.psi.PsiFile}
+   */
+  @ApiStatus.Experimental
+  public static @NotNull PsiElement createFromPreparedTemplate(@NotNull PreparedFileTemplate prepared) {
+    PsiDirectory directory = prepared.getDirectory();
+    FileTemplate template = prepared.getTemplate();
+    CreateFromTemplateHandler handler = prepared.getHandler();
+    Project project = directory.getProject();
+    FileTemplateManager.getInstance(project).addRecentName(template.getName());
 
     if (LightVirtualFile.shouldSkipEventSystem(directory.getVirtualFile())) {
-      return handler.createFromTemplate(project, directory, fileName_, template, templateText, props_);
+      return handler.createFromTemplate(project, directory, prepared.getFileName(), template, prepared.getText(), prepared.getProperties());
     }
 
     return WriteCommandAction
       .writeCommandAction(project)
       .withName(handler.commandName(template))
-      .compute(() -> handler.createFromTemplate(project, directory, fileName_, template, templateText, props_));
+      .compute(() -> handler.createFromTemplate(project, directory, prepared.getFileName(), template, prepared.getText(),
+                                                prepared.getProperties()));
   }
 
   public static @Nullable String getDirPathRelativeToProjectBaseDir(@NotNull PsiDirectory directory) {

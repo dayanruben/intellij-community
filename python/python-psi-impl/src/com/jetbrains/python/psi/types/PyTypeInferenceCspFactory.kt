@@ -281,7 +281,7 @@ object PyTypeInferenceCspFactory {
     val (callSite, callableType) = si
     if (callSite !is PyCallExpression) throw NotSupportedException()
     if (callableType == null) throw NotSupportedException()
-    val mapping = PyCallExpressionHelper.mapArguments(callSite, callableType, context)
+    val mapping = PyCallExpressionHelper.mapArgumentsWithDefaults(callSite, callableType, context)
     if (!mapping.isComplete) throw NotSupportedException()
     val mappedParameters = mapping.mappedParameters
     val cspSubstitutions = GenericSubstitutions()
@@ -396,7 +396,7 @@ object PyTypeInferenceCspFactory {
       is PyParenthesizedExpression
         -> return findChildCsp(expression.containedExpression)
       is PyKeywordArgument
-        -> return expression.valueExpression
+        -> return findChildCsp(expression.valueExpression)
       else
         -> return expression
     }

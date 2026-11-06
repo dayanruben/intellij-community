@@ -4,6 +4,7 @@ package org.jetbrains.intellij.build
 import kotlinx.collections.immutable.PersistentList
 import kotlinx.collections.immutable.persistentListOf
 import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.intellij.build.impl.commonExecutableFilePatterns
 import org.jetbrains.intellij.build.impl.support.RepairUtilityBuilder
 import org.jetbrains.intellij.build.impl.support.bundleRepairUtility
 import java.nio.file.Path
@@ -159,6 +160,9 @@ class MacCustomizerBuilder @PublishedApi internal constructor(private val projec
    * @return the current handler, or `null` if none is set
    */
   fun getCopyAdditionalFilesHandler(): ((Path, JvmArchitecture, BuildContext) -> Unit)? = copyAdditionalFilesHandler
+
+  /** Returns the handler that [executableFilePatterns] set, so that a wrapper can extend it, or `null`. */
+  fun getExecutableFilePatternsHandler(): ((Sequence<String>, Boolean, JvmArchitecture, BuildContext) -> Sequence<String>)? = executableFilePatternsHandler
 
   /**
    * Gets the current distributionUUID handler for checking if one is set.
@@ -433,14 +437,7 @@ open class MacDistributionCustomizer {
 
   open fun generateExecutableFilesPatterns(includeRuntime: Boolean, arch: JvmArchitecture, context: BuildContext): Sequence<String> {
     val basePatterns = if (context.isLanguageServer) sequenceOf("bin/${context.productProperties.baseFileName}")
-    else sequenceOf(
-      "bin/*.sh",
-      "plugins/**/*.sh",
-      "bin/fsnotifier",
-      "bin/printenv",
-      "bin/restarter",
-      "MacOS/*"
-    )
+    else commonExecutableFilePatterns(OsFamily.MACOS).asSequence()
 
     val rtPatterns = if (includeRuntime) {
       context.bundledRuntime.executableFilesPatterns(OsFamily.MACOS, context.productProperties.runtimeDistribution)
@@ -450,7 +447,7 @@ open class MacDistributionCustomizer {
     }
 
     val utilPatters = RepairUtilityBuilder.executableFilesPatterns(context)
-    return basePatterns + rtPatterns + utilPatters + extraExecutables + context.getExtraExecutablePattern(OsFamily.MACOS)
+    return basePatterns + rtPatterns + utilPatters + extraExecutables
   }
 
   /**

@@ -17,6 +17,7 @@
   <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
   <dependencies>
     <module name="intellij.platform.syntax.psi"/>
+    <module name="intellij.java.frontback.psi.impl"/>
     <module name="intellij.java.psi"/>
     <module name="intellij.java.syntax"/>
     <module name="intellij.libraries.asm"/>
@@ -109,7 +110,17 @@
     <projectService serviceInterface="com.intellij.psi.JavaPsiFacade"
                     serviceImplementation="com.intellij.psi.impl.JavaPsiFacadeImpl"/>
 
+    <filetype.stubBuilder filetype="CLASS" implementationClass="com.intellij.psi.impl.compiled.ClassFileStubBuilder"/>
+    <filetype.decompiler id="classFileDecompiler" filetype="CLASS" implementationClass="com.intellij.psi.impl.compiled.ClassFileDecompiler"/>
+    <fileType.fileViewProviderFactory filetype="CLASS" implementationClass="com.intellij.psi.ClassFileViewProviderFactory"/>
+    <psi.classFileDecompiler id="clsStubBuilder" implementation="com.intellij.psi.impl.compiled.ClsDecompilerImpl" order="last"/>
+    <!--suppress PluginXmlReferencesModuleReachability (JDK 1.8 module must not depend on intellij.platform.ide.impl per JavaVersionInIntelliJModulesTest; it is loaded in all products at runtime) -->
+    <fileType extensions="snippet" name="JSHELL" language="JShellLanguage" fieldName="INSTANCE"
+              implementationClass="com.intellij.ide.highlighter.JShellFileType"/>
+
     <!-- The defaults for a process without a Java backend, such as JetBrains Light. The Java plugin overrides each of them. -->
+    <projectService serviceInterface="com.intellij.psi.codeStyle.JavaCodeStyleManager"
+                    serviceImplementation="com.intellij.core.CoreJavaCodeStyleManager" open="true"/>
     <projectService serviceInterface="com.intellij.openapi.roots.PackageIndex"
                     serviceImplementation="com.intellij.core.CorePackageIndex" open="true"/>
     <psi.treeChangePreprocessor implementation="com.intellij.psi.impl.PsiJavaModuleTreeChangePreprocessor"/>
