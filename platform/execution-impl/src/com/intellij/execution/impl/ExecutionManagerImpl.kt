@@ -50,6 +50,7 @@ import com.intellij.execution.ui.ConsoleView
 import com.intellij.execution.ui.RunContentDescriptor
 import com.intellij.execution.ui.RunContentManager
 import com.intellij.execution.ui.RunContentManagerExtension
+import com.intellij.execution.ui.layout.impl.RunnerLayoutSettings
 import com.intellij.ide.SaveAndSyncHandler
 import com.intellij.ide.util.PropertiesComponent
 import com.intellij.internal.statistic.StructuredIdeActivity
@@ -813,25 +814,28 @@ open class ExecutionManagerImpl(private val project: Project, coroutineScope: Co
               environment.runnerAndConfigurationSettings?.uniqueID  ?: "",
               environment.executor.id, environment.runner.runnerId)
             inProgress.update { it + inProgressEntry }
-            ReadAction.nonBlocking(Callable { RunManagerImpl.canRunConfiguration(environment) })
-              .finishOnUiThread(ModalityState.nonModal()) { canRun ->
-                inProgress.update { it - inProgressEntry }
-                if (canRun) {
-                  SlowOperations.knownIssue("IJPL-162789").use {
-                    executeConfiguration(environment, environment.runner, assignNewId, this.project,
-                                         environment.runnerAndConfigurationSettings)
+            AppExecutorUtil.getAppExecutorService().execute {
+              createServicesOfRunStart(environment)
+              ReadAction.nonBlocking(Callable { RunManagerImpl.canRunConfiguration(environment) })
+                .finishOnUiThread(ModalityState.nonModal()) { canRun ->
+                  inProgress.update { it - inProgressEntry }
+                  if (canRun) {
+                    SlowOperations.knownIssue("IJPL-162789").use {
+                      executeConfiguration(environment, environment.runner, assignNewId, this.project,
+                                           environment.runnerAndConfigurationSettings)
+                    }
+                    return@finishOnUiThread
                   }
-                  return@finishOnUiThread
-                }
 
-                if (!RunDialog.editConfiguration(environment, ExecutionBundle.message("dialog.title.edit.configuration", 0))) {
-                  processNotStarted(environment, null)
-                  return@finishOnUiThread
+                  if (!RunDialog.editConfiguration(environment, ExecutionBundle.message("dialog.title.edit.configuration", 0))) {
+                    processNotStarted(environment, null)
+                    return@finishOnUiThread
+                  }
+                  editConfigurationUntilSuccess(environment, assignNewId)
                 }
-                editConfigurationUntilSuccess(environment, assignNewId)
-              }
-              .expireWith(this)
-              .submit(AppExecutorUtil.getAppExecutorService())
+                .expireWith(this)
+                .submit(AppExecutorUtil.getAppExecutorService())
+            }
           }
           return@withEnvironmentDataContext
         }
@@ -1045,6 +1049,16 @@ fun RunnerAndConfigurationSettings.isOfSameType(runnerAndConfigurationSettings: 
     return true
   }
   return false
+}
+
+/**
+ * Creates the state services that the run start reads on the EDT, outside a read action.
+ * The services are [RunnerLayoutSettings] for the run tab, and the run dashboard manager for [triggerUsage].
+ */
+private fun createServicesOfRunStart(environment: ExecutionEnvironment) {
+  RunnerLayoutSettings.getInstance()
+  val runConfiguration = environment.runnerAndConfigurationSettings?.configuration ?: return
+  RunContentManagerExtension.isShownInServicesIfAvailable(environment.project, runConfiguration)
 }
 
 private fun triggerUsage(environment: ExecutionEnvironment): StructuredIdeActivity? {

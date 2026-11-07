@@ -4,13 +4,11 @@
 package com.intellij.openapi.fileEditor.impl
 
 import com.intellij.diagnostic.PluginException
-import com.intellij.ide.plugins.PluginManager
 import com.intellij.ide.TrustedFiles
+import com.intellij.ide.plugins.PluginManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.asContextElement
-import com.intellij.openapi.application.readAction
-import com.intellij.openapi.application.writeIntentReadAction
 import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.logger
@@ -30,23 +28,127 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.diagnostic.telemetry.impl.span
 import com.intellij.platform.fileEditor.FileEntry
 import com.intellij.platform.ide.ideFingerprint
+import com.intellij.platform.util.progress.ProgressPipe
+import com.intellij.platform.util.progress.createProgressPipe
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus
 import java.beans.PropertyChangeListener
+import java.lang.ref.Reference
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.cancellation.CancellationException
 
 private val LOG: Logger
   get() = logger<EditorCompositeModelManager>()
+
+/**
+ * Starts preparation before collection and delivers one model after [publicationReady] completes.
+ * The source must emit one model with a [CreatedFileEditorSink], without buffering.
+ * The single collector must claim the editors before it returns normally.
+ */
+internal fun prepareStartupEditorModel(
+  source: Flow<EditorCompositeModel>,
+  coroutineScope: CoroutineScope,
+  publicationReady: Deferred<Unit>,
+  progress: ProgressPipe = coroutineScope.createProgressPipe(),
+): Flow<EditorCompositeModel> {
+  val delivery = StartupEditorDelivery()
+
+  val preparation = coroutineScope.async(CoroutineName("startup editor preparation")) {
+    progress.collectProgressUpdates {
+      source.collect { model ->
+        delivery.completeAndAwaitClaim(model)
+      }
+    }
+  }
+  preparation.invokeOnCompletion(delivery::failPreparation)
+
+  return flow {
+    delivery.startCollection()
+    try {
+      progress.doUnderPreparationProgress {
+        publicationReady.await()
+        val model = delivery.awaitModel()
+        delivery.deliver(model, preparation, this@flow)
+      }
+      preparation.await()
+    }
+    finally {
+      preparation.cancel()
+    }
+  }
+}
+
+private class StartupEditorDelivery {
+  private val modelReady = CompletableDeferred<EditorCompositeModel>()
+  private val collectorStarted = AtomicBoolean()
+  private val mutex = Mutex()
+  private var closed = false
+
+  fun startCollection() {
+    check(collectorStarted.compareAndSet(false, true)) {
+      "A startup editor model can only be collected once"
+    }
+  }
+
+  suspend fun completeAndAwaitClaim(model: EditorCompositeModel) {
+    try {
+      val createdEditors = checkNotNull(model.createdEditors) {
+        "Startup preparation requires a created editor sink"
+      }
+      completeModel(model)
+      createdEditors.awaitClaimed()
+    }
+    finally {
+      close()
+    }
+  }
+
+  private fun completeModel(model: EditorCompositeModel) {
+    check(modelReady.complete(model)) {
+      "Startup preparation must produce one editor model"
+    }
+  }
+
+  suspend fun awaitModel(): EditorCompositeModel = modelReady.await()
+
+  fun failPreparation(cause: Throwable?) {
+    modelReady.completeExceptionally(cause ?: IllegalStateException("Startup preparation produced no editor model"))
+  }
+
+  suspend fun deliver(model: EditorCompositeModel, preparation: Job, collector: FlowCollector<EditorCompositeModel>) {
+    mutex.withLock {
+      currentCoroutineContext().ensureActive()
+      preparation.ensureActive()
+      check(!closed) { "Startup editor delivery is closed" }
+      collector.emit(model)
+    }
+  }
+
+  private suspend fun close() {
+    withContext(NonCancellable) {
+      mutex.withLock {
+        closed = true
+      }
+    }
+  }
+}
 
 @ApiStatus.Internal
 fun createEditorCompositeModel(
@@ -56,14 +158,47 @@ fun createEditorCompositeModel(
   fileEntry: FileEntry? = null,
   coroutineScope: CoroutineScope,
 ): Flow<EditorCompositeModel> {
+  return createEditorCompositeModelImpl(editorPropertyChangeListener, fileProvider, project, fileEntry, coroutineScope, null)
+}
+
+internal class DocumentPreparedEditorModel(
+  model: Flow<EditorCompositeModel>,
+  preparation: EditorDocumentPreparation,
+) : Flow<EditorCompositeModel> by model {
+  val currentProgress: ProgressPipe = preparation.progress
+}
+
+internal fun createEditorCompositeModelWithPreparedDocument(
+  editorPropertyChangeListener: PropertyChangeListener,
+  file: VirtualFile,
+  project: Project,
+  coroutineScope: CoroutineScope,
+  preparation: EditorDocumentPreparation,
+): Flow<EditorCompositeModel> {
+  return DocumentPreparedEditorModel(
+    createEditorCompositeModelImpl(editorPropertyChangeListener, { file }, project, null, coroutineScope, preparation),
+    preparation,
+  )
+}
+
+private inline fun createEditorCompositeModelImpl(
+  editorPropertyChangeListener: PropertyChangeListener,
+  crossinline fileProvider: suspend () -> VirtualFile,
+  project: Project,
+  fileEntry: FileEntry?,
+  coroutineScope: CoroutineScope,
+  preparation: EditorDocumentPreparation?,
+): Flow<EditorCompositeModel> {
   return flow {
     coroutineScope {
       val file = fileProvider()
-      val document = async {
-        val fileDocumentManager = serviceAsync<FileDocumentManager>()
-        readAction {
-          fileDocumentManager.getDocument(file)
+      val document = if (preparation == null) {
+        async {
+          serviceAsync<FileDocumentManager>().getOrLoadDocumentUnderProgress(file)
         }
+      }
+      else {
+        null
       }
 
       val deferredProviders = computeFileEditorProviders(
@@ -79,7 +214,7 @@ fun createEditorCompositeModel(
         providers = deferredProviders.await(),
         file = file,
         project = project,
-        document = document.await(),
+        document = if (preparation == null) checkNotNull(document).await() else preparation.await(),
         state = fileEntry,
         flowCollector = this@flow,
       )
@@ -156,11 +291,9 @@ internal class EditorCompositeModelManager(
                 }
                 else {
                   withContext(Dispatchers.EDT) {
-                    writeIntentReadAction {
-                      val editor = provider.createEditor(project, file)
-                      createdEditors.register(editor)
-                      FileEditorWithProvider(editor, provider)
-                    }
+                    val editor = provider.createEditor(project, file)
+                    createdEditors.register(editor)
+                    FileEditorWithProvider(editor, provider)
                   }
                 }
               }
@@ -183,9 +316,6 @@ internal class EditorCompositeModelManager(
         state = state,
         createdEditors = createdEditors,
       ))
-      // The collector is not necessarily the composite: the startup path shares this flow, so `emit` can merely put the model into a
-      // replay cache and return, leaving the editors with no owner. Stay around until a composite actually adopts them, so that a
-      // scope cancelled in between (the tab is closed before it is ever shown) still runs the cleanup below.
       createdEditors.awaitClaimed()
     }
     catch (e: Throwable) {
@@ -196,6 +326,9 @@ internal class EditorCompositeModelManager(
         disposeAbandonedFileEditor(editor)
       }
       throw e
+    }
+    finally {
+      Reference.reachabilityFence(document)
     }
   }
 
@@ -223,11 +356,9 @@ internal class EditorCompositeModelManager(
 @ApiStatus.Internal
 suspend fun disposeAbandonedFileEditor(editor: FileEditor) {
   withContext(NonCancellable + Dispatchers.EDT + ModalityState.any().asContextElement()) {
-    writeIntentReadAction {
-      @Suppress("DEPRECATION")
-      if (!Disposer.isDisposed(editor)) {
-        Disposer.dispose(editor)
-      }
+    @Suppress("DEPRECATION")
+    if (!Disposer.isDisposed(editor)) {
+      Disposer.dispose(editor)
     }
   }
 }

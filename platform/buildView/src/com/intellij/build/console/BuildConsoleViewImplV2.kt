@@ -1,24 +1,24 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.build.console
 
-import com.intellij.build.BuildConsoleUtils
 import com.intellij.build.BuildTextConsoleView
 import com.intellij.build.ExecutionNode
-import com.intellij.build.console.BuildConsoleViewImpl.Companion.getHyperlinkInfo
-import com.intellij.build.console.BuildConsoleViewImpl.Companion.getHyperlinkText
+import com.intellij.build.console.BuildConsoleViewImpl.Companion.getConsoleHtml
+import com.intellij.build.console.BuildConsoleViewImpl.Companion.getHyperlinkHandler
 import com.intellij.build.events.BuildEvent
-import com.intellij.build.events.BuildIssueEvent
 import com.intellij.build.events.Failure
-import com.intellij.build.events.FileMessageEvent
 import com.intellij.build.events.MessageEvent
 import com.intellij.build.events.OutputBuildEvent
+import com.intellij.build.events.OutputId
 import com.intellij.build.events.OutputReferenceEvent
 import com.intellij.codeWithMe.ClientId
 import com.intellij.execution.impl.ConsoleViewImpl
 import com.intellij.execution.ui.ConsoleViewContentType
 import com.intellij.execution.ui.ConsoleViewWithDelegate
 import com.intellij.execution.ui.ExecutionConsole
+import com.intellij.execution.ui.ObservableConsoleView
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.WriteIntentReadAction
 import com.intellij.openapi.application.invokeAndWaitIfNeeded
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.editor.ClientEditorManager.Companion.getClientEditor
@@ -27,32 +27,28 @@ import com.intellij.openapi.editor.ComponentInlayRenderer
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.Inlay
 import com.intellij.openapi.editor.InlayProperties
-import com.intellij.openapi.editor.colors.EditorColors
 import com.intellij.openapi.editor.RangeMarker
 import com.intellij.openapi.editor.ScrollType
-import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.editor.addComponentInlay
+import com.intellij.openapi.editor.colors.EditorColors
+import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.text.StringUtil
+import com.intellij.util.Alarm
 import com.intellij.util.text.nullize
+import org.jetbrains.annotations.CheckReturnValue
+import org.jetbrains.annotations.TestOnly
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.util.concurrent.ConcurrentHashMap
-import com.intellij.util.Alarm
+import java.util.concurrent.CopyOnWriteArrayList
 import javax.swing.JComponent
 import javax.swing.SwingUtilities
-import java.util.concurrent.CopyOnWriteArrayList
-import kotlinx.html.HTML
-import kotlinx.html.body
-import kotlinx.html.html
-import kotlinx.html.link
-import kotlinx.html.stream.createHTML
-import org.jetbrains.annotations.CheckReturnValue
-import org.jetbrains.annotations.TestOnly
 import javax.swing.event.HyperlinkEvent
 import javax.swing.event.HyperlinkListener
 
@@ -95,8 +91,6 @@ internal class BuildConsoleViewImplV2(
     // Output ends up in the console document (read back in getNodeOutputText); message/issue/failure text is recorded
     // in addConsoleInlay as the inlay info the corresponding Swing inlay shows (inlays are not part of the document).
     when (event) {
-      is BuildIssueEvent -> onBuildIssueEvent(event)
-      is FileMessageEvent -> onFileMessageEvent(event)
       is MessageEvent -> onMessageEvent(event)
       is OutputBuildEvent -> onOutputEvent(event)
       is OutputReferenceEvent -> onOutputReferenceEvent(event)
@@ -104,79 +98,34 @@ internal class BuildConsoleViewImplV2(
     }
   }
 
-  private fun onBuildIssueEvent(event: BuildIssueEvent) {
-    val quickFixes = event.issue.quickFixes.associateBy { it.id }
-    addConsoleInlay(event.id, ConsoleInlayInfo()
-      .withText(event.issue.description)
-      .withKind(event.result.kind.consoleInlayKind)
-      .withOutputIds(event.outputIds)
-      .withHyperlinkListener {
-        if (it.eventType == HyperlinkEvent.EventType.ACTIVATED) {
-          val dataContext = BuildConsoleUtils.getDataContext(delegate)
-          quickFixes[it.description]?.runQuickFix(project, dataContext)
-        }
-      }
-    )
-  }
-
-  private fun onFileMessageEvent(event: FileMessageEvent) {
-    val hyperlinkId = "file-info"
-    val hyperlinkText = getHyperlinkText(event.filePosition)
-    val hyperlinkInfo = getHyperlinkInfo(project, event.filePosition)
-    if (hyperlinkText == null || hyperlinkInfo == null) {
-      onMessageEvent(event)
-      return
-    }
-    addConsoleInlay(event.id, ConsoleInlayInfo()
-      .withKind(event.result.kind.consoleInlayKind)
-      .withOutputIds(event.outputIds)
-      // The plain projection matches the multi-console mode: the description if present, the link line otherwise.
-      .withHtmlText(event.description.nullize() ?: "$hyperlinkText: ${event.message}") {
-        body {
-          link(hyperlinkId, hyperlinkText)
-          text(": " + event.message)
-        }
-      }.withHyperlinkListener { event ->
-        if (event.eventType == HyperlinkEvent.EventType.ACTIVATED) {
-          if (event.description == hyperlinkId) {
-            hyperlinkInfo.navigate(project)
-          }
-        }
-      }
-    )
-  }
-
   private fun onMessageEvent(event: MessageEvent) {
-    val text = event.description.nullize() ?: event.result.details.nullize()
-    if (text == null) {
+    val html = event.getConsoleHtml()
+    if (html == null) {
       state.access {
         addNodeOutputMarkers(event.id, event.outputIds)
       }
       return
     }
     addConsoleInlay(event.id, ConsoleInlayInfo()
-      .withText(text)
+      .withText(html)
       .withKind(event.result.kind.consoleInlayKind)
       .withOutputIds(event.outputIds)
+      .withHyperlinkListener {
+        if (it.eventType == HyperlinkEvent.EventType.ACTIVATED) {
+          val hyperlinkHandler = event.getHyperlinkHandler(project, delegate)
+          hyperlinkHandler(it.description)
+        }
+      }
     )
   }
 
   private fun onOutputEvent(event: OutputBuildEvent) {
-    val startOffset = delegate.contentSize
-    BuildTextConsoleView.print(delegate, event.message, event.outputType)
-    val endOffset = delegate.contentSize
-    state.access {
-      // The start and end offsets are invalid when the console size was reduced after printing.
-      // For example, when single `\r` is printed or console buffer was truncated due to an overflow.
-      if (endOffset in startOffset..editor.document.textLength) {
-        addOutputMarker(event.id, startOffset, endOffset)
-      }
-    }
+    BuildTextConsoleView.print(delegate, event.message, event.outputType, event.id)
   }
 
   private fun onOutputReferenceEvent(event: OutputReferenceEvent) {
     state.access {
-      addNodeOutputMarkers(event.startId, event.outputIds)
+      addNodeOutputMarkers(event.parentId, event.outputIds)
     }
   }
 
@@ -188,9 +137,9 @@ internal class BuildConsoleViewImplV2(
 
     val result = StringBuilder()
 
-    state.access {
-      for (outputMarker in sortedOutputMarkers(nodeId)) {
-        result.append(editor.document.getText(outputMarker.textRange))
+    state.accessFlushed {
+      for (outputRange in sortedOutputMarkers(nodeId)) {
+        result.append(editor.document.getText(outputRange))
       }
     }
 
@@ -218,35 +167,34 @@ internal class BuildConsoleViewImplV2(
   }
 
   override fun scrollToNodeOutput(nodeId: Any) {
-    val clientId = ClientId.currentOrNull
     state.access {
-      val targetEditor = getClientEditor(editor, clientId)
       val inlay = nodeInlays(nodeId).firstOrNull()
       val bounds = inlay?.bounds
       if (inlay != null && bounds != null) {
-        targetEditor.caretModel.moveToOffset(inlay.offset)
-        // local environment
-        if (targetEditor === editor) {
-          targetEditor.scrollingModel.scrollVertically(bounds.y)
+        editor.caretModel.moveToOffset(inlay.offset)
+        if (ClientId.isCurrentlyUnderLocalId) {
+          editor.scrollingModel.scrollVertically(bounds.y)
+        } else {
+          val targetOffset = editor.offsetToLogicalPosition(inlay.offset)
+          editor.scrollingModel.scrollTo(targetOffset, ScrollType.CENTER)
         }
-        else {
-          // rem-dev environment with a remote editor
-          targetEditor.scrollingModel.scrollTo(targetEditor.offsetToLogicalPosition(inlay.offset), ScrollType.CENTER)
-        }
-        flashInlayComponent(editor, inlay.renderer.component)
-        return@access
+        editor.flashInlayComponent(inlay.renderer.component)
       }
-      val outputMarker = sortedOutputMarkers(nodeId).firstOrNull()
-      if (outputMarker != null) {
-        targetEditor.caretModel.moveToOffset(outputMarker.startOffset)
-        targetEditor.scrollingModel.scrollToCaret(ScrollType.MAKE_VISIBLE)
+      else {
+        val outputRanges = sortedOutputMarkers(nodeId)
+        val outputRange = outputRanges.firstOrNull()
+        if (outputRange != null) {
+          editor.caretModel.moveToOffset(outputRange.startOffset)
+          editor.scrollingModel.scrollToCaret(ScrollType.MAKE_VISIBLE)
+        }
+        editor.selectOutputText(outputRanges)
       }
     }
   }
 
   /** Flashes the inlay component background, so the user finds the clicked callout among similar ones. */
-  private fun flashInlayComponent(editor: Editor, component: JComponent) {
-    val flashColor = editor.colorsScheme.getColor(EditorColors.SELECTION_BACKGROUND_COLOR) ?: return
+  private fun Editor.flashInlayComponent(component: JComponent) {
+    val flashColor = colorsScheme.getColor(EditorColors.SELECTION_BACKGROUND_COLOR) ?: return
     flashAlarm.cancelAllRequests()
     flashRestore?.invoke()
     val originalOpaque = component.isOpaque
@@ -266,25 +214,21 @@ internal class BuildConsoleViewImplV2(
     }, 700)
   }
 
-  override fun selectProgressOutput(nodeId: Any) {
-    val clientId = ClientId.currentOrNull
-    state.access {
-      val targetEditor = getClientEditor(editor, clientId)
-      targetEditor.caretModel.removeSecondaryCarets()
-      targetEditor.caretModel.primaryCaret.removeSelection()
-      for ((index, outputMarker) in sortedOutputMarkers(nodeId).withIndex()) {
-        if (index == 0) {
-          targetEditor.caretModel.primaryCaret.moveToOffset(outputMarker.startOffset)
-          targetEditor.caretModel.primaryCaret.setSelection(outputMarker.startOffset, outputMarker.endOffset)
+  private fun Editor.selectOutputText(outputRanges: List<TextRange>) {
+    caretModel.removeSecondaryCarets()
+    caretModel.primaryCaret.removeSelection()
+    for ([index, outputRange] in outputRanges.withIndex()) {
+      if (index == 0) {
+        caretModel.primaryCaret.moveToOffset(outputRange.startOffset)
+        caretModel.primaryCaret.setSelection(outputRange.startOffset, outputRange.endOffset)
+      }
+      else {
+        val visualPosition = offsetToVisualPosition(outputRange.startOffset)
+        val secondaryCaret = caretModel.addCaret(visualPosition, false) ?: run {
+          thisLogger().warn("Failed to allocate console caret at $visualPosition")
+          continue
         }
-        else {
-          val visualPosition = targetEditor.offsetToVisualPosition(outputMarker.startOffset)
-          val secondaryCaret = targetEditor.caretModel.addCaret(visualPosition, false) ?: run {
-            thisLogger().error("Failed to allocate console caret at $visualPosition")
-            continue
-          }
-          secondaryCaret.setSelection(outputMarker.startOffset, outputMarker.endOffset)
-        }
+        secondaryCaret.setSelection(outputRange.startOffset, outputRange.endOffset)
       }
     }
   }
@@ -322,20 +266,11 @@ internal class BuildConsoleViewImplV2(
     if (inlayCount >= Registry.intValue("build.console.max.inlays", 100)) {
       val contentType = if (inlayInfo.kind == BuildConsoleViewInlay.Kind.ERROR) ConsoleViewContentType.ERROR_OUTPUT
       else ConsoleViewContentType.NORMAL_OUTPUT
-      // Each message is a separate line. Some infos (for example file messages) carry no trailing newline.
-      val plainText = inlayInfo.plainText
-      delegate.print(if (plainText.endsWith("\n")) plainText else plainText + "\n", contentType)
+      delegate.print(inlayInfo.plainText, contentType)
       return
     }
-    val consoleOffset = delegate.contentSize
     state.access {
-      when (inlayInfo.outputIds.isEmpty()) {
-        true -> when (consoleOffset <= editor.document.textLength) {
-          true -> addNodeOutputMarker(nodeId, consoleOffset)
-          else -> addNodeOutputMarker(nodeId, editor.document.textLength)
-        }
-        else -> addNodeOutputMarkers(nodeId, inlayInfo.outputIds)
-      }
+      addNodeOutputMarkers(nodeId, inlayInfo.outputIds)
       inlayCount++
       (editor as? EditorEx)?.let { ensureFollowListeners(it) }
       val inlayProperties = InlayProperties()
@@ -344,8 +279,13 @@ internal class BuildConsoleViewImplV2(
         true -> BuildConsoleViewInlay.panel(editor.colorsScheme, inlayInfo.text, inlayInfo.kind, inlayInfo.hyperlinkListener)
         else -> BuildConsoleViewInlay.comment(editor.colorsScheme, inlayInfo.text, inlayInfo.hyperlinkListener)
       }
-      val inlayOffset = sortedOutputMarkers(nodeId).firstOrNull()?.startOffset ?: return@access
-      val inlay = editor.addComponentInlay(inlayOffset, inlayProperties, inlayComponent, ComponentInlayAlignment.FIT_VIEWPORT_WIDTH)
+      val inlayOffset = sortedOutputMarkers(nodeId).firstOrNull()?.startOffset ?: editor.document.textLength
+      val inlay = editor.addComponentInlay(
+        inlayOffset,
+        inlayProperties,
+        inlayComponent,
+        ComponentInlayAlignment.FIT_VIEWPORT_WIDTH
+      )
       if (inlay != null) {
         addNodeInlay(nodeId, inlay)
       }
@@ -374,9 +314,6 @@ internal class BuildConsoleViewImplV2(
     fun withText(text: String): ConsoleInlayInfo =
       copy(text = plainTextToHtml(text.trim()), plainText = htmlToPlainText(text))
 
-    fun withHtmlText(plainText: String, block: HTML.() -> Unit = {}): ConsoleInlayInfo =
-      copy(text = createHTML().html(null, block).trim(), plainText = plainText)
-
     fun withKind(kind: BuildConsoleViewInlay.Kind): ConsoleInlayInfo =
       copy(kind = kind)
 
@@ -390,33 +327,68 @@ internal class BuildConsoleViewImplV2(
   private class ConsoleViewState(private val consoleView: ConsoleViewImpl) {
 
     private val outputMarkers = HashMap<Any, RangeMarker>()
-    private val nodeToOutputMarkers = HashMap<Any, MutableSet<RangeMarker>>()
+    private val nodeToOutputMarkers = HashMap<Any, MutableSet<OutputId>>()
     private val nodeToInlays = HashMap<Any, MutableList<Inlay<ComponentInlayRenderer<JComponent>>>>()
+
+    private val pendingStateActions = ArrayDeque<ConsoleViewStateAccessor.() -> Unit>()
+    private var isDrainScheduled = false
+
+    init {
+      consoleView.addChangeListener(object : ObservableConsoleView.ChangeListener {
+        override fun textRangeAdded(textId: Any, range: TextRange) {
+          val document = consoleView.editor?.document ?: return
+          outputMarkers[textId] = document.createRangeMarker(range)
+        }
+      }, consoleView)
+    }
 
     fun access(action: ConsoleViewStateAccessor.() -> Unit) {
       invokeAndWaitIfNeeded {
-        consoleView.performWhenNoDeferredOutput {
-          val editor = consoleView.editor ?: return@performWhenNoDeferredOutput
-          val accessor = ConsoleViewStateAccessor(editor)
-          accessor.action()
+        pendingStateActions.addLast(action)
+        drainPendingActions()
+      }
+    }
+
+    private fun drainPendingActions() {
+      if (isDrainScheduled) {
+        return
+      }
+      isDrainScheduled = true
+      consoleView.performWhenNoDeferredOutput {
+        isDrainScheduled = false
+        runPendingActions()
+      }
+    }
+
+    @TestOnly
+    fun accessFlushed(action: ConsoleViewStateAccessor.() -> Unit) {
+      invokeAndWaitIfNeeded {
+        WriteIntentReadAction.run {
+          consoleView.flushDeferredText()
+          pendingStateActions.addLast(action)
+          runPendingActions()
         }
+      }
+    }
+
+    private fun runPendingActions() {
+      val editor = consoleView.editor
+      if (editor == null) {
+        pendingStateActions.clear()
+        return
+      }
+      val targetEditor = getClientEditor(editor, ClientId.currentOrNull)
+      while (pendingStateActions.isNotEmpty()) {
+        val action = pendingStateActions.removeFirst()
+        action(ConsoleViewStateAccessor(targetEditor))
       }
     }
 
     inner class ConsoleViewStateAccessor(val editor: Editor) {
 
-      fun addOutputMarker(outputId: Any, startOffset: Int, endOffset: Int) {
-        outputMarkers[outputId] = editor.document.createRangeMarker(startOffset, endOffset)
-      }
-
-      fun addNodeOutputMarker(nodeId: Any, offset: Int) {
-        nodeToOutputMarkers.computeIfAbsent(nodeId) { HashSet() }
-          .add(editor.document.createRangeMarker(offset, offset))
-      }
-
       fun addNodeOutputMarkers(nodeId: Any, outputIds: Collection<Any>) {
         nodeToOutputMarkers.computeIfAbsent(nodeId) { HashSet() }
-          .addAll(outputIds.mapNotNull { outputMarkers[it] })
+          .addAll(outputIds)
       }
 
       fun addNodeInlay(nodeId: Any, inlay: Inlay<ComponentInlayRenderer<JComponent>>) {
@@ -429,10 +401,28 @@ internal class BuildConsoleViewImplV2(
           .filter { it.isValid }
       }
 
-      fun sortedOutputMarkers(nodeId: Any): Sequence<RangeMarker> {
-        return nodeToOutputMarkers[nodeId].orEmpty().asSequence()
+      fun sortedOutputMarkers(nodeId: Any): List<TextRange> {
+        val markers = nodeToOutputMarkers[nodeId] ?: return emptyList()
+
+        val ranges = markers.asSequence()
+          .mapNotNull { outputMarkers[it] }
           .filter { it.isValid }
+          .map { it.textRange }
+          .filter { !it.isEmpty }
           .sortedBy { it.startOffset }
+          .toList()
+
+        val result = ArrayList<TextRange>(ranges.size)
+        for (range in ranges) {
+          val last = result.lastOrNull()
+          if (last != null && range.startOffset <= last.endOffset) {
+            result[result.lastIndex] = last.union(range)
+          }
+          else {
+            result.add(range)
+          }
+        }
+        return result
       }
     }
   }

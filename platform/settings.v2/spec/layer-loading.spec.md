@@ -8,8 +8,9 @@ targets:
   - ../src/com/intellij/platform/settings/v2/SettingsContext.kt
   - ../src/com/intellij/platform/settings/v2/SettingsApi.kt
   - ../shared/src/com/intellij/platform/settings/v2/impl/SettingsVaultImpl.kt
+  - ../shared/src/com/intellij/platform/settings/v2/impl/SettingsVaultInitializer.kt
   - ../shared/src/com/intellij/platform/settings/v2/impl/providers/BaseLayerService.kt
-  - ../backend/src/com/intellij/platform/settings/v2/impl/ProjectSettingsLoadActivity.kt
+  - ../backend/baseline/src/com/intellij/platform/settings/v2/impl/ProjectSettingsLoadActivity.kt
 ---
 
 # Layer Loading
@@ -37,7 +38,13 @@ While a scope reloads, its contexts are dirty: a read still works, but a write w
 
 ### Reload
 
-- The vault must reload the application scope at startup, and a project scope when the project opens.
+- The vault must start at the application load, in every product mode. This is before a project opens, so the
+  vault also starts with no open project. The startup waits only for the creation of the vault, not for its load.
+  See [ADR 0116](../adr/0116-the-vault-drives-loading-with-no-timeout-and-a-provider-returns-its-layers.md).
+  [@test] ../../../../remote-dev/settings/v2/lambdaTests/src/com/intellij/platform/settings/v2/lambdaTests/SettingsVaultStartTest.kt
+- A vault that something creates before `SettingsVaultInitializer` runs must log an error, and must work anyway. No
+  automated test covers the error path. A lambda run with the initializer registration removed logged the error.
+- The vault must reload the application scope when it starts, and a project scope when the project opens.
 - `reload(scope)` must ask every provider for its data of the scope. See
   [ADR 0116](../adr/0116-the-vault-drives-loading-with-no-timeout-and-a-provider-returns-its-layers.md). It asks a
   provider as soon as it holds the mutex of the widest kind of the provider, so a reload that no other reload blocks

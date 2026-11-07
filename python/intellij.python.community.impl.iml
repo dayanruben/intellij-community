@@ -140,17 +140,17 @@
     <orderEntry type="module" module-name="intellij.platform.ide.ui" />
     <orderEntry type="module" module-name="intellij.platform.ide.progress" />
     <orderEntry type="module" module-name="intellij.libraries.jackson3.module.kotlin" />
-    <orderEntry type="module" module-name="intellij.python.community.impl.pipenv" />
+    <orderEntry type="module" module-name="intellij.python.community.impl.pipenv" exported="" />
     <orderEntry type="module" module-name="intellij.python.community.impl.installer" />
     <orderEntry type="module" module-name="intellij.platform.eel" />
     <orderEntry type="module" module-name="intellij.platform.eel.provider" />
-    <orderEntry type="module" module-name="intellij.python.venv" />
+    <orderEntry type="module" module-name="intellij.python.venv" exported="" />
     <orderEntry type="module" module-name="intellij.python.community.execService" />
     <orderEntry type="module" module-name="intellij.python.community.services.systemPython" />
     <orderEntry type="module" module-name="intellij.python.community.services.internal.impl" />
     <orderEntry type="module" module-name="intellij.libraries.semver" />
     <orderEntry type="module" module-name="intellij.python.pyproject" />
-    <orderEntry type="module" module-name="intellij.python.hatch" />
+    <orderEntry type="module" module-name="intellij.python.hatch" exported="" />
     <orderEntry type="module" module-name="intellij.platform.externalSystem.impl" />
     <orderEntry type="module" module-name="intellij.platform.externalSystem" />
     <orderEntry type="module" module-name="intellij.libraries.http.client" />
@@ -175,14 +175,14 @@
     <orderEntry type="module" module-name="intellij.python.pytools.common" />
     <orderEntry type="module" module-name="intellij.python.pytools.backend" />
     <orderEntry type="module" module-name="intellij.python.pytools.backend.runtime" />
-    <orderEntry type="module" module-name="intellij.python.uv.backend" />
+    <orderEntry type="module" module-name="intellij.python.uv.backend" exported="" />
     <orderEntry type="module" module-name="intellij.platform.testIntegration" />
     <orderEntry type="module" module-name="intellij.platform.testIntegration.ui" />
-    <orderEntry type="module" module-name="intellij.python.community.impl.poetry.backend" />
+    <orderEntry type="module" module-name="intellij.python.community.impl.poetry.backend" exported="" />
     <orderEntry type="module" module-name="intellij.platform.eel.nioFs" />
     <orderEntry type="module" module-name="intellij.platform.wsl.impl" />
     <orderEntry type="module" module-name="intellij.libraries.commons.compress" />
     <orderEntry type="module" module-name="intellij.platform.util.annotations" />
-    <orderEntry type="module" module-name="intellij.python.packaging" />
+    <orderEntry type="module" module-name="intellij.python.packaging" exported="" />
   </component>
 </module>

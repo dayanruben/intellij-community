@@ -15,12 +15,14 @@ import com.jetbrains.python.allure.Subsystems
 import com.jetbrains.python.fixtures.PyCodeInsightTestCase
 import com.jetbrains.python.psi.PyFile
 import com.jetbrains.python.psi.PyFunction
+import com.jetbrains.python.psi.PyKeyValueExpression
 import com.jetbrains.python.psi.PyTypedElement
 import com.jetbrains.python.psi.impl.PyBuiltinCache
 import com.jetbrains.python.psi.impl.PyReferenceExpressionImpl
 import com.jetbrains.python.psi.types.PyAnyType
 import com.jetbrains.python.psi.types.PyCallableParameter
 import com.jetbrains.python.psi.types.PyCallableTypeImpl
+import com.jetbrains.python.psi.types.PyCollectionTypeUtil
 import com.jetbrains.python.psi.types.PyOverloadType
 import com.jetbrains.python.psi.types.PyType
 import com.jetbrains.python.psi.types.TypeEvalContext
@@ -34,10 +36,10 @@ import org.junit.jupiter.api.Test
 /**
  * How [TypeEvalContextImpl.getType] shares the work between an external engine and the built-in one.
  *
- * - An element the engine cannot see goes to the built-in engine, whatever the engine allows.
+ * - An element the engine cannot see goes to the built-in engine.
  * - A ready engine answers for an element it sees.
- * - An engine that is not ready either leaves the element to the built-in engine, or answers
- *   `Unknown` without a cache entry, so the same context answers again once the engine is ready.
+ * - An engine that is not ready answers `Unknown` without a cache entry, so the same context
+ *   answers again once the engine is ready.
  */
 @Subsystems.Typing
 @Components.TypeInference
@@ -48,8 +50,8 @@ class PyTypeEngineFallbackTest : PyCodeInsightTestCase() {
   private lateinit var testDisposable: Disposable
 
   @Test
-  fun `a ready exclusive engine answers`() {
-    withTypeEngine(TestTypeEngine(exclusive = true)) {
+  fun `a ready engine answers`() {
+    withTypeEngine(TestTypeEngine()) {
       test("""
         expr = 42
         #└ TYPE str
@@ -58,8 +60,8 @@ class PyTypeEngineFallbackTest : PyCodeInsightTestCase() {
   }
 
   @Test
-  fun `an element the exclusive engine cannot see goes to the built-in engine`() {
-    withTypeEngine(TestTypeEngine(exclusive = true, sees = { false })) {
+  fun `an element the engine cannot see goes to the built-in engine`() {
+    withTypeEngine(TestTypeEngine(sees = { false })) {
       test("""
         expr = 42
         #└ TYPE Literal[42]
@@ -68,18 +70,8 @@ class PyTypeEngineFallbackTest : PyCodeInsightTestCase() {
   }
 
   @Test
-  fun `an engine that allows the fallback leaves the element to the built-in engine until it is ready`() {
-    withTypeEngine(TestTypeEngine(exclusive = false, ready = false)) {
-      test("""
-        expr = 42
-        #└ TYPE Literal[42]
-      """.trimIndent())
-    }
-  }
-
-  @Test
-  fun `an exclusive engine that is not ready answers Unknown and caches nothing`() {
-    val engine = TestTypeEngine(exclusive = true, ready = false)
+  fun `an engine that is not ready answers Unknown and caches nothing`() {
+    val engine = TestTypeEngine(ready = false)
     withTypeEngine(engine) {
       val file = myFixture.configureByText("a.py", "expr = 42") as PyFile
       runReadActionBlocking {
@@ -96,7 +88,7 @@ class PyTypeEngineFallbackTest : PyCodeInsightTestCase() {
   @Test
   @TestFor(classes = [PyReferenceExpressionImpl::class])
   fun `a call of an overloaded function whose overloads the engine cannot type yet`() {
-    withTypeEngine(TestTypeEngine(exclusive = true, ready = false, sees = { it is PyFunction })) {
+    withTypeEngine(TestTypeEngine(ready = false, sees = { it is PyFunction })) {
       test("""
         from typing import overload
 
@@ -118,7 +110,7 @@ class PyTypeEngineFallbackTest : PyCodeInsightTestCase() {
     val answer = { element: PyTypedElement ->
       PyOverloadType(listOf(PyCallableTypeImpl(emptyList<PyCallableParameter>(), PyBuiltinCache.getInstance(element).strType)), null)
     }
-    withTypeEngine(TestTypeEngine(exclusive = true, sees = { it is PyFunction }, answer = answer)) {
+    withTypeEngine(TestTypeEngine(sees = { it is PyFunction }, answer = answer)) {
       test("""
         from typing import overload
 
@@ -130,6 +122,18 @@ class PyTypeEngineFallbackTest : PyCodeInsightTestCase() {
 
         expr = f(1)
         #└ TYPE str
+      """.trimIndent())
+    }
+  }
+
+  @Test
+  @TestFor(classes = [PyCollectionTypeUtil::class], issues = ["PY-93604"])
+  fun `a dict literal whose entries the engine types as Any`() {
+    val engine = TestTypeEngine(sees = { it is PyKeyValueExpression }, answer = { PyAnyType.any })
+    withTypeEngine(engine) {
+      test("""
+        expr = {"foo": 1}
+        #└ TYPE dict[Unknown, Unknown]
       """.trimIndent())
     }
   }
@@ -148,13 +152,11 @@ class PyTypeEngineFallbackTest : PyCodeInsightTestCase() {
    * of a real engine alone.
    */
   private class TestTypeEngine(
-    exclusive: Boolean,
     @Volatile var ready: Boolean = true,
     private val sees: (PyTypedElement) -> Boolean = { true },
     private val answer: (PyTypedElement) -> PyType? = { PyBuiltinCache.getInstance(it).strType },
   ) : PyTypeEngine {
     override val name: String = "pyrefly"
-    override val allowsBuiltInTypeEngineFallbackWhenUnavailable: Boolean = !exclusive
     override val isReady: Boolean get() = ready
 
     override fun isSupportedForResolve(pyTypedElement: PyTypedElement): Boolean = sees(pyTypedElement)

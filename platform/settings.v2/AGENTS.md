@@ -7,11 +7,25 @@ layers supply the values. The vault resolves and stores them.
 |-----------------------------------------|------------|
 | `intellij.platform.settings.v2` (API)   | `src/`     |
 | `intellij.platform.settings.v2.shared`  | `shared/`  |
+| `intellij.platform.settings.v2.backend.baseline` | `backend/baseline/` |
 | `intellij.platform.settings.v2.backend` | `backend/` |
 | `intellij.platform.settings.v2.test`    | `test/`    |
+| `intellij.platform.settings.v2.testKeys` | `testKeys/` |
+| `intellij.platform.settings.v2.testKeys.plugin` | `testKeys/plugin/` |
 
 Some modules of the feature live outside `community/`. Their own `AGENTS.md` points here, and `spec/` and `adr/`
 cover them too.
+
+- A key that an integration test writes inside the IDE under test lives in `intellij.platform.settings.v2.testKeys`.
+  A lambda test gets it through its wrapper plugin, and a driver test adds the plugin
+  `com.intellij.platform.settings.v2.testKeys.plugin` to the product. See
+  [ADR 0165](adr/0165-a-test-writes-a-key-of-the-test-keys-module-inside-the-ide-under-test.md).
+- The descriptor of that plugin is a test resource. Keep it one: a plugin with a production descriptor and no test
+  framework dependency is a compatible plugin, so every product build publishes it and fails on its descriptor. A
+  driver test gets the module from `settingsTestKeysPluginModule()`, which also lets the dev build pack a test module.
+  The test module of such a test depends on `intellij.platform.settings.v2.testKeys.plugin` and on the keys module
+  with the `TEST` scope. The CI compiles only what a test module depends on, and the dev build packs only compiled
+  output, so without the dependency the plugin has no descriptor on the CI.
 
 ## Where each kind of text goes
 
@@ -46,7 +60,7 @@ override it.
 - A spec is `spec/<feature>.spec.md`. Keep the folder flat until it needs subfolders by area.
 - Every spec declares `style: plain-1`.
 - Paths in `targets` and `[@test]` are relative to the spec file: `../src/...`, `../shared/src/...`,
-  `../backend/src/...`, `../test/src/...`.
+  `../backend/baseline/src/...`, `../backend/src/...`, `../testKeys/src/...`, `../test/src/...`.
 - A main target file carries a backlink in its header, relative to that file. From
   `src/com/intellij/platform/settings/v2/` it is `// @spec ../../../../../../spec/<feature>.spec.md`.
 - Only a Kotlin or a Java target carries a backlink. An XML target, such as a module descriptor, has none. A spec or
@@ -77,11 +91,14 @@ override it.
   branch. Such a failure is expected until the user accepts the ADR.
 - A `Proposed` ADR that amends or supersedes another ADR does not change the status of that ADR. The old status
   changes when the new ADR is accepted.
-- An accepted ADR is not rewritten. A change to the decision is a new ADR that amends or supersedes it, and only
-  the status of the old ADR changes.
+- An accepted ADR keeps its decision. You may reword it, clarify it, or add details to it, when the decision stays
+  the same. A missed detail or a wrong statement about the code is fixed in place. You may also add a missed
+  consequence or rejected alternative.
+- An addition that changes the meaning of an ADR is a new ADR. A sign of it: the title no longer states the
+  decision, and the ADR would need a rename.
+- A change to the decision is a new ADR that amends or supersedes it, and only the status of the old ADR changes.
 - A chain of amendments and supersessions holds at most 2 ADRs. `SettingsDocsTest` checks it. Merge a longer
-  chain into one ADR, as [Merging an ADR chain](#merging-an-adr-chain) says. This is the only case where an
-  accepted ADR is rewritten.
+  chain into one ADR, as [Merging an ADR chain](#merging-an-adr-chain) says.
 - A folded ADR has no file in `adr/`. A link or a mention of an ADR that is not in `adr/` points to a folded ADR.
   Search `adr/` for `### NNNN,` to find the merged ADR. The old text is in the git history of `adr/`.
 - One decision per ADR. An ADR links the spec that holds the resulting behavior.

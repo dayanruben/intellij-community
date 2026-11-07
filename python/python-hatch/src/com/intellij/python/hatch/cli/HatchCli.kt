@@ -183,14 +183,14 @@ class HatchCli<P : PathHolder>(internal val runtime: PyToolRuntime) {
  */
 suspend fun HatchCli<PathHolder.Eel>.new(
   projectName: String,
-  location: Path? = null,
+  location: PathHolder.Eel? = null,
   initExistingProject: Boolean = false,
 ): PyResult<String> {
-  val arguments = cliArgs(
-    cliArg("--init".takeIf { initExistingProject }),
-    cliArg(projectName),
-    cliArg(location),
-  )
+  val arguments = cliArgs {
+    if (initExistingProject) add(cliArg("--init"))
+    add(cliArg(projectName))
+    location?.let { add(cliArg(it)) }
+  }
   return runtime.executeInteractive("new", *arguments) { eelProcess, _ ->
     if (initExistingProject) {
       try {

@@ -220,15 +220,11 @@
     <statistics.validation.customValidationRule implementation="com.jetbrains.python.run.features.PyRunToolIdValidator"/>
 
     <postStartupActivity implementation="com.jetbrains.python.formatter.PyCodeStyleMigrationActivity"/>
-    <projectSettings service="com.jetbrains.python.packaging.PyPackagingSettings"/>
-    <applicationSettings service="com.jetbrains.python.packaging.PyPackageService"/>
-    <applicationSettings service="com.jetbrains.python.packaging.PyPackageRequirementsSettings$AppService"/>
     <projectSettings service="com.jetbrains.python.console.PyConsoleOptions"/>
     <applicationSettings service="com.jetbrains.python.testing.TestRunnerService$AppService"/>
     <projectSettings service="com.jetbrains.python.debugger.PyDebuggerOptionsProvider"/>
     <applicationSettings service="com.jetbrains.python.debugger.variablesview.usertyperenderers.PyUserTypeRenderersSettings"/>
     <applicationSettings service="com.jetbrains.python.sdk.add.v2.poetry.PoetryConfigService"/>
-    <applicationSettings service="com.jetbrains.python.packaging.repository.PyPackageRepositories"/>
     <projectSettings service="com.jetbrains.python.statistics.PyPackageUsageStatistics"/>
 
     <projectConfigurable groupId="python.group.settings"
@@ -280,14 +276,12 @@
     <completion.contributor language="Python" id="pythonConsoleCompletionBlocking" order="first"
                             implementationClass="com.jetbrains.python.console.completion.PythonConsoleCompletionBlockingContributor"/>
 
-    <projectService serviceImplementation="com.jetbrains.python.packaging.PyPackagingSettings"/>
 
     <projectService serviceInterface="com.jetbrains.python.codeInsight.completion.runtime.patProvider.RemoteFilePathRetrievalService"
                     open="true"
                     serviceImplementation="com.jetbrains.python.codeInsight.completion.runtime.patProvider.DummyRemoteFilePathRetrievalService"
                     testServiceImplementation="com.jetbrains.python.codeInsight.completion.runtime.patProvider.DummyRemoteFilePathRetrievalService"/>
 
-    <applicationService serviceImplementation="com.jetbrains.python.packaging.PyPackageService"/>
     <applicationService serviceInterface="com.jetbrains.python.sdk.add.v2.FileSystemFactory"
                         serviceImplementation="com.jetbrains.python.sdk.add.v2.FileSystemFactoryImpl"/>
     <applicationService serviceInterface="com.jetbrains.python.psi.resolve.PackageAvailabilityService"
@@ -455,9 +449,8 @@
       implementation="com.jetbrains.python.testing.TestRunnerServiceImlComponentNameContributor"/>
 
     <!-- Packaging -->
-    <applicationService serviceImplementation="com.jetbrains.python.packaging.PyPackageRequirementsSettings$AppService"/>
-    <workspaceModel.customImlComponentNameContributor
-      implementation="com.jetbrains.python.packaging.PyPackageRequirementsSettingsImlComponentNameContributor"/>
+    <applicationService serviceInterface="com.jetbrains.python.packaging.requirementsTxt.PyRequirementsSyncService"
+                        serviceImplementation="com.jetbrains.python.packaging.PyRequirementsSyncServiceImpl"/>
 
     <!-- asyncio REPL -->
     <registryKey key="python.console.asyncio.repl" defaultValue="true" restartRequired="false"
@@ -724,14 +717,6 @@
                     interface="com.jetbrains.python.run.target.ConnectionCredentialsToTargetConfigurationConverter"
                     dynamic="true"/>
 
-    <extensionPoint qualifiedName="Pythonid.pythonPackageManagerProvider"
-                    interface="com.jetbrains.python.packaging.management.PythonPackageManagerProvider"
-                    dynamic="true"/>
-
-    <extensionPoint qualifiedName="Pythonid.pythonSdkReadOnlyProvider"
-                    interface="com.jetbrains.python.sdk.readOnly.PythonSdkReadOnlyProvider"
-                    dynamic="true"/>
-
     <extensionPoint qualifiedName="com.jetbrains.python.testing.pyTestLineMarkerContributorCustomizer"
                     interface="com.jetbrains.python.testing.PyTestLineMarkerContributorCustomizer"
                     dynamic="true"/>
@@ -795,7 +780,8 @@
                             order="after CondaEvoProvider"
                             implementation="com.jetbrains.python.venv.sdk.evolution.VenvEvoEnvironmentProvider"/>
 
-    <typeProvider implementation="com.jetbrains.python.debugger.PyCallSignatureTypeProvider"/>
+    <typeProvider id="pyCallSignatureTypeProvider" implementation="com.jetbrains.python.debugger.PyCallSignatureTypeProvider"
+                  order="after pyMockerFixtureTypeProvider"/>
 
     <!-- Console -->
     <visitorFilter language="Python" implementationClass="com.jetbrains.python.console.ConsoleVisitorFilter"/>
@@ -819,10 +805,8 @@
                    implementationClass="com.jetbrains.python.inspections.unresolvedReference.PyInjectedUnresolvedReferencesVisitorFilter"/>
 
     <!-- Pipenv -->
-    <pythonFlavorProvider implementation="com.jetbrains.python.sdk.pipenv.PyPipEnvSdkFlavorProvider"/>
 
 
-    <pythonPackageManagerProvider implementation="com.jetbrains.python.hatch.packaging.HatchPackageManagerProvider"/>
 
     <!-- SDK Flavors -->
     <pythonFlavorProvider implementation="com.jetbrains.python.sdk.flavors.conda.CondaEnvSdkFlavorProvider"/>
@@ -840,18 +824,14 @@
 
     <pythonSdkReadOnlyProvider implementation="com.jetbrains.python.sdk.readOnly.PythonSystemSdkReadOnlyProvider"/>
 
-    <pythonPackageManagerProvider implementation="com.jetbrains.python.sdk.poetry.PoetryPackageManagerProvider"/>
 
     <pySdkProvider implementation="com.jetbrains.python.sdk.uv.UvSdkProvider"/>
     <pySdkDataProvider implementation="com.jetbrains.python.sdk.uv.UvSdkDataProvider"/>
     <pySdkDataProvider implementation="com.jetbrains.python.venv.sdk.VenvSdkDataProvider"/>
     <pySdkDataProvider implementation="com.jetbrains.python.sdk.conda.CondaSdkDataProvider"/>
-    <pythonPackageManagerProvider implementation="com.jetbrains.python.sdk.uv.UvPackageManagerProvider"/>
 
-    <pythonPackageManagerProvider implementation="com.jetbrains.python.packaging.pip.PipPackageManagerProvider" order="last"/>
     <pythonPackageManagerProvider implementation="com.jetbrains.python.packaging.conda.CondaPackageManagerProvider"/>
     <packageInstalledIconProvider implementation="com.jetbrains.python.packaging.conda.CondaPackageInstalledIconProvider"/>
-    <pythonPackageManagerProvider implementation="com.jetbrains.python.packaging.pipenv.PipEnvPackageManagerProvider"/>
 
     <pyDependenciesFileProvider implementation="com.jetbrains.python.sdk.pipenv.PipfileFileProvider"/>
 

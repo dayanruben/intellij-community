@@ -5,40 +5,50 @@ import com.intellij.build.FilePosition
 import com.intellij.build.events.BuildEvent
 import com.intellij.build.events.DuplicateMessageAware
 import com.intellij.build.events.MessageEvent
+import com.intellij.build.events.OutputId
+import com.intellij.build.events.StartId
 import com.intellij.build.events.impl.BuildIssueEventImpl
 import com.intellij.build.events.impl.FileMessageEventImpl
 import com.intellij.build.events.impl.MessageEventImpl
-import com.intellij.build.output.BuildOutputInstantReader
-import com.intellij.build.output.BuildOutputParser
+import com.intellij.build.output.BuildOutputInstantReaderImpl.BuildOutputLineParserBridge
+import com.intellij.build.output.BuildOutputMulticaster
+import com.intellij.build.output.BuildOutputReplayableLineReader
+import com.intellij.build.output.BuildOutputText
+import com.intellij.execution.filters.RegexpFilter
 import com.intellij.openapi.util.NlsSafe
-import org.jetbrains.plugins.gradle.execution.GradleConsoleFilter
 import org.jetbrains.plugins.gradle.issue.GradleIssueChecker
 import org.jetbrains.plugins.gradle.issue.UnresolvedDependencyBuildIssue
-import java.io.File
+import java.nio.file.Path
 import java.util.function.Consumer
+import java.util.regex.Pattern
 
 /**
  * @author Vladislav.Soroka
  */
-class GradleBuildScriptErrorParser : BuildOutputParser {
+class GradleBuildScriptErrorParser : BuildOutputLineParserBridge() {
 
-  override fun parse(line: String, reader: BuildOutputInstantReader, messageConsumer: Consumer<in BuildEvent>): Boolean {
-    if (!line.startsWith("FAILURE: Build failed with an exception.")) return false
-    if (!reader.readLine().isNullOrBlank()) return false
+  override suspend fun parse(
+    line: BuildOutputText,
+    reader: BuildOutputReplayableLineReader,
+    taskId: StartId,
+    multicaster: BuildOutputMulticaster,
+    isSingleFlow: Boolean,
+  ): Boolean {
+    if (!line.text.startsWith("FAILURE: Build failed with an exception.")) return false
+    if (!reader.readLine()?.text.isNullOrBlank()) return false
 
     val location: String?
-    val filter: GradleConsoleFilter?
-    var whereOrWhatLine = reader.readLine()
+    val filePosition: FilePosition?
+    var whereOrWhatLine = reader.readLine()?.text
     if (whereOrWhatLine == "* Where:") {
-      location = reader.readLine() ?: return false
-      filter = GradleConsoleFilter(null)
-      filter.applyFilter(location, location.length) ?: return false
-      if (!reader.readLine().isNullOrBlank()) return false
-      whereOrWhatLine = reader.readLine()
+      location = reader.readLine()?.text ?: return false
+      filePosition = parseScriptLocation(location) ?: return false
+      if (!reader.readLine()?.text.isNullOrBlank()) return false
+      whereOrWhatLine = reader.readLine()?.text
     }
     else {
       location = null
-      filter = null
+      filePosition = null
     }
 
     if (whereOrWhatLine != "* What went wrong:") return false
@@ -47,7 +57,7 @@ class GradleBuildScriptErrorParser : BuildOutputParser {
     if (location != null) {
       description.appendLine(location).appendLine()
     }
-    @NlsSafe var reason = reader.readLine() ?: return false
+    @NlsSafe var reason = reader.readLine()?.text ?: return false
     val parentId: Any
     if (reason.startsWith("Execution failed for task '")) {
       val taskName = reason.substringAfter("Execution failed for task '").substringBefore("'.")
@@ -56,13 +66,16 @@ class GradleBuildScriptErrorParser : BuildOutputParser {
       parentId = GradleOutputDispatcherFactory.TaskNameId(taskName)
     }
     else {
-      parentId = reader.parentEventId
+      parentId = taskId
     }
 
     description.appendLine(reason)
     loop@ while (true) {
-      val nextLine = reader.readLine() ?: return false
+      val nextLine = reader.readLine()?.text ?: return false
       if (nextLine.isBlank()) break
+      if (nextLine.isCompilationError()) {
+        return false
+      }
       description.appendLine(nextLine)
       val trimStart = nextLine.trimStart()
       if (trimStart.startsWith("> ")) {
@@ -71,7 +84,7 @@ class GradleBuildScriptErrorParser : BuildOutputParser {
       when {
         nextLine.isEmpty() -> break@loop
         nextLine == "* Try:" -> {
-          reader.pushBack()
+          reader.pushBack(1)
           break@loop
         }
       }
@@ -80,7 +93,7 @@ class GradleBuildScriptErrorParser : BuildOutputParser {
     var trySuggestions: StringBuilder? = null
     var exception: StringBuilder? = null
     while (true) {
-      val nextLine = reader.readLine() ?: break
+      val nextLine = reader.readLine()?.text ?: break
       if (nextLine == "BUILD FAILED" || nextLine == "* Get more help at https://help.gradle.org" || nextLine.startsWith(
           "CONFIGURE FAILED")) break
       if (nextLine == "* Exception is:") {
@@ -99,56 +112,102 @@ class GradleBuildScriptErrorParser : BuildOutputParser {
       }
     }
 
-    // compilation errors should be added by the respective compiler output parser
-    if (reason.startsWith("Compilation failed") ||
-        reason == "Compilation error. See log for more details" ||
-        reason == "Script compilation error:" ||
-        reason.contains("compiler failed")) return false
-
-    val filePosition: FilePosition?
-    if (filter != null) {
-      filePosition = FilePosition(File(filter.filteredFileName), filter.filteredLineNumber - 1, 0)
-    }
-    else {
-      filePosition = null
+    if (reason.isCompilationError()) {
+      return false
     }
 
     val errorText = description.toString()
     for (issueChecker in GradleIssueChecker.getKnownIssuesCheckList()) {
-      if (issueChecker.consumeBuildOutputFailureMessage(errorText, reason, exception.toString(), filePosition, parentId, messageConsumer)) {
+      if (issueChecker.consumeBuildOutputFailureMessage(errorText,
+                                                        reason,
+                                                        exception.toString(),
+                                                        filePosition,
+                                                        parentId,
+                                                        Consumer<BuildEvent> { t -> multicaster.notifyBuildEvent(t) })
+      ) {
         return true
       }
     }
 
-    val detailedMessage = StringBuilder(errorText)
+    val buildEventDescription: String?
+    val outputIds: List<OutputId>
+    if (isSingleFlow) {
+      outputIds = line.ids
+      buildEventDescription = null
+    }
+    else {
+      outputIds = emptyList()
 
-    if (!trySuggestions.isNullOrBlank()) {
-      detailedMessage.append("\n* Try:\n$trySuggestions")
+      val detailedMessage = StringBuilder(errorText)
+      if (!trySuggestions.isNullOrBlank()) {
+        detailedMessage.append("\n* Try:\n$trySuggestions")
+      }
+      if (!exception.isNullOrBlank()) {
+        detailedMessage.append("\n* Exception is:\n$exception")
+      }
+      buildEventDescription = detailedMessage.toString()
     }
-    if (!exception.isNullOrBlank()) {
-      detailedMessage.append("\n* Exception is:\n$exception")
-    }
+
     if (filePosition != null) {
       //TODO: Used english suggestions and exceptions:
-      messageConsumer.accept(object : FileMessageEventImpl(
-        parentId, MessageEvent.Kind.ERROR, null, reason, detailedMessage.toString(), filePosition), DuplicateMessageAware {} //NON-NLS
+      multicaster.notifyBuildEvent(
+        object : FileMessageEventImpl(
+          /* id = */ null,
+          /* parentId = */ parentId,
+          /* time = */ null,
+          /* message = */ reason,
+          /* hint = */ null,
+          /* description = */ buildEventDescription,
+          /* kind = */ MessageEvent.Kind.ERROR,
+          /* group = */ null,
+          /* navigatable = */ null,
+          /* outputIds = */ outputIds,
+          /* filePosition = */ filePosition
+        ), DuplicateMessageAware {} //NON-NLS
       )
     }
     else {
-      val unresolvedMessageEvent = checkUnresolvedDependencyError(reason, errorText, parentId)
+      val unresolvedMessageEvent = checkUnresolvedDependencyError(reason, errorText, parentId, outputIds)
       if (unresolvedMessageEvent != null) {
-        messageConsumer.accept(unresolvedMessageEvent)
+        multicaster.notifyBuildEvent(unresolvedMessageEvent)
       }
       else {
         //TODO: Used english suggestions and exceptions:
-        messageConsumer.accept(object : MessageEventImpl(parentId, MessageEvent.Kind.ERROR, null, reason,
-                                                         detailedMessage.toString()), DuplicateMessageAware {}) //NON-NLS
+        multicaster.notifyBuildEvent(
+          object : MessageEventImpl(
+            /* id = */ null,
+            /* parentId = */ parentId,
+            /* time = */ null,
+            /* message = */ reason,
+            /* hint = */ null,
+            /* description = */ buildEventDescription,
+            /* kind = */ MessageEvent.Kind.ERROR,
+            /* group = */ null,
+            /* navigatable = */ null,
+            /* outputIds = */ outputIds
+          ), DuplicateMessageAware {}
+        ) //NON-NLS
       }
     }
     return true
   }
 
-  private fun checkUnresolvedDependencyError(reason: String, description: String, parentId: Any): BuildEvent? {
+  private fun parseScriptLocation(location: String): FilePosition? {
+    val matcher = SCRIPT_LOCATION_PATTERN.matcher(location)
+    if (!matcher.find()) {
+      return null
+    }
+    val path = matcher.group(FILE_GROUP) ?: return null
+    val line = matcher.group(LINE_GROUP)?.toIntOrNull() ?: return null
+    return FilePosition(Path.of(path), line - 1, 0)
+  }
+
+  private fun String.isCompilationError(): Boolean = contains("Compilation failed") ||
+                                                     this == "Compilation error. See log for more details" ||
+                                                     this == "Script compilation error:" ||
+                                                     this.contains("compiler failed")
+
+  private fun checkUnresolvedDependencyError(reason: String, description: String, parentId: Any, outputIds: List<OutputId>): BuildEvent? {
     val noCachedVersionPrefix = "No cached version of "
     val couldNotFindPrefix = "Could not find "
     val cannotResolvePrefix = "Cannot resolve external dependency "
@@ -163,7 +222,24 @@ class GradleBuildScriptErrorParser : BuildOutputParser {
     val indexOfSuffix = reason.indexOf(" available for offline mode")
     val dependencyName = if (indexOfSuffix > 0) reason.substring(prefix.length, indexOfSuffix) else reason.substring(prefix.length)
     val unresolvedDependencyIssue = UnresolvedDependencyBuildIssue(dependencyName, description, indexOfSuffix > 0)
-    return BuildIssueEventImpl(parentId, unresolvedDependencyIssue, MessageEvent.Kind.ERROR)
+    return BuildIssueEventImpl(
+      /* id = */ null,
+      /* parentId = */ parentId,
+      /* time = */ null,
+      /* hint = */ null,
+      /* outputIds = */ outputIds,
+      /* buildIssue = */ unresolvedDependencyIssue,
+      /* kind = */ MessageEvent.Kind.ERROR
+    )
+  }
+
+  private companion object {
+    private const val SCRIPT_LOCATION_EXPRESSION = "(?:[Bb]uild file|[Ss]ettings file|Initialization script|Script) " +
+                                                   "(^|[\\W])(?<file>(?:\\p{Alpha}\\:|/)[0-9 a-z_A-Z\\-\\\\./]+)'(?: line)?: (?<line>[0-9]+)"
+    private const val FILE_GROUP = "file"
+    private const val LINE_GROUP = "line"
+
+    private val SCRIPT_LOCATION_PATTERN = Pattern.compile(SCRIPT_LOCATION_EXPRESSION, Pattern.MULTILINE)
   }
 }
 

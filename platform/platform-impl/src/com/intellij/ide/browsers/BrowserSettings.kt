@@ -7,7 +7,6 @@ import com.intellij.openapi.options.BoundCompositeConfigurable
 import com.intellij.openapi.options.Configurable.WithEpDependencies
 import com.intellij.openapi.options.SearchableConfigurable
 import com.intellij.openapi.options.UnnamedConfigurable
-import com.intellij.openapi.options.ex.ConfigurableWrapper
 import com.intellij.openapi.ui.DialogPanel
 import com.intellij.ui.dsl.builder.panel
 
@@ -32,10 +31,7 @@ class BrowserSettings : BoundCompositeConfigurable<UnnamedConfigurable>(
     browserSettings.selectBrowser(browser)
   }
 
-  override fun createConfigurables(): List<UnnamedConfigurable> = buildList {
-    add(browserSettings)
-    addAll(ConfigurableWrapper.createConfigurables(BrowserSettingsConfigurableEP.EP_NAME))
-  }
+  override fun createConfigurables(): List<UnnamedConfigurable> = listOf(browserSettings)
 
-  override fun getDependencies(): Collection<BaseExtensionPointName<*>?> = listOf(BrowserSettingsConfigurableEP.EP_NAME)
+  override fun getDependencies(): Collection<BaseExtensionPointName<*>> = listOf(WebBrowserSettingsSectionEP.EP_NAME)
 }

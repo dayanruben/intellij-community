@@ -1,6 +1,5 @@
 package com.intellij.python.ty.typeEngine
 
-import com.intellij.openapi.module.Module
 import com.intellij.openapi.util.Ref
 import com.intellij.platform.lsp.api.LspClient
 import com.intellij.python.lsp.core.type.PyLspTypeEngine
@@ -9,12 +8,16 @@ import com.intellij.python.lsp.core.typeEngine.PyTypeEngineType
 import com.jetbrains.python.psi.PyTypedElement
 import com.jetbrains.python.psi.types.PyType
 
-internal class TyLspTypeEngine(override val module: Module, override val lspClient: LspClient) : PyLspTypeEngine {
+internal class TyLspTypeEngine(override val lspClient: LspClient) : PyLspTypeEngine {
   override val name: String = PyTypeEngineType.TY.name
 
   override fun isSupportedForResolve(pyTypedElement: PyTypedElement): Boolean {
-    // First check the base class conditions
     if (!super.isSupportedForResolve(pyTypedElement)) {
+      return false
+    }
+    val isSupportedTypesVisitor = TyIsSupportedTypesVisitor()
+    pyTypedElement.accept(isSupportedTypesVisitor)
+    if (!isSupportedTypesVisitor.isSupported) {
       return false
     }
 

@@ -1,3 +1,5 @@
+<!-- BUILD_USING_BAZEL_MARKER: this plugin is also packaged by the `ij_plugin` Bazel rule, and IjPluginDistributionEquivalenceTest
+     checks that the result matches the distribution produced by the build scripts. See MRI-4743. -->
 <idea-plugin xmlns:xi="http://www.w3.org/2001/XInclude" package="com.intellij.completion.ml">
   <id>com.intellij.completion.ml.ranking</id>
   <name>Machine Learning Code Completion</name>
@@ -12,10 +14,6 @@
       <p>To enable the feature for your programming language, check settings in
       Editor | General | Code Completion | "Machine Learning Assistant Code Completion" section.</p>
     ]]></description>
-
-  <xi:include href="/META-INF/ml-ranking-ultimate.xml">
-    <xi:fallback/>
-  </xi:include>
 
   <dependencies>
     <plugin id="com.intellij.modules.lang"/>
@@ -55,10 +53,8 @@
     <module name="intellij.platform.vcs.impl"/>
     <!-- endregion -->
   </dependencies>
-  <!--suppress PluginXmlValidity -->
   <content namespace="jetbrains">
-    <!-- The implicit main module of the plugin depends on internal modules (intellij.platform.ml.impl), so it's required to set the namespace for it
-         todo: extract elements and dependencies to an explicit content module (see IJPL-212351) -->
+    <module name="intellij.completionMlRanking.experiments"/>
   </content>
 
   <extensionPoints>

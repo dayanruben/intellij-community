@@ -1,29 +1,44 @@
 // Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.externalSystem.service.execution
 
-import com.intellij.build.BuildProgressListener
-import java.io.Closeable
+import com.intellij.build.events.BuildEvent
+import com.intellij.build.events.BuildId
+import com.intellij.execution.process.ProcessOutputType
+import org.jetbrains.annotations.ApiStatus.Internal
+import org.jetbrains.annotations.ApiStatus.OverrideOnly
+import java.lang.AutoCloseable
 import java.util.function.Consumer
 
 /**
- * Parses, converts build process events and text messages into progress events,
- * and dispatches them into IDEA build progress.
- * @see BuildProgressListener
+ * The external system specific output orchestration, that extends the default `BuildEventDispatcher`.
+ *
+ * For example, attributes the output text to the tasks recognized in that output.
+ *
+ * @see ExternalSystemOutputDispatcherFactory
  */
-interface ExternalSystemOutputMessageDispatcher : Closeable, Appendable, BuildProgressListener {
-  /**
-   * Output type for next [append] and [onEvent] calls.
-   * True value means process standard output stream [com.intellij.execution.process.ProcessOutputType.STDOUT]
-   * False value means process standard error stream [com.intellij.execution.process.ProcessOutputType.STDERR]
-   *
-   * @see Appendable
-   * @see BuildProgressListener
-   */
-  var stdOut: Boolean
+@Internal
+@OverrideOnly
+interface ExternalSystemOutputMessageDispatcher : AutoCloseable {
 
   /**
-   * Subscribes on output close event.
-   * @param handler is called when output is closed.
+   * Dispatches an event of the build process.
+   */
+  fun notifyBuildEvent(buildId: BuildId, event: BuildEvent)
+
+  /**
+   * Dispatches a chunk of the build process output.
+   *
+   * @param outputType the output stream that produced the `text`.
+   */
+  fun notifyTextAvailable(text: String, outputType: ProcessOutputType)
+
+  /**
+   * Registers handler which is invoked once the build process is finished and the build messages are dispatched.
    */
   fun invokeOnCompletion(handler: Consumer<in Throwable?>)
+
+  /**
+   * Executes completion handlers and finalizes the build process orchestration.
+   */
+  override fun close()
 }

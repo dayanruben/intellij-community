@@ -3,7 +3,6 @@ package com.intellij.python.lsp.core.type
 
 import com.intellij.idea.TestFor
 import com.intellij.lang.injection.InjectedLanguageManager
-import com.intellij.openapi.module.Module
 import com.intellij.openapi.util.Ref
 import com.intellij.platform.lsp.api.LspClient
 import com.intellij.psi.PsiFile
@@ -43,17 +42,15 @@ import org.junit.jupiter.api.Test
 class PyLspTypeEngineInjectionTest : PyCodeInsightTestCase() {
 
   private class TestTypeEngine(
-    override val module: Module,
     override val lspClient: LspClient,
   ) : PyLspTypeEngine {
     override val name: String get() = "test"
     override fun resolveType(pyTypedElement: PyTypedElement, isUserInitiated: Boolean): Ref<PyType?>? = null
   }
 
-  /** An engine whose server serves the module of the fixture, so only the two guards can reject an element. */
   private fun testTypeEngine(): TestTypeEngine {
     val pyProject = runBlocking { checkNotNull(myFixture.module.asPyProject()) { "The fixture module is not a Python project" } }
-    return TestTypeEngine(myFixture.module, fakePyToolClient(pyProject))
+    return TestTypeEngine(fakePyToolClient(pyProject))
   }
 
   @Test
@@ -124,18 +121,14 @@ class PyLspTypeEngineInjectionTest : PyCodeInsightTestCase() {
     assertFalse(testTypeEngine().isSupportedForResolve(target))
   }
 
-  /**
-   * A light element such as [PyImportedModule] has no text range, so the server cannot be told where it is.
-   * Pyrefly overrides [PyLspTypeEngine.isSupportedForResolve] without the supported-types visitor and relies on
-   * [PyLspTypeEngine.isVisibleToServer] alone, so the guard has to live there.
-   */
+  /** A light element such as [PyImportedModule] has no text range, so the server cannot be told where it is. */
   @Test
   @TestFor(issues = ["PY-92969"])
   fun `light element without a text range is not visible to the server`() = runInEdtAndWait {
     myFixture.configureByText("a.py", "import os")
     val importedModule = PyImportedModule(null, myFixture.file as PyFile, QualifiedName.fromDottedString("os"))
     assertNull(importedModule.textRange)
-    assertFalse(testTypeEngine().isVisibleToServer(importedModule))
+    assertFalse(testTypeEngine().isSupportedForResolve(importedModule))
   }
 
   private fun injectedDocstringFiles(): List<PsiFile> {

@@ -2,9 +2,12 @@
 package com.intellij.openapi.externalSystem.service.execution
 
 import com.intellij.build.BuildProgressListener
+import com.intellij.build.BuildViewSettingsProvider
 import com.intellij.build.output.BuildOutputParser
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.externalSystem.model.ProjectSystemId
+import org.jetbrains.annotations.ApiStatus.Internal
+import org.jetbrains.annotations.ApiStatus.OverrideOnly
 
 /**
  * Factory of [ExternalSystemOutputMessageDispatcher]s for external system task.
@@ -12,6 +15,8 @@ import com.intellij.openapi.externalSystem.model.ProjectSystemId
  * @see ExternalSystemOutputMessageDispatcher
  * @see com.intellij.openapi.externalSystem.model.task.ExternalSystemTask
  */
+@Internal
+@OverrideOnly
 interface ExternalSystemOutputDispatcherFactory {
   /**
    * External system id is needed to find applicable factory for external system task.
@@ -22,8 +27,6 @@ interface ExternalSystemOutputDispatcherFactory {
    * Creates output dispatcher for current build with [buildId].
    *
    * @param buildProgressListener is main console progress listener.
-   * @param appendOutputToMainConsole is flag for output dispatcher.
-   * Dispatcher should transfer message events into [buildProgressListener], if this argument is true.
    * @param parsers are parsers for messages from text and build events.
    *
    * @see BuildProgressListener
@@ -31,8 +34,8 @@ interface ExternalSystemOutputDispatcherFactory {
    */
   fun create(buildId: Any,
              buildProgressListener: BuildProgressListener,
-             appendOutputToMainConsole: Boolean,
-             parsers: List<BuildOutputParser>): ExternalSystemOutputMessageDispatcher
+             parsers: List<BuildOutputParser>,
+             consoleSettings: BuildViewSettingsProvider): ExternalSystemOutputMessageDispatcher
 
   companion object {
 

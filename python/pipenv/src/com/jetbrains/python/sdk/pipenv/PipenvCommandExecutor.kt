@@ -1,0 +1,225 @@
+// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+package com.jetbrains.python.sdk.pipenv
+
+import com.intellij.openapi.projectRoots.Sdk
+import com.intellij.python.community.execService.DownloadConfig
+import com.intellij.python.community.execService.EnvVar
+import com.intellij.python.community.execService.EnvVarVal
+import com.intellij.python.community.execService.ProcessOutputTransformer
+import com.intellij.python.community.impl.pipenv.PipEnvPyTool
+import com.intellij.python.community.impl.pipenv.PyPipenvBundle
+import com.intellij.python.pytools.runTool
+import com.intellij.python.sdk.backend.PySdkBundle
+import com.intellij.python.sdk.backend.PythonInterpreter
+import com.intellij.python.sdk.backend.getSdkAPI
+import com.jetbrains.python.PyInternalExecApi
+import com.jetbrains.python.PythonBinary
+import com.jetbrains.python.errorProcessing.PyResult
+import com.jetbrains.python.sdk.ModuleOrProject
+import com.jetbrains.python.sdk.add.v2.EelOrJustPath
+import com.jetbrains.python.sdk.add.v2.EelOrJustPath.Companion.toFileSystem
+import com.jetbrains.python.sdk.add.v2.FileSystem
+import com.jetbrains.python.sdk.add.v2.PathHolder
+import com.jetbrains.python.sdk.add.v2.toFileSystem
+import com.jetbrains.python.sdk.pySdkAdditionalData
+import com.jetbrains.python.target.ui.TargetPanelExtension
+import org.jetbrains.annotations.ApiStatus.Internal
+import java.nio.file.Path
+import kotlin.io.path.createFile
+import kotlin.io.path.exists
+
+private val PIPENV_PROJECT_DOWNLOAD_CONFIG = DownloadConfig(relativePaths = listOf(PIP_FILE, PIP_FILE_LOCK))
+private val PIPENV_PROJECT_MUTATING_COMMANDS = setOf("--python", "install", "lock", "sync", "uninstall", "update")
+
+@Internal
+suspend fun <P : PathHolder> runPipEnv(
+  fileSystem: FileSystem<P>,
+  dirPath: Path?,
+  vararg args: String,
+  pipenvExecutable: P? = null,
+  baseEnv: List<EnvVar> = emptyList(),
+  downloadConfig: DownloadConfig? = null,
+): PyResult<String> =
+  PipEnvPyTool.getInstance().runTool(
+    fileSystem = fileSystem,
+    pathFromSdk = pipenvExecutable?.toStringOnRemoteMachine(),
+    dirPath = dirPath,
+    args = args,
+    env = baseEnv,
+    downloadConfig = downloadConfig,
+  )
+
+@Internal
+@PyInternalExecApi
+suspend fun runPipEnv(dirPath: Path, vararg args: String): PyResult<String> =
+  runPipEnv(
+    fileSystem = dirPath.toFileSystem(),
+    dirPath = dirPath,
+    args = args,
+  )
+
+@Internal
+suspend fun <T> runPipEnv(dirPath: EelOrJustPath, vararg args: String, transformer: ProcessOutputTransformer<T>): PyResult<T> =
+  PipEnvPyTool.getInstance().runTool(
+    fileSystem = dirPath.toFileSystem(),
+    pathFromSdk = null,
+    dirPath = dirPath.path,
+    args = args,
+    transformer = transformer,
+  )
+
+
+/** [runPipEnvWithSdk] in the environment of [interpreter]. */
+@Internal
+suspend fun runPipEnvWithInterpreter(interpreter: PythonInterpreter, vararg args: String): PyResult<String> {
+  // Pipenv reads the working directory and the target from the SDK data, which has no interpreter API yet.
+  @Suppress("DEPRECATION")
+  return runPipEnvWithSdk(interpreter.getSdkAPI(), *args)
+}
+
+internal suspend fun runPipEnvWithSdk(sdk: Sdk, vararg args: String): PyResult<String> {
+  val data = sdk.pySdkAdditionalData
+  val workingDirectory = data.workingDirectory.takeIf { data.hasValidWorkingDirectory() }
+                         ?: return PyResult.localizedError(PyPipenvBundle.message("python.sdk.project.working.directory.not.found"))
+  val sdkHomePath = sdk.homePath
+                    ?: return PyResult.localizedError(PySdkBundle.message("python.sdk.broken.configuration", sdk.name))
+
+  return runPipEnvWithSdk(
+    fileSystem = sdk.toFileSystem(),
+    workingDirectory = workingDirectory,
+    sdkHomePath = sdkHomePath,
+    args = args,
+  )
+}
+
+private suspend fun <P : PathHolder> runPipEnvWithSdk(
+  fileSystem: FileSystem<P>,
+  workingDirectory: Path,
+  sdkHomePath: String,
+  vararg args: String,
+): PyResult<String> {
+  val pythonPath = fileSystem.parsePath(sdkHomePath).getOr { return it }
+  val pythonHomePath = fileSystem.resolvePythonHome(pythonPath)
+  return runPipEnv(
+    fileSystem = fileSystem,
+    dirPath = workingDirectory,
+    args = args,
+    baseEnv = listOf(EnvVar("VIRTUAL_ENV", EnvVarVal.RemotePath(pythonHomePath.toStringOnRemoteMachine()))),
+    downloadConfig = PIPENV_PROJECT_DOWNLOAD_CONFIG.takeIf { args.firstOrNull() in PIPENV_PROJECT_MUTATING_COMMANDS },
+  )
+}
+
+/**
+ * Sets up the pipenv environment for [moduleBasePath] and creates its SDK.
+ *
+ * @return the SDK for pipenv, not stored in the SDK table yet.
+ */
+@Internal
+suspend fun <P : PathHolder> setupPipEnvSdkWithProgressReport(
+  moduleOrProject: ModuleOrProject,
+  moduleBasePath: Path,
+  basePythonBinaryPath: P?,
+  fileSystem: FileSystem<P>,
+  pipenvExecutable: P?,
+  installPackages: Boolean,
+  targetPanelExtension: TargetPanelExtension? = null,
+): PyResult<PythonInterpreter> {
+  val pythonHomePath = setupPipEnv(
+    projectPath = moduleBasePath,
+    fileSystem = fileSystem,
+    pipenvExecutable = pipenvExecutable,
+    basePythonBinaryPath = basePythonBinaryPath,
+    installPackages = installPackages,
+  ).getOr { return it }
+  val pythonBinaryPath = fileSystem.resolvePythonBinary(pythonHomePath)
+                         ?: return PyResult.localizedError(PyPipenvBundle.message("python.sdk.cannot.setup.sdk", pythonHomePath.toStringPossiblyMRFS()))
+
+  return fileSystem.setupSdk(
+    moduleOrProject = moduleOrProject,
+    pythonBinaryPath = pythonBinaryPath,
+    sdkAdditionalData = PyPipEnvSdkAdditionalData(moduleBasePath),
+    targetPanelExtension = targetPanelExtension,
+    suggestedSdkName = null,
+  )
+}
+
+/**
+ * Sets up the pipenv environment for the specified project path.
+ *
+ * @return the path to the pipenv environment.
+ */
+@Internal
+suspend fun setupPipEnv(
+  projectPath: Path,
+  basePythonBinaryPath: PythonBinary?,
+  installPackages: Boolean,
+): PyResult<Path> =
+  setupPipEnv(
+    projectPath = projectPath,
+    fileSystem = projectPath.toFileSystem(),
+    pipenvExecutable = null,
+    basePythonBinaryPath = basePythonBinaryPath?.let(PathHolder::Eel),
+    installPackages = installPackages,
+  ).mapSuccess { it.path }
+
+@Internal
+suspend fun <P : PathHolder> setupPipEnv(
+  projectPath: Path,
+  fileSystem: FileSystem<P>,
+  pipenvExecutable: P?,
+  basePythonBinaryPath: P?,
+  installPackages: Boolean,
+): PyResult<P> {
+  val pipfile = projectPath.resolve(PIP_FILE)
+
+  if (!pipfile.exists()) {
+    // Currently, if a Pipenv file exists inside the user's home directory, then it will NOT create a new Pipenv in the current project
+    // directory, but instead use the one in the home directory. This has an effect that new projects are created without the Pipenv file,
+    // which results in a broken project setup. If an empty Pipenv file is created in the project directory beforehand, then pipenv will use
+    // and populate that file instead.
+    pipfile.createFile()
+  }
+
+  when {
+    installPackages -> {
+      runPipEnv(
+        fileSystem = fileSystem,
+        dirPath = projectPath,
+        args = pipenvSetupCommandWithPythonPath(projectPath, basePythonBinaryPath?.toStringOnRemoteMachine()).toTypedArray(),
+        pipenvExecutable = pipenvExecutable,
+        downloadConfig = PIPENV_PROJECT_DOWNLOAD_CONFIG,
+      ).getOr { return it }
+    }
+    basePythonBinaryPath != null ->
+      runPipEnv(
+        fileSystem = fileSystem,
+        dirPath = projectPath,
+        "--python", basePythonBinaryPath.toStringOnRemoteMachine(),
+        pipenvExecutable = pipenvExecutable,
+        downloadConfig = PIPENV_PROJECT_DOWNLOAD_CONFIG,
+      ).getOr { return it }
+    else ->
+      runPipEnv(
+        fileSystem = fileSystem,
+        dirPath = projectPath,
+        "run", "python", "-V",
+        pipenvExecutable = pipenvExecutable,
+      ).getOr { return it }
+  }
+  val pythonHomePath = runPipEnv(
+    fileSystem = fileSystem,
+    dirPath = projectPath,
+    "--venv",
+    pipenvExecutable = pipenvExecutable,
+  ).getOr { return it }
+  return fileSystem.parsePath(pythonHomePath.trim())
+}
+
+internal fun pipenvSetupCommand(projectPath: Path, basePythonBinaryPath: PythonBinary?): List<String> =
+  pipenvSetupCommandWithPythonPath(projectPath, basePythonBinaryPath?.toString())
+
+private fun pipenvSetupCommandWithPythonPath(projectPath: Path, basePythonBinaryPath: String?): List<String> {
+  val pythonArgs = if (basePythonBinaryPath != null) listOf("--python", basePythonBinaryPath) else emptyList()
+  val command = if (projectPath.resolve(PIP_FILE_LOCK).exists()) listOf("sync", "--dev") else listOf("install", "--dev")
+  return pythonArgs + command
+}

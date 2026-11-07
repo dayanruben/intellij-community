@@ -71,10 +71,6 @@
                         serviceImplementation="org.jetbrains.plugins.gitlab.authentication.accounts.PersistentGitLabAccountManager"/>
     <applicationService serviceInterface="org.jetbrains.plugins.gitlab.authentication.accounts.GitLabAccountRegistrar"
                         serviceImplementation="org.jetbrains.plugins.gitlab.authentication.accounts.GitLabAccountRegistrarImpl"/>
-    <applicationService serviceInterface="org.jetbrains.plugins.gitlab.api.GitLabApiManager"
-                        serviceImplementation="org.jetbrains.plugins.gitlab.api.GitLabApiManagerImpl"/>
-    <applicationService serviceInterface="org.jetbrains.plugins.gitlab.GitLabServersManager"
-                        serviceImplementation="org.jetbrains.plugins.gitlab.CachingGitLabServersManager"/>
 
     <projectService serviceInterface="org.jetbrains.plugins.gitlab.GitLabProjectsManager"
                     serviceImplementation="org.jetbrains.plugins.gitlab.GitLabProjectsManagerImpl"/>
@@ -141,9 +137,8 @@
   </extensions>
 
   <extensions defaultExtensionNs="com.intellij.statistics">
-    <applicationUsagesCollector implementation="org.jetbrains.plugins.gitlab.util.GitLabStatistics$GitLabAccountsStatisticsCollector"/>
-    <counterUsagesCollector implementationClass="org.jetbrains.plugins.gitlab.util.GitLabStatistics$GitLabCountersCollector"/>
-    <projectUsagesCollector implementation="org.jetbrains.plugins.gitlab.util.GitLabStatistics$GitLabProjectMetricsCollector"/>
+    <applicationUsagesCollector implementation="org.jetbrains.plugins.gitlab.util.GitLabStateStatistics$GitLabAccountsStatisticsCollector"/>
+    <projectUsagesCollector implementation="org.jetbrains.plugins.gitlab.util.GitLabStateStatistics$GitLabProjectMetricsCollector"/>
     <notificationIdsHolder implementation="org.jetbrains.plugins.gitlab.notification.GitLabNotificationIdsHolder"/>
     <actionCustomPlaceAllowlist id="GitLabActionCustomPlaceAllowlist"
                                 places="GitLabMergeRequestListPopup;GitLabMergeRequestChangesTreePopup;GitLabMergeRequestDetailsPopup"/>

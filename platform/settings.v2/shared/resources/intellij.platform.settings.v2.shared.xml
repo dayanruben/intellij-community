@@ -17,7 +17,7 @@
     <module name="intellij.platform.lang.impl"/>
     <module name="intellij.platform.project"/>
     <module name="intellij.platform.projectModel"/>
-    <module name="intellij.platform.rpc"/>
+    <module name="intellij.platform.rpc.lite"/>
     <module name="intellij.platform.settings.v2"/>
   </dependencies>
   <!-- endregion -->
@@ -36,6 +36,8 @@
     <settings.v2.layerProvider id="settings.v2.projectProvider" order="after settings.v2.appProvider"
                                implementation="com.intellij.platform.settings.v2.impl.providers.ProjectLayerProvider"/>
     <cachesInvalidator implementation="com.intellij.platform.settings.v2.impl.SettingsCacheInvalidator"/>
+    <settings.v2.keyPromoter implementation="com.intellij.platform.settings.v2.impl.PlatformKeyPromoter"/>
+    <applicationInitializedListener implementation="com.intellij.platform.settings.v2.impl.SettingsVaultInitializer"/>
   </extensions>
   <applicationListeners>
     <listener class="com.intellij.platform.settings.v2.impl.SettingsAppLifecycleListener"

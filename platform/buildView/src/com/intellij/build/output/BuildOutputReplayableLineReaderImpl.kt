@@ -13,16 +13,16 @@ class BuildOutputReplayableLineReaderImpl(
   private val reader = BuildOutputLineReaderImpl(linesBufferSize)
 
   // Most-recently-read lines; index 0 is the newest.
-  private val readLinesBuffer = LinkedList<String>()
+  private val readLinesBuffer = LinkedList<BuildOutputText>()
 
   // >= 0 means "we are replaying from the buffer at this index"; -1 means "read from reader".
   private var readLinesBufferPosition = -1
 
-  override suspend fun notifyTextAvailable(text: CharSequence) {
+  suspend fun notifyTextAvailable(text: BuildOutputText) {
     reader.notifyTextAvailable(text)
   }
 
-  override suspend fun readLine(): String? {
+  override suspend fun readLine(): BuildOutputText? {
     if (readLinesBufferPosition >= 0) {
       val line = readLinesBuffer[readLinesBufferPosition]
       readLinesBufferPosition--
@@ -43,7 +43,7 @@ class BuildOutputReplayableLineReaderImpl(
     }
   }
 
-  override suspend fun close() {
+  suspend fun close() {
     reader.close()
   }
 }

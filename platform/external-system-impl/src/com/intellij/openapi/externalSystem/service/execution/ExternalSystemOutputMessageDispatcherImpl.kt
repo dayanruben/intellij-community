@@ -1,83 +1,51 @@
-// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.externalSystem.service.execution
 
 import com.intellij.build.BuildProgressListener
-import com.intellij.build.events.BuildEvent
+import com.intellij.build.BuildViewSettingsProvider
 import com.intellij.build.events.BuildId
-import com.intellij.build.events.FinishBuildEvent
-import com.intellij.build.output.BuildOutputInstantReaderImpl
+import com.intellij.build.events.OutputId
+import com.intellij.build.events.OutputBuildEvent
 import com.intellij.build.output.BuildOutputParser
-import com.intellij.openapi.diagnostic.logger
-import com.intellij.diagnostic.rethrowControlFlowException
-import com.intellij.util.containers.ContainerUtil
+import com.intellij.build.output.BuildOutputParserDispatcher
+import com.intellij.build.output.BuildOutputText
+import com.intellij.execution.process.ProcessOutputType
+import com.intellij.openapi.util.NlsSafe
+import kotlinx.coroutines.runBlocking
 import org.jetbrains.annotations.ApiStatus.Internal
-import java.util.function.Consumer
+import java.util.concurrent.ConcurrentHashMap
 
 @Internal
-open class ExternalSystemOutputMessageDispatcherImpl(
+class ExternalSystemOutputMessageDispatcherImpl(
   buildId: BuildId,
-  private val listener: BuildProgressListener,
+  listener: BuildProgressListener,
   parsers: List<BuildOutputParser>,
-) : ExternalSystemOutputMessageDispatcher {
+  consoleSettings: BuildViewSettingsProvider,
+) : AbstractExternalSystemOutputMessageDispatcher(buildId, listener, parsers, consoleSettings) {
 
-  override var stdOut: Boolean = true
+  private val parserDispatchers: MutableMap<ProcessOutputType, BuildOutputParserDispatcher> = ConcurrentHashMap()
 
-  protected val reader: BuildOutputInstantReaderImpl = BuildOutputInstantReaderImpl(buildId, buildId, this, parsers)
+  override fun notifyTextAvailable(text: @NlsSafe String, outputType: ProcessOutputType) {
+    val outputId = OutputId()
 
-  @Volatile
-  private var isClosed: Boolean = false
+    notifyBuildEvent(buildId, OutputBuildEvent.builder(text)
+      .withId(outputId)
+      .withOutputType(outputType)
+      .build())
 
-  private val onCompletionHandlers = ContainerUtil.createConcurrentList<Consumer<in Throwable?>>()
-
-  override fun append(csq: CharSequence): Appendable =
-    apply { reader.append(csq) }
-
-  override fun append(csq: CharSequence, start: Int, end: Int): Appendable =
-    apply { reader.append(csq, start, end) }
-
-  override fun append(c: Char): Appendable =
-    apply { reader.append(c) }
-
-  override fun onEvent(buildId: BuildId, event: BuildEvent) {
-    when (event) {
-      is FinishBuildEvent -> invokeOnCompletion(Consumer { listener.onEvent(buildId, event) })
-      else -> listener.onEvent(buildId, event)
+    @Suppress("RAW_RUN_BLOCKING")
+    runBlocking {
+      parserDispatchers.getOrPut(outputType) { createParserDispatcher(buildId) }
+        .notifyTextAvailable(BuildOutputText.createOutputText(outputId, text))
     }
   }
 
-  override fun invokeOnCompletion(handler: Consumer<in Throwable?>) {
-    if (isClosed) {
-      LOG.warn("Attempt to add completion handler for closed output dispatcher, the handler will be ignored",
-               if (LOG.isDebugEnabled) Throwable() else null)
-    }
-    else {
-      onCompletionHandlers.add(handler)
-    }
-  }
-
-  protected open fun doClose() {
-    reader.close()
-  }
-
-  final override fun close() {
-    val exception = runCatching { doClose() }.exceptionOrNull()
-
-    isClosed = true
-
-    for (handler in onCompletionHandlers) {
-      try {
-        handler.accept(exception)
-      }
-      catch (exception: Exception) {
-        //TODO: Closeable.close() should not (re)throw cancellation exceptions, 'cos it may interact badly with
-        //      try-with-resource pattern: see IJPL-248654 for details
-        rethrowControlFlowException(exception)
-        LOG.warn(exception)
+  override fun doClose() {
+    @Suppress("RAW_RUN_BLOCKING")
+    runBlocking {
+      for (parserDispatcher in parserDispatchers.values) {
+        parserDispatcher.close()
       }
     }
-  }
-
-  companion object {
-    private val LOG = logger<ExternalSystemOutputMessageDispatcherImpl>()
   }
 }

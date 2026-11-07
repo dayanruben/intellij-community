@@ -1,24 +1,32 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.browsers
 
+import com.intellij.icons.AllIcons
 import com.intellij.ide.IdeBundle
 import com.intellij.ide.browsers.BrowserLauncherAppless.Companion.canUseSystemDefaultBrowserPolicy
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.options.ShowSettingsUtil
+import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.options.UnnamedConfigurable
+import com.intellij.openapi.options.ex.ConfigurableWrapper
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.DialogPanel
+import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.ui.CollectionComboBoxModel
 import com.intellij.ui.ColoredTableCellRenderer
 import com.intellij.ui.SimpleTextAttributes
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.dsl.builder.Align
+import com.intellij.ui.dsl.builder.AlignX
+import com.intellij.ui.dsl.builder.Panel
+import com.intellij.ui.dsl.builder.RightGap
+import com.intellij.ui.dsl.builder.actionButton
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.ui.dsl.listCellRenderer.listCellRenderer
-import com.intellij.ui.dsl.listCellRenderer.textListCellRenderer
+import com.intellij.ui.layout.selectedValueMatches
 import com.intellij.util.EnvironmentUtil
 import com.intellij.util.Function
 import com.intellij.util.PathUtil
@@ -47,9 +55,17 @@ import kotlin.io.path.Path
  * For a browser of the list, [id] is the id of the original row, see [BrowserSettingsConfigurable.originalOf].
  * For an installed browser, [installed] is what [detectInstalledBrowsers] found.
  * Apply adds a selected installed browser to the list, see [BrowserSettingsConfigurable.addInstalledBrowser].
+ * The last item of each dropdown is [addItem]. It opens [BrowserDialog] and is never the selected item.
  */
 internal data class BrowserChoice(val id: UUID, @NlsSafe val name: String, val icon: Icon, val installed: InstalledBrowser? = null) {
+  val isAddItem: Boolean
+    get() = id == ADD_ITEM_ID
+
   companion object {
+    private val ADD_ITEM_ID: UUID = UUID.nameUUIDFromBytes("BrowserChoice.addItem".toByteArray())
+
+    fun addItem(): BrowserChoice = BrowserChoice(ADD_ITEM_ID, IdeBundle.message("settings.browsers.add.browser"), AllIcons.General.Add)
+
     fun systemDefault(): BrowserChoice = of(SystemDefaultBrowser)
 
     fun of(browser: WebBrowser): BrowserChoice = BrowserChoice(browser.id, browser.name, browser.icon)
@@ -67,19 +83,26 @@ internal data class BrowserChoice(val id: UUID, @NlsSafe val name: String, val i
  * When the page opens, it detects the installed browsers in the background, and keeps the result while it is open.
  * The "Default Browser" dropdown offers each installed browser that no browser of the list opens, see [InstalledBrowser.isSameAs].
  * The "JavaScript Debugger" dropdown does the same for the Chromium-based browsers, see [WebBrowserManager.getChromiumBasedBrowser].
+ *
+ * The "Edit Browser…" icon button of a dropdown opens [BrowserDialog] for the selected browser of the list or installed browser.
+ * The "Add Browser…" item of a dropdown opens [BrowserDialog] for a new browser.
+ * The dialog changes only the table, and Apply stores the table as for the edits in the table.
+ *
+ * The sections of [WebBrowserSettingsSectionEP] come after the dropdowns.
  */
 internal class BrowserSettingsConfigurable : UnnamedConfigurable {
   private lateinit var browsersTable: JComponent
   private lateinit var browsersEditor: TableModelEditor<ConfigurableWebBrowser>
   private var installedBrowsers: List<InstalledBrowser> = emptyList()
-  private val defaultBrowserModel = CollectionComboBoxModel<BrowserChoice>()
-  private val chromiumBasedBrowserModel = CollectionComboBoxModel<BrowserChoice>()
-  private lateinit var serverReloadModeComboBox: ComboBox<ReloadMode>
-  private lateinit var previewReloadModeComboBox: ComboBox<ReloadMode>
+  private val defaultBrowserModel = BrowserChoiceModel(isChromiumBased = false)
+  private val chromiumBasedBrowserModel = BrowserChoiceModel(isChromiumBased = true)
   private lateinit var showBrowserHover: JBCheckBox
   private lateinit var showBrowserHoverXml: JBCheckBox
 
   private var root: DialogPanel? = null
+
+  /** The sections of [WebBrowserSettingsSectionEP]. The page creates them with its component. */
+  private var sections: List<UnnamedConfigurable> = emptyList()
 
   /**
    * Returns the original row of [item]. The table edits a copy of the row with a new id, so a check of the id must look at the original.
@@ -98,11 +121,14 @@ internal class BrowserSettingsConfigurable : UnnamedConfigurable {
     return original
   }
 
+  /** The dropdown item of a row of the table. */
+  private fun choiceOf(row: ConfigurableWebBrowser): BrowserChoice = BrowserChoice(originalOf(row).id, row.name, row.icon)
+
   /** The active browsers of the table that have a path. */
   private fun listedBrowsers(): List<BrowserChoice> =
     browsersEditor.model.items
       .filter { it.isActive && it.path != null }
-      .map { BrowserChoice(originalOf(it).id, it.name, it.icon) }
+      .map(::choiceOf)
 
   /**
    * The browsers of the table of the [BrowserFamily.CHROME] family: the active browsers that have a path,
@@ -112,9 +138,11 @@ internal class BrowserSettingsConfigurable : UnnamedConfigurable {
     val storedId = WebBrowserManager.getInstance().chromiumBasedBrowserId
     return browsersEditor.model.items
       .filter { it.family == BrowserFamily.CHROME }
-      .map { it to originalOf(it).id }
-      .filter { (row, id) -> row.isActive && row.path != null || id == storedId || id == WebBrowserManager.PREDEFINED_CHROME_ID }
-      .map { (row, id) -> BrowserChoice(id, row.name, row.icon) }
+      .filter { row ->
+        val id = originalOf(row).id
+        row.isActive && row.path != null || id == storedId || id == WebBrowserManager.PREDEFINED_CHROME_ID
+      }
+      .map(::choiceOf)
   }
 
   /**
@@ -131,10 +159,10 @@ internal class BrowserSettingsConfigurable : UnnamedConfigurable {
     installedChoices().filter { it.installed?.knownBrowser?.family == BrowserFamily.CHROME }
 
   /**
-   * Makes [installed] a browser of the table, and returns the id of its original row.
+   * Makes [installed] a browser of the table, and returns its row.
    * It activates an inactive browser of the table that opens [installed]. Otherwise, it adds a browser to the table.
    */
-  private fun addInstalledBrowser(installed: InstalledBrowser): UUID {
+  private fun addInstalledBrowser(installed: InstalledBrowser): ConfigurableWebBrowser {
     val model = browsersEditor.model
     val inactiveRow = model.items.firstOrNull { !it.isActive && installed.isSameAs(it) }
     val row = if (inactiveRow != null) {
@@ -150,7 +178,77 @@ internal class BrowserSettingsConfigurable : UnnamedConfigurable {
       ConfigurableWebBrowser(UUID.randomUUID(), family, installed.name, installed.path, true, family.createBrowserSpecificSettings())
         .also { model.addRow(it) }
     }
-    return originalOf(row).id
+    return row
+  }
+
+  /**
+   * A model of a dropdown. A selection of [BrowserChoice.addItem] keeps the previous selection, and opens [addBrowser].
+   * In the "JavaScript Debugger" dropdown, [isChromiumBased] is `true`, and the dialog keeps the [BrowserFamily.CHROME] family.
+   */
+  private inner class BrowserChoiceModel(val isChromiumBased: Boolean) : CollectionComboBoxModel<BrowserChoice>() {
+    override fun setSelectedItem(item: Any?) {
+      if (item is BrowserChoice && item.isAddItem) {
+        // open the dialog after the popup of the dropdown closes
+        ApplicationManager.getApplication().invokeLater({ addBrowser(this) }, ModalityState.stateForComponent(browsersTable)) { root == null }
+      }
+      else {
+        super.setSelectedItem(item)
+      }
+    }
+  }
+
+  /** The row of the table for a browser of the list, or `null` for another item. */
+  private fun rowOf(choice: BrowserChoice): ConfigurableWebBrowser? = browsersEditor.model.items.firstOrNull { choiceOf(it) == choice }
+
+  /** Returns `true` when the "Edit Browser…" icon button can open [BrowserDialog] for [choice]. */
+  private fun isEditable(choice: BrowserChoice?): Boolean = choice != null && (choice.installed != null || rowOf(choice) != null)
+
+  /**
+   * Opens [BrowserDialog] for the selected item of [model].
+   * For an installed browser, OK adds the browser to the table, see [addInstalledBrowser].
+   * A dropdown that selects the edited browser keeps it selected.
+   */
+  private fun editBrowser(model: BrowserChoiceModel) {
+    val choice = model.selected ?: return
+    val installed = choice.installed
+    val row = if (installed == null) rowOf(choice) ?: return else null
+    val browser = when {
+      row != null -> ConfigurableWebBrowser(row.id, row.family, row.name, row.path, row.isActive, cloneSettings(row))
+      else -> installed!!.knownBrowser.family.let { family ->
+        ConfigurableWebBrowser(UUID.randomUUID(), family, installed.name, installed.path, true, family.createBrowserSpecificSettings())
+      }
+    }
+    val isPredefined = row != null && WebBrowserManager.getInstance().isPredefinedBrowser(originalOf(row))
+    if (!BrowserDialog(browsersTable, browser, isAdd = false, isFamilyEditable = !model.isChromiumBased && !isPredefined).showAndGet()) {
+      return
+    }
+    val selectingModels = listOf(defaultBrowserModel, chromiumBasedBrowserModel).filter { it.selected == choice }
+    val tableModel = browsersEditor.model
+    // the table edits a copy of the row, so Cancel of the page keeps the browser of the settings
+    val mutable = browsersEditor.getMutable(row ?: addInstalledBrowser(installed!!))
+    mutable.name = browser.name
+    mutable.path = browser.path
+    mutable.family = browser.family
+    mutable.specificSettings = browser.specificSettings
+    val index = tableModel.indexOf(mutable)
+    tableModel.fireTableRowsUpdated(index, index)
+    val edited = choiceOf(mutable)
+    for (selectingModel in selectingModels) {
+      if (selectingModel.contains(edited)) {
+        selectingModel.selectedItem = edited
+      }
+    }
+  }
+
+  /** Opens [BrowserDialog] for a new browser. OK adds the browser to the table and selects it in [model]. */
+  private fun addBrowser(model: BrowserChoiceModel) {
+    val family = if (model.isChromiumBased) BrowserFamily.CHROME else null
+    val browser = ConfigurableWebBrowser(UUID.randomUUID(), family, "", null, true, family?.createBrowserSpecificSettings())
+    if (!BrowserDialog(browsersTable, browser, isAdd = true, isFamilyEditable = !model.isChromiumBased).showAndGet()) {
+      return
+    }
+    browsersEditor.model.addRow(browser)
+    model.selectedItem = choiceOf(browser)
   }
 
   /**
@@ -185,6 +283,7 @@ internal class BrowserSettingsConfigurable : UnnamedConfigurable {
       addAll(provided)
       addAll(listed)
       addAll(installed)
+      add(BrowserChoice.addItem())
     })
     // the provided browsers come after the browsers of the list, so a provider cannot take the id of the system default browser
     // or of a browser of the list
@@ -196,7 +295,7 @@ internal class BrowserSettingsConfigurable : UnnamedConfigurable {
     val choice = chromiumBasedBrowserModel.selected
     val listed = listedChromiumBasedBrowsers()
     val choices = listed + installedChromiumBasedChoices()
-    chromiumBasedBrowserModel.replaceAll(choices)
+    chromiumBasedBrowserModel.replaceAll(choices + BrowserChoice.addItem())
     chromiumBasedBrowserModel.selectedItem = choices.find { it.id == choice?.id } ?: chromeChoice(listed)
   }
 
@@ -250,13 +349,6 @@ internal class BrowserSettingsConfigurable : UnnamedConfigurable {
           }
         }
 
-        private fun cloneSettings(browser: ConfigurableWebBrowser): BrowserSpecificSettings? {
-          val settings = browser.specificSettings ?: return null
-          val newSettings = browser.family?.createBrowserSpecificSettings() ?: return null
-          TableModelEditor.cloneUsingXmlSerialization(settings, newSettings)
-          return newSettings
-        }
-
         override fun applyEdited(oldItem: ConfigurableWebBrowser, newItem: ConfigurableWebBrowser) {
           oldItem.specificSettings = newItem.specificSettings
         }
@@ -287,45 +379,55 @@ internal class BrowserSettingsConfigurable : UnnamedConfigurable {
           }
         })
 
-      row {
-        browsersTable = cell(browsersEditor.createComponent())
-          .align(Align.FILL)
-          .component
-      }.resizableRow()
+      browserChoiceRow(IdeBundle.message("settings.browsers.default.browser"), defaultBrowserModel)
+      browserChoiceRow(IdeBundle.message("settings.browsers.chromium.based.browser"), chromiumBasedBrowserModel)
 
-      row(IdeBundle.message("settings.browsers.default.browser")) {
-        comboBox(defaultBrowserModel, browserChoiceRenderer())
-      }
-
-      row(IdeBundle.message("settings.browsers.chromium.based.browser")) {
-        comboBox(chromiumBasedBrowserModel, browserChoiceRenderer())
-      }
-
-      group(IdeBundle.message("settings.browsers.show.browser.popup.in.the.editor")) {
+      sections = ConfigurableWrapper.createConfigurables(WebBrowserSettingsSectionEP.EP_NAME)
+      for (section in sections) {
+        val component = section.createComponent() ?: continue
         row {
-          showBrowserHover = checkBox(IdeBundle.message("settings.browsers.show.browser.popup.html")).component
+          cell(component).align(AlignX.FILL)
         }
-        row {
+      }
+
+      group(IdeBundle.message("settings.browsers.editor")) {
+        row(IdeBundle.message("settings.browsers.show.browser.popup.in")) {
+          showBrowserHover = checkBox(IdeBundle.message("settings.browsers.show.browser.popup.html")).component
           showBrowserHoverXml = checkBox(IdeBundle.message("settings.browsers.show.browser.popup.xml")).component
         }
       }
 
-      group(IdeBundle.message("settings.browsers.reload.behavior")) {
-        row(IdeBundle.message("setting.value.reload.mode.server")) {
-          serverReloadModeComboBox = comboBox(ReloadMode.entries, textListCellRenderer("") { it.title })
-            .component
+      collapsibleGroup(IdeBundle.message("settings.browsers.installed.browsers")) {
+        row {
+          comment(IdeBundle.message("settings.browsers.installed.browsers.comment"))
         }
-        row(IdeBundle.message("setting.value.reload.mode.preview")) {
-          previewReloadModeComboBox = comboBox(ReloadMode.entries, textListCellRenderer("") { it.title })
+        row {
+          browsersTable = cell(browsersEditor.createComponent())
+            .align(Align.FILL)
             .component
-        }
-      }
+        }.resizableRow()
+      }.resizableRow()
     }
     startDetection()
     return root
   }
 
+  /** A dropdown of [model] with the "Edit Browser…" icon button, see [editBrowser]. */
+  private fun Panel.browserChoiceRow(@NlsContexts.Label label: String, model: BrowserChoiceModel) {
+    row(label) {
+      val comboBox = comboBox(model, browserChoiceRenderer()).component
+      val editAction = DumbAwareAction.create(IdeBundle.message("settings.browsers.edit.browser"), AllIcons.Actions.Edit) {
+        editBrowser(model)
+      }
+      actionButton(editAction)
+        .gap(RightGap.SMALL)
+        .enabledIf(comboBox.selectedValueMatches(::isEditable))
+    }
+  }
+
   override fun disposeUIResources() {
+    sections.forEach { it.disposeUIResources() }
+    sections = emptyList()
     root = null
   }
 
@@ -335,8 +437,7 @@ internal class BrowserSettingsConfigurable : UnnamedConfigurable {
         chromiumBasedBrowserChoice != storedChromiumBasedChoice(browserManager) ||
         browserManager.isShowBrowserHover != showBrowserHover.isSelected ||
         browserManager.isShowBrowserHoverXml != showBrowserHoverXml.isSelected ||
-        browserManager.getWebPreviewReloadMode() !== previewReloadModeComboBox.item ||
-        browserManager.getWebServerReloadMode() !== serverReloadModeComboBox.item) {
+        sections.any { it.isModified }) {
       return true
     }
     return browsersEditor.isModified
@@ -350,13 +451,11 @@ internal class BrowserSettingsConfigurable : UnnamedConfigurable {
     // read the ids before the table applies its edits, because then the table replaces an edited copy with its original row.
     // both dropdowns can select one installed browser, and the table must get it only once
     val addedIds = HashMap<InstalledBrowser, UUID>()
-    fun idOf(choice: BrowserChoice?): UUID? = choice?.installed?.let { addedIds.getOrPut(it) { addInstalledBrowser(it) } } ?: choice?.id
+    fun idOf(choice: BrowserChoice?): UUID? = choice?.installed?.let { addedIds.getOrPut(it) { originalOf(addInstalledBrowser(it)).id } } ?: choice?.id
     val defaultBrowserId = idOf(defaultChoice)
     val chromiumBasedBrowserId = idOf(chromiumBasedChoice)
     browserManager.isShowBrowserHover = showBrowserHover.isSelected
     browserManager.isShowBrowserHoverXml = showBrowserHoverXml.isSelected
-    browserManager.webPreviewReloadMode = previewReloadModeComboBox.item
-    browserManager.webServerReloadMode = serverReloadModeComboBox.item
     browserManager.list = browsersEditor.apply()
     // the manager resolves the default browser in the new list
     browserManager.setDefaultBrowserId(defaultBrowserId)
@@ -365,18 +464,18 @@ internal class BrowserSettingsConfigurable : UnnamedConfigurable {
     defaultBrowserModel.selectedItem = storedChoice(browserManager)
     updateChromiumBasedBrowserChoices()
     chromiumBasedBrowserModel.selectedItem = storedChromiumBasedChoice(browserManager)
+    sections.filter { it.isModified }.forEach { it.apply() }
   }
 
   override fun reset() {
     val browserManager = WebBrowserManager.getInstance()
-    previewReloadModeComboBox.item = browserManager.getWebPreviewReloadMode()
-    serverReloadModeComboBox.item = browserManager.getWebServerReloadMode()
     showBrowserHover.isSelected = browserManager.isShowBrowserHover
     showBrowserHoverXml.isSelected = browserManager.isShowBrowserHoverXml
     browsersEditor.reset(browserManager.list)
     updateBrowserChoices()
     defaultBrowserModel.selectedItem = storedChoice(browserManager)
     chromiumBasedBrowserModel.selectedItem = storedChromiumBasedChoice(browserManager)
+    sections.forEach { it.reset() }
   }
 
   fun selectBrowser(browser: WebBrowser) {
@@ -443,10 +542,7 @@ internal class BrowserSettingsConfigurable : UnnamedConfigurable {
 
       override fun getEditor(item: ConfigurableWebBrowser): TableCellEditor {
         val comboBox = ComboBox(CollectionComboBoxModel(listOf(null) + BrowserFamily.entries))
-        comboBox.renderer = listCellRenderer(IdeBundle.message("settings.browsers.family.not.specified")) {
-          icon(value.icon)
-          text(value.getName())
-        }
+        comboBox.renderer = browserFamilyRenderer()
         return DefaultCellEditor(comboBox)
       }
 
@@ -472,8 +568,18 @@ internal class BrowserSettingsConfigurable : UnnamedConfigurable {
     )
 
     private fun browserChoiceRenderer(): ListCellRenderer<BrowserChoice?> = listCellRenderer("") {
+      if (value.isAddItem) {
+        separator {}
+      }
       icon(value.icon)
       text(value.name)
+    }
+
+    private fun cloneSettings(browser: ConfigurableWebBrowser): BrowserSpecificSettings? {
+      val settings = browser.specificSettings ?: return null
+      val newSettings = browser.family?.createBrowserSpecificSettings() ?: return null
+      TableModelEditor.cloneUsingXmlSerialization(settings, newSettings)
+      return newSettings
     }
   }
 }

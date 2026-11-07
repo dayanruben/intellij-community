@@ -5,6 +5,7 @@ import com.intellij.build.BuildContentManager;
 import com.intellij.build.BuildDescriptor;
 import com.intellij.build.BuildProgressListener;
 import com.intellij.build.BuildViewManager;
+import com.intellij.build.BuildViewSettingsProvider;
 import com.intellij.build.DefaultBuildDescriptor;
 import com.intellij.build.events.BuildEvent;
 import com.intellij.build.events.EventResult;
@@ -12,6 +13,7 @@ import com.intellij.build.events.FailureResult;
 import com.intellij.build.events.FileMessageEvent;
 import com.intellij.build.events.FinishBuildEvent;
 import com.intellij.build.events.MessageEvent;
+import com.intellij.build.events.OutputBuildEvent;
 import com.intellij.build.events.StartBuildEvent;
 import com.intellij.build.events.StartEvent;
 import com.intellij.build.events.impl.ProgressBuildEventImpl;
@@ -60,6 +62,7 @@ import com.intellij.util.ObjectUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.gradle.action.GradleRerunFailedTestsAction;
+import org.jetbrains.plugins.gradle.execution.build.GradleBuildViewSettingsProvider;
 import org.jetbrains.plugins.gradle.execution.filters.ReRunTaskFilter;
 import org.jetbrains.plugins.gradle.execution.test.runner.events.GradleTestEventsProcessor;
 import org.jetbrains.plugins.gradle.execution.test.runner.events.GradleTestsExecutionConsoleOutputProcessor;
@@ -182,9 +185,24 @@ public final class GradleTestsExecutionConsoleManager
 
           // do not open Build tw for any error messages as it can be tests failure events
           defaultBuildDescriptor.setActivateToolWindowWhenFailed(false);
-          event = new StartBuildEventImpl(defaultBuildDescriptor, event.getMessage());
+          event = new StartBuildEventImpl(
+            null,
+            event.getMessage(),
+            null,
+            null,
+            defaultBuildDescriptor,
+            new GradleBuildViewSettingsProvider()
+          );
         }
         buildViewManager.onEvent(buildId, event);
+
+        if (event instanceof OutputBuildEvent && event.getMessage().startsWith("<ijLog>")) {
+          GradleTestsExecutionConsoleOutputProcessor.onOutput(
+            consoleView,
+            event.getMessage(),
+            ((OutputBuildEvent)event).getOutputType()
+          );
+        }
 
         if (event instanceof StartEvent) {
           ProgressBuildEventImpl progressBuildEvent =
@@ -240,7 +258,7 @@ public final class GradleTestsExecutionConsoleManager
                        @NotNull ProcessHandler processHandler,
                        @NotNull String text,
                        @NotNull Key processOutputType) {
-    GradleTestsExecutionConsoleOutputProcessor.onOutput(executionConsole, text, processOutputType);
+    // plan text output for Gradle < 7.0 is process via OutputBuildEvent
   }
 
   @Override
@@ -303,5 +321,10 @@ public final class GradleTestsExecutionConsoleManager
       new GradleRerunFailedTestsAction(consoleView);
     rerunFailedTestsAction.setModelProvider(() -> consoleView.getResultsViewer());
     return new AnAction[]{rerunFailedTestsAction, new JvmToggleAutoTestAction()};
+  }
+
+  @Override
+  public @NotNull BuildViewSettingsProvider getExecutionConsoleSettings() {
+    return new GradleBuildViewSettingsProvider();
   }
 }

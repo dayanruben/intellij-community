@@ -36,6 +36,7 @@ import com.intellij.ui.ComponentUtil
 import com.intellij.util.AwaitCancellationAndInvoke
 import com.intellij.util.StartupUiGate
 import com.intellij.util.awaitCancellationAndInvoke
+import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.ui.AnimatedIcon
 import com.intellij.util.ui.AsyncProcessIcon
 import com.intellij.util.ui.EdtInvocationManager
@@ -74,6 +75,7 @@ import javax.swing.JPopupMenu
 import javax.swing.JRootPane
 import javax.swing.JSeparator
 import javax.swing.JWindow
+import javax.swing.RootPaneContainer
 import javax.swing.SwingUtilities
 import javax.swing.text.html.HTMLEditorKit
 import kotlin.coroutines.CoroutineContext
@@ -92,6 +94,7 @@ class IdeGlassPaneImpl : JComponent, IdeGlassPaneEx, IdeEventQueue.NonLockedEven
   private val namedPainters = HashMap<String, PainterHelper>()
   private var isPreprocessorActive = false
   private val listenerToCursor = LinkedHashMap<Any, Cursor>()
+  private val cursorOverride = GlassPaneCursorOverride(this, ::applyActivationState)
   private var lastCursorComponent: Component? = null
   private var lastOriginalCursor: Cursor? = null
   private var prevPressEvent: MouseEvent? = null
@@ -197,6 +200,30 @@ class IdeGlassPaneImpl : JComponent, IdeGlassPaneEx, IdeEventQueue.NonLockedEven
     fun forgetPreProcessedCursor(component: JComponent) {
       component.putClientProperty(PREPROCESSED_CURSOR_KEY, null)
     }
+
+    /**
+     * Sets the [cursor] override on the glass panes of all showing windows, see [setCursorOverride].
+     *
+     * The function gets the list of windows once, so a window that opens later does not get the override.
+     * It skips a window whose glass pane is not an [IdeGlassPaneImpl].
+     *
+     * @return the object that removes the override from the same glass panes; a second `close()` call does nothing
+     */
+    @RequiresEdt
+    internal fun overrideCursorInAllWindows(cursor: Cursor): AutoCloseable {
+      val glassPanes = Window.getWindows()
+        .filter { it.isShowing }
+        .mapNotNull { (it as? RootPaneContainer)?.rootPane?.glassPane as? IdeGlassPaneImpl }
+      val requestor = Any()
+      for (glassPane in glassPanes) {
+        glassPane.setCursorOverride(cursor, requestor)
+      }
+      return AutoCloseable {
+        for (glassPane in glassPanes) {
+          glassPane.setCursorOverride(null, requestor)
+        }
+      }
+    }
   }
 
   override fun doLayout() {
@@ -292,7 +319,7 @@ class IdeGlassPaneImpl : JComponent, IdeGlassPaneEx, IdeEventQueue.NonLockedEven
         dispatched = target is DnDAware && dispatchForDnDAware(event, point, target)
       }
     }
-    if (isVisible && componentCount == 0) {
+    if (isVisible && componentCount == 0 && !cursorOverride.isActive) {
       var cursorSet = false
       if (meComponent != null) {
         val parent = pane.contentPane.parent
@@ -480,6 +507,22 @@ class IdeGlassPaneImpl : JComponent, IdeGlassPaneEx, IdeEventQueue.NonLockedEven
     }
   }
 
+  /**
+   * Sets the [cursor] for the whole window of this glass pane, over the cursors of all components under the pane.
+   * Use `null` to remove the override of the [requestor].
+   *
+   * While an override is active, the pane is visible and enabled, so the AWT cursor lookup stops at the pane.
+   * The override also sets the cursor of the window of the pane.
+   * A cursor lookup that finds no component at the pointer uses the cursor of the window.
+   * If more than one requestor sets an override, the latest request wins.
+   *
+   * @see overrideCursorInAllWindows
+   */
+  @RequiresEdt
+  internal fun setCursorOverride(cursor: Cursor?, requestor: Any) {
+    cursorOverride.set(cursor, requestor)
+  }
+
   override fun addMousePreprocessor(listener: MouseListener, parent: Disposable) {
     doAddListener(listener, parent)
   }
@@ -530,7 +573,7 @@ class IdeGlassPaneImpl : JComponent, IdeGlassPaneEx, IdeEventQueue.NonLockedEven
 
   private fun applyActivationState() {
     val wasVisible = isVisible
-    val hasWork = loadingIndicator != null || painters.hasPainters() || componentCount > 0
+    val hasWork = loadingIndicator != null || painters.hasPainters() || componentCount > 0 || cursorOverride.isActive
     if (wasVisible != hasWork) {
       isVisible = hasWork
     }
@@ -663,6 +706,104 @@ private class IdePaneLoadingLayer(
       }
       else -> false
     }
+  }
+}
+
+/**
+ * The cursor override of a glass pane, see [IdeGlassPaneImpl.setCursorOverride].
+ *
+ * Debug logging shows each change of a request and each cursor change.
+ * Trace logging adds the stack trace of the call to each message.
+ *
+ * @param updateVisibility shows or hides the pane; the pane must be visible while [isActive] is `true`
+ */
+private class GlassPaneCursorOverride(private val glassPane: JComponent, private val updateVisibility: () -> Unit) {
+  private val requests = LinkedHashMap<Any, Cursor>()
+  private var paneCursorBefore: Cursor? = null
+  private var paneEnabledBefore = false
+  private var window: Window? = null
+  private var windowCursorBefore: Cursor? = null
+
+  val isActive: Boolean
+    get() = requests.isNotEmpty()
+
+  fun set(cursor: Cursor?, requestor: Any) {
+    val wasActive = isActive
+    val previousCursor = requests.remove(requestor)
+    if (cursor != null) {
+      requests.put(requestor, cursor)
+    }
+    log {
+      when {
+        previousCursor == null && cursor == null -> "No request of $requestor to remove"
+        previousCursor == null -> "Added the request of $requestor: ${cursorName(cursor)}, ${requests.size} request(s) now"
+        cursor == null -> "Removed the request of $requestor: ${cursorName(previousCursor)}, ${requests.size} request(s) left"
+        else -> "Replaced the request of $requestor: ${cursorName(previousCursor)} -> ${cursorName(cursor)}"
+      }
+    }
+    val activeCursor = requests.values.lastOrNull()
+    if (activeCursor != null) {
+      if (!wasActive) {
+        start()
+      }
+      log { "Setting the cursor ${cursorName(activeCursor)} on the pane and on ${describe(window)}" }
+      UIUtil.setCursor(glassPane, activeCursor)
+      window?.let { UIUtil.setCursor(it, activeCursor) }
+      updateVisibility()
+    }
+    else if (wasActive) {
+      updateVisibility()
+      stop()
+    }
+  }
+
+  private fun start() {
+    paneCursorBefore = ownCursor(glassPane)
+    paneEnabledBefore = glassPane.isEnabled
+    glassPane.isEnabled = true
+    val window = SwingUtilities.getWindowAncestor(glassPane)
+    this.window = window
+    windowCursorBefore = window?.let { ownCursor(it) }
+    log {
+      "Started the override: the pane cursor was ${cursorName(paneCursorBefore)}, the pane was enabled: $paneEnabledBefore, " +
+      "the cursor of ${describe(window)} was ${cursorName(windowCursorBefore)}"
+    }
+  }
+
+  private fun stop() {
+    log {
+      "Stopping the override: restoring the pane cursor ${cursorName(paneCursorBefore)}, the pane enabled state $paneEnabledBefore, " +
+      "the cursor ${cursorName(windowCursorBefore)} of ${describe(window)}"
+    }
+    glassPane.isEnabled = paneEnabledBefore
+    UIUtil.setCursor(glassPane, paneCursorBefore)
+    window?.let { UIUtil.setCursor(it, windowCursorBefore) }
+    paneCursorBefore = null
+    window = null
+    windowCursorBefore = null
+  }
+
+  private fun ownCursor(component: Component): Cursor? = if (component.isCursorSet) component.cursor else null
+
+  private inline fun log(message: () -> String) {
+    if (LOG.isTraceEnabled) {
+      LOG.trace(Throwable("$this: ${message()}"))
+    }
+    else if (LOG.isDebugEnabled) {
+      LOG.debug("$this: ${message()}")
+    }
+  }
+
+  override fun toString(): String =
+    "The cursor override of the glass pane @${System.identityHashCode(glassPane)} in ${describe(SwingUtilities.getWindowAncestor(glassPane))}"
+
+  private companion object {
+    val LOG = logger<GlassPaneCursorOverride>()
+
+    fun cursorName(cursor: Cursor?): String = cursor?.name ?: "inherited"
+
+    fun describe(component: Component?): String =
+      if (component == null) "no window" else "${component.javaClass.name}@${System.identityHashCode(component)}"
   }
 }
 

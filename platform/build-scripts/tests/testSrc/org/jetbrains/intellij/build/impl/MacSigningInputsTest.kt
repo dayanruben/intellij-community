@@ -1,7 +1,13 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.intellij.build.impl
 
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.assertj.core.api.Assertions.assertThat
+import org.jetbrains.intellij.build.BuildPaths.Companion.COMMUNITY_ROOT
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.nio.ByteBuffer
@@ -30,7 +36,27 @@ class MacSigningInputsTest {
     assertThat(inputs.binaries).containsExactlyInAnyOrder(tool, library)
     assertThat(inputs.archives).containsExactly(archive)
   }
+
+  /**
+   * The dev dist collector reads the same vectors with its own reader (`filemeta::macho` of the dev dist tools), so the
+   * two readers keep one rule.
+   */
+  @Test
+  fun `each Mach-O vector of the dev dist tools is a binary exactly when it has a kind`(@TempDir root: Path) {
+    val vectors = Json.parseToJsonElement(Files.readString(MAC_BINARY_VECTORS)).jsonObject.getValue("vectors").jsonArray
+    assertThat(vectors).hasSize(14)
+    for (vector in vectors.map { it.jsonObject }) {
+      val name = vector.getValue("name").jsonPrimitive.content
+      val file = root.resolve("file")
+      file.writeBytes(vector.getValue("bytes").jsonPrimitive.content.hexToByteArray())
+      val binary = vector.getValue("kind") !is JsonNull
+      assertThat(isMacBinary(file)).describedAs(name).isEqualTo(binary)
+    }
+  }
 }
+
+private val MAC_BINARY_VECTORS: Path =
+  COMMUNITY_ROOT.communityRoot.resolve("build/dev-dist-tools/crates/filemeta/testdata/mac-binary-vectors.json")
 
 /** The header of a thin 64-bit arm64 executable with no load commands. */
 private fun machOHeader(): ByteArray {

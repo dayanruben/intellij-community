@@ -1,14 +1,14 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.gradle.execution.build.output
 
-import com.intellij.build.events.BuildEvent
-import com.intellij.build.output.BuildOutputInstantReader
-import com.intellij.build.output.BuildOutputParser
+import com.intellij.build.events.StartId
+import com.intellij.build.output.BuildOutputInstantReaderImpl.BuildOutputLineParserBridge
+import com.intellij.build.output.BuildOutputMulticaster
+import com.intellij.build.output.BuildOutputReplayableLineReader
+import com.intellij.build.output.BuildOutputText
 import com.intellij.build.output.JavacOutputParser
-import com.intellij.openapi.util.NlsSafe
-import java.util.function.Consumer
 
-class GradleCompilationReportParser : BuildOutputParser {
+class GradleCompilationReportParser : BuildOutputLineParserBridge() {
 
   private companion object {
     private const val GROUPED_COMPILATION_ERROR = "> Compilation failed; see the compiler output below."
@@ -17,35 +17,45 @@ class GradleCompilationReportParser : BuildOutputParser {
     private val ERROR_GROUP_TERMINATOR = "(\\d+ error(s)?)".toRegex()
   }
 
-  override fun parse(line: @NlsSafe String, reader: BuildOutputInstantReader, messageConsumer: Consumer<in BuildEvent>): Boolean {
-    if (GROUPED_COMPILATION_ERROR != line) {
+  override suspend fun parse(
+    line: BuildOutputText,
+    reader: BuildOutputReplayableLineReader,
+    taskId: StartId,
+    multicaster: BuildOutputMulticaster,
+    isSingleFlow: Boolean,
+  ): Boolean {
+    if (GROUPED_COMPILATION_ERROR != line.text) {
       return false
     }
     val parser by lazy { JavacOutputParser() }
     var parsed = false
-    drainCompilationErrors(reader) { error ->
-      parsed = true
-      if (error.isNotEmpty()) {
-        parser.parse(error.first(), ErrorHolder(error, reader.parentEventId)) { event ->
-          messageConsumer.accept(event)
-        }
+    drainCompilationErrors(reader) { subLine, boundedReader ->
+      if (parser.parse(subLine, boundedReader, taskId, multicaster, isSingleFlow)) {
+        parsed = true
       }
     }
     return parsed
   }
 
-  private fun drainCompilationErrors(reader: BuildOutputInstantReader, errorConsumer: Consumer<List<String>>) {
-    val buffer = mutableListOf<String>()
+  private suspend fun drainCompilationErrors(
+    reader: BuildOutputReplayableLineReader,
+    errorConsumer: suspend (BuildOutputText, BuildOutputReplayableLineReader) -> Unit,
+  ) {
+    val buffer = mutableListOf<BuildOutputText>()
     do {
       val line = reader.readLine()
+      if (line == null) {
+        errorConsumer(buffer.first(), ArrayBackedReader(buffer))
+        return
+      }
+      val text = line.text
       when {
-        line == null || line == MESSAGE_GROUP_TERMINATOR || ERROR_GROUP_TERMINATOR.matches(line.trim()) -> {
-          errorConsumer.accept(buffer)
+        text == MESSAGE_GROUP_TERMINATOR || ERROR_GROUP_TERMINATOR.matches(text.trim()) -> {
           return
         }
-        line.trim() == ERROR_CURSOR -> {
+        text.trim() == ERROR_CURSOR -> {
           buffer.add(line)
-          errorConsumer.accept(buffer)
+          errorConsumer(buffer.first(), ArrayBackedReader(buffer))
           buffer.clear()
         }
         else -> buffer.add(line)
@@ -54,26 +64,20 @@ class GradleCompilationReportParser : BuildOutputParser {
     while (true)
   }
 
-  private class ErrorHolder(val errors: List<String>, val parentId: Any) : BuildOutputInstantReader {
-    private var index = 0
-    override fun getParentEventId(): Any {
-      return parentId
-    }
+  private class ArrayBackedReader(private val source: List<BuildOutputText>) : BuildOutputReplayableLineReader {
 
-    override fun readLine(): @NlsSafe String? {
-      if (index + 1 < errors.size) {
+    private var index = 0
+
+    override suspend fun readLine(): BuildOutputText? {
+      if (index + 1 < source.size) {
         index++
-        return errors[index]
+        return source[index]
       }
       return null
     }
 
-    override fun pushBack() {
-      index--
-    }
-
     override fun pushBack(numberOfLines: Int) {
-      index = index - numberOfLines
+      index -= numberOfLines
     }
   }
 }

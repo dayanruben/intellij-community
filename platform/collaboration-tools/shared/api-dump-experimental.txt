@@ -1,3 +1,50 @@
+*:com.intellij.collaboration.api.HttpApiHelper
+- a:handleStreamingResponse(java.lang.String,java.net.http.HttpResponse,kotlin.jvm.functions.Function3,kotlin.coroutines.Continuation):java.lang.Object
+- a:request(java.net.URI,kotlin.coroutines.Continuation):java.lang.Object
+- a:sendAndAwait(java.net.http.HttpRequest,java.lang.String,java.net.http.HttpResponse$BodyHandler,kotlin.coroutines.Continuation):java.lang.Object
+- a:sendAndAwait(java.net.http.HttpRequest,java.net.http.HttpResponse$BodyHandler,kotlin.coroutines.Continuation):java.lang.Object
+f:com.intellij.collaboration.api.HttpApiHelperKt
+- *sf:HttpApiHelper(com.intellij.openapi.diagnostic.Logger,com.intellij.collaboration.api.httpclient.HttpClientFactory,com.intellij.collaboration.api.httpclient.HttpRequestConfigurer):com.intellij.collaboration.api.HttpApiHelper
+- *bs:HttpApiHelper$default(com.intellij.openapi.diagnostic.Logger,com.intellij.collaboration.api.httpclient.HttpClientFactory,com.intellij.collaboration.api.httpclient.HttpRequestConfigurer,I,java.lang.Object):com.intellij.collaboration.api.HttpApiHelper
+*:com.intellij.collaboration.api.graphql.GraphQLApiHelper
+- a:loadResponseByClass(java.net.http.HttpRequest,java.lang.Class,java.lang.String[],kotlin.coroutines.Continuation):java.lang.Object
+- a:query(java.net.URI,kotlin.jvm.functions.Function0,java.lang.Object,kotlin.coroutines.Continuation):java.lang.Object
+- bs:query$default(com.intellij.collaboration.api.graphql.GraphQLApiHelper,java.net.URI,kotlin.jvm.functions.Function0,java.lang.Object,kotlin.coroutines.Continuation,I,java.lang.Object):java.lang.Object
+f:com.intellij.collaboration.api.graphql.GraphQLApiHelperKt
+- *sf:GraphQLApiHelper(com.intellij.openapi.diagnostic.Logger,com.intellij.collaboration.api.HttpApiHelper,com.intellij.collaboration.api.json.JsonDataSerializer,com.intellij.collaboration.api.graphql.GraphQLDataDeserializer):com.intellij.collaboration.api.graphql.GraphQLApiHelper
+*:com.intellij.collaboration.api.graphql.GraphQLDataDeserializer
+- a:readAndMapGQLResponse(java.io.InputStream,java.nio.charset.Charset,java.lang.String[],java.lang.Class):com.intellij.collaboration.api.dto.GraphQLResponseDTO
+- a:readAndMapGQLResponse(java.io.Reader,java.lang.String[],java.lang.Class):com.intellij.collaboration.api.dto.GraphQLResponseDTO
+f:com.intellij.collaboration.api.httpclient.HttpClientUtilKt
+- *sf:checkStatusCodeWithLogging(java.net.http.HttpResponse,com.intellij.openapi.diagnostic.Logger,java.lang.String,kotlin.coroutines.Continuation):java.lang.Object
+- *sf:checkStatusCodeWithLoggingBlocking(java.net.http.HttpResponse,com.intellij.openapi.diagnostic.Logger,java.lang.String):V
+- *sf:ensureAcceptHeader(java.net.http.HttpRequest,java.lang.String):java.net.http.HttpRequest
+- *sf:forceAcceptGzipEncoding(java.net.http.HttpRequest):java.net.http.HttpRequest
+- *sf:readBodyWithLogging(java.net.http.HttpResponse,com.intellij.openapi.diagnostic.Logger,java.lang.String,kotlin.jvm.functions.Function3,kotlin.coroutines.Continuation):java.lang.Object
+- *sf:readBodyWithLoggingBlocking(java.net.http.HttpResponse,com.intellij.openapi.diagnostic.Logger,java.lang.String,kotlin.jvm.functions.Function3):java.lang.Object
+- *sf:withNewBody(java.net.http.HttpResponse,java.lang.Object):java.net.http.HttpResponse
+*f:com.intellij.collaboration.api.json.HttpJsonSerializationException
+- java.lang.RuntimeException
+- <init>(java.lang.String,java.lang.Throwable):V
+*:com.intellij.collaboration.api.json.JsonDataDeserializer
+- a:fromJson(java.io.Reader,java.lang.Class):java.lang.Object
+- a:fromJson(java.io.Reader,java.lang.Class,java.lang.Class[]):java.lang.Object
+- a:readJson(java.io.InputStream,java.nio.charset.Charset,java.lang.Class):java.lang.Object
+- a:readJson(java.io.InputStream,java.nio.charset.Charset,java.lang.Class,java.lang.Class[]):java.lang.Object
+*:com.intellij.collaboration.api.json.JsonDataSerializer
+- a:toJsonBytes(java.lang.Object):B[]
+*:com.intellij.collaboration.api.json.JsonHttpApiHelper
+- a:jsonBodyPublisher(java.lang.String,java.net.URI,java.lang.Object,kotlin.coroutines.Continuation):java.lang.Object
+- a:loadJsonListByClass(java.net.http.HttpRequest,java.lang.Class,kotlin.coroutines.Continuation):java.lang.Object
+- a:loadJsonValueByClass(java.net.http.HttpRequest,java.lang.Class,kotlin.coroutines.Continuation):java.lang.Object
+- a:loadOptionalJsonListByClass(java.net.http.HttpRequest,java.lang.Class,kotlin.coroutines.Continuation):java.lang.Object
+- a:loadOptionalJsonValueByClass(java.net.http.HttpRequest,java.lang.Class,kotlin.coroutines.Continuation):java.lang.Object
+- a:postJson(java.net.URI,java.lang.Object,kotlin.coroutines.Continuation):java.lang.Object
+- a:putJson(java.net.URI,java.lang.Object,kotlin.coroutines.Continuation):java.lang.Object
+- a:sendJson(java.net.URI,java.lang.String,java.lang.Object,kotlin.coroutines.Continuation):java.lang.Object
+- a:withJsonContent(java.net.http.HttpRequest$Builder):java.net.http.HttpRequest$Builder
+f:com.intellij.collaboration.api.json.JsonHttpApiHelperKt
+- *sf:JsonHttpApiHelper(com.intellij.openapi.diagnostic.Logger,com.intellij.collaboration.api.HttpApiHelper,com.intellij.collaboration.api.json.JsonDataSerializer,com.intellij.collaboration.api.json.JsonDataDeserializer):com.intellij.collaboration.api.json.JsonHttpApiHelper
 *f:com.intellij.collaboration.async.CoroutineUtilKt
 - sf:DisposingMainScope(com.intellij.openapi.Disposable):kotlinx.coroutines.CoroutineScope
 - sf:awaitCancelling(kotlinx.coroutines.Deferred,kotlin.coroutines.Continuation):java.lang.Object
@@ -300,6 +347,8 @@
 - f:getPrimaryAction():kotlinx.coroutines.flow.StateFlow
 - f:getSecondaryActions():kotlinx.coroutines.flow.StateFlow
 - f:getSubmitHint():kotlinx.coroutines.flow.StateFlow
+*f:com.intellij.collaboration.ui.codereview.commits.CommitsUtilKt
+- sf:splitCommitMessage(java.lang.String):kotlin.Pair
 *a:com.intellij.collaboration.ui.codereview.diff.AddCommentGutterIconRenderer
 - com.intellij.openapi.Disposable
 - com.intellij.openapi.editor.markup.GutterIconRenderer
@@ -630,6 +679,51 @@ f:com.intellij.collaboration.ui.codereview.diff.viewer.DiffViewerUtilKt
 - sf:bindTextIn(javax.swing.text.JTextComponent,kotlinx.coroutines.CoroutineScope,kotlinx.coroutines.flow.Flow,kotlin.jvm.functions.Function1):V
 - sf:bindTooltipTextIn(javax.swing.JComponent,kotlinx.coroutines.CoroutineScope,kotlinx.coroutines.flow.Flow):V
 - sf:bindVisibilityIn(javax.swing.JComponent,kotlinx.coroutines.CoroutineScope,kotlinx.coroutines.flow.Flow):V
+*:com.intellij.collaboration.util.ChangesSelection
+- a:getChanges():java.util.List
+- a:getSelectedIdx():I
+*f:com.intellij.collaboration.util.ChangesSelection$Fuzzy
+- com.intellij.collaboration.util.ChangesSelection
+- <init>(java.util.List,I):V
+- b:<init>(java.util.List,I,I,kotlin.jvm.internal.DefaultConstructorMarker):V
+- f:component1():java.util.List
+- f:component2():I
+- f:copy(java.util.List,I):com.intellij.collaboration.util.ChangesSelection$Fuzzy
+- bs:copy$default(com.intellij.collaboration.util.ChangesSelection$Fuzzy,java.util.List,I,I,java.lang.Object):com.intellij.collaboration.util.ChangesSelection$Fuzzy
+- equals(java.lang.Object):Z
+- getChanges():java.util.List
+- getSelectedIdx():I
+- hashCode():I
+*f:com.intellij.collaboration.util.ChangesSelection$Precise
+- com.intellij.collaboration.util.ChangesSelection
+- <init>(java.util.List,I,kotlin.Pair):V
+- b:<init>(java.util.List,I,kotlin.Pair,I,kotlin.jvm.internal.DefaultConstructorMarker):V
+- <init>(java.util.List,com.intellij.openapi.vcs.changes.RefComparisonChange,kotlin.Pair):V
+- b:<init>(java.util.List,com.intellij.openapi.vcs.changes.RefComparisonChange,kotlin.Pair,I,kotlin.jvm.internal.DefaultConstructorMarker):V
+- f:component1():java.util.List
+- f:component2():I
+- f:component3():kotlin.Pair
+- f:copy(java.util.List,I,kotlin.Pair):com.intellij.collaboration.util.ChangesSelection$Precise
+- bs:copy$default(com.intellij.collaboration.util.ChangesSelection$Precise,java.util.List,I,kotlin.Pair,I,java.lang.Object):com.intellij.collaboration.util.ChangesSelection$Precise
+- equals(java.lang.Object):Z
+- getChanges():java.util.List
+- f:getLocation():kotlin.Pair
+- getSelectedIdx():I
+- hashCode():I
+f:com.intellij.collaboration.util.ChangesSelectionKt
+- *sf:equalChanges(com.intellij.collaboration.util.ChangesSelection,java.lang.Object):Z
+*:com.intellij.collaboration.util.ComputableSequence
+- *sf:Companion:com.intellij.collaboration.util.ComputableSequence$Companion
+- a:getComputer():com.intellij.collaboration.util.SequenceComputer
+*f:com.intellij.collaboration.util.ComputableSequence$Companion
+- f:byCursor(java.lang.Object,kotlin.jvm.functions.Function2):com.intellij.collaboration.util.ComputableSequence
+- f:byPointer(java.lang.Object,kotlin.jvm.functions.Function2):com.intellij.collaboration.util.ComputableSequence
+f:com.intellij.collaboration.util.ComputableSequenceKt
+- *sf:asComputedSequence(kotlin.sequences.Sequence):com.intellij.collaboration.util.ComputableSequence
+- *sf:asFlow(com.intellij.collaboration.util.ComputableSequence):kotlinx.coroutines.flow.Flow
+- *sf:map(com.intellij.collaboration.util.ComputableSequence,kotlin.jvm.functions.Function1):com.intellij.collaboration.util.ComputableSequence
+- *sf:mapItems(com.intellij.collaboration.util.ComputableSequence,kotlin.jvm.functions.Function1):com.intellij.collaboration.util.ComputableSequence
+- *sf:toList(com.intellij.collaboration.util.ComputableSequence,kotlin.coroutines.Continuation):java.lang.Object
 *:com.intellij.collaboration.util.Hideable
 - a:getHiddenState():kotlinx.coroutines.flow.StateFlow
 - a:setHidden(Z):V
@@ -637,3 +731,27 @@ f:com.intellij.collaboration.ui.codereview.diff.viewer.DiffViewerUtilKt
 - sf:collectIncrementallyTo(kotlinx.coroutines.flow.Flow,kotlinx.coroutines.flow.FlowCollector,kotlin.coroutines.Continuation):java.lang.Object
 - sf:onNoValue(com.intellij.collaboration.util.IncrementallyComputedValue,kotlin.jvm.functions.Function0):com.intellij.collaboration.util.IncrementallyComputedValue
 - sf:onValueAvailable(com.intellij.collaboration.util.IncrementallyComputedValue,kotlin.jvm.functions.Function1):com.intellij.collaboration.util.IncrementallyComputedValue
+*:com.intellij.collaboration.util.SequenceComputer
+- *sf:Companion:com.intellij.collaboration.util.SequenceComputer$Companion
+- a:computeNext(kotlin.coroutines.Continuation):java.lang.Object
+*f:com.intellij.collaboration.util.SequenceComputer$Companion
+- f:byCursor(java.lang.Object,kotlin.jvm.functions.Function2):com.intellij.collaboration.util.SequenceComputer
+- f:byPointer(java.lang.Object,kotlin.jvm.functions.Function2):com.intellij.collaboration.util.SequenceComputer
+*:com.intellij.collaboration.util.SequenceComputer$ComputationOutcome
+*f:com.intellij.collaboration.util.SequenceComputer$ComputationOutcome$Done
+- com.intellij.collaboration.util.SequenceComputer$ComputationOutcome
+- sf:INSTANCE:com.intellij.collaboration.util.SequenceComputer$ComputationOutcome$Done
+*f:com.intellij.collaboration.util.SequenceComputer$ComputationOutcome$Item
+- com.intellij.collaboration.util.SequenceComputer$ComputationOutcome
+- <init>(java.lang.Object):V
+- f:component1():java.lang.Object
+- f:copy(java.lang.Object):com.intellij.collaboration.util.SequenceComputer$ComputationOutcome$Item
+- bs:copy$default(com.intellij.collaboration.util.SequenceComputer$ComputationOutcome$Item,java.lang.Object,I,java.lang.Object):com.intellij.collaboration.util.SequenceComputer$ComputationOutcome$Item
+- equals(java.lang.Object):Z
+- f:getValue():java.lang.Object
+- hashCode():I
+*:com.intellij.collaboration.util.SequenceItem
+- a:getValue():java.lang.Object
+- a:isLast():Z
+f:com.intellij.collaboration.util.SequenceItemKt
+- *sf:SequenceItem(java.lang.Object,Z):com.intellij.collaboration.util.SequenceItem

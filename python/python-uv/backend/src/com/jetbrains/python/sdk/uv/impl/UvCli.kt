@@ -1,0 +1,104 @@
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+package com.jetbrains.python.sdk.uv.impl
+
+import com.intellij.openapi.ui.ValidationInfo
+import com.intellij.platform.eel.provider.localEel
+import com.intellij.python.community.execService.Args
+import com.intellij.python.community.execService.DownloadConfig
+import com.intellij.python.community.execService.EnvVar
+import com.intellij.python.community.execService.EnvVarVal
+import com.intellij.python.community.execService.ZeroCodeStdoutTransformer
+import com.intellij.python.pyproject.PY_PROJECT_TOML
+import com.intellij.python.pytools.resolveExecutable
+import com.intellij.python.uv.backend.PyUvBundle
+import com.intellij.python.uv.backend.UvPyTool
+import com.jetbrains.python.errorProcessing.PyResult
+import com.jetbrains.python.pathValidation.PlatformAndRoot
+import com.jetbrains.python.pathValidation.ValidationRequest
+import com.jetbrains.python.pathValidation.validateExecutableFile
+import com.jetbrains.python.sdk.add.v2.FileSystem
+import com.jetbrains.python.sdk.add.v2.PathHolder
+import com.jetbrains.python.sdk.add.v2.toFileSystem
+import com.jetbrains.python.sdk.runExecutableWithProgress
+import com.jetbrains.python.sdk.uv.UvCli
+import com.jetbrains.python.uv.UV_LOCK
+import com.jetbrains.python.venvReader.VirtualEnvReader
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.jetbrains.annotations.ApiStatus
+import java.nio.file.Path
+import kotlin.time.Duration.Companion.minutes
+
+
+private fun <P : PathHolder> validateUvExecutable(uvPath: P?, platformAndRoot: PlatformAndRoot): ValidationInfo? {
+  return validateExecutableFile(ValidationRequest(
+    path = uvPath?.toStringOnRemoteMachine(),
+    fieldIsEmpty = PyUvBundle.message("python.sdk.uv.executable.not.found"),
+    platformAndRoot = platformAndRoot
+  ))
+}
+
+private suspend fun <P : PathHolder> runUv(
+  uv: P,
+  workingDir: Path?,
+  venvPath: P?,
+  fileSystem: FileSystem<P>,
+  canChangeTomlOrLock: Boolean,
+  args: Args,
+): PyResult<String> {
+  val env = buildList {
+    if (venvPath == null) {
+      add(EnvVar("VIRTUAL_ENV", VirtualEnvReader.DEFAULT_VIRTUALENV_DIRNAME))
+    }
+    else {
+      add(EnvVar("VIRTUAL_ENV", EnvVarVal.RemotePath(venvPath.toStringOnRemoteMachine())))
+    }
+    venvPath?.let { add(EnvVar("UV_PROJECT_ENVIRONMENT", EnvVarVal.RemotePath(it.toStringOnRemoteMachine()))) }
+  }
+  val bin = fileSystem.getBinaryToExec(uv, workingDir)
+  val downloadConfig = if (canChangeTomlOrLock) DownloadConfig(relativePaths = listOf(PY_PROJECT_TOML, UV_LOCK.value)) else null
+  return runExecutableWithProgress(bin,
+                                   env = env,
+                                   timeout = 10.minutes,
+                                   args = args,
+                                   transformer = ZeroCodeStdoutTransformer,
+                                   downloadConfig = downloadConfig)
+}
+
+private class UvCliImpl<P : PathHolder>(val dispatcher: CoroutineDispatcher, val uv: P, override val fileSystem: FileSystem<P>) : UvCli<P> {
+
+  override suspend fun runUv(workingDir: Path?, venvPath: P?, canChangeTomlOrLock: Boolean, args: Args): PyResult<String> =
+    withContext(dispatcher) {
+      runUv(uv, workingDir, venvPath, fileSystem, canChangeTomlOrLock, args)
+    }
+
+  override suspend fun runUv(workingDir: Path?, venvPath: P?, canChangeTomlOrLock: Boolean, vararg args: String): PyResult<String> =
+    runUv(workingDir, venvPath, canChangeTomlOrLock, Args(*args))
+}
+
+suspend fun hasUvExecutableLocal(): Boolean {
+  return UvPyTool.getInstance().resolveExecutable(localEel.toFileSystem()) != null
+}
+
+internal suspend fun createUvCliLocal(uv: Path? = null, dispatcher: CoroutineDispatcher = Dispatchers.IO): PyResult<UvCli<PathHolder.Eel>> {
+  return validateAndCreateUvCli(uv?.let { PathHolder.Eel(it) }, localEel.toFileSystem(), dispatcher)
+}
+
+@ApiStatus.Internal
+fun <P : PathHolder> createUvCli(uv: P, fileSystem: FileSystem<P>, dispatcher: CoroutineDispatcher = Dispatchers.IO): UvCli<P> =
+  UvCliImpl(dispatcher, uv, fileSystem)
+
+@ApiStatus.Internal
+suspend fun <P : PathHolder> validateAndCreateUvCli(
+  uv: P?,
+  fileSystem: FileSystem<P>,
+  dispatcher: CoroutineDispatcher = Dispatchers.IO,
+): PyResult<UvCli<P>> {
+  val path = uv ?: UvPyTool.getInstance().resolveExecutable(fileSystem, null)
+  val error = validateUvExecutable(path, fileSystem.platformAndRoot)
+  return if (error != null) {
+    PyResult.localizedError(error.message)
+  }
+  else PyResult.success(UvCliImpl(dispatcher, path!!, fileSystem))
+}

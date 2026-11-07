@@ -2,31 +2,33 @@
 package com.intellij.build.output
 
 import com.intellij.build.FilePosition
-import com.intellij.build.events.BuildEvent
+import com.intellij.build.eventBuilders.MessageEventBuilder
 import com.intellij.build.events.BuildEventsNls
 import com.intellij.build.events.MessageEvent
-import com.intellij.build.events.impl.FileMessageEventImpl
-import com.intellij.build.events.impl.MessageEventImpl
+import com.intellij.build.events.OutputId
+import com.intellij.build.events.StartId
+import com.intellij.build.output.BuildOutputInstantReaderImpl.BuildOutputLineParserBridge
 import com.intellij.lang.LangBundle
 import com.intellij.openapi.util.NlsSafe
+import com.intellij.openapi.util.io.toNioPathOrNull
 import com.intellij.openapi.util.text.StringUtil
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.Contract
 import org.jetbrains.annotations.NonNls
-import java.io.File
 import java.net.URI
 import java.util.Locale
 import java.util.function.Consumer
 import java.util.regex.Matcher
 import java.util.regex.Pattern
+import kotlin.io.path.extension
+import kotlin.io.path.isRegularFile
 import kotlin.io.path.toPath
-
 
 /**
  * Parses kotlinc's output.
  */
 @ApiStatus.Internal
-class KotlincOutputParser : BuildOutputParser {
+class KotlincOutputParser : BuildOutputLineParserBridge() {
 
   @ApiStatus.Internal
   companion object {
@@ -51,31 +53,36 @@ class KotlincOutputParser : BuildOutputParser {
     }
   }
 
-  override fun parse(line: String, reader: BuildOutputInstantReader, consumer: Consumer<in BuildEvent>): Boolean {
-    val colonIndex1 = line.colon()
+  override suspend fun parse(
+    line: BuildOutputText,
+    reader: BuildOutputReplayableLineReader,
+    taskId: StartId,
+    multicaster: BuildOutputMulticaster,
+    isSingleFlow: Boolean,
+  ): Boolean {
+    val colonIndex1 = line.text.colon()
 
-    val severity = if (colonIndex1 >= 0) line.substringBeforeAndTrim(colonIndex1) else return false
+    val severity = if (colonIndex1 >= 0) line.text.substringBeforeAndTrim(colonIndex1) else return false
     if (!severity.startsWithSeverityPrefix()) return false
 
-    val lineWoSeverity = line.substringAfterAndTrim(colonIndex1)
-    var path = extractPath(lineWoSeverity) ?: return false
+    val lineWoSeverity = line.text.substringAfterAndTrim(colonIndex1)
+    val path = extractPath(lineWoSeverity) ?: return false
 
-
-    val file = if (path.startsWith("file:")) {
-      try {
-        URI(path).toPath().toFile()
-      } catch (_: Exception) {
-        File(path)
-      }
-    } else {
-      File(path)
+    val file = when (path.startsWith("file:")) {
+      true -> runCatching { URI(path).toPath() }.getOrNull()
+      else -> path.toNioPathOrNull()
     }
 
-    val fileExtension = file.extension.lowercase(Locale.getDefault())
-    if (!file.isFile || (fileExtension != "kt" && fileExtension != "kts" && fileExtension != "java")) { //NON-NLS
-      @NlsSafe
-      val combinedMessage = lineWoSeverity.amendNextLinesIfNeeded(reader)
-      return addMessage(createMessage(reader.parentEventId, getMessageKind(severity), lineWoSeverity, combinedMessage), consumer)
+    val fileExtension = file?.extension?.lowercase(Locale.getDefault())
+    if (file == null || !file.isRegularFile() || (fileExtension != "kt" && fileExtension != "kts" && fileExtension != "java")) {
+      multicaster.notifyBuildEvent(
+        MessageEvent.builder(lineWoSeverity.trim(), getMessageKind(severity)) //NON-NLS
+          .withParentId(taskId)
+          .withGroup(COMPILER_MESSAGES_GROUP)
+          .withDescription(lineWoSeverity.amendNextLinesIfNeeded(line.ids, reader), isSingleFlow)
+          .build()
+      )
+      return true
     }
 
     val lineWoPath = lineWoSeverity.substringAfterAndTrim(path.length)
@@ -110,26 +117,45 @@ class KotlincOutputParser : BuildOutputParser {
       }
     }
     if (lineWoPositionIndex >= 0) {
-      val relatedNextLines = "".amendNextLinesIfNeeded(reader)
-      val message = lineWoPath.substringAfterAndTrim(lineWoPositionIndex) + relatedNextLines
-      val details = line + relatedNextLines
+      val relatedNextLines = "".amendNextLinesIfNeeded(line.ids, reader)
+      val message = lineWoPath.substringAfterAndTrim(lineWoPositionIndex) + relatedNextLines.text
+      val details = (listOf(line) + relatedNextLines).joinToText()
 
       if (matcher != null && matcher.matches()) {
         val lineNumber = matcher.group(1)
         val symbolNumber = if (matcher.groupCount() >= 2) matcher.group(2) else "1"
         if (lineNumber != null) {
           val symbolNumberText = symbolNumber.toInt()
-          return addMessage(createMessageWithLocation(
-            reader.parentEventId, getMessageKind(severity), message, file, lineNumber.toInt(), symbolNumberText, details), consumer)
+          multicaster.notifyBuildEvent(
+            MessageEvent.builder(message.trim(), getMessageKind(severity)) //NON-NLS
+              .withParentId(taskId)
+              .withGroup(COMPILER_MESSAGES_GROUP)
+              .withDescription(details, isSingleFlow)
+              .withFilePosition(FilePosition(file, lineNumber.toInt() - 1, symbolNumberText - 1))
+              .build()
+          )
+          return true
         }
       }
 
-      return addMessage(createMessage(reader.parentEventId, getMessageKind(severity), message, details), consumer)
+      multicaster.notifyBuildEvent(
+        MessageEvent.builder(message.trim(), getMessageKind(severity)) //NON-NLS
+          .withParentId(taskId)
+          .withGroup(COMPILER_MESSAGES_GROUP)
+          .withDescription(details, isSingleFlow)
+          .build()
+      )
+      return true
     }
     else {
-      @NlsSafe
-      val combinedMessage = lineWoSeverity.amendNextLinesIfNeeded(reader)
-      return addMessage(createMessage(reader.parentEventId, getMessageKind(severity), lineWoSeverity, combinedMessage), consumer)
+      multicaster.notifyBuildEvent(
+        MessageEvent.builder(lineWoSeverity.trim(), getMessageKind(severity)) //NON-NLS
+          .withParentId(taskId)
+          .withGroup(COMPILER_MESSAGES_GROUP)
+          .withDescription(lineWoSeverity.amendNextLinesIfNeeded(line.ids, reader), isSingleFlow)
+          .build()
+      )
+      return true
     }
   }
 
@@ -139,22 +165,38 @@ class KotlincOutputParser : BuildOutputParser {
   private val JAVAC_POSITION_PATTERN = Pattern.compile("([0-9]+)")
   private val LINE_COLON_COLUMN_POSITION_PATTERN = Pattern.compile("([0-9]*):([0-9]*)")
 
-  private fun String.amendNextLinesIfNeeded(reader: BuildOutputInstantReader): String {
-    var nextLine = reader.readLine()
+  private suspend fun String.amendNextLinesIfNeeded(
+    sourceLineOutputIds: List<OutputId>,
+    reader: BuildOutputReplayableLineReader,
+  ): BuildOutputText = buildList {
+    add(BuildOutputText.createOutputText(sourceLineOutputIds, this@amendNextLinesIfNeeded))
 
-    val builder = StringBuilder(this)
+    var nextLine = reader.readLine()
     while (nextLine != null) {
-      if (nextLine.isNextMessage()) {
-        reader.pushBack()
+      if (nextLine.text.isNextMessage()) {
+        reader.pushBack(1)
         break
       }
       else {
-        builder.append("\n").append(nextLine)
+        add(nextLine)
         nextLine = reader.readLine()
       }
     }
-    return builder.toString()
-  }
+  }.joinToText()
+
+  private fun List<BuildOutputText>.joinToText(): BuildOutputText =
+    BuildOutputText.createOutputText(
+      flatMap { it.ids },
+      map { it.text }
+        .filter { it.isNotBlank() }
+        .joinToString()
+    )
+
+  private fun MessageEventBuilder.withDescription(line: BuildOutputText, isSingleFlow: Boolean): MessageEventBuilder =
+    when (isSingleFlow) {
+      true -> withOutputIds(line.ids)
+      else -> withDescription(line.text)
+    }
 
   private fun String.isNextMessage(): Boolean {
     val colonIndex1 = indexOf(COLON)
@@ -206,31 +248,10 @@ class KotlincOutputParser : BuildOutputParser {
            && messageText.contains(KAPT_ERROR_WHILE_ANNOTATION_PROCESSING_MARKER_TEXT)
   }
 
-  private fun addMessage(message: MessageEvent, consumer: Consumer<in MessageEvent>): Boolean {
+  private fun Consumer<in MessageEvent>.notifyMessageEvent(message: MessageEvent) {
     // Ignore KaptError.ERROR_RAISED message from kapt. We already processed all errors from annotation processing
-    if (isKaptErrorWhileAnnotationProcessing(message)) return true
-    consumer.accept(message)
-    return true
+    if (!isKaptErrorWhileAnnotationProcessing(message)) {
+      accept(message)
+    }
   }
-
-  private fun createMessage(parentId: Any,
-                            messageKind: MessageEvent.Kind,
-                            text: @BuildEventsNls.Message String,
-                            detail: @BuildEventsNls.Description String): MessageEvent {
-    return MessageEventImpl(parentId, messageKind, COMPILER_MESSAGES_GROUP, text.trim(), detail) //NON-NLS
-  }
-
-  private fun createMessageWithLocation(
-    parentId: Any,
-    messageKind: MessageEvent.Kind,
-    text: @BuildEventsNls.Message String,
-    file: File,
-    lineNumber: Int,
-    columnIndex: Int,
-    detail: @BuildEventsNls.Description String
-  ): FileMessageEventImpl {
-    return FileMessageEventImpl(parentId, messageKind, COMPILER_MESSAGES_GROUP, text.trim(), detail, //NON-NLS
-                                FilePosition(file, lineNumber - 1, columnIndex - 1))
-  }
-
 }

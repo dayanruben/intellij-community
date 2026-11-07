@@ -6,10 +6,11 @@ targets:
   - ../src/com/intellij/platform/settings/v2/SettingsVault.kt
   - ../src/com/intellij/platform/settings/v2/SettingsMutationBuilder.kt
   - ../src/com/intellij/platform/settings/v2/SettingsApi.kt
+  - ../src/com/intellij/platform/settings/v2/SettingsBlockingApi.kt
   - ../src/com/intellij/platform/settings/v2/LayerProvider.kt
   - ../shared/src/com/intellij/platform/settings/v2/impl/SettingsVaultImpl.kt
   - ../shared/src/com/intellij/platform/settings/v2/impl/SettingsAppLifecycleListener.kt
-  - ../backend/src/com/intellij/platform/settings/v2/impl/SettingsProjectListener.kt
+  - ../backend/baseline/src/com/intellij/platform/settings/v2/impl/SettingsProjectListener.kt
 ---
 
 # Settings Writes
@@ -60,6 +61,10 @@ A batch applies several writes and slot operations as one atomic change.
   [@test] ../test/src/com/intellij/platform/settings/v2/SettingsLayerKeyFilterTest.kt
 - A write that a file layer refuses must climb to a wider context. Then it affects the siblings too.
   [@test] ../test/src/com/intellij/platform/settings/v2/SettingsWriteFallthroughTest.kt
+- A write at a file context with no file layer at all, as in the light mode, must climb to the project layer, and
+  the project layer must persist it as a write at the project context. See
+  [ADR 0164](../adr/0164-file-settings-are-off-in-the-light-mode-until-the-move-to-the-full-mode.md).
+  [@test] ../test/src/com/intellij/platform/settings/v2/SettingsClimbedWritePersistenceTest.kt
 - A write that no layer in the whole chain takes must fail with `IllegalStateException`. The message names the key
   and the context. It does not name a layer.
   [@test] ../test/src/com/intellij/platform/settings/v2/SettingsLayerWriteLocalitiesTest.kt
@@ -67,6 +72,9 @@ A batch applies several writes and slot operations as one atomic change.
   See [ADR 0032](../adr/0032-reads-are-synchronous-and-writes-suspend.md) and
   [ADR 0058](../adr/0058-mutations-apply-as-atomic-declarative-batches-under-one-lock.md).
   [@test] ../test/src/com/intellij/platform/settings/v2/SettingsResolutionTest.kt
+- `SettingsBlockingApi.set` must block until the write is applied, for a caller that cannot suspend. See
+  [ADR 0032](../adr/0032-reads-are-synchronous-and-writes-suspend.md).
+  [@test] ../test/src/com/intellij/platform/settings/v2/SettingsBlockingApiTest.kt
 - A write must wait until its context is ready. See [Layer Loading](layer-loading.spec.md) and
   [ADR 0063](../adr/0063-a-write-waits-for-its-scope-to-be-ready-and-a-read-never-waits.md).
   [@test] ../test/src/com/intellij/platform/settings/v2/SettingsReadinessGateTest.kt

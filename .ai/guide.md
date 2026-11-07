@@ -35,8 +35,8 @@ This repository is too large for an ad hoc Git worktree or clone. Create one onl
 
 Branch Deck is optional. First check for the `branch-deck` skill: the skill list of the agent names it, or `~/.agents/skills/branch-deck/SKILL.md` exists.
 
-- With the skill, follow it before the first edit, build or commit. This applies to every agent. Run `bd workspace -C <repo>` and follow its output.
-- When `lease.on` is true, run `bd lease get` and edit, build and commit only in the lease `path`.
+- With the skill, follow it before the first edit, build or commit. This applies to every agent. Run `brd workspace -C <repo>` and follow its output.
+- When `lease.on` is true, run `brd lease get` and edit, build and commit only in the lease `path`.
 - A plan does not replace this check. With the skill, each plan that edits code starts with a workspace stage.
 - Without the skill, work in the current checkout. The plan then has no workspace stage.
 
@@ -47,6 +47,11 @@ Branch Deck is optional. First check for the `branch-deck` skill: the skill list
 - After you change a Bazel or Starlark source (`BUILD`, `BUILD.bazel`, `MODULE.bazel`, `WORKSPACE`, `WORKSPACE.bazel`, or `*.bzl`), run `./bazel.cmd run //:format.check`. If it reports a diff, run `./bazel.cmd run //:format`, inspect the changes, and run the check again.
 <!-- IF_EDITION:ULTIMATE -->- After you change an `*.iml`, a `BUILD.bazel`, or a `.idea/` file, run `./build/jpsModelToBazel.cmd`.
 - After you change the version of a repository library, follow [Library Versions](../../.ai/library-versions.md).<!-- /IF_EDITION:ULTIMATE --><!-- IF_EDITION:COMMUNITY -->- After you change an `*.iml`, a `BUILD.bazel`, or a `.idea/` file, run `./build/jpsModelToBazelCommunityOnly.cmd`.<!-- /IF_EDITION:COMMUNITY -->
+
+### Before a Commit
+
+- Read the [commits](../.agents/skills/commits/SKILL.md) skill before each commit, amend or reword. It holds the subject form that SafePush checks and the form of the body.
+- With a Branch Deck prefix, the subject is `(branch) ` and then the form of the `commits` skill: `(dev-dist-cache) setup build: <sentence>`. Branch Deck removes the prefix at the push, and SafePush checks the rest.
 
 ## Tools
 

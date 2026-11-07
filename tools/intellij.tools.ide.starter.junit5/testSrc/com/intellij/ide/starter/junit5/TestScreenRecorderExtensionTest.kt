@@ -10,6 +10,7 @@ import com.intellij.ide.starter.runner.IDERunContext
 import com.intellij.ide.starter.runner.TestMethod
 import com.intellij.ide.starter.runner.events.IdeAfterLaunchEvent
 import com.intellij.ide.starter.runner.events.IdeLaunchEvent
+import com.intellij.ide.starter.runner.events.MetricsPublishedEvent
 import com.intellij.ide.starter.screenRecorder.IDEScreenRecorder
 import com.intellij.tools.ide.starter.bus.EventsBus
 import org.junit.jupiter.api.AfterEach
@@ -49,7 +50,12 @@ internal class TestScreenRecorderExtensionTest {
   lateinit var testHome: Path
 
   private val recordings = mutableListOf<CreatedRecording>()
-  private val extension = TestScreenRecorderExtension { runContext, directory, prefix -> createRecorder(runContext, directory, prefix) }
+  private var runningOnCI = false
+  private val testInfraFailures = mutableListOf<Pair<String, String>>()
+  private val extension = TestScreenRecorderExtension(
+    isRunningOnCI = { runningOnCI },
+    reportTestInfraFailure = { testName, message -> testInfraFailures.add(testName to message) },
+  ) { runContext, directory, prefix -> createRecorder(runContext, directory, prefix) }
   private val context = testContext()
 
   @BeforeEach
@@ -130,19 +136,72 @@ internal class TestScreenRecorderExtensionTest {
   }
 
   @Test
-  fun `does not record a test without the annotation`() {
-    val unrecorded = testContext(methodName = "unrecordedTest")
-    ideLaunched(runContext())
-    startTest(unrecorded)
-    ideLaunched(runContext())
-    extension.afterTestExecution(unrecorded)
-    assertTrue(recordings.isEmpty(), "recording an unannotated test would run a recorder for every test in the repository")
+  fun `records a test without any annotation`() {
+    val plain = testContext(methodName = "plainTest")
+    ideLaunched(runContext()) // an IDE shared by the class
+    startTest(plain)
+    extension.afterTestExecution(plain)
+    assertEquals(1, recordings.size, "a shared IDE is recorded for a test that carries no annotation")
 
-    ConfigurationStorage.instance().put(SCREEN_RECORDING_ENABLED, true)
-    startTest(unrecorded)
+    startTest(plain)
+    ideLaunched(runContext()) // an IDE the test starts itself
+    extension.afterTestExecution(plain)
+    assertEquals(2, recordings.size, "an IDE the test starts is recorded too, with no annotation and no setting")
+  }
+
+  @Test
+  fun `does not record a performance test`() {
+    val performance = testContext(methodName = "performanceTest")
+    ideLaunched(runContext()) // an IDE shared by the class
+    startTest(performance)
+    ideLaunched(runContext()) // an IDE the test starts itself
+    extension.afterTestExecution(performance)
+
+    assertTrue(recordings.isEmpty(), "a recorder would distort the measurements of a performance test")
+  }
+
+  @Test
+  fun `decides for each test method on its own`() {
     ideLaunched(runContext())
-    extension.afterTestExecution(unrecorded)
-    assertEquals(1, recordings.size, "the setting records a test that carries no annotation")
+    listOf("performanceTest", "plainTest", "anotherPerformanceTest").forEach { methodName ->
+      val test = testContext(methodName = methodName)
+      startTest(test)
+      extension.afterTestExecution(test)
+    }
+
+    assertEquals(listOf("plain-test"), recordings.map { it.directory.name }, "only the unmarked method of the class is recorded")
+    verify(recordings.single().recorder, times(1)).stop()
+  }
+
+  @Test
+  fun `does not record a performance test even with WithScreenRecording or the setting`() {
+    ConfigurationStorage.instance().put(SCREEN_RECORDING_ENABLED, true)
+    listOf(
+      testContext(methodName = "performanceTestWithScreenRecording"),
+      testContext(methodName = "recordedTest", testClass = PerformanceTestClass::class.java),
+    ).forEach { test ->
+      startTest(test)
+      ideLaunched(runContext())
+      extension.afterTestExecution(test)
+    }
+
+    assertTrue(recordings.isEmpty(), "the performance marker wins over every way of asking for a recording")
+  }
+
+  @Test
+  fun `a class marker covers its methods, its subclasses and its nested classes`() {
+    listOf(
+      testContext(methodName = "inheritedTest", testClass = PerformanceTestClass::class.java),
+      testContext(methodName = "inheritedTest", testClass = PerformanceTestSubclass::class.java),
+      testContext(methodName = "ownTest", testClass = PerformanceTestSubclass::class.java),
+      testContext(methodName = "nestedTest", testClass = PerformanceTestClass.NestedTests::class.java),
+    ).forEach { test ->
+      startTest(test)
+      ideLaunched(runContext())
+      extension.afterTestExecution(test)
+    }
+
+    assertTrue(recordings.isEmpty(), "a test inside a marked class is a performance test")
   }
 
   @Test
@@ -175,6 +234,89 @@ internal class TestScreenRecorderExtensionTest {
     extension.afterTestExecution(context)
 
     assertTrue(recordings.isEmpty(), "one IDE is only ever recorded once")
+  }
+
+  @Test
+  fun `reports once when a test without the performance marker publishes metrics`() {
+    val plain = testContext(methodName = "plainTest")
+    startTest(plain)
+    metricsPublished()
+    metricsPublished()
+    extension.afterTestExecution(plain)
+    extension.afterEach(plain)
+
+    val failure = testInfraFailures.single()
+    val message = failure.second
+    assertEquals("${plain.uniqueId}.performanceTest", failure.first)
+    assertTrue(message.contains("${TestMethods::class.java.name}#plainTest"), "the report names the test: $message")
+    assertTrue(message.contains("@${PerformanceTest::class.qualifiedName}"), "the report names the annotation: $message")
+  }
+
+  @Test
+  fun `reports each test without the performance marker on its own`() {
+    listOf("plainTest", "recordedTest").forEach { methodName ->
+      val test = testContext(methodName = methodName)
+      startTest(test)
+      metricsPublished()
+      extension.afterTestExecution(test)
+      extension.afterEach(test)
+    }
+
+    assertEquals(2, testInfraFailures.size, "each test gets a report of its own")
+  }
+
+  @Test
+  fun `does not report a performance test that publishes metrics`() {
+    listOf(
+      testContext(methodName = "performanceTest"),
+      testContext(methodName = "inheritedTest", testClass = PerformanceTestClass::class.java),
+      testContext(methodName = "ownTest", testClass = PerformanceTestSubclass::class.java),
+      testContext(methodName = "nestedTest", testClass = PerformanceTestClass.NestedTests::class.java),
+    ).forEach { test ->
+      startTest(test)
+      metricsPublished()
+      extension.afterTestExecution(test)
+      extension.afterEach(test)
+    }
+
+    assertTrue(testInfraFailures.isEmpty(), "a performance test has the marker already: $testInfraFailures")
+  }
+
+  @Test
+  fun `does not report on CI`() {
+    runningOnCI = true
+    val plain = testContext(methodName = "plainTest")
+    startTest(plain)
+    metricsPublished()
+
+    assertTrue(testInfraFailures.isEmpty(), "the report is for local runs only: $testInfraFailures")
+  }
+
+  @Test
+  fun `does not report metrics published outside a test`() {
+    metricsPublished() // from @BeforeAll
+    val plain = testContext(methodName = "plainTest")
+    startTest(plain)
+    extension.afterTestExecution(plain)
+    extension.afterEach(plain)
+    metricsPublished() // from @AfterAll
+
+    assertTrue(testInfraFailures.isEmpty(), "metrics published from class setup or teardown have no test: $testInfraFailures")
+  }
+
+  @Test
+  fun `reports metrics published from an AfterEach method`() {
+    val plain = testContext(methodName = "plainTest")
+    startTest(plain)
+    extension.afterTestExecution(plain)
+    metricsPublished() // JUnit runs the @AfterEach methods of the test between afterTestExecution and afterEach
+    extension.afterEach(plain)
+
+    assertEquals(listOf("${plain.uniqueId}.performanceTest"), testInfraFailures.map { it.first })
+  }
+
+  private fun metricsPublished(runContext: IDERunContext = runContext()) {
+    EventsBus.postAndWaitProcessing(MetricsPublishedEvent(runContext), ignoreExceptions = false)
   }
 
   private fun ideLaunched(runContext: IDERunContext) {
@@ -220,6 +362,7 @@ internal class TestScreenRecorderExtensionTest {
     testClass: Class<*> = TestMethods::class.java,
   ): ExtensionContext =
     mock(ExtensionContext::class.java).also {
+      doReturn("[engine:junit-jupiter]/[class:${testClass.name}]/[method:$displayName]").`when`(it).uniqueId
       doReturn(displayName).`when`(it).displayName
       doReturn(Optional.of(testClass)).`when`(it).testClass
       doReturn(Optional.of(testClass.getMethod(methodName))).`when`(it).testMethod
@@ -232,6 +375,32 @@ internal class TestScreenRecorderExtensionTest {
     @WithScreenRecording
     fun anotherRecordedTest() {}
 
-    fun unrecordedTest() {}
+    fun plainTest() {}
+
+    @PerformanceTest
+    fun performanceTest() {}
+
+    @PerformanceTest
+    fun anotherPerformanceTest() {}
+
+    @PerformanceTest
+    @WithScreenRecording
+    fun performanceTestWithScreenRecording() {}
+  }
+
+  @PerformanceTest
+  private open class PerformanceTestClass {
+    fun inheritedTest() {}
+
+    @WithScreenRecording
+    fun recordedTest() {}
+
+    inner class NestedTests {
+      fun nestedTest() {}
+    }
+  }
+
+  private class PerformanceTestSubclass : PerformanceTestClass() {
+    fun ownTest() {}
   }
 }
