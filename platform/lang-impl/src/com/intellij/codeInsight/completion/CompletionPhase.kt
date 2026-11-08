@@ -463,8 +463,8 @@ sealed class CompletionPhase @ApiStatus.Internal constructor(
     private fun doRestartBecauseOfWriteAction() {
       if (!indicator!!.lookup.isLookupDisposed && !indicator.isCanceled) {
         withExplicitClientId(ownerId) {
-          indicator.cancel()
           if (EDT.isCurrentThreadEdt()) {
+            indicator.cancel()
             indicator.scheduleRestart()
           }
           else {
@@ -472,11 +472,17 @@ sealed class CompletionPhase @ApiStatus.Internal constructor(
             ApplicationManager.getApplication().invokeLater(
               /* runnable = */ { indicator.scheduleRestart() },
 
+              // The restart must run in the modality of the stop event. With a weaker modality,
+              // a modal context holds the restart back, and the stop event expires it.
+              /* state = */ indicator.stopEventModalityState,
+
               // since we break the synchronous execution here, it is possible that some other EDT event finishes completion before us
               // in this case, the current indicator becomes obsolete, and we don't need to reschedule the session anymore
 
               /* expired = */ { CompletionServiceImpl.currentCompletionProgressIndicator != indicator }
             )
+            // Cancel after the restart is in the queue. The cancellation stops the indicator, and the stop event must not come before the restart.
+            indicator.cancel()
           }
         }
       }

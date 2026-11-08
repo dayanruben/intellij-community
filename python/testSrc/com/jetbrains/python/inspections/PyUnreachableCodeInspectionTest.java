@@ -895,7 +895,7 @@ async def nosupAssertFalse(b):
 
   /**
    * The reporting half: the same short-circuit with no {@code TYPE_CHECKING}, so the dead branch is dead for
-   * everyone and the warning is owed. Fails without the fix. {@code PyEvaluatorTest.testBooleanShortCircuit}
+   * everyone and the warning is owed. Fails without the fix. {@code PyEvaluatorTest} (`boolean short circuit`)
    * covers the evaluator; this covers the inspection consuming its result.
    */
   @TestFor(issues="PY-85200")
@@ -911,6 +911,39 @@ async def nosupAssertFalse(b):
             print("always runs")
         else:
             <warning descr="This code is unreachable">print("never runs either")</warning>"""
+    );
+  }
+
+  @TestFor(issues = "PY-93846")
+  public void testFloorDivisionByZeroInCondition() {
+    doTestByText(
+      """
+        if 1 // 0:
+            print("maybe")
+        print("always")"""
+    );
+  }
+
+  @TestFor(issues = "PY-93846")
+  public void testFloorDivisionOfNegativeNumberInCondition() {
+    doTestByText(
+      """
+        if -7 // 2 == -4:
+            print("always")
+        else:
+            <warning descr="This code is unreachable">print("never")</warning>"""
+    );
+  }
+
+  @TestFor(issues = "PY-93846")
+  public void testInterpolatedFStringInCondition() {
+    doTestByText(
+      """
+        def f(x: str):
+            if f"{x}":
+                print("maybe")
+            else:
+                print("maybe not")"""
     );
   }
 

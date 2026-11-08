@@ -87,7 +87,7 @@
     <applicationService serviceInterface="com.intellij.refactoring.JavaRefactoringActionHandlerFactory"
                         serviceImplementation="com.intellij.refactoring.openapi.impl.JavaRefactoringActionHandlerFactoryImpl"/>
     <applicationService serviceInterface="com.intellij.psi.JavaDirectoryService"
-                        serviceImplementation="com.intellij.psi.impl.file.JavaDirectoryServiceImpl"/>
+                        serviceImplementation="com.intellij.psi.impl.file.JavaDirectoryServiceImpl" overrides="true"/>
     <applicationService serviceInterface="com.intellij.openapi.projectRoots.JavaVersionService"
                         serviceImplementation="com.intellij.openapi.projectRoots.JavaVersionServiceImpl" overrides="true"/>
     <applicationService
@@ -96,7 +96,7 @@
     <applicationService serviceInterface="com.intellij.psi.CommonReferenceProviderTypes"
                         serviceImplementation="com.intellij.psi.impl.CommonReferenceProviderTypesImpl"/>
     <applicationService serviceInterface="com.intellij.psi.impl.file.PsiPackageImplementationHelper"
-                        serviceImplementation="com.intellij.psi.impl.file.PsiPackageImplementationHelperImpl"/>
+                        serviceImplementation="com.intellij.psi.impl.file.PsiPackageImplementationHelperImpl" overrides="true"/>
 
     <projectService serviceImplementation="com.intellij.jarRepository.RemoteRepositoriesConfiguration"/>
     <projectService serviceImplementation="com.intellij.jarRepository.services.MavenRepositoryServicesManager"/>
@@ -115,11 +115,11 @@
     <projectService serviceInterface="com.intellij.ide.util.TreeClassChooserFactory"
                     serviceImplementation="com.intellij.ide.util.TreeClassChooserFactoryImpl"/>
     <projectService serviceInterface="com.intellij.psi.impl.JavaPsiImplementationHelper"
-                    serviceImplementation="com.intellij.psi.impl.JavaPsiImplementationHelperImpl"/>
+                    serviceImplementation="com.intellij.psi.impl.JavaPsiImplementationHelperImpl" overrides="true"/>
     <projectService serviceInterface="com.intellij.psi.JavaCodeFragmentFactory"
                     serviceImplementation="com.intellij.psi.impl.JavaCodeFragmentFactoryImpl"/>
     <projectService serviceInterface="com.intellij.openapi.roots.LanguageLevelProjectExtension"
-                    serviceImplementation="com.intellij.openapi.roots.impl.LanguageLevelProjectExtensionImpl"/>
+                    serviceImplementation="com.intellij.openapi.roots.impl.LanguageLevelProjectExtensionImpl" overrides="true"/>
     <projectService serviceInterface="com.intellij.psi.codeStyle.JavaCodeStyleManager"
                     serviceImplementation="com.intellij.psi.impl.source.codeStyle.JavaCodeStyleManagerImpl" overrides="true"/>
     <projectService serviceInterface="com.intellij.codeInsight.NullableNotNullManager" open="true"
@@ -1139,7 +1139,7 @@
     <java.errorFixProvider implementation="com.intellij.codeInsight.daemon.impl.analysis.DefaultJavaErrorFixProvider"/>
     <filePropertyPusher implementation="com.intellij.openapi.roots.impl.JavaLanguageLevelPusher"/>
     <projectService serviceInterface="com.intellij.psi.impl.file.impl.JavaFileManager"
-                    serviceImplementation="com.intellij.psi.impl.file.impl.JavaFileManagerImpl"/>
+                    serviceImplementation="com.intellij.psi.impl.file.impl.JavaFileManagerImpl" overrides="true"/>
     <java.elementFinder implementation="com.intellij.psi.impl.PackagePrefixElementFinder"/>
     <daemon.changeLocalityDetector implementation="com.intellij.codeInsight.daemon.impl.JavaChangeLocalityDetector"/>
     <customScopesProvider implementation="com.intellij.analysis.PackagesScopesProvider" order="first,after default"/>

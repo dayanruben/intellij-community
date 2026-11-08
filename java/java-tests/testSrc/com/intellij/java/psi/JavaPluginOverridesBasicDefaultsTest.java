@@ -2,11 +2,21 @@
 package com.intellij.java.psi;
 
 import com.intellij.core.CoreJavaCodeStyleManager;
+import com.intellij.core.CoreJavaDirectoryService;
+import com.intellij.core.CoreJavaFileManager;
+import com.intellij.core.CoreJavaPsiImplementationHelper;
+import com.intellij.core.CoreLanguageLevelProjectExtension;
 import com.intellij.core.CorePackageIndex;
+import com.intellij.core.CorePsiPackageImplementationHelper;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.JavaVersionService;
+import com.intellij.openapi.roots.LanguageLevelProjectExtension;
 import com.intellij.openapi.roots.PackageIndex;
+import com.intellij.psi.JavaDirectoryService;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
+import com.intellij.psi.impl.JavaPsiImplementationHelper;
+import com.intellij.psi.impl.file.PsiPackageImplementationHelper;
+import com.intellij.psi.impl.file.impl.JavaFileManager;
 import com.intellij.testFramework.junit5.TestApplication;
 import com.intellij.testFramework.junit5.fixture.TestFixture;
 import org.junit.jupiter.api.Test;
@@ -17,6 +27,7 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 /**
  * The basic Java plugin registers an open default for each Java PSI service that the Java backend implements.
  * With the Java plugin loaded, each override must win over its default.
+ * The checks compare the exact class, because {@code JavaDirectoryServiceImpl} extends its default.
  */
 @TestApplication
 public class JavaPluginOverridesBasicDefaultsTest {
@@ -25,11 +36,16 @@ public class JavaPluginOverridesBasicDefaultsTest {
   @Test
   public void applicationServices() {
     assertNotEquals(JavaVersionService.class, JavaVersionService.getInstance().getClass());
+    assertNotEquals(CoreJavaDirectoryService.class, JavaDirectoryService.getInstance().getClass());
+    assertNotEquals(CorePsiPackageImplementationHelper.class, PsiPackageImplementationHelper.getInstance().getClass());
   }
 
   @Test
   public void projectServices() {
     Project project = projectFixture.get();
+    assertNotEquals(CoreLanguageLevelProjectExtension.class, LanguageLevelProjectExtension.getInstance(project).getClass());
+    assertNotEquals(CoreJavaFileManager.class, JavaFileManager.getInstance(project).getClass());
+    assertNotEquals(CoreJavaPsiImplementationHelper.class, JavaPsiImplementationHelper.getInstance(project).getClass());
     assertNotEquals(CoreJavaCodeStyleManager.class, JavaCodeStyleManager.getInstance(project).getClass());
     assertNotEquals(CorePackageIndex.class, PackageIndex.getInstance(project).getClass());
   }

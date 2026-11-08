@@ -8,13 +8,14 @@ import org.jetbrains.annotations.ApiStatus.Experimental
 /**
  * Tells the storage locality of one layer: which of two boundaries its values may cross. The first is the VCS
  * boundary: committed and shared, or kept out of the repository. The second is the machine boundary: the value may
- * cross the remote-development split between the frontend and the backend, or it stays on one machine. The three
+ * cross the remote-development split between the frontend and the backend, or it stays where it is stored. The three
  * levels form a scale of reach.
  *
  * A layer has exactly **one** locality. Within one context, the layers resolve by
- * **[TEAM] < [LOCAL] < [ENVIRONMENTAL]**. So the machine value overrides the personal override, and the personal
- * override overrides the shared default (see [byResolutionPrecedence]). The provider order only breaks a tie within
- * one locality.
+ * **[TEAM] < [LOCAL] < [ENVIRONMENTAL]** (see [byResolutionPrecedence]). The provider order only breaks a tie within
+ * one locality. A key reads either only the [ENVIRONMENTAL] layers or only the [TEAM] and [LOCAL] layers (see
+ * [KeyLocality]). So for one key, the order only means that the local value wins over the team value. An
+ * environmental value never overrides a team or a local value.
  *
  * @see KeyLocality for the key-side policy that decides which localities a key may live in.
  */
@@ -24,12 +25,17 @@ enum class LayerLocality {
   TEAM,
 
   /**
-   * Kept out of VCS for one user, but it still crosses the remote-development split between the frontend and the
-   * backend. It holds a personal override.
+   * Holds a personal value, which wins over the [TEAM] value. It is kept out of VCS for one user, but it still crosses
+   * the remote-development split between the frontend and the backend. A value that must never go to VCS belongs in
+   * [ENVIRONMENTAL], not here.
    */
   LOCAL,
 
-  /** Bound to the machine, and it never leaves it. An example is an absolute local path, which has no meaning elsewhere. */
+  /**
+   * Stays where it is stored: on one machine, or in one checkout. It never goes to VCS, to Settings Sync or to the other
+   * remote-development side. Examples are an absolute tool path and a choice for one checkout. The name has nothing
+   * to do with environment variables.
+   */
   ENVIRONMENTAL,
   ;
 
@@ -37,8 +43,9 @@ enum class LayerLocality {
   companion object {
     /**
      * Holds the localities from the highest to the lowest resolution precedence: `ENVIRONMENTAL`, `LOCAL`, `TEAM`. A
-     * read folds the layers in this order, so a more specific locality overrides a wider one. A narrower context
-     * overrides a wider one in the same way. The order lives here, not in the declaration order of the enum.
+     * read folds the layers of one context in this order, and a more specific locality overrides a wider one. The read
+     * skips the localities that its key does not accept. So between localities, only `LOCAL` over `TEAM` can decide a
+     * value. The order lives here, not in the declaration order of the enum.
      */
     val byResolutionPrecedence: List<LayerLocality> = listOf(ENVIRONMENTAL, LOCAL, TEAM)
   }
@@ -50,7 +57,15 @@ enum class LayerLocality {
  * types, and the compatibility relation lives here.
  *
  * The relation makes an illegal combination impossible to declare. There is no "team-or-environmental" key, because
- * [ENVIRONMENTAL] is exclusive on both sides: a machine-bound path can only live in the machine layer.
+ * [ENVIRONMENTAL] is exclusive on both sides: a machine-bound path can only live in the environmental layer.
+ *
+ * To pick the policy of a new key, ask whether the team may share the value:
+ * - Yes, and each user may override it: use [SHAREABLE]. An example is a code style option.
+ * - No, it belongs to one machine or one checkout: use [ENVIRONMENTAL]. Examples are a tool path and the
+ *   technologies enabled in one checkout.
+ *
+ * A value that must never go to VCS needs [ENVIRONMENTAL]. A [SHAREABLE] value can land in the team layer, for
+ * example in the team-editing mode ([EDIT_TEAM_LAYER]).
  */
 @Experimental
 enum class KeyLocality(
@@ -61,7 +76,10 @@ enum class KeyLocality(
   /** Team or local: the ordinary key. A write defaults to [LayerLocality.LOCAL]. A write to the team layer is an explicit action. */
   SHAREABLE(LayerLocality.LOCAL, setOf(LayerLocality.TEAM, LayerLocality.LOCAL)),
 
-  /** Environmental only: a machine-bound value, such as a path. A read and a write never touch the team or local layers. */
+  /**
+   * Environmental only: a value of one machine or one checkout, such as a path. A read and a write never touch the
+   * team or local layers.
+   */
   ENVIRONMENTAL(LayerLocality.ENVIRONMENTAL, setOf(LayerLocality.ENVIRONMENTAL)),
   ;
 
