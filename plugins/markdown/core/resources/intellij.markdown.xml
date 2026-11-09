@@ -269,6 +269,7 @@
     <daemon.highlightInfoFilter implementation="org.intellij.plugins.markdown.injection.CodeFenceHighlightInfoFilter"/>
 
     <extendWordSelectionHandler implementation="org.intellij.plugins.markdown.editor.MarkdownCodeSpanExtendWordSelectionHandler"/>
+    <extendWordSelectionHandler implementation="org.intellij.plugins.markdown.editor.MarkdownHeaderSectionExtendWordSelectionHandler"/>
 
     <typedHandler implementation="org.intellij.plugins.markdown.editor.lists.MarkdownListItemCreatingTypedHandlerDelegate"/>
 
@@ -317,6 +318,9 @@
     <registryKey key="markdown.clear.cache.interval"
                  defaultValue="600000"
                  description="Interval in milliseconds defining how often Markdown plugin caches (e.g. PlantUML diagrams) should be cleared"/>
+    <registryKey key="markdown.line.comment.link.definition.syntax.enabled"
+                 defaultValue="false"
+                 description="When true, the Markdown line comment action writes [//]: # (text). When false, it writes &lt;!-- text --&gt;, but a line that contains --&gt; still gets [//]: # (text)."/>
     <registryKey key="markdown.plantuml.download.link"
                  defaultValue="https://github.com/plantuml/plantuml/releases/download/v1.2026.6/plantuml-1.2026.6.jar"
                  description="Link which Markdown plugin will use to download PlantUML JAR"/>
@@ -360,6 +364,8 @@
     <projectSettings service="org.intellij.plugins.markdown.settings.DocumentLinksSafeState"/>
     <projectSettings service="org.intellij.plugins.markdown.settings.pandoc.PandocSettings"/>
     <applicationSettings service="org.intellij.plugins.markdown.settings.pandoc.PandocApplicationSettings"/>
+    <applicationService serviceImplementation="org.intellij.plugins.markdown.fileActions.export.MarkdownHtmlExportSettings"/>
+    <applicationSettings service="org.intellij.plugins.markdown.fileActions.export.MarkdownHtmlExportSettings"/>
   </extensions>
 
   <applicationListeners>

@@ -617,10 +617,6 @@ public final class JavaCompletionContributor extends CompletionContributor imple
         StringUtil.isNotEmpty(matcher.getPrefix())) {
       new JavaStaticMemberProcessor(parameters).processStaticMethodsGlobally(matcher, result);
     }
-
-    if (JavaPatternCompletionUtil.insideDeconstructionList(parameters.getPosition())) {
-      JavaPatternCompletionUtil.suggestFullDeconstructionList(parameters, result);
-    }
   }
 
   @VisibleForTesting
@@ -760,8 +756,6 @@ public final class JavaCompletionContributor extends CompletionContributor imple
       }
     }
 
-    addExpressionVariants(parameters, position, items::add);
-
     return items;
   }
 
@@ -779,14 +773,6 @@ public final class JavaCompletionContributor extends CompletionContributor imple
     return JavaSmartCompletionContributor.INSIDE_EXPRESSION.accepts(parameters.getPosition()) &&
            !JavaCompletionUtil.AFTER_DOT.accepts(parameters.getPosition()) &&
            !SmartCastProvider.inCastContext(parameters);
-  }
-
-  private static void addExpressionVariants(@NotNull CompletionParameters parameters, PsiElement position, Consumer<? super LookupElement> result) {
-    if (shouldAddExpressionVariants(parameters)) {
-      if (SameSignatureCallParametersProvider.IN_CALL_ARGUMENT.accepts(position)) {
-        new SameSignatureCallParametersProvider().addSignatureItems(position, result);
-      }
-    }
   }
 
   public static boolean isInJavaContext(PsiElement position) {

@@ -17,6 +17,8 @@ import kotlin.experimental.or
  * @property state the position before shifts from ancestors.
  * @property entry the current marker metadata and stored offsets.
  * @property height the height used for AVL balancing.
+ * @property minimumStart the smallest start offset, including lazy shifts within this subtree.
+ * @property canShiftAtStart whether all markers at [minimumStart] use default nonempty ranges and have no left greediness.
  * @property maximumEnd the largest end offset, including lazy shifts within this subtree.
  * @property persistentCount the number of entries whose policies can require a full traversal.
  * @property subtreeFlavorFlags the combined flavor flags used for query pruning.
@@ -32,6 +34,8 @@ internal class PMarkerNode private constructor(
   val left: PMarkerNode?,
   val right: PMarkerNode?,
   val height: Int,
+  val minimumStart: Int,
+  val canShiftAtStart: Boolean,
   val maximumEnd: Int,
   val persistentCount: Int,
   val subtreeFlavorFlags: Byte,
@@ -50,6 +54,8 @@ internal class PMarkerNode private constructor(
     reusedState(source, entry, lazyDelta) ?: PMarkerValidNode(version, entry.handle, entry.nodeStart, entry.nodeEnd, lazyDelta),
     entry, left, right,
     maxOf(left?.height ?: 0, right?.height ?: 0) + 1,
+    minimumStart(entry, left, lazyDelta),
+    canShiftAtStart(entry, left, right, lazyDelta),
     maxOf(entry.nodeEnd, shiftedEnd(left, lazyDelta), shiftedEnd(right, lazyDelta)),
     (if (entry.policy.isPersistent) 1 else 0) + (left?.persistentCount ?: 0) + (right?.persistentCount ?: 0),
     entry.flavorFlags or (left?.subtreeFlavorFlags ?: 0) or (right?.subtreeFlavorFlags ?: 0),
@@ -76,13 +82,24 @@ internal class PMarkerNode private constructor(
     right: PMarkerNode? = this.right,
     updateAggregates: Boolean = true,
   ): PMarkerNode = PMarkerNode(
-    version, state, entry, left, right, height, maximumEnd, persistentCount,
+    version, state, entry, left, right, height, minimumStart, canShiftAtStart(entry, left, right, lazyDelta), maximumEnd, persistentCount,
     if (updateAggregates) entry.flavorFlags or (left?.subtreeFlavorFlags ?: 0) or (right?.subtreeFlavorFlags ?: 0) else subtreeFlavorFlags,
     if (updateAggregates) entry.measure + (left?.aggregate ?: 0) + (right?.aggregate ?: 0) else aggregate,
     changedParentMask,
   )
 
   companion object {
+    private fun minimumStart(entry: MarkerEntry, left: PMarkerNode?, delta: Int): Int =
+      if (left == null) entry.nodeStart else left.minimumStart + delta
+
+    private fun canShiftAtStart(entry: MarkerEntry, left: PMarkerNode?, right: PMarkerNode?, delta: Int): Boolean {
+      val minimum = minimumStart(entry, left, delta)
+      return left?.canShiftAtStart != false &&
+             (entry.nodeStart != minimum || entry.policy === DefaultMarkerPolicy &&
+              entry.nodeStart < entry.nodeEnd && !MarkerSpec.isGreedyToLeft(entry.spec)) &&
+             (right == null || right.minimumStart + delta != minimum || right.canShiftAtStart)
+    }
+
     private fun reusedState(source: PMarkerNode?, entry: MarkerEntry, delta: Int): PMarkerValidNode? = source?.state?.takeIf {
       it.handle === entry.handle && it.nodeStart == entry.nodeStart && it.nodeEnd == entry.nodeEnd && it.lazyDelta == delta
     }
@@ -170,7 +187,13 @@ internal class PMarkerNodeHistory<T : Any> {
   @Volatile
   private var latest: HistoryReference<T>? = null
 
-  /** Indexes records by branch identity and version number. Allocates the index when a second live record arrives. */
+  /** Retains the earlier record while two records fit without an index. */
+  private var previous: HistoryReference<T>? = null
+
+  /** Indexes three or more records on one branch. */
+  private var singleBranch: BranchHistory<T>? = null
+
+  /** Indexes records from different branches by branch identity. */
   private var branches: MutableMap<PMarkerNodeBranch, BranchHistory<T>>? = null
 
   /** Returns the newest live record visible at [version], or null when no such record remains. */
@@ -180,15 +203,20 @@ internal class PMarkerNodeHistory<T : Any> {
       recent.get()?.let { return it }
     }
     return synchronized(this) {
-      if (latest == null && branches.isNullOrEmpty()) return@synchronized null
+      if (latest == null && previous == null && singleBranch == null && branches.isNullOrEmpty()) return@synchronized null
       var current: PMarkerNodeVersion? = version
       while (current != null) {
         val branch = current.branch
         val number = current.number
-        branches?.get(branch)?.get(number)?.let { return@synchronized it }
+        val indexed = singleBranch?.takeIf { it.branch === branch } ?: branches?.get(branch)
+        indexed?.get(number)?.let { return@synchronized it }
         val single = latest
         if (single != null && single.branch === branch && single.number <= number) {
           single.get()?.let { return@synchronized it }
+        }
+        val earlier = previous
+        if (earlier != null && earlier.branch === branch && earlier.number <= number) {
+          earlier.get()?.let { return@synchronized it }
         }
         current = branch.parent
       }
@@ -204,30 +232,73 @@ internal class PMarkerNodeHistory<T : Any> {
   @Synchronized
   fun put(version: PMarkerNodeVersion, value: T) {
     val reference = HistoryReference(value, this, references, version)
-    val previous = latest
-    var histories = branches
-    if (histories == null && previous?.get() != null) {
-      histories = IdentityHashMap()
-      histories[previous.branch] = BranchHistory<T>().apply { put(previous) }
-      branches = histories
+    val histories = branches
+    val indexed = singleBranch
+    if (histories != null) {
+      histories.getOrPut(version.branch) { BranchHistory(version.branch) }.put(reference)
     }
-    histories?.getOrPut(version.branch) { BranchHistory() }?.put(reference)
+    else if (indexed != null) {
+      if (indexed.branch === version.branch) indexed.put(reference)
+      else {
+        branches = IdentityHashMap<PMarkerNodeBranch, BranchHistory<T>>().apply {
+          put(indexed.branch, indexed)
+          put(version.branch, BranchHistory<T>(version.branch).apply { put(reference) })
+        }
+        singleBranch = null
+      }
+    }
+    else {
+      val recent = latest?.takeIf { it.get() != null }
+      val earlier = previous?.takeIf { it.get() != null }
+      val first = earlier ?: recent
+      val second = if (earlier != null) recent else null
+      previous = null
+      if (first != null) {
+        if (first.branch === version.branch) {
+          check((second ?: first).number <= reference.number)
+          if (second == null || second.number == reference.number) {
+            if (first.number != reference.number) previous = first
+          }
+          else {
+            singleBranch = BranchHistory<T>(version.branch).apply {
+              put(first)
+              put(second)
+              put(reference)
+            }
+          }
+        }
+        else {
+          branches = IdentityHashMap<PMarkerNodeBranch, BranchHistory<T>>().apply {
+            put(first.branch, BranchHistory<T>(first.branch).apply {
+              put(first)
+              if (second != null) put(second)
+            })
+            put(version.branch, BranchHistory<T>(version.branch).apply { put(reference) })
+          }
+        }
+      }
+    }
     latest = reference
   }
 
   /** Cleans collected records without removing a replacement for [reference]. */
   @Synchronized
   private fun remove(reference: HistoryReference<T>) {
-    val records = branches?.get(reference.branch)
+    val records = singleBranch?.takeIf { it.branch === reference.branch } ?: branches?.get(reference.branch)
     if (records != null) {
       records.collect()
-      if (records.isEmpty) branches!!.remove(reference.branch)
+      if (records.isEmpty) {
+        if (singleBranch === records) singleBranch = null
+        else branches?.remove(reference.branch)
+      }
     }
+    if (branches?.isEmpty() == true) branches = null
+    if (previous === reference) previous = null
     if (latest === reference) latest = null
   }
 
   /** Stores records for one branch in version order. The owning history protects all access with its lock. */
-  private class BranchHistory<T : Any> {
+  private class BranchHistory<T : Any>(val branch: PMarkerNodeBranch) {
     private val records: BulkArrayQueue<HistoryReference<T>> = BulkArrayQueue(4)
     private var collectedSinceCompaction: Int = 0
 

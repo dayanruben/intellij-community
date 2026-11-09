@@ -3,10 +3,10 @@ package git4idea
 
 import com.intellij.dvcs.repo.VcsRepositoryManager
 import com.intellij.openapi.application.EDT
-import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vcs.ProjectLevelVcsManager
 import com.intellij.openapi.vcs.VcsDirectoryMapping
+import git4idea.repo.GitFsMonitorDaemonStopper
 import git4idea.repo.GitRepositoryManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -23,11 +23,21 @@ internal fun findGitRoot(projectPath: Path): Path? =
  * `RecentProjectsService` loads and holds the project, so version control may still be initializing. This waits for the initialization and
  * registers the Git root mapping when the project has none stored yet. The mapping stays in memory: the project is closed without saving,
  * so nothing is written to the project settings.
+ *
+ * The Git commands of the action can start an fsmonitor daemon, which outlives the IDE unless something stops it. The project is not open,
+ * so its roots are recorded for the stop at exit.
  */
 internal suspend fun prepareRecentGitProject(project: Project, projectPath: Path) {
-  project.serviceAsync<GitRecentProjectWatcher>().watch(projectPath)
+  GitRecentProjectWatcher.getInstance(project).watch(projectPath)
   val vcsManager = ProjectLevelVcsManager.getInstance(project)
   vcsManager.awaitInitialization()
+  registerGitRoot(project, projectPath, vcsManager)
+  val roots = GitRepositoryManager.getInstance(project).repositories.map { it.root }
+  GitFsMonitorDaemonStopper.getInstance().registerFramelessProjectRoots(roots)
+}
+
+/** Registers the Git root of [projectPath] when the project has no repository yet. */
+private suspend fun registerGitRoot(project: Project, projectPath: Path, vcsManager: ProjectLevelVcsManager) {
   if (GitRepositoryManager.getInstance(project).repositories.isNotEmpty()) {
     return
   }

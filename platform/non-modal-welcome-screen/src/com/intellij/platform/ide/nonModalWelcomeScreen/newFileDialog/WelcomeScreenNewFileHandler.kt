@@ -1,8 +1,10 @@
 package com.intellij.platform.ide.nonModalWelcomeScreen.newFileDialog
 
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.ide.actions.CreateFileAction
 import com.intellij.ide.fileTemplates.FileTemplateManager
 import com.intellij.ide.fileTemplates.FileTemplateUtil
+import com.intellij.ide.fileTemplates.PreparedFileTemplate
 import com.intellij.ide.fileTemplates.actions.CreateFromTemplateManager
 import com.intellij.ide.impl.ProjectUtil.getBaseDir
 import com.intellij.openapi.application.ApplicationManager
@@ -62,7 +64,10 @@ object WelcomeScreenNewFileHandler {
       } ?: return
       val template = FileTemplateManager.getInstance(project).getInternalTemplate(selectedTemplateName)
       val templateProperties = FileTemplateManager.getInstance(project).getDefaultProperties()
-      val psiFile = FileTemplateUtil.createFromTemplate(template, mkdirs.newName, templateProperties, mkdirs.directory).getContainingFile()
+      val prepared = FileTemplateUtil.computeUnderModalProgress<PreparedFileTemplate, Exception>(project) {
+        FileTemplateUtil.prepareFromTemplate(template, mkdirs.newName, templateProperties, mkdirs.directory)
+      }
+      val psiFile = FileTemplateUtil.createFromPreparedTemplate(prepared).getContainingFile()
       val virtualFile = psiFile.getVirtualFile()
       if (virtualFile != null) {
         NonProjectFileWritingAccessProvider.allowWriting(listOf(virtualFile))
@@ -77,6 +82,7 @@ object WelcomeScreenNewFileHandler {
       }
     }
     catch (e: Exception) {
+      rethrowControlFlowException(e)
       showErrorMessage(project, NonModalWelcomeScreenBundle.message("welcome.screen.error.dialog.message.cannot.create.file", fileName, e.message ?: "Unknown error"))
     }
   }

@@ -4,6 +4,8 @@ package org.intellij.plugins.markdown.extensions
 import com.intellij.codeInsight.daemon.impl.LineMarkersPass.getDisplayedLineMarkers
 import com.intellij.execution.Executor
 import com.intellij.icons.AllIcons
+import com.intellij.ide.actions.runAnything.activity.RunAnythingProvider
+import com.intellij.ide.actions.runAnything.activity.RunAnythingProviderBase
 import com.intellij.lang.Language
 import com.intellij.markdown.backend.services.MarkdownFrontendRunnerRequestService
 import com.intellij.markdown.frontend.execution.MarkdownFrontendRunnerFlowService
@@ -13,6 +15,7 @@ import com.intellij.openapi.actionSystem.ActionPlaces
 import com.intellij.openapi.actionSystem.ActionUiKind
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
+import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.actionSystem.KeyboardShortcut
 import com.intellij.openapi.actionSystem.impl.SimpleDataContext
 import com.intellij.openapi.application.ApplicationManager
@@ -102,6 +105,30 @@ class MarkdownCommandRunnerLineMarkersTest : BasePlatformTestCase() {
   }
 
   @Test
+  fun `line run marker includes continued lines`() {
+    ExtensionTestUtil.maskExtensions(RunAnythingProvider.EP_NAME, listOf(object : RunAnythingProviderBase<String>() {
+      override fun findMatchingValue(dataContext: DataContext, pattern: String): String? = pattern.takeIf { it.startsWith("npm start ") }
+      override fun getCommand(value: String): String = value
+      override fun execute(dataContext: DataContext, value: String) = Unit
+    }), testRootDisposable)
+    val file = myFixture.addFileToProject("foo/README.md", """
+      ```
+      npm start -- \
+      --port=9090 \
+      --host=example.com
+      npm stop
+      ```
+    """.trimIndent())
+    myFixture.openFileInEditor(file.virtualFile)
+
+    myFixture.doHighlighting()
+
+    val marker = getDisplayedLineMarkers(myFixture.editor.document, project).single { it.icon == AllIcons.RunConfigurations.TestState.Run }
+    assertEquals(1, myFixture.editor.document.getLineNumber(marker.startOffset))
+    assertEquals("Run 'npm start -- --port=9090 --host=example.com'", marker.lineMarkerTooltip)
+  }
+
+  @Test
   fun `run context shortcut executes a shell code fence`() {
     MarkdownSettings.getInstance().useFileDirectoryForCommands = true
     val editor = myFixture.editor
@@ -138,7 +165,7 @@ class MarkdownCommandRunnerLineMarkersTest : BasePlatformTestCase() {
   fun `PowerShell block reaches the frontend intact without the language plugin`() {
     assertNull(Language.findLanguageByID("PowerShell"))
     capturingRunner.acceptsLanguage = registeredRunners.single { it.javaClass.simpleName == "ShMarkdownRunner" }::isApplicable
-    MarkdownSettings.getInstance(project).useFileDirectoryForCommands = true
+    MarkdownSettings.getInstance().useFileDirectoryForCommands = true
     val command = "\$text = @'\n# text\n\n'@\n\$env:EXAMPLE = \$text"
     val file = myFixture.addFileToProject("foo/powershell.md", "```powershell title=demo\n$command\n```")
     myFixture.openFileInEditor(file.virtualFile)
@@ -149,9 +176,9 @@ class MarkdownCommandRunnerLineMarkersTest : BasePlatformTestCase() {
   }
 
   @Test
-  fun `preview preserves PowerShell commands and trims shell prompts`() {
+  fun `preview preserves PowerShell commands and strips shell comments`() {
     capturingRunner.acceptsLanguage = registeredRunners.single { it.javaClass.simpleName == "ShMarkdownRunner" }::isApplicable
-    MarkdownSettings.getInstance(project).useFileDirectoryForCommands = true
+    MarkdownSettings.getInstance().useFileDirectoryForCommands = true
     val pipe = TestBrowserPipe()
     val extension = createPreviewExtension(pipe)
     val command = "\$value = 'hello' # comment"
@@ -168,7 +195,7 @@ class MarkdownCommandRunnerLineMarkersTest : BasePlatformTestCase() {
     clickPreviewBlock(pipe, shellHtml)
     PlatformTestUtil.waitWithEventsDispatching("The shell command did not execute", { capturingRunner.capturedCommand != null }, 10)
 
-    assertEquals("value = 'hello'", capturingRunner.capturedCommand)
+    assertEquals("\$value = 'hello'", capturingRunner.capturedCommand)
   }
 
   @Test

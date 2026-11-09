@@ -37,7 +37,7 @@ class PMarkerDirectRoot private constructor(
   private val root: PMarkerNode?,
   private val invalids: PersistentLongMap<PMarkerInvalidNode>,
   override val resolutionCacheIdentity: Any = Any(),
-  @Volatile private var cachedResolutions: ConcurrentLongLongMap? = null,
+  @Volatile private var cachedResolutions: ResolutionCache? = null,
   private val resolutionUpdate: PMarkerResolutionUpdate? = null,
 ) : PMarkerRoot {
   override fun advanceResolution(previousIdentity: Any, resolution: Long): Long =
@@ -72,6 +72,25 @@ class PMarkerDirectRoot private constructor(
     }
   }
 
+  /** Checks [startOffsetHint] against this tree before using the versioned histories to resolve [handle]. */
+  internal fun resolveForRemoval(handle: SnapshotMarkerReference<*>, startOffsetHint: Int): Long {
+    val cached = cachedResolutions?.get(handle.id) ?: PMarkerResolution.UNRESOLVED
+    if (cached != PMarkerResolution.UNRESOLVED) return cached
+    var node = root
+    var delta = 0
+    while (node != null) {
+      val order = compare(startOffsetHint, handle, node.entry.nodeStart + delta, node.handle)
+      if (order == 0) {
+        val resolution = TextRangeScalarUtil.toScalarRange(node.entry.nodeStart + delta, node.entry.nodeEnd + delta)
+        cacheResolution(handle.id, resolution)
+        return resolution
+      }
+      delta += node.lazyDelta
+      node = if (order < 0) node.left else node.right
+    }
+    return resolve(handle)
+  }
+
   private fun resolveState(state: PMarkerNodeState?): Long = when (state) {
     null -> PMarkerResolution.ABSENT
     is PMarkerInvalidNode -> if (state.reason == 0) PMarkerResolution.ABSENT else PMarkerResolution.invalid(state.range)
@@ -82,12 +101,11 @@ class PMarkerDirectRoot private constructor(
   private fun cacheResolution(id: Long, resolution: Long) {
     var cache = cachedResolutions
     if (cache == null) {
-      cache = Java11Shim.createConcurrentLongLongMap(PMarkerResolution.UNRESOLVED)
-      if (!CACHED_RESOLUTIONS_UPDATER.compareAndSet(this, null, cache)) {
-        cache = cachedResolutions
-      }
+      cache = ResolutionCache(id, resolution)
+      if (CACHED_RESOLUTIONS_UPDATER.compareAndSet(this, null, cache)) return
+      cache = cachedResolutions
     }
-    cache!!.putIfAbsent(id, resolution)
+    cache!!.put(id, resolution)
   }
 
   private fun cacheResolution(entry: MarkerEntry, ancestorDelta: Int) {
@@ -213,8 +231,7 @@ class PMarkerDirectRoot private constructor(
         if (!PMarkerResolution.isValid(offsets)) continue
         result = editor.delete(result, TextRangeScalarUtil.startOffset(offsets), handle)
       }
-      editor.pendingInvalids[handle] = PMarkerNodeHistory.purgedState
-      editor.invalidsBuilder.remove(handle.id)
+      editor.recordPurge(handle)
       changed = true
     }
     if (changed) editor.finish(result) else this
@@ -258,7 +275,18 @@ class PMarkerDirectRoot private constructor(
     require(start <= Int.MAX_VALUE - length && patch.moveOffset() in 0..Int.MAX_VALUE - length) { "The patch range overflows Int" }
     if (root == null || start == end && length == 0) return@keepingRootAlive this
     val fullTraversal = root.persistentCount > 0 && PersistentMarkerPolicy.requiresFullTraversal(patch, beforeText, afterText)
-    if (!fullTraversal && patch.moveOffset() == start && root.maximumEnd < start) return@keepingRootAlive this
+    if (!fullTraversal && patch.moveOffset() == start) {
+      if (root.maximumEnd < start) return@keepingRootAlive this
+      if (end < root.minimumStart || end == root.minimumStart && root.canShiftAtStart && patch.originEndOffset() <= end &&
+          affectedMarkerConsumer === PMarkerRoot.EMPTY_HANDLE_CONSUMER) {
+        val delta = length - (end - start)
+        if (delta == 0) return@keepingRootAlive this
+        val editor = Editor()
+        return@keepingRootAlive editor.finish(
+          editor.shift(root, delta), resolutionUpdate = PMarkerResolutionUpdate(resolutionCacheIdentity, start, end, delta),
+        )
+      }
+    }
     val editor = Editor()
     val transform = MarkerTransformer { entry ->
       val result = entry.policy.transform(entry, patch, beforeText, afterText)
@@ -428,13 +456,39 @@ class PMarkerDirectRoot private constructor(
   /** Keeps a traversal node and the total lazy shift from its ancestors. */
   private data class Frame(val node: PMarkerNode, val delta: Int)
 
+  /** Stores the first resolution directly and allocates a map for other marker IDs. Metadata changes share this cache. */
+  private class ResolutionCache(private val firstId: Long, private val firstResolution: Long) {
+    @Volatile
+    private var additionalResolutions: ConcurrentLongLongMap? = null
+
+    operator fun get(id: Long): Long =
+      if (id == firstId) firstResolution else additionalResolutions?.get(id) ?: PMarkerResolution.UNRESOLVED
+
+    fun put(id: Long, resolution: Long) {
+      if (id == firstId) return
+      var cache = additionalResolutions
+      if (cache == null) {
+        cache = Java11Shim.createConcurrentLongLongMap(PMarkerResolution.UNRESOLVED)
+        if (!ADDITIONAL_RESOLUTIONS_UPDATER.compareAndSet(this, null, cache)) {
+          cache = additionalResolutions
+        }
+      }
+      cache!!.putIfAbsent(id, resolution)
+    }
+
+    companion object {
+      private val ADDITIONAL_RESOLUTIONS_UPDATER: AtomicReferenceFieldUpdater<ResolutionCache, ConcurrentLongLongMap> =
+        AtomicReferenceFieldUpdater.newUpdater(ResolutionCache::class.java, ConcurrentLongLongMap::class.java, "additionalResolutions")
+    }
+  }
+
   private fun interface MarkerTransformer {
     fun transform(entry: MarkerEntry): MarkerTransformResult
   }
 
   /**
    * Builds one successor version by copying nodes owned by existing roots.
-   * [pendingInvalids] tracks invalid states and purge records. [finish] publishes their histories and the final tree links.
+   * [recordPendingState] tracks invalid states and purge records. [finish] publishes their histories and the final tree links.
    * Each editor is confined to one update.
    */
   private inner class Editor {
@@ -443,11 +497,43 @@ class PMarkerDirectRoot private constructor(
       PMarkerNodeHistory.nextVersion(this@PMarkerDirectRoot.version)
     }
 
-    /** Retains new invalid states and purge records until [finish] publishes their histories. */
-    val pendingInvalids: MutableMap<SnapshotMarkerReference<*>, PMarkerInvalidNode> = IdentityHashMap()
+    private var firstPendingHandle: SnapshotMarkerReference<*>? = null
+    private var firstPendingState: PMarkerInvalidNode? = null
+    private var additionalPendingStates: MutableMap<SnapshotMarkerReference<*>, PMarkerInvalidNode>? = null
 
     /** Builds the map of invalid and removed states for this version from the existing [invalids]. */
-    val invalidsBuilder: PersistentLongMapBuilder<PMarkerInvalidNode> = invalids.builder()
+    private var invalidsBuilder: PersistentLongMapBuilder<PMarkerInvalidNode>? = null
+
+    private fun editInvalids(): PersistentLongMapBuilder<PMarkerInvalidNode> =
+      invalidsBuilder ?: invalids.builder().also { invalidsBuilder = it }
+
+    private fun removeInvalid(id: Long) {
+      val builder = invalidsBuilder
+      if (builder != null) builder.remove(id)
+      else if (invalids.getUnchecked(id) != null) editInvalids().remove(id)
+    }
+
+    /** Retains the latest pending state for each handle until [finish] publishes the histories. */
+    private fun recordPendingState(handle: SnapshotMarkerReference<*>, state: PMarkerInvalidNode) {
+      if (firstPendingHandle == null) {
+        firstPendingHandle = handle
+        firstPendingState = state
+      }
+      else if (firstPendingHandle === handle) {
+        firstPendingState = state
+      }
+      else {
+        val pending = additionalPendingStates ?: IdentityHashMap<SnapshotMarkerReference<*>, PMarkerInvalidNode>().also {
+          additionalPendingStates = it
+        }
+        pending[handle] = state
+      }
+    }
+
+    fun recordPurge(handle: SnapshotMarkerReference<*>) {
+      recordPendingState(handle, PMarkerNodeHistory.purgedState)
+      removeInvalid(handle.id)
+    }
 
     /** The smallest old end offset changed by a policy, or [Int.MAX_VALUE] when no policy changes a range or validity. */
     var firstChangedEnd: Int = Int.MAX_VALUE
@@ -495,7 +581,7 @@ class PMarkerDirectRoot private constructor(
      */
     fun insertNode(initial: PMarkerNode?, entry: MarkerEntry): PMarkerNode {
       if (initial == null) {
-        invalidsBuilder.remove(entry.handle.id)
+        removeInvalid(entry.handle.id)
         return make(entry)
       }
       val node = push(initial)
@@ -662,8 +748,8 @@ class PMarkerDirectRoot private constructor(
     /** Records an invalid state or removal tombstone for this version. A zero [reason] marks removal. */
     fun recordInvalid(handle: SnapshotMarkerReference<*>, range: Long, reason: Int) {
       val state = PMarkerInvalidNode(range, reason)
-      pendingInvalids[handle] = state
-      invalidsBuilder.put(handle.id, state)
+      recordPendingState(handle, state)
+      editInvalids().put(handle.id, state)
     }
 
     /** Creates a root that retains the final tree and invalid and removed states, then publishes their weak histories. */
@@ -671,8 +757,9 @@ class PMarkerDirectRoot private constructor(
       node: PMarkerNode?,
       resolutionUpdate: PMarkerResolutionUpdate? = null,
     ): PMarkerDirectRoot {
-      val result = PMarkerDirectRoot(version, node, invalidsBuilder.build(), resolutionUpdate = resolutionUpdate)
-      for ([handle, state] in pendingInvalids) handle.states.put(version, state)
+      val result = PMarkerDirectRoot(version, node, invalidsBuilder?.build() ?: invalids, resolutionUpdate = resolutionUpdate)
+      firstPendingHandle?.states?.put(version, checkNotNull(firstPendingState))
+      additionalPendingStates?.forEach { [handle, state] -> handle.states.put(version, state) }
       publish(node)
       return result
     }
@@ -690,9 +777,9 @@ class PMarkerDirectRoot private constructor(
   }
 
   companion object {
-    private val CACHED_RESOLUTIONS_UPDATER: AtomicReferenceFieldUpdater<PMarkerDirectRoot, ConcurrentLongLongMap> =
+    private val CACHED_RESOLUTIONS_UPDATER: AtomicReferenceFieldUpdater<PMarkerDirectRoot, ResolutionCache> =
       AtomicReferenceFieldUpdater.newUpdater(
-        PMarkerDirectRoot::class.java, ConcurrentLongLongMap::class.java, "cachedResolutions")
+        PMarkerDirectRoot::class.java, ResolutionCache::class.java, "cachedResolutions")
 
     private val EMPTY: PMarkerDirectRoot =
       PMarkerDirectRoot(PMarkerNodeHistory.initialVersion, null, PersistentLongMap.empty())
