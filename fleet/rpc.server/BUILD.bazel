@@ -9,9 +9,9 @@ fleet_wasmjs_module(
     module_name = "fleet.rpc.server",
     plugins = ["@community//fleet/compiler-plugins/rpc:rpc-plugin"],
     visibility = ["//visibility:public"],
+    runtime_deps = ["@community//fleet/reporting/api:wasmjs_module_lib"],
     deps = [
         "@community//fleet/multiplatform.shims:wasmjs_module_lib",
-        "@community//fleet/reporting/api:wasmjs_module_lib",
         "@community//fleet/reporting/shared:wasmjs_module_lib",
         "@community//fleet/rpc:wasmjs_module_lib",
         "@community//fleet/util/core:wasmjs_module_lib",
@@ -55,6 +55,7 @@ jvm_library(
         ["resources/**/*"],
     ),
     visibility = ["//visibility:public"],
+    runtime_deps = ["//fleet/reporting/api"],
     deps = [
         # do not sort,
         "@lib//:kotlin-stdlib",
@@ -62,7 +63,6 @@ jvm_library(
         "//fleet/rpc",
         "//libraries/kotlinx/serialization/core",
         "//libraries/kotlinx/serialization/json",
-        "//fleet/reporting/api",
         "//fleet/reporting/shared",
         "//fleet/multiplatform.shims",
         "//fleet/util/core",

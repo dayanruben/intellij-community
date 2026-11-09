@@ -176,13 +176,18 @@ internal enum class GhosttyRowData(val code: Int) {
 internal enum class GhosttyTerminalOption(val code: Int) {
   WRITE_PTY(1),
   BELL(2),
+  XTVERSION(4),
   SIZE(6),
   COLOR_SCHEME(7),
   COLOR_FOREGROUND(11),
   COLOR_BACKGROUND(12),
   COLOR_PALETTE(14),
+  /** Takes a `uint64_t*`; zero disables the Kitty graphics protocol entirely. */
+  KITTY_IMAGE_STORAGE_LIMIT(15),
   DEFAULT_CURSOR_STYLE(22),
   DEFAULT_CURSOR_BLINK(23),
+  /** Takes a `bool*`; false disables the Glyph protocol entirely. */
+  GLYPH_PROTOCOL(24),
   SCROLLBACK_MAX_BYTES(27),
   PROGRESS_REPORT(30),
   TERMINFO_NAME(37),
