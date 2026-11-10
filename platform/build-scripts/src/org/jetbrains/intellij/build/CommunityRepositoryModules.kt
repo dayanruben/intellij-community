@@ -75,9 +75,6 @@ fun getCommunityRepositoryPlugins(): PersistentList<PluginLayout> {
     plugin("intellij.laf.win10") { spec ->
       spec.bundlingRestrictions.supportedOs = persistentListOf(OsFamily.WINDOWS)
     },
-    plugin("intellij.java.guiForms.designer") { spec ->
-      spec.withModule("intellij.java.guiForms.jps", "jps/java-guiForms-jps.jar")
-    },
     CommunityKotlinPluginBuilder.kotlinPlugin(),
     pluginAuto(listOf("intellij.vcs.git")) { spec ->
       spec.withModule("intellij.vcs.git.rt", "git4idea-rt.jar")
@@ -193,7 +190,7 @@ fun getCommunityRepositoryPlugins(): PersistentList<PluginLayout> {
       spec.withModule("intellij.libraries.groovy.ant", "groovy-ant.jar")
       spec.withProjectLibrary("Ant", "ant", LibraryPackMode.STANDALONE_SEPARATE)
     },
-    pluginAuto(listOf("intellij.gradle.java.plugin", "intellij.gradle.java", "intellij.gradle.jps")),
+    pluginAuto(listOf("intellij.gradle.java.plugin", "intellij.gradle.java")),
     pluginAuto("intellij.junit") { spec ->
       spec.withModule("intellij.junit.rt", "junit-rt.jar")
       spec.withModule("intellij.junit.v5.rt", "junit5-rt.jar")
@@ -203,13 +200,7 @@ fun getCommunityRepositoryPlugins(): PersistentList<PluginLayout> {
       spec.withModule("intellij.testng.rt", "testng-rt.jar")
     },
     pluginAuto(listOf("intellij.devkit")) { spec ->
-      spec.withModule("intellij.devkit.jps", "devkit-jps.jar")
-
       spec.bundlingRestrictions.includeInDistribution = PluginDistribution.NOT_FOR_PUBLIC_BUILDS
-    },
-    pluginAuto(listOf("intellij.eclipse")) { spec ->
-      spec.withModule("intellij.eclipse.jps", "eclipse-jps.jar")
-      spec.withModule("intellij.eclipse.common", "eclipse-common.jar")
     },
     plugin("intellij.java.coverage") { spec ->
       // explicitly pack JaCoCo as a separate JAR
@@ -219,8 +210,6 @@ fun getCommunityRepositoryPlugins(): PersistentList<PluginLayout> {
       spec.withModule("intellij.java.decompiler.engine", spec.mainJarName)
     },
     pluginAuto("intellij.javaFX.community") { spec ->
-      spec.withModule("intellij.javaFX.jps")
-      spec.withModule("intellij.javaFX.common", "javaFX-common.jar")
       spec.withModule("intellij.javaFX.sceneBuilder", "rt/sceneBuilderBridge.jar")
     },
     pluginAuto("intellij.terminal") { spec ->
@@ -254,9 +243,6 @@ fun getCommunityRepositoryPlugins(): PersistentList<PluginLayout> {
       spec.bundlingRestrictions.includeInDistribution = PluginDistribution.NOT_FOR_RELEASE
     },
     pluginAuto(listOf("intellij.lombok.plugin")),
-    pluginAuto(listOf("intellij.compilation.charts")) { spec ->
-      spec.withModule("intellij.compilation.charts.jps")
-    },
     pluginAuto("intellij.java.jshell") { spec ->
       spec.withModule("intellij.java.jshell.protocol", "jshell-protocol.jar")
     },
@@ -294,9 +280,6 @@ private fun androidDesignPlugin(mainModuleName: String = "intellij.android.desig
 }
 
 fun getContribRepositoryPlugins(): List<PluginLayout> = java.util.List.of(
-  pluginAuto("intellij.errorProne") { spec ->
-    spec.withModule("intellij.errorProne.jps", "jps/errorProne-jps.jar")
-  },
   pluginAuto("intellij.cucumber.java") { spec ->
     spec.withModule("intellij.cucumber.jvmFormatter", "cucumber-jvmFormatter.jar")
     spec.withModule("intellij.cucumber.jvmFormatter3", "cucumber-jvmFormatter3.jar")
@@ -756,7 +739,6 @@ fun groovyPlugin(additionalModules: List<String> = emptyList(), addition: ((Plug
         "intellij.groovy.structuralSearch",
       )
     )
-    spec.withModule("intellij.groovy.jps", "groovy-jps.jar")
     spec.withModule("intellij.groovy.rt", "groovy-rt.jar")
     spec.withModule("intellij.groovy.spock.rt", "groovy-spock-rt.jar")
     spec.withModule("intellij.groovy.rt.classLoader", "groovy-rt-class-loader.jar")

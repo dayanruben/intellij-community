@@ -39,6 +39,7 @@ Run a test target from the ultimate root. From `community/`, drop the `@communit
 | `crates/xxh3` | The hash4j xxh3 hashes: the two hashes of the `__index__` keys, and the content hash of a file or a stream in blocks of 256 KiB. | `@community//build/dev-dist-tools/crates/xxh3:xxh3_test` |
 | `bins/content-module-packer` | The packer and the inventory of each packed jar. | `@community//build/dev-dist-tools/bins/content-module-packer:content-module-packer_test` |
 | `bins/dev-dist-collector` | The collector: the inventory of a component and the plugin classpath record. | `@community//build/dev-dist-tools/bins/dev-dist-collector:dev-dist-collector_test` |
+| `bins/dev-home` | The generation of a launch target: the home of real files outside the output base, the content-addressed store, and the garbage collection. The stub of a launch target and the IDE run handlers run it before the native launcher. | `@community//build/dev-dist-tools/bins/dev-home:dev-home_test` |
 | `bins/dev-dist-composer` | The composer: the composition spec, the composition and its copy step, and the local layout writer. It also writes the plugin classpath file and the fingerprint. It checks the home placement. | `@community//build/dev-dist-tools/bins/dev-dist-composer:dev-dist-composer_test` |
 | `bins/plugin-descriptor-writer` | The descriptor writer. | `@community//build/dev-dist-tools/bins/plugin-descriptor-writer:plugin-descriptor-writer_test` and `:descriptor_rule_tests` |
 | `bins/plugin-remainder-packer` | The remainder packer. | `@community//build/dev-dist-tools/bins/plugin-remainder-packer:plugin-remainder-packer_test` and `:plugin-remainder-packer_cli_test` |
@@ -85,8 +86,8 @@ cd community && ./bazel.cmd test //build/dev-dist-tools/...
 - `./build/dev-dist.cmd` runs `//build/dev-dist-tools/bins/dev-dist:dev-dist_opt`, the binary built in `opt`, and
   `replay` runs `bins/content-module-packer:content-module-packer_opt`. The unit test of each binary stays on the
   `rust_binary`.
-- A launch target runs no tool of this workspace at start. Its executable is a stub that starts the native launcher of
-  the distribution.
+- A launch target runs one tool of this workspace at start: `bins/dev-home:dev-home_opt`, the generation writer. Its
+  stub runs it, and then the native launcher of the generation.
 
 ### The Windows gate
 

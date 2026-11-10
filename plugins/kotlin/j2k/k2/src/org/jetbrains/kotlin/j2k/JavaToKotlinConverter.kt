@@ -14,6 +14,7 @@ import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiExpression
 import com.intellij.psi.PsiField
+import com.intellij.psi.PsiFileFactory
 import com.intellij.psi.PsiImportList
 import com.intellij.psi.PsiImportStatementBase
 import com.intellij.psi.PsiJavaFile
@@ -25,9 +26,12 @@ import com.intellij.psi.PsiRecordComponent
 import com.intellij.psi.PsiStatement
 import com.intellij.psi.PsiWhiteSpace
 import com.intellij.psi.util.JavaPsiRecordUtil
+import com.intellij.util.InjectionUtils
+import com.intellij.util.LocalTimeCounter
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.kotlin.analysis.api.projectStructure.KaSourceModule
 import org.jetbrains.kotlin.config.LanguageVersionSettingsImpl
+import org.jetbrains.kotlin.idea.KotlinFileType
 import org.jetbrains.kotlin.idea.base.projectStructure.getKaModuleOfTypeSafe
 import org.jetbrains.kotlin.idea.base.projectStructure.languageVersionSettings
 import org.jetbrains.kotlin.idea.base.projectStructure.toKaSourceModuleWithElementSourceModuleKindOrProduction
@@ -47,6 +51,7 @@ import org.jetbrains.kotlin.psi.KtDeclaration
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.psi.KtImportList
 import org.jetbrains.kotlin.psi.KtPsiFactory
+import org.jetbrains.kotlin.psi.analysisContext
 import org.jetbrains.kotlin.psi.psiUtil.isAncestor
 import org.jetbrains.kotlin.resolve.ImportPath
 
@@ -67,6 +72,11 @@ class JavaToKotlinConverter(
 
         if (files.isEmpty()) return ConversionResult(emptyMap(), null)
 
+        // Only the preprocessors edit Java, and they get copies. Without them, J2K reads the files themselves.
+        if (J2kPreprocessorExtension.EP_NAME.extensionList.isEmpty()) {
+            return filesToKotlin(files = files, copiedFiles = null, reporter = reporter)
+        }
+
         val copiedFiles = readAction {
             files.map {
                 val copy = it.copy() as PsiJavaFile
@@ -86,13 +96,22 @@ class JavaToKotlinConverter(
 
     private suspend fun filesToKotlin(
         files: List<PsiJavaFile>,
-        copiedFiles: List<PsiJavaFile>,
+        copiedFiles: List<PsiJavaFile>?,
         reporter: RawProgressReporter?,
     ): ConversionResult {
         reporter?.text(KotlinJ2kBundle.message("j2k.applying.conversions"))
         reporter?.fraction(0.0)
 
-        val (results, externalCodeProcessing, context) = readAction {
+        val (results, externalCodeProcessing, converterContext) = readAction {
+            if (copiedFiles == null) {
+                return@readAction elementsToKotlin(
+                    contextElement = files.first(),
+                    inputElements = files,
+                    conversionContextElements = files,
+                    inferTypeArguments = true,
+                )
+            }
+
             val originalJavaPsiContext = OriginalJavaPsiContext(
                 originalMembersByKey = files.buildMembersByKey(),
                 originalClassesByQualifiedName = files.buildClassesByQualifiedName(),
@@ -110,30 +129,48 @@ class JavaToKotlinConverter(
                 inputElements = copiedFiles,
                 conversionContextElements = files,
                 originalJavaPsiContext = originalJavaPsiContext,
+                inferTypeArguments = true,
             )
         }
 
         val kotlinFiles = results.filterNotNull().mapIndexed { i, result ->
             val javaFile = files[i]
             edtWriteAction {
-                KtPsiFactory.contextual(javaFile.parent ?: javaFile)
-                    .createPhysicalFile(javaFile.name.replace(".java", ".kt"), result.text)
-                    .also { it.addImports(result.importsToAdd) }
+                createWorkingFile(javaFile, result.text).also { it.addImports(result.importsToAdd) }
             }
         }
 
-        PostProcessor.doAdditionalProcessing(MultipleFilesPostProcessingTarget(kotlinFiles), context) { phase, description ->
-            reporter?.text(description)
-            reporter?.fraction(phase.toDouble() / PostProcessor.phasesCount.toDouble())
-        }
+        PostProcessor.doAdditionalProcessing(
+            MultipleFilesPostProcessingTarget(kotlinFiles),
+            converterContext,
+            onPhaseChanged = { phase, description ->
+                reporter?.text(description)
+                reporter?.fraction(phase.toDouble() / PostProcessor.phasesCount)
+            },
+            onPhaseProgress = { phase, fraction -> reporter?.fraction((phase + fraction) / PostProcessor.phasesCount) },
+        )
 
         J2kPostprocessorExtension.runProcessors(project, kotlinFiles)
 
-        val (javaLines, kotlinLines) = readAction {
+        val [javaLines, kotlinLines] = readAction {
             files.sumOf { StringUtil.getLineBreakCount(it.text) } to kotlinFiles.sumOf { StringUtil.getLineBreakCount(it.text) }
         }
 
         return ConversionResult(files.zip(kotlinFiles.map { it.text }).toMap(), externalCodeProcessing, javaLines, kotlinLines)
+    }
+
+    /**
+     * Creates the file that the post-processing changes, with PSI events and without language injections.
+     * Unlike [KtPsiFactory.createPhysicalFile], it does not mark the nodes as generated, so a fix does not reformat the code it changes.
+     */
+    private fun createWorkingFile(javaFile: PsiJavaFile, text: String): KtFile {
+        val file = PsiFileFactory.getInstance(project).createFileFromText(
+            javaFile.name.replace(".java", ".kt"), KotlinFileType.INSTANCE, text, LocalTimeCounter.currentTime(),
+            /* supportsSendingPsiEvents = */ true, /* markAsCopy = */ false,
+        ) as KtFile
+        file.analysisContext = javaFile.parent ?: javaFile
+        InjectionUtils.setInjectIntoFile(file, false)
+        return file
     }
 
     fun elementsToKotlin(
@@ -150,6 +187,7 @@ class JavaToKotlinConverter(
         conversionContextElements: List<PsiElement>,
         forInlining: Boolean = false,
         originalJavaPsiContext: OriginalJavaPsiContext = OriginalJavaPsiContext.Empty,
+        inferTypeArguments: Boolean = false,
     ): Result {
         val targetPlatform = (targetFile?.getKaModuleOfTypeSafe<KaSourceModule>(project, useSiteModule = null)
         // This `KaSourceModule` is not 100% waterproof, but without the target file, we don't actually know the kind of the target
@@ -170,7 +208,8 @@ class JavaToKotlinConverter(
         }
 
         val importStorage = JKImportStorage(targetPlatform, project)
-        val treeBuilder = JavaToJKTreeBuilder(symbolProvider, typeFactory, semanticResolver, referenceSearcher, importStorage, forInlining)
+        val treeBuilder =
+            JavaToJKTreeBuilder(symbolProvider, typeFactory, semanticResolver, referenceSearcher, importStorage, forInlining, inferTypeArguments)
 
         // we want to leave all imports as is in the case when user is converting only imports
         val saveImports = inputElements.all { element ->
@@ -198,7 +237,7 @@ class JavaToKotlinConverter(
         val treeRoots = elementsWithAsts.mapNotNull { it.value }
         applyConversions(treeRoots, context)
 
-        val results = elementsWithAsts.map { (element, ast) ->
+        val results = elementsWithAsts.map { [element, ast] ->
             if (ast == null) return@map null
 
             val code = JKCodeBuilder(context).printCodeOut(ast)

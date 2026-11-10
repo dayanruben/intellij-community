@@ -1,3 +1,5 @@
+<!-- BUILD_USING_BAZEL_MARKER: this plugin is also packaged by the `ij_plugin` Bazel rule, and IjPluginDistributionEquivalenceTest
+     checks that the result matches the distribution produced by the build scripts. See MRI-4743. -->
 <idea-plugin>
   <id>intellij.compilation.charts</id>
   <name>Compilation Charts</name>
@@ -44,11 +46,13 @@
     <module name="intellij.platform.util.ui"/>
     <!-- endregion -->
   </dependencies>
-  <content namespace="jetbrains"/>
+  <content namespace="jetbrains">
+    <module name="intellij.compilation.charts.jps" loading="on-demand"/>
+  </content>
 
   <extensions defaultExtensionNs="com.intellij">
     <postStartupActivity implementation="com.intellij.compilation.charts.jps.CompilationChartsProjectActivity"/>
-    <compileServer.plugin classpath="compilation-charts-jps.jar"/>
+    <compileServer.plugin classpath="modules/intellij.compilation.charts.jps.jar"/>
     <buildProcess.parametersProvider implementation="com.intellij.compilation.charts.jps.CompilationChartsBuildParametersProvider"/>
 
     <registryKey key="compilation.charts" defaultValue="false"

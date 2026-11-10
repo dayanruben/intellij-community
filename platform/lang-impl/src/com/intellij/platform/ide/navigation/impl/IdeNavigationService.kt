@@ -227,11 +227,21 @@ private suspend fun navigate(project: Project, requests: Collection<NavigationRe
 }
 
 /**
- * Holds the window which the first right-split request of a batch created.
- * Every later request of the same batch opens in that window.
+ * Tracks the right split which the first splittable file of a batch requests.
+ * Every later splittable file of the same batch opens in the window of that split.
+ * The batch skips a file without an available right split when it has a splittable file.
+ *
+ * @param hasSplittableFile whether the batch contains a file that can open in the split
  */
-private class RightSplitWindow {
-  var value: EditorWindow? = null
+private class RightSplitBatch(val hasSplittableFile: Boolean) {
+  var splitRequested: Boolean = false
+  var window: EditorWindow? = null
+}
+
+private fun FileEditorManagerEx.canOpenInSplit(request: NavigationRequest): Boolean {
+  val file = (request as? SourceNavigationRequest)?.file ?: return false
+  val hostFile = (file as? VirtualFileWindow)?.delegate ?: file
+  return FileEditorManagerImpl.isRightSplitAvailable(this, hostFile)
 }
 
 /**
@@ -242,20 +252,21 @@ private suspend fun doNavigate(project: Project, requests: Collection<Navigation
   var nonSourceRequest: Pair<NavigationRequest, NavigationOptions.Impl>? = null
 
   options as NavigationOptions.Impl
-  val rightSplitWindow = if (options.openInRightSplit) RightSplitWindow() else null
+  val rightSplitBatch = if (options.openInRightSplit) {
+    val fileEditorManager = project.serviceAsync<FileEditorManager>() as FileEditorManagerEx
+    RightSplitBatch(hasSplittableFile = requests.any { fileEditorManager.canOpenInSplit(it) })
+  }
+  else {
+    null
+  }
   var navigatedSourcesCounter = 0
   for (requestFromNavigatable in requests) {
     if (maxSourceRequests in 1..navigatedSourcesCounter) {
       break
     }
-    val requestOptions = if (navigatedSourcesCounter == 0 || !options.openInRightSplit) {
-      options
-    }
-    else {
-      options.openInRightSplit(false) as NavigationOptions.Impl
-    }
+    val requestOptions = if (rightSplitBatch?.splitRequested == true) options.openInRightSplit(false) as NavigationOptions.Impl else options
     if (tryNavigateToSource(project = project, request = requestFromNavigatable, options = requestOptions,
-                            rightSplitWindow = rightSplitWindow)) {
+                            rightSplitBatch = rightSplitBatch)) {
       navigatedSourcesCounter++
     }
     else if (nonSourceRequest == null) {
@@ -281,7 +292,7 @@ private suspend fun tryNavigateToSource(
   project: Project,
   request: NavigationRequest,
   options: NavigationOptions.Impl,
-  rightSplitWindow: RightSplitWindow? = null,
+  rightSplitBatch: RightSplitBatch? = null,
 ): Boolean {
   when (request) {
     is SourceNavigationRequest -> {
@@ -292,7 +303,7 @@ private suspend fun tryNavigateToSource(
           options = options,
           project = project,
           knownType = knownType,
-          rightSplitWindow = rightSplitWindow,
+          rightSplitBatch = rightSplitBatch,
         )
       }
       return true
@@ -440,7 +451,7 @@ private suspend fun navigateToSourceImpl(
   request: SourceNavigationRequest,
   project: Project,
   knownType: FileType?,
-  rightSplitWindow: RightSplitWindow? = null,
+  rightSplitBatch: RightSplitBatch? = null,
 ) {
   val file = request.file
   // the type resolved in the background is reused; the remaining case is a type unknown to the IDE, which the user is asked about
@@ -470,7 +481,7 @@ private suspend fun navigateToSourceImpl(
         }
       }
 
-      if (openFile(request = request, project = project, options = options, rightSplitWindow = rightSplitWindow)) {
+      if (openFile(request = request, project = project, options = options, rightSplitBatch = rightSplitBatch)) {
         return
       }
     }
@@ -483,7 +494,7 @@ private suspend fun openFile(
   options: NavigationOptions.Impl,
   project: Project,
   request: SourceNavigationRequest,
-  rightSplitWindow: RightSplitWindow? = null,
+  rightSplitBatch: RightSplitBatch? = null,
 ): Boolean {
   val originalFile = request.file
   val fileEditorManager = project.serviceAsync<FileEditorManager>() as FileEditorManagerEx
@@ -491,8 +502,17 @@ private suspend fun openFile(
     originalFile.delegate
   } else originalFile
 
+  val isRightSplitAvailable = FileEditorManagerImpl.isRightSplitAvailable(fileEditorManager, file)
+  if (!isRightSplitAvailable && rightSplitBatch?.hasSplittableFile == true) {
+    // the file stays in its window, and the split of the other files keeps the selection
+    return true
+  }
+  val requestsRightSplit = options.openInRightSplit && isRightSplitAvailable
+  if (requestsRightSplit) {
+    rightSplitBatch?.splitRequested = true
+  }
   // the split is already there, so the request states it explicitly instead of asking for another one
-  val targetWindow = rightSplitWindow?.value?.takeIf { !it.isDisposed && !options.openInRightSplit }
+  val targetWindow = rightSplitBatch?.window?.takeIf { !it.isDisposed && !options.openInRightSplit }
   val composite = fileEditorManager.openFile(
     file = file,
     options = FileEditorOpenOptions(
@@ -500,6 +520,7 @@ private suspend fun openFile(
       reuseOpen = targetWindow == null && !request.useCurrentWindow,
       usePreviewTab = request.usePreviewTab,
       requestFocus = options.requestFocus,
+      // the manager selects a file without an available right split in its window
       openMode = if (options.openInRightSplit) FileEditorManagerImpl.OpenMode.RIGHT_SPLIT else FileEditorManagerImpl.OpenMode.DEFAULT,
       window = targetWindow,
       forceFocus = options.forceFocus,
@@ -523,8 +544,8 @@ private suspend fun openFile(
     }
 
     editorComposite?.coroutineScope?.ensureActive()
-    if (rightSplitWindow != null && options.openInRightSplit) {
-      rightSplitWindow.value = withContext(Dispatchers.EDT) {
+    if (rightSplitBatch != null && requestsRightSplit) {
+      rightSplitBatch.window = withContext(Dispatchers.EDT) {
         fileEditorManager.windows.firstOrNull { it.getComposite(file) === composite }
       }
     }

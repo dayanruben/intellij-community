@@ -76,6 +76,7 @@ class MPSProperties : JetBrainsProductProperties() {
         productLayout.bundledPluginModules +=
         sequenceOf(
             "intellij.java.plugin",
+            "intellij.java.basic.plugin",
             "intellij.java.ide.customization",
             "intellij.json.plugin",
             "intellij.copyright",
@@ -98,11 +99,11 @@ class MPSProperties : JetBrainsProductProperties() {
         productLayout.skipUnresolvedContentModules = true
         productLayout.prepareCustomPluginRepositoryForPublishedPlugins = false
         productLayout.buildAllCompatiblePlugins = false
-        productLayout.compatiblePluginsToIgnore = persistentListOf("intellij.java.plugin")
+        productLayout.compatiblePluginsToIgnore = JavaPluginLayout.ALL_MAIN_MODULE_NAMES
 
         val previousPluginLayouts = productLayout.pluginLayouts
         productLayout.pluginLayouts = lazy {
-            (previousPluginLayouts.value + JavaPluginLayout.javaPlugin(patchPluginXml())).toPersistentList()
+            (previousPluginLayouts.value + JavaPluginLayout.javaPluginLayouts(patchPluginXml())).toPersistentList()
         }
 
         productLayout.addPlatformSpec { layout ->

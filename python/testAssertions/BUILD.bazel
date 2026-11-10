@@ -1,0 +1,44 @@
+load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//build:compiler-options.bzl", "create_kotlinc_options")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
+
+### auto-generated section `dev intellij.python.testAssertions` start
+content_module_jar(module = ":testAssertions")
+### auto-generated section `dev intellij.python.testAssertions` end
+
+### auto-generated section `build intellij.python.testAssertions` start
+create_kotlinc_options(
+    name = "custom_testAssertions",
+    warn = "error",
+)
+
+jvm_library(
+    name = "testAssertions",
+    srcs = glob(
+        [
+            "src/**/*.kt",
+            "src/**/*.java",
+            "src/**/*.form",
+        ],
+        allow_empty = True,
+    ),
+    kotlinc_opts = ":custom_testAssertions",
+    module_name = "intellij.python.testAssertions",
+    resource_strip_prefix = "resources",
+    resources = glob(
+        ["resources/**/*"],
+    ),
+    visibility = ["//visibility:public"],
+    deps = ["@lib//:kotlin-stdlib"],
+)
+### auto-generated section `build intellij.python.testAssertions` end
+
+### auto-generated section `iml intellij.python.testAssertions` start
+exports_files(
+    [
+        "intellij.python.testAssertions.iml",
+        "resources/intellij.python.testAssertions.xml",
+    ],
+    visibility = ["//visibility:public"],
+)
+### auto-generated section `iml intellij.python.testAssertions` end

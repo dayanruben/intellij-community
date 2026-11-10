@@ -1,4 +1,5 @@
 load("@community//build:tests-options.bzl", "jps_test")
+load("@community//platform/build-scripts/bazel-rules:ij_plugin.bzl", "ij_plugin")
 load("@jps_dynamic_deps_community//:targets.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
@@ -20,10 +21,12 @@ dev_dist_plugin(
     descriptor = "resources/META-INF/plugin.xml",
     jars = {
         "lib/eclipse.jar": ["intellij.eclipse"],
-        "lib/eclipse-jps.jar": ["intellij.eclipse.jps"],
-        "lib/eclipse-common.jar": ["intellij.eclipse.common"],
     },
     main_module = "intellij.eclipse",
+    module_jar_paths = {
+        "intellij.eclipse.common": "lib/intellij.eclipse.common.jar",
+        "intellij.eclipse.jps": "lib/intellij.eclipse.jps.jar",
+    },
 )
 ### auto-generated section `dev intellij.eclipse` end
 
@@ -92,6 +95,19 @@ jvm_library(
     ],
 )
 ### auto-generated section `build intellij.eclipse` end
+
+### auto-generated section `plugin intellij.eclipse` start
+ij_plugin(
+    name = "eclipse_plugin",
+    descriptor_module = ":eclipse",
+    content_modules = [
+        # do not sort,
+        "//plugins/eclipse/common-eclipse-util:common",
+        "//plugins/eclipse/jps-plugin:jps",
+    ],
+    visibility = ["//visibility:public"],
+)
+### auto-generated section `plugin intellij.eclipse` end
 
 ### auto-generated section `iml intellij.eclipse` start
 exports_files(

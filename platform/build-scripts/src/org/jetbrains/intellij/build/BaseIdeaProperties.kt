@@ -13,6 +13,7 @@ import org.jetbrains.intellij.build.productLayout.DEFAULT_BUNDLED_PLUGINS
  */
 val IDEA_BUNDLED_PLUGINS: PersistentList<String> = DEFAULT_BUNDLED_PLUGINS + persistentListOf(
   JavaPluginLayout.MAIN_MODULE_NAME,
+  JavaPluginLayout.BASIC_PLUGIN_MAIN_MODULE_NAME,
   "intellij.java.ide.customization",
   "intellij.copyright",
   "intellij.properties.plugin",
@@ -83,8 +84,6 @@ val CE_CLASS_VERSIONS: Map<String, String> = mapOf(
 )
 
 fun configurePropertiesForAllEditionsOfIntelliJIdea(properties: JetBrainsProductProperties) {
-  properties.productLayout.compatiblePluginsToIgnore += persistentListOf(
-    JavaPluginLayout.MAIN_MODULE_NAME,
-  )
+  properties.productLayout.compatiblePluginsToIgnore += JavaPluginLayout.ALL_MAIN_MODULE_NAMES
   properties.modulesToCompileTests += persistentListOf("intellij.platform.jps.build.tests")
 }

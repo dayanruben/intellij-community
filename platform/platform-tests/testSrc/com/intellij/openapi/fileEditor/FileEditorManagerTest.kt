@@ -3,6 +3,7 @@ package com.intellij.openapi.fileEditor
 
 import com.intellij.ide.IdeBundle
 import com.intellij.ide.IdeEventQueue
+import com.intellij.ide.actions.OpenInRightSplitAction
 import com.intellij.ide.actions.Switcher
 import com.intellij.ide.impl.OpenProjectTask
 import com.intellij.ide.ui.UISettings
@@ -1888,6 +1889,178 @@ class FileEditorManagerTest {
     assertThat(exManager.windowSplitCount).isEqualTo(2)
   }
 
+  @Test
+  fun testRightSplitModeKeepsOpenFileWithForbiddenSplitInItsWindow(): Unit = timeoutRunBlocking {
+    val file = getSourceFile("1.txt")
+    file.putUserData(FileEditorManagerKeys.FORBID_TAB_SPLIT, true)
+    try {
+      val originalComposite = withContext(Dispatchers.UiWithModelAccess) {
+        openSingleTextEditor(file)
+        checkNotNull(currentWindow().getComposite(file))
+      }
+
+      val composite = manager.openFile(
+        file = file,
+        options = FileEditorOpenOptions(openMode = FileEditorManagerImpl.OpenMode.RIGHT_SPLIT, reuseOpen = true, requestFocus = true),
+      )
+
+      assertThat(composite).isSameAs(originalComposite)
+      assertThat(manager.windows).hasSize(1)
+      withContext(Dispatchers.UiWithModelAccess) {
+        assertThat(manager.splitters.openInRightSplit(file, false)).isNull()
+      }
+      assertThat(manager.windows).hasSize(1)
+    }
+    finally {
+      file.putUserData(FileEditorManagerKeys.FORBID_TAB_SPLIT, null)
+    }
+  }
+
+  @ParameterizedTest(name = "openInInactiveSplitter={0}, reuseOpen={1}")
+  @CsvSource("true, true", "true, false", "false, true", "false, false")
+  fun testRefusedRightSplitKeepsOpenFileWithForbiddenSplitInItsWindow(openInInactiveSplitter: Boolean, reuseOpen: Boolean): Unit = timeoutRunBlocking {
+    (AdvancedSettings.getInstance() as AdvancedSettingsImpl)
+      .setSetting(FileEditorManagerImpl.EDITOR_OPEN_INACTIVE_SPLITTER, openInInactiveSplitter, disposable)
+    val forbidden = getSourceFile("1.txt")
+    val regular = getSourceFile("2.txt")
+    forbidden.putUserData(FileEditorManagerKeys.FORBID_TAB_SPLIT, true)
+    try {
+      val (primaryWindow, originalComposite) = withContext(Dispatchers.UiWithModelAccess) {
+        openSingleTextEditor(forbidden)
+        openSingleTextEditor(regular)
+        val primaryWindow = currentWindow()
+        openRegularFileTwoWindowsAway(primaryWindow, regular)
+        primaryWindow to checkNotNull(primaryWindow.getComposite(forbidden))
+      }
+
+      val composite = manager.openFile(
+        file = forbidden,
+        options = FileEditorOpenOptions(openMode = FileEditorManagerImpl.OpenMode.RIGHT_SPLIT, reuseOpen = reuseOpen, requestFocus = true),
+      )
+
+      assertThat(composite).isSameAs(originalComposite)
+      assertThat(manager.windows).hasSize(3)
+      assertFileOpenOnlyIn(forbidden, primaryWindow)
+    }
+    finally {
+      forbidden.putUserData(FileEditorManagerKeys.FORBID_TAB_SPLIT, null)
+    }
+  }
+
+  @Test
+  fun testSyncRightSplitModeKeepsOpenFileWithForbiddenSplitInItsWindow(): Unit =
+    timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+      (AdvancedSettings.getInstance() as AdvancedSettingsImpl)
+        .setSetting(FileEditorManagerImpl.EDITOR_OPEN_INACTIVE_SPLITTER, false, disposable)
+      val forbidden = getSourceFile("1.txt")
+      val regular = getSourceFile("2.txt")
+      forbidden.putUserData(FileEditorManagerKeys.FORBID_TAB_SPLIT, true)
+      try {
+        openSingleTextEditor(forbidden)
+        openSingleTextEditor(regular)
+        val primaryWindow = currentWindow()
+        openRegularFileTwoWindowsAway(primaryWindow, regular)
+        val originalComposite = checkNotNull(primaryWindow.getComposite(forbidden))
+
+        val composite = manager.openFile(
+          forbidden,
+          null,
+          FileEditorOpenOptions(openMode = FileEditorManagerImpl.OpenMode.RIGHT_SPLIT, reuseOpen = false, requestFocus = true),
+        )
+
+        assertThat(composite).isSameAs(originalComposite)
+        assertThat(manager.windows).hasSize(3)
+        assertFileOpenOnlyIn(forbidden, primaryWindow)
+      }
+      finally {
+        forbidden.putUserData(FileEditorManagerKeys.FORBID_TAB_SPLIT, null)
+      }
+    }
+
+  /**
+   * Under [UISettings.TABS_NONE] the window lookup of a plain open matches the selected file only.
+   * The split refusal matches every open file, so it must find a file which another file hides.
+   */
+  @Test
+  fun testRightSplitModeKeepsUnselectedOpenFileWithForbiddenSplitInItsWindowWithoutTabs(): Unit = timeoutRunBlocking {
+    (AdvancedSettings.getInstance() as AdvancedSettingsImpl)
+      .setSetting(FileEditorManagerImpl.EDITOR_OPEN_INACTIVE_SPLITTER, false, disposable)
+    val forbidden = getSourceFile("1.txt")
+    val regular = getSourceFile("2.txt")
+    forbidden.putUserData(FileEditorManagerKeys.FORBID_TAB_SPLIT, true)
+    try {
+      val (primaryWindow, originalComposite) = withContext(Dispatchers.UiWithModelAccess) {
+        openSingleTextEditor(forbidden)
+        openSingleTextEditor(regular)
+        val primaryWindow = currentWindow()
+        assertThat(primaryWindow.selectedFile).isSameAs(regular)
+        openRegularFileTwoWindowsAway(primaryWindow, regular)
+        UISettings.getInstance().editorTabPlacement = UISettings.TABS_NONE
+        primaryWindow to checkNotNull(primaryWindow.getComposite(forbidden))
+      }
+
+      val composite = manager.openFile(
+        file = forbidden,
+        options = FileEditorOpenOptions(openMode = FileEditorManagerImpl.OpenMode.RIGHT_SPLIT, reuseOpen = false, requestFocus = true),
+      )
+
+      assertThat(composite).isSameAs(originalComposite)
+      assertThat(manager.windows).hasSize(3)
+      assertFileOpenOnlyIn(forbidden, primaryWindow)
+    }
+    finally {
+      forbidden.putUserData(FileEditorManagerKeys.FORBID_TAB_SPLIT, null)
+    }
+  }
+
+  @Test
+  fun testRightSplitModeOpensClosedFileWithForbiddenSplitInTheRightSplit(): Unit = timeoutRunBlocking {
+    val file = getSourceFile("1.txt")
+    file.putUserData(FileEditorManagerKeys.FORBID_TAB_SPLIT, true)
+    try {
+      withContext(Dispatchers.UiWithModelAccess) {
+        openSingleTextEditor(getSourceFile("2.txt"))
+      }
+      val initialWindow = manager.windows.single()
+
+      val composite = manager.openFile(
+        file = file,
+        options = FileEditorOpenOptions(openMode = FileEditorManagerImpl.OpenMode.RIGHT_SPLIT, reuseOpen = true, requestFocus = true),
+      )
+
+      assertThat(composite.allEditors).isNotEmpty()
+      assertThat(manager.windows).hasSize(2)
+      val splitWindow = manager.windows.single { it !== initialWindow }
+      assertThat(splitWindow.fileList).containsExactly(file)
+      assertThat(initialWindow.fileList).doesNotContain(file)
+    }
+    finally {
+      file.putUserData(FileEditorManagerKeys.FORBID_TAB_SPLIT, null)
+    }
+  }
+
+  @Test
+  fun testCanOpenInRightSplitForFileWithForbiddenSplitOnlyWhileItIsClosed(): Unit = timeoutRunBlocking {
+    val forbidden = getSourceFile("1.txt")
+    val regular = getSourceFile("2.txt")
+    forbidden.putUserData(FileEditorManagerKeys.FORBID_TAB_SPLIT, true)
+    try {
+      assertThat(OpenInRightSplitAction.canOpenInRightSplit(project, forbidden)).isTrue()
+      assertThat(OpenInRightSplitAction.canOpenInRightSplit(project, regular)).isTrue()
+
+      withContext(Dispatchers.UiWithModelAccess) {
+        openSingleTextEditor(forbidden)
+        openSingleTextEditor(regular)
+      }
+
+      assertThat(OpenInRightSplitAction.canOpenInRightSplit(project, forbidden)).isFalse()
+      assertThat(OpenInRightSplitAction.canOpenInRightSplit(project, regular)).isTrue()
+    }
+    finally {
+      forbidden.putUserData(FileEditorManagerKeys.FORBID_TAB_SPLIT, null)
+    }
+  }
+
   @ParameterizedTest
   @CsvSource("file,false", "file,true", "editor,false", "editor,true", "text,false", "text,true")
   fun testRequestCapturesOnlyManagedMode(api: String, explicitDefault: Boolean): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
@@ -2343,6 +2516,22 @@ class FileEditorManagerTest {
   private fun createVerticalSplitter(window: EditorWindow = currentWindow(), fileEditorManager: FileEditorManagerEx = manager): EditorWindow {
     fileEditorManager.createSplitter(SwingConstants.VERTICAL, window)
     return nextWindow(window, fileEditorManager)
+  }
+
+  /**
+   * The right split selects a file in a sibling window also without the refusal.
+   * So a test of the refusal uses a file two windows away.
+   */
+  private fun openRegularFileTwoWindowsAway(window: EditorWindow, file: VirtualFile) {
+    val secondaryWindow = createVerticalSplitter(window)
+    val tertiaryWindow = createVerticalSplitter(secondaryWindow)
+    manager.openFileImpl2(tertiaryWindow, file, FileEditorOpenOptions().withRequestFocus(true))
+    assertThat(currentWindow()).isSameAs(tertiaryWindow)
+  }
+
+  private fun assertFileOpenOnlyIn(file: VirtualFile, window: EditorWindow) {
+    assertThat(window.fileList).contains(file)
+    assertThat(manager.windows.filter { it !== window }).allSatisfy { assertThat(it.fileList).doesNotContain(file) }
   }
 
   private fun createSecondaryWindowWithSecondFileSelected(): SecondaryWindowFixture {

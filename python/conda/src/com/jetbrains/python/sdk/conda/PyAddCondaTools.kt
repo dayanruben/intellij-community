@@ -1,0 +1,124 @@
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+package com.jetbrains.python.sdk.conda
+
+import com.jetbrains.python.sdk.ModuleOrProject
+import com.intellij.execution.target.FullPathOnTarget
+import com.intellij.execution.target.TargetEnvironmentConfiguration
+import com.intellij.python.community.execService.BinOnEel
+import com.intellij.python.community.execService.BinOnTarget
+import com.intellij.python.sdk.backend.PythonInterpreter
+import com.jetbrains.python.conda.savePythonCondaPath
+import com.jetbrains.python.errorProcessing.PyResult
+import com.jetbrains.python.psi.LanguageLevel
+import com.jetbrains.python.sdk.PythonSdkAdditionalData
+import com.jetbrains.python.sdk.SdkCreationRequest
+import com.jetbrains.python.sdk.conda.execution.CondaExecutor
+import com.jetbrains.python.sdk.createSdk
+import com.jetbrains.python.sdk.flavors.PyFlavorAndData
+import com.jetbrains.python.sdk.flavors.conda.CondaEnvSdkFlavor
+import com.jetbrains.python.sdk.flavors.conda.NewCondaEnvRequest
+import com.jetbrains.python.sdk.flavors.conda.PyCondaCommand
+import com.jetbrains.python.sdk.flavors.conda.PyCondaEnv
+import com.jetbrains.python.sdk.flavors.conda.PyCondaEnvIdentity
+import com.jetbrains.python.sdk.flavors.conda.PyCondaFlavorData
+import com.jetbrains.python.target.PyTargetAwareAdditionalData
+import java.nio.file.Path
+import kotlin.io.path.Path
+import org.jetbrains.annotations.ApiStatus
+
+/**
+ * Levels to be used for new conda envs
+ */
+@get:ApiStatus.Internal
+val condaSupportedLanguages: List<LanguageLevel>
+  get() = LanguageLevel.SUPPORTED_LEVELS
+    .asReversed()
+    .filter { it < LanguageLevel.PYTHON314 }
+
+
+
+/**
+ * See `com.jetbrains.env.python.conda.PyCondaSdkTest`
+ */
+@ApiStatus.Internal
+suspend fun PyCondaCommand.createCondaSdkFromExistingEnvironment(
+  moduleOrProject: ModuleOrProject,
+  condaIdentity: PyCondaEnvIdentity,
+  workingDirectory: Path,
+): PyResult<PythonInterpreter> {
+  val condaEnv = PyCondaEnv(condaIdentity, fullCondaPathOnTarget)
+  val flavorAndData = PyFlavorAndData(PyCondaFlavorData(condaEnv), CondaEnvSdkFlavor)
+  val interpreterPath = getCondaPythonBinaryPath(condaEnv, targetConfig).getOr { return it }
+
+  val targetConfig = targetConfig
+  val creationRequest = if (targetConfig == null) {
+    SdkCreationRequest.EelSdk(Path(interpreterPath), PythonSdkAdditionalData(flavorAndData, workingDirectory))
+  }
+  else {
+    val addData = PyTargetAwareAdditionalData(flavorAndData, workingDirectory, targetConfig).also {
+      it.interpreterPath = interpreterPath
+    }
+    SdkCreationRequest.TargetSdk(interpreterPath, addData)
+  }
+
+  // The registry makes the name unique.
+  val name = condaEnv.envIdentity.userReadableName
+  val pythonInterpreter = creationRequest.createSdk(moduleOrProject, name).getOr { return it }
+
+  if (targetConfig == null) {
+    savePythonCondaPath(Path.of(fullCondaPathOnTarget))
+  }
+  // The paths are set up when a PyProject registers the interpreter.
+  return PyResult.success(pythonInterpreter)
+}
+
+/** The SDK data of the existing conda env [condaEnv], for the project in [workingDirectory]. */
+internal fun condaSdkDataOf(condaEnv: PyCondaEnv, workingDirectory: Path): PythonSdkAdditionalData =
+  PythonSdkAdditionalData(PyFlavorAndData(PyCondaFlavorData(condaEnv), CondaEnvSdkFlavor), workingDirectory)
+
+private const val PRINT_SYS_EXECUTABLE_SCRIPT = "import sys; print(sys.executable)"
+
+/**
+ * @return path to Conda interpreter binary on target
+ */
+private suspend fun getCondaPythonBinaryPath(
+  condaEnv: PyCondaEnv,
+  targetConfig: TargetEnvironmentConfiguration?,
+): PyResult<FullPathOnTarget> {
+  val binaryToExec = when (targetConfig) {
+    null -> BinOnEel(Path(condaEnv.fullCondaPathOnTarget))
+    else -> BinOnTarget(condaEnv.fullCondaPathOnTarget, targetConfig)
+  }
+  return CondaExecutor.runPythonInCondaEnv(
+    binaryToExec, condaEnv.envIdentity, "-c", PRINT_SYS_EXECUTABLE_SCRIPT
+  ).mapSuccess { it.trim() }
+}
+
+/**
+ * See `com.jetbrains.env.python.conda.PyCondaSdkTest`
+ */
+@ApiStatus.Internal
+suspend fun PyCondaCommand.createCondaSdkAlongWithNewEnv(
+  moduleOrProject: ModuleOrProject,
+  newCondaEnvInfo: NewCondaEnvRequest,
+  workingDirectory: Path,
+): PyResult<PythonInterpreter> {
+  PyCondaEnv.createEnv(this, newCondaEnvInfo).getOr { return it }
+  val sdk = createCondaSdkFromExistingEnvironment(
+    moduleOrProject = moduleOrProject,
+    condaIdentity = newCondaEnvInfo.toIdentity(),
+    workingDirectory = workingDirectory,
+  ).getOr { return it }
+  if (targetConfig == null) {
+    savePythonCondaPath(Path.of(this@createCondaSdkAlongWithNewEnv.fullCondaPathOnTarget))
+  }
+
+  return PyResult.success(sdk)
+}
+
+private fun NewCondaEnvRequest.toIdentity(): PyCondaEnvIdentity =
+  when (this) {
+    is NewCondaEnvRequest.EmptyNamedEnv, is NewCondaEnvRequest.LocalEnvByLocalEnvironmentFile -> PyCondaEnvIdentity.NamedEnv(envName)
+    is NewCondaEnvRequest.EmptyUnnamedEnv -> PyCondaEnvIdentity.UnnamedEnv(envPath = envName, isBase = false)
+  }
+

@@ -1914,6 +1914,11 @@ public abstract class K2JavaToKotlinConverterSingleFileTestGenerated extends Abs
             runTest("../../shared/tests/testData/newJ2k/detectProperties/kt-32253.java");
         }
 
+        @TestMetadata("MergedPropertyInOtherAccessors.java")
+        public void testMergedPropertyInOtherAccessors() throws Exception {
+            runTest("../../shared/tests/testData/newJ2k/detectProperties/MergedPropertyInOtherAccessors.java");
+        }
+
         @TestMetadata("NoBackingField.java")
         public void testNoBackingField() throws Exception {
             runTest("../../shared/tests/testData/newJ2k/detectProperties/NoBackingField.java");
@@ -4999,6 +5004,11 @@ public abstract class K2JavaToKotlinConverterSingleFileTestGenerated extends Abs
         @TestMetadata("autoUnboxing.java")
         public void testAutoUnboxing() throws Exception {
             runTest("../../shared/tests/testData/newJ2k/nullability/autoUnboxing.java");
+        }
+
+        @TestMetadata("castInNestedInterfaceConstant.java")
+        public void testCastInNestedInterfaceConstant() throws Exception {
+            runTest("../../shared/tests/testData/newJ2k/nullability/castInNestedInterfaceConstant.java");
         }
 
         @TestMetadata("FieldAssignedWithNull.java")

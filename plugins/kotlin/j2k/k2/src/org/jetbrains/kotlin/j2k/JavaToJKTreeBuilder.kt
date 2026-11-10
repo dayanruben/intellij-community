@@ -4,9 +4,9 @@ package org.jetbrains.kotlin.j2k
 
 import com.intellij.codeInsight.AnnotationTargetUtil
 import com.intellij.codeInsight.daemon.impl.quickfix.AddTypeArgumentsFix
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.lang.jvm.JvmModifier
 import com.intellij.openapi.diagnostic.Logger
-import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.psi.JavaPsiFacade
 import com.intellij.psi.JavaTokenType
 import com.intellij.psi.JavaTokenType.SUPER_KEYWORD
@@ -300,27 +300,24 @@ class JavaToJKTreeBuilder internal constructor(
     private val semanticResolver: OriginalJavaSemanticResolver,
     private val referenceSearcher: ReferenceSearcher,
     private val importStorage: JKImportStorage,
-    private val forInlining: Boolean
+    private val forInlining: Boolean,
+    private val inferTypeArguments: Boolean = false,
 ) {
     private val expressionTreeMapper = ExpressionTreeMapper()
     private val declarationMapper = DeclarationMapper(expressionTreeMapper)
     private val formattingCollector = FormattingCollector()
     private val immutableVariables: MutableMap<PsiCodeBlock, Set<PsiElement>?> = mutableMapOf()
+    private var inferredTypeArguments: Map<PsiMethodCallExpression, PsiReferenceParameterList> = emptyMap()
 
     companion object {
         private val LOG = Logger.getInstance("@org.jetbrains.kotlin.j2k.JavaToJKTreeBuilder")
     }
 
     fun buildTree(psi: PsiElement, saveImports: Boolean): JKTreeRoot? {
+        inferredTypeArguments =
+            if (inferTypeArguments && psi is PsiJavaFile) logErrors(emptyMap()) { collectInferredTypeArguments(psi) } else emptyMap()
         typeFactory.nullabilityInfo = (psi.containingFile as? PsiJavaFile)?.let { file ->
-            try {
-                inferNullability(file)
-            } catch (e: ProcessCanceledException) {
-                throw e
-            } catch (t: Throwable) {
-                LOG.error(t)
-                null
-            }
+            logErrors(null) { inferNullability(file, inferredTypeArguments) }
         }
 
         return when (psi) {
@@ -345,6 +342,15 @@ class JavaToJKTreeBuilder internal constructor(
             else -> null
         }?.let { JKTreeRoot(it) }
     }
+
+    private inline fun <T> logErrors(fallback: T, compute: () -> T): T =
+        try {
+            compute()
+        } catch (t: Throwable) {
+            rethrowControlFlowException(t)
+            LOG.error(t)
+            fallback
+        }
 
     private inner class ExpressionTreeMapper {
         fun PsiExpression?.toJK(): JKExpression {
@@ -581,7 +587,7 @@ class JavaToJKTreeBuilder internal constructor(
             } else if (sourceCall.typeArguments.isNotEmpty()) {
                 sourceCall.typeArgumentList
             } else {
-                AddTypeArgumentsFix.addTypeArguments(sourceCall, null, false)
+                inferredTypeArguments[this] ?: AddTypeArgumentsFix.addTypeArguments(sourceCall, null, false)
                     ?.safeAs<PsiMethodCallExpression>()
                     ?.typeArgumentList
             })
@@ -591,8 +597,8 @@ class JavaToJKTreeBuilder internal constructor(
             val typeParameters = sourceCall.resolveMethod()?.typeParameters ?: return typeArgumentList
             if (typeParameters.size != typeArgumentList.typeArguments.size) return typeArgumentList
 
-            val passesNull = sourceCall.argumentList.expressions.any {
-                getExpressionDfaNullability(it) in NULLABLE_DFA_NULLABILITIES
+            val passesNull = argumentList.expressions.any {
+                typeFactory.nullabilityInfo.dfaNullabilityOf(it) in NULLABLE_DFA_NULLABILITIES
             }
 
             typeArgumentList.typeArguments.forEachIndexed { index, typeArgument ->
@@ -643,14 +649,14 @@ class JavaToJKTreeBuilder internal constructor(
                         is KtNamedFunction -> {
                             if (origin.isExtensionDeclaration()) {
                                 val receiver = arguments.expressions.firstOrNull()?.toJK()?.parenthesizeIfCompoundExpression()
-                                origin.fqName?.also { importStorage.addImport(it) }
+                                if (origin.isImportable()) origin.fqName?.also { importStorage.addImport(it) }
                                 JKCallExpressionImpl(
                                     symbolProvider.provideDirectSymbol(origin) as JKMethodSymbol,
                                     arguments.expressions.drop(1).map { it.toJK() }.toArgumentList(),
                                     typeArguments
                                 ).qualified(receiver)
                             } else {
-                                origin.fqName?.also { importStorage.addImport(it) }
+                                if (origin.isImportable()) origin.fqName?.also { importStorage.addImport(it) }
                                 JKCallExpressionImpl(
                                     symbolProvider.provideDirectSymbol(origin) as JKMethodSymbol,
                                     arguments.toJK(),
@@ -660,7 +666,7 @@ class JavaToJKTreeBuilder internal constructor(
                         }
 
                         is KtProperty, is KtPropertyAccessor, is KtParameter -> {
-                            origin.kotlinFqName?.also { importStorage.addImport(it) }
+                            if (origin.isImportable()) origin.kotlinFqName?.also { importStorage.addImport(it) }
                             val property =
                                 if (origin is KtPropertyAccessor) origin.parent as KtProperty
                                 else origin as KtNamedDeclaration
@@ -1257,7 +1263,13 @@ class JavaToJKTreeBuilder internal constructor(
         }
 
         fun PsiParameter.toJK(): JKParameter {
-            val rawType = type.toJK()
+            val info = typeFactory.nullabilityInfo
+            val rawType = when {
+                info == null -> type.toJK()
+                this in info.notNullLambdaParameters -> type.toJK().updateNullability(NotNull)
+                this in info.nullableLambdaParameters -> type.toJK().updateNullability(Nullable)
+                else -> type.toJK()
+            }
             val type =
                 if (isVarArgs && rawType is JKJavaArrayType) JKTypeElement(rawType.type, typeElement.annotationList(this))
                 else rawType.asTypeElement(typeElement.annotationList(this))
@@ -1589,6 +1601,10 @@ class JavaToJKTreeBuilder internal constructor(
         return this@withCommentsAfterWithParent
     }
 }
+
+/** A top-level declaration and a member of an object are importable. A member of a class is not. */
+private fun PsiElement.isImportable(): Boolean =
+    getStrictParentOfType<KtClassOrObject>().let { it == null || it is KtObjectDeclaration }
 
 private const val DEPRECATED_ANNOTATION_FQ_NAME = "java.lang.Deprecated"
 private const val NO_NAME_PROVIDED = "NO_NAME_PROVIDED"

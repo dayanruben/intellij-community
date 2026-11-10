@@ -106,11 +106,13 @@ object PyTypeInferenceCspFactory {
       return cachedSubstitutions // return cached solution
     }
 
-    val temporarySubstitutions = GenericSubstitutions()
     val cachedSubstitutionsTopCsp = context.getKnownSubstitutions(topCsp)
     if (cachedSubstitutionsTopCsp != null) {
-      return temporarySubstitutions // return empty/temporary solution
+      // suspicious: ensure that `findParentCsp()` and `findChildCsp()` are round-tripable
+      return null // fallback to old approach
     }
+
+    val temporarySubstitutions = GenericSubstitutions()
 
     val onRecursionStack = recursionGuard.currentStack().contains(topCsp.expression)
     if (onRecursionStack) {

@@ -35,6 +35,7 @@ import com.intellij.openapi.vcs.history.VcsRevisionNumber
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.platform.backend.navigation.impl.SourceNavigationRequest
 import com.intellij.platform.vcs.VcsUtil
+import com.intellij.platform.vcs.impl.lang.changes.StructuralHunksService
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.impl.FakePsiElement
@@ -57,6 +58,7 @@ import kotlinx.coroutines.withContext
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotSame
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -70,6 +72,8 @@ import java.util.concurrent.atomic.AtomicInteger
 import javax.swing.Icon
 import javax.swing.JTree
 import javax.swing.tree.DefaultTreeModel
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.hours
 
 @TestApplication
 internal class StructuralChangesViewModifierTest {
@@ -226,6 +230,42 @@ internal class StructuralChangesViewModifierTest {
     }
     assertEquals(listOf("first=2"), build(change).map { it.textPresentation })
     assertEquals(2, loads.get(), "An edit needs the base content again")
+  }
+
+  @Test
+  @RegistryKey(key = StructuralChangesViewSettings.REGISTRY_KEY, value = "true")
+  fun `the hunks service names the hunks against any base and reuses them`(): Unit = timeoutRunBlocking {
+    val change = change("changed=1\nunchanged=2", "changed=4\nunchanged=2", VcsRevisionNumber.Int(7))
+    IndexingTestUtil.suspendUntilIndexesAreReady(project)
+    val service = StructuralHunksService.getInstance(project)
+    val file = fileFixture.get()
+    val base = checkNotNull(change.beforeRevision)
+    val hunks = checkNotNull(withContext(Dispatchers.Default) { service.hunks(file, base) })
+    assertEquals(listOf(listOf("changed=4")), hunks.map { hunk -> hunk.name.parts.map { it.text } })
+    assertEquals(HunkLines(0, 1, 0, 1), hunks.single().lines)
+
+    val views = structureViews.get()
+    assertSame(hunks, withContext(Dispatchers.Default) { service.hunks(file, base) }, "The same inputs reuse the hunks")
+    assertEquals(views, structureViews.get(), "A second read names nothing again")
+  }
+
+  @Test
+  @RegistryKey(key = StructuralChangesViewSettings.REGISTRY_KEY, value = "true")
+  fun `the hunks service removes the hunks of a file that no read used for a while`(): Unit = timeoutRunBlocking {
+    val change = change("changed=1", "changed=2", VcsRevisionNumber.Int(7))
+    IndexingTestUtil.suspendUntilIndexesAreReady(project)
+    val service = StructuralHunksService.getInstance(project)
+    val file = fileFixture.get()
+    val base = checkNotNull(change.beforeRevision)
+    val hunks = checkNotNull(withContext(Dispatchers.Default) { service.hunks(file, base) })
+
+    service.removeHunksUnreadFor(1.hours)
+    assertSame(hunks, withContext(Dispatchers.Default) { service.hunks(file, base) }, "A file that a read used within the age keeps its hunks")
+
+    service.removeHunksUnreadFor(Duration.ZERO)
+    val views = structureViews.get()
+    assertNotSame(hunks, withContext(Dispatchers.Default) { service.hunks(file, base) }, "A file that no read used within the age loses its hunks")
+    assertTrue(structureViews.get() > views, "The next read names the hunks of the file again")
   }
 
   @Test

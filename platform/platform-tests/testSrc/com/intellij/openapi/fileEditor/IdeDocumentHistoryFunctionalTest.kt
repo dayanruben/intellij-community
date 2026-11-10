@@ -11,6 +11,9 @@ import com.intellij.openapi.components.ComponentManagerEx
 import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
 import com.intellij.openapi.fileEditor.ex.IdeDocumentHistory
+import com.intellij.openapi.fileEditor.impl.FileEditorManagerImpl
+import com.intellij.openapi.options.advanced.AdvancedSettings
+import com.intellij.openapi.options.advanced.AdvancedSettingsImpl
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.backend.navigation.NavigationRequest
@@ -31,6 +34,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicReference
+import javax.swing.JSplitPane
 
 internal class IdeDocumentHistoryFunctionalTest : HeavyFileEditorManagerTestCase() {
   fun testNavigateBetweenEditLocations() {
@@ -505,6 +509,145 @@ internal class IdeDocumentHistoryFunctionalTest : HeavyFileEditorManagerTestCase
       assertThat(fileEditorManager.windowSplitCount).isEqualTo(2)
       val splitWindow = fileEditorManager.windows.single { it !== initialWindow }
       assertThat(splitWindow.fileList).contains(target1, target2)
+    }
+  }
+
+  fun testBatchKeepsTheFirstOpenFileWithForbiddenSplitOutOfTheRightSplit() {
+    doTestBatchWithFileWithForbiddenSplit(forbiddenFirst = true, forbiddenIsOpen = true)
+  }
+
+  fun testBatchKeepsTheLastOpenFileWithForbiddenSplitOutOfTheRightSplit() {
+    doTestBatchWithFileWithForbiddenSplit(forbiddenFirst = false, forbiddenIsOpen = true)
+  }
+
+  fun testBatchKeepsTheLastOpenFileWithForbiddenSplitOutOfTheRightSplitWhenOpenInInactiveSplitterIsOff() {
+    (AdvancedSettings.getInstance() as AdvancedSettingsImpl)
+      .setSetting(FileEditorManagerImpl.EDITOR_OPEN_INACTIVE_SPLITTER, false, testRootDisposable)
+    doTestBatchWithFileWithForbiddenSplit(forbiddenFirst = false, forbiddenIsOpen = true)
+  }
+
+  fun testBatchKeepsTheFirstOpenFileWithForbiddenSplitOutOfTheRightSplitWhenOpenInInactiveSplitterIsOff() {
+    (AdvancedSettings.getInstance() as AdvancedSettingsImpl)
+      .setSetting(FileEditorManagerImpl.EDITOR_OPEN_INACTIVE_SPLITTER, false, testRootDisposable)
+    doTestBatchWithFileWithForbiddenSplit(forbiddenFirst = true, forbiddenIsOpen = true)
+  }
+
+  fun testBatchOpensTheFirstClosedFileWithForbiddenSplitInTheRightSplit() {
+    doTestBatchWithFileWithForbiddenSplit(forbiddenFirst = true, forbiddenIsOpen = false)
+  }
+
+  fun testBatchOpensTheLastClosedFileWithForbiddenSplitInTheRightSplit() {
+    doTestBatchWithFileWithForbiddenSplit(forbiddenFirst = false, forbiddenIsOpen = false)
+  }
+
+  private fun doTestBatchWithFileWithForbiddenSplit(forbiddenFirst: Boolean, forbiddenIsOpen: Boolean) {
+    withNavigationRequests(isAsync = true) {
+      val forbidden = myFixture.addFileToProject("forbidden.txt", "forbidden").virtualFile
+      forbidden.putUserData(FileEditorManagerKeys.FORBID_TAB_SPLIT, true)
+      val target1 = myFixture.addFileToProject("target1.txt", "target1").virtualFile
+      val target2 = myFixture.addFileToProject("target2.txt", "target2").virtualFile
+      if (forbiddenIsOpen) {
+        myFixture.openFileInEditor(forbidden)
+      }
+      myFixture.openFileInEditor(target1)
+      myFixture.openFileInEditor(target2)
+      val fileEditorManager = FileEditorManagerEx.getInstanceEx(project)
+      val initialWindow = fileEditorManager.currentWindow!!
+      val initialSelectedFile = initialWindow.selectedFile
+      val forbiddenComposite = initialWindow.getComposite(forbidden)
+      val result = AtomicReference<Boolean>()
+      val targetRequests = listOf(
+        createNavigationRequest(target1, 0),
+        createNavigationRequest(target2, 0),
+      )
+      val forbiddenRequest = createNavigationRequest(forbidden, 0)
+      val requests = if (forbiddenFirst) listOf(forbiddenRequest) + targetRequests else targetRequests + forbiddenRequest
+
+      coroutineScope.launch {
+        result.set(
+          project.serviceAsync<NavigationService>().navigate(
+            requests,
+            NavigationOptions.defaultOptions().openInRightSplit(true),
+          )
+        )
+      }
+
+      waitUntil("Navigation result was not produced") { result.get() != null }
+      assertThat(result.get()).isTrue()
+      assertThat(fileEditorManager.windowSplitCount).isEqualTo(2)
+      val splitWindow = fileEditorManager.windows.single { it !== initialWindow }
+      assertThat(fileEditorManager.currentWindow).isSameAs(splitWindow)
+      if (forbiddenIsOpen) {
+        assertThat(splitWindow.fileList).containsExactlyInAnyOrder(target1, target2)
+        assertThat(splitWindow.selectedFile).isSameAs(target2)
+        assertThat(initialWindow.getComposite(forbidden)).isSameAs(forbiddenComposite)
+      }
+      else {
+        assertThat(splitWindow.fileList).containsExactlyInAnyOrder(forbidden, target1, target2)
+        assertThat(splitWindow.selectedFile).isSameAs(if (forbiddenFirst) target2 else forbidden)
+        assertThat(initialWindow.fileList).doesNotContain(forbidden)
+      }
+      assertThat(initialWindow.selectedFile).isSameAs(initialSelectedFile)
+      assertThat(forbidden.isValid).isTrue()
+    }
+  }
+
+  fun testBatchOfOneOpenFileWithForbiddenSplitSelectsItInItsWindow() {
+    doTestBatchOfOpenFilesWithForbiddenSplitOnly(count = 1, twoWindowsAway = false)
+  }
+
+  fun testBatchOfTwoOpenFilesWithForbiddenSplitSelectsThemInTheirWindow() {
+    doTestBatchOfOpenFilesWithForbiddenSplitOnly(count = 2, twoWindowsAway = false)
+  }
+
+  fun testBatchOfTwoOpenFilesWithForbiddenSplitTwoWindowsAwaySelectsThemInTheirWindowWhenOpenInInactiveSplitterIsOff() {
+    (AdvancedSettings.getInstance() as AdvancedSettingsImpl)
+      .setSetting(FileEditorManagerImpl.EDITOR_OPEN_INACTIVE_SPLITTER, false, testRootDisposable)
+    doTestBatchOfOpenFilesWithForbiddenSplitOnly(count = 2, twoWindowsAway = true)
+  }
+
+  /**
+   * The right split selects a file in a sibling window also without the refusal.
+   * So [twoWindowsAway] puts the current window two splits away from the files.
+   */
+  private fun doTestBatchOfOpenFilesWithForbiddenSplitOnly(count: Int, twoWindowsAway: Boolean) {
+    withNavigationRequests(isAsync = true) {
+      val forbiddenFiles = (1..count).map { index ->
+        val file = myFixture.addFileToProject("forbidden$index.txt", "forbidden$index").virtualFile
+        file.putUserData(FileEditorManagerKeys.FORBID_TAB_SPLIT, true)
+        myFixture.openFileInEditor(file)
+        file
+      }
+      val regular = myFixture.addFileToProject("regular.txt", "regular").virtualFile
+      myFixture.openFileInEditor(regular)
+      val fileEditorManager = FileEditorManagerEx.getInstanceEx(project)
+      val forbiddenWindow = fileEditorManager.currentWindow!!
+      val forbiddenComposites = forbiddenFiles.map { forbiddenWindow.getComposite(it) }
+      if (twoWindowsAway) {
+        val secondaryWindow = forbiddenWindow.split(JSplitPane.HORIZONTAL_SPLIT, true, regular, true)!!
+        val tertiaryWindow = secondaryWindow.split(JSplitPane.HORIZONTAL_SPLIT, true, regular, true)!!
+        assertThat(fileEditorManager.currentWindow).isSameAs(tertiaryWindow)
+      }
+      val windowCount = fileEditorManager.windowSplitCount
+      val result = AtomicReference<Boolean>()
+
+      coroutineScope.launch {
+        result.set(
+          project.serviceAsync<NavigationService>().navigate(
+            forbiddenFiles.map { createNavigationRequest(it, 0) },
+            NavigationOptions.defaultOptions().openInRightSplit(true),
+          )
+        )
+      }
+
+      waitUntil("Navigation result was not produced") { result.get() != null }
+      assertThat(result.get()).isTrue()
+      assertThat(fileEditorManager.windowSplitCount).isEqualTo(windowCount)
+      assertThat(forbiddenFiles.map { forbiddenWindow.getComposite(it) }).containsExactlyElementsOf(forbiddenComposites)
+      assertThat(forbiddenWindow.selectedFile).isSameAs(forbiddenFiles.last())
+      for (window in fileEditorManager.windows.filter { it !== forbiddenWindow }) {
+        assertThat(window.fileList).containsExactly(regular)
+      }
     }
   }
 

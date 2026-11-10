@@ -15,6 +15,7 @@
     <module name="intellij.kotlin.base.util"/>
     <module name="intellij.kotlin.codeInsight.api"/>
     <module name="intellij.kotlin.codeInsight.fixes"/>
+    <module name="intellij.kotlin.codeInsight.shared"/>
     <module name="intellij.kotlin.codeInsight.utils"/>
     <module name="intellij.kotlin.projectConfiguration"/>
     <module name="intellij.kotlin.refactorings"/>
@@ -60,9 +61,6 @@
             interface="org.jetbrains.kotlin.j2k.J2kPreprocessorExtension"
             dynamic="true"/>
   </extensionPoints>
-  <extensions defaultExtensionNs="org.jetbrains.kotlin">
-    <j2kPreprocessorExtension implementation="org.jetbrains.kotlin.j2k.preProcessings.K2TypeArgumentsExpander"/>
-  </extensions>
   <extensions defaultExtensionNs="com.intellij">
     <refactoring.inlineHandler
             language="kotlin"
