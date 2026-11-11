@@ -906,6 +906,8 @@
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/base/util/intellij.kotlin.base.util.iml" filepath="$PROJECT_DIR$/plugins/kotlin/base/util/intellij.kotlin.base.util.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/base/util/intellij.kotlin.base.util.tests.iml" filepath="$PROJECT_DIR$/plugins/kotlin/base/util/intellij.kotlin.base.util.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/build-tools-runtime/intellij.kotlin.buildToolsRuntime.iml" filepath="$PROJECT_DIR$/plugins/kotlin/build-tools-runtime/intellij.kotlin.buildToolsRuntime.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/jps/builder/intellij.kotlin.builder.jps.iml" filepath="$PROJECT_DIR$/plugins/kotlin/jps/builder/intellij.kotlin.builder.jps.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/jps/builder/tests/intellij.kotlin.builder.jps.tests.iml" filepath="$PROJECT_DIR$/plugins/kotlin/jps/builder/tests/intellij.kotlin.builder.jps.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/code-insight/kotlin.code-insight.k2/intellij.kotlin.codeInsight.iml" filepath="$PROJECT_DIR$/plugins/kotlin/code-insight/kotlin.code-insight.k2/intellij.kotlin.codeInsight.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/code-insight/api/intellij.kotlin.codeInsight.api.iml" filepath="$PROJECT_DIR$/plugins/kotlin/code-insight/api/intellij.kotlin.codeInsight.api.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/base/fir/code-insight/intellij.kotlin.codeInsight.base.iml" filepath="$PROJECT_DIR$/plugins/kotlin/base/fir/code-insight/intellij.kotlin.codeInsight.base.iml" />
@@ -1001,6 +1003,7 @@
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/j2k/k2/intellij.kotlin.j2k.iml" filepath="$PROJECT_DIR$/plugins/kotlin/j2k/k2/intellij.kotlin.j2k.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/j2k/mcp/intellij.kotlin.j2k.mcp.iml" filepath="$PROJECT_DIR$/plugins/kotlin/j2k/mcp/intellij.kotlin.j2k.mcp.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/j2k/k2/tests/intellij.kotlin.j2k.tests.iml" filepath="$PROJECT_DIR$/plugins/kotlin/j2k/k2/tests/intellij.kotlin.j2k.tests.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/jps/util/runtime/intellij.kotlin.jps.util.runtime.iml" filepath="$PROJECT_DIR$/plugins/kotlin/jps/util/runtime/intellij.kotlin.jps.util.runtime.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/jsr223/intellij.kotlin.jsr223.iml" filepath="$PROJECT_DIR$/plugins/kotlin/jsr223/intellij.kotlin.jsr223.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/scripting-plugin/intellij.kotlin.jsr223.plugin.iml" filepath="$PROJECT_DIR$/plugins/kotlin/scripting-plugin/intellij.kotlin.jsr223.plugin.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/jsr223/intellij.kotlin.jsr223.tests.iml" filepath="$PROJECT_DIR$/plugins/kotlin/jsr223/intellij.kotlin.jsr223.tests.iml" />
@@ -1052,6 +1055,7 @@
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/project-wizard/gradle/intellij.kotlin.projectWizard.gradle.iml" filepath="$PROJECT_DIR$/plugins/kotlin/project-wizard/gradle/intellij.kotlin.projectWizard.gradle.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/project-wizard/idea/intellij.kotlin.projectWizard.idea.iml" filepath="$PROJECT_DIR$/plugins/kotlin/project-wizard/idea/intellij.kotlin.projectWizard.idea.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/project-wizard/maven/intellij.kotlin.projectWizard.maven.iml" filepath="$PROJECT_DIR$/plugins/kotlin/project-wizard/maven/intellij.kotlin.projectWizard.maven.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/property-tests/intellij.kotlin.propertyBased.tests.iml" filepath="$PROJECT_DIR$/plugins/kotlin/property-tests/intellij.kotlin.propertyBased.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/refactorings/kotlin.refactorings.k2/intellij.kotlin.refactorings.iml" filepath="$PROJECT_DIR$/plugins/kotlin/refactorings/kotlin.refactorings.k2/intellij.kotlin.refactorings.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/refactorings/kotlin.refactorings.common/intellij.kotlin.refactorings.base.iml" filepath="$PROJECT_DIR$/plugins/kotlin/refactorings/kotlin.refactorings.common/intellij.kotlin.refactorings.base.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/kotlin/refactorings/rename.k2/intellij.kotlin.refactorings.rename.iml" filepath="$PROJECT_DIR$/plugins/kotlin/refactorings/rename.k2/intellij.kotlin.refactorings.rename.iml" />
@@ -1255,7 +1259,6 @@
       <module fileurl="file://$PROJECT_DIR$/libraries/kotlinc/kotlin-compiler-fir/intellij.libraries.kotlinc.kotlin.compiler.fir.iml" filepath="$PROJECT_DIR$/libraries/kotlinc/kotlin-compiler-fir/intellij.libraries.kotlinc.kotlin.compiler.fir.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/kotlinc/kotlin-compiler-ir/intellij.libraries.kotlinc.kotlin.compiler.ir.iml" filepath="$PROJECT_DIR$/libraries/kotlinc/kotlin-compiler-ir/intellij.libraries.kotlinc.kotlin.compiler.ir.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/kotlinc/kotlin-dataframe-compiler-plugin/intellij.libraries.kotlinc.kotlin.dataframe.compiler.plugin.iml" filepath="$PROJECT_DIR$/libraries/kotlinc/kotlin-dataframe-compiler-plugin/intellij.libraries.kotlinc.kotlin.dataframe.compiler.plugin.iml" />
-      <module fileurl="file://$PROJECT_DIR$/libraries/kotlinc/kotlin-jps-common/intellij.libraries.kotlinc.kotlin.jps.common.iml" filepath="$PROJECT_DIR$/libraries/kotlinc/kotlin-jps-common/intellij.libraries.kotlinc.kotlin.jps.common.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/kotlinc/kotlin-script-runtime/intellij.libraries.kotlinc.kotlin.script.runtime.iml" filepath="$PROJECT_DIR$/libraries/kotlinc/kotlin-script-runtime/intellij.libraries.kotlinc.kotlin.script.runtime.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/kotlinc/kotlin-scripting-common/intellij.libraries.kotlinc.kotlin.scripting.common.iml" filepath="$PROJECT_DIR$/libraries/kotlinc/kotlin-scripting-common/intellij.libraries.kotlinc.kotlin.scripting.common.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/kotlinc/kotlin-scripting-compiler-impl/intellij.libraries.kotlinc.kotlin.scripting.compiler.impl.iml" filepath="$PROJECT_DIR$/libraries/kotlinc/kotlin-scripting-compiler-impl/intellij.libraries.kotlinc.kotlin.scripting.compiler.impl.iml" />
@@ -2530,6 +2533,10 @@
       <module fileurl="file://$PROJECT_DIR$/plugins/xpath/intellij.xpath.iml" filepath="$PROJECT_DIR$/plugins/xpath/intellij.xpath.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/xpath/xslt-rt/intellij.xpath.rt.iml" filepath="$PROJECT_DIR$/plugins/xpath/xslt-rt/intellij.xpath.rt.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/xpath/intellij.xpath.tests.iml" filepath="$PROJECT_DIR$/plugins/xpath/intellij.xpath.tests.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/xray/intellij.xray.iml" filepath="$PROJECT_DIR$/plugins/xray/intellij.xray.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/xray/backend/intellij.xray.backend.iml" filepath="$PROJECT_DIR$/plugins/xray/backend/intellij.xray.backend.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/xray/frontend/intellij.xray.frontend.iml" filepath="$PROJECT_DIR$/plugins/xray/frontend/intellij.xray.frontend.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/xray/shared/intellij.xray.shared.iml" filepath="$PROJECT_DIR$/plugins/xray/shared/intellij.xray.shared.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/yaml/intellij.yaml.iml" filepath="$PROJECT_DIR$/plugins/yaml/intellij.yaml.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/yaml/backend/intellij.yaml.backend.iml" filepath="$PROJECT_DIR$/plugins/yaml/backend/intellij.yaml.backend.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/yaml/backend/intellij.yaml.backend.tests.iml" filepath="$PROJECT_DIR$/plugins/yaml/backend/intellij.yaml.backend.tests.iml" />

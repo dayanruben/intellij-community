@@ -7,6 +7,7 @@ import com.intellij.ide.vfs.rpcId
 import com.intellij.lang.Language
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.edtWriteAction
+import com.intellij.openapi.extensions.DefaultPluginDescriptor
 import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
@@ -96,6 +97,39 @@ internal class WelcomeFileLanguageTest {
   }
 
   @Test
+  fun `language change replaces an extension that has no file type`(): Unit = timeoutRunBlocking {
+    markAsWelcomeProject(project, disposable)
+    // A rename can give the file an extension of a plugin that is not installed.
+    val file = createWelcomeFile("Untitled.welcomeFileLanguageTest")
+    val api = WelcomeFilesApi.getInstance()
+    // A file type without a language gives the same result with and without the language plugins.
+    val item = api.getLanguages().first { Language.findLanguageByID(it.id) == null }
+
+    api.changeLanguage(project.projectId(), file.rpcId(), item.id)
+
+    assertEquals("Untitled.${item.extension}", file.name)
+  }
+
+  @Test
+  fun `language mapping of a renamed file does not change the language`(): Unit = timeoutRunBlocking {
+    markAsWelcomeProject(project, disposable)
+    val file = createWelcomeFile()
+    val language = TestLanguage()
+    val mapping = ScratchFileService.getInstance().scratchesMapping
+    try {
+      // A rename of a file keeps the mapping of the language that the user selected before.
+      edtWriteAction { mapping.setMapping(file, language) }
+
+      val expected = FileTypeManager.getInstance().getFileTypeByExtension("txt").displayName
+      assertEquals(expected, WelcomeFilesApi.getInstance().fileLanguage(project.projectId(), file.rpcId()).first().displayName)
+    }
+    finally {
+      edtWriteAction { mapping.setMapping(file, null) }
+      language.unregisterLanguage(DefaultPluginDescriptor("WelcomeFileLanguageTest"))
+    }
+  }
+
+  @Test
   fun `file outside the welcome project has no language`(): Unit = timeoutRunBlocking {
     val file = createWelcomeFile()
 
@@ -110,3 +144,5 @@ internal class WelcomeFileLanguageTest {
     return file
   }
 }
+
+private class TestLanguage : Language("WelcomeFileLanguageTest")

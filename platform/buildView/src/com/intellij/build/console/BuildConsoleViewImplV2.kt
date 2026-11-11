@@ -84,6 +84,7 @@ internal class BuildConsoleViewImplV2(
 
 
   init {
+    delegate.editor?.configureEditor()
     Disposer.register(this, delegate)
   }
 
@@ -167,7 +168,7 @@ internal class BuildConsoleViewImplV2(
   }
 
   override fun scrollToNodeOutput(nodeId: Any) {
-    state.access {
+    state.accessFlushed {
       val inlay = nodeInlays(nodeId).firstOrNull()
       val bounds = inlay?.bounds
       if (inlay != null && bounds != null) {
@@ -231,6 +232,10 @@ internal class BuildConsoleViewImplV2(
         secondaryCaret.setSelection(outputRange.startOffset, outputRange.endOffset)
       }
     }
+  }
+
+  private fun Editor.configureEditor() {
+    settings.isHighlightSelectionOccurrences = false
   }
 
   private fun isVScrollAtBottom(editor: EditorEx): Boolean {
@@ -360,7 +365,6 @@ internal class BuildConsoleViewImplV2(
       }
     }
 
-    @TestOnly
     fun accessFlushed(action: ConsoleViewStateAccessor.() -> Unit) {
       invokeAndWaitIfNeeded {
         WriteIntentReadAction.run {

@@ -8,6 +8,8 @@ import com.intellij.codeInsight.codeVision.CodeVisionInitializer
 import com.intellij.codeInsight.codeVision.CodeVisionProviderFactory
 import com.intellij.codeInsight.codeVision.settings.CodeVisionSettings
 import com.intellij.codeInsight.codeVision.ui.model.ProjectCodeVisionModel
+import com.intellij.codeInsight.hints.CodeVisionInlayHintSettingsKey
+import com.intellij.codeInsight.hints.InlayHintSettingsOverrider
 import com.intellij.concurrency.JobLauncher
 import com.intellij.diagnostic.PluginException
 import com.intellij.diagnostic.rethrowControlFlowException
@@ -128,7 +130,11 @@ class CodeVisionPass(
     if (!settings.codeVisionEnabled) return
     if (!CodeVisionProjectSettings.getInstance(myProject).isEnabledForProject()) return
     val providers = DaemonBoundCodeVisionProvider.extensionPoint.extensionList
-      .filter {  settings.isProviderEnabled(it.groupId) }
+      .filter { provider ->
+        InlayHintSettingsOverrider.isEnabledByOverriders(CodeVisionInlayHintSettingsKey(groupId = provider.groupId))
+        ?: settings.isProviderEnabled(provider.groupId)
+      }
+    if (providers.isEmpty()) return
     collect(editor, myFile, providerIdToLenses, providers)
   }
 

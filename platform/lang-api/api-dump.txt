@@ -58,6 +58,9 @@ a:com.intellij.codeInsight.codeVision.CodeVisionEntry
 - f:getProviderId():java.lang.String
 - f:getTooltip():java.lang.String
 - f:setShowInMorePopup(Z):V
+f:com.intellij.codeInsight.codeVision.CodeVisionEntryExtraActionModel
+- <init>(java.lang.String,java.util.List):V
+- f:getChildren():java.util.List
 a:com.intellij.codeInsight.codeVision.CodeVisionRelativeOrdering
 f:com.intellij.codeInsight.codeVision.CodeVisionRelativeOrdering$CodeVisionRelativeOrderingAfter
 - com.intellij.codeInsight.codeVision.CodeVisionRelativeOrdering

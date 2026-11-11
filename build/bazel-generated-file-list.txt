@@ -580,7 +580,6 @@ libraries/kotlinc/kotlin-compiler-common
 libraries/kotlinc/kotlin-compiler-fir
 libraries/kotlinc/kotlin-compiler-ir
 libraries/kotlinc/kotlin-dataframe-compiler-plugin
-libraries/kotlinc/kotlin-jps-common
 libraries/kotlinc/kotlin-script-runtime
 libraries/kotlinc/kotlin-scripting-common
 libraries/kotlinc/kotlin-scripting-compiler-impl
@@ -1609,7 +1608,10 @@ plugins/kotlin/j2k/k2
 plugins/kotlin/j2k/k2/tests
 plugins/kotlin/j2k/mcp
 plugins/kotlin/j2k/shared/tests
+plugins/kotlin/jps/builder
+plugins/kotlin/jps/builder/tests
 plugins/kotlin/jps/graphImplementationTests
+plugins/kotlin/jps/util/runtime
 plugins/kotlin/jsr223
 plugins/kotlin/jvm-debugger/base/util
 plugins/kotlin/jvm-debugger/core
@@ -1662,6 +1664,7 @@ plugins/kotlin/project-wizard/gradle
 plugins/kotlin/project-wizard/idea
 plugins/kotlin/project-wizard/maven
 plugins/kotlin/project-wizard/tests
+plugins/kotlin/property-tests
 plugins/kotlin/refactorings/kotlin.refactorings.common
 plugins/kotlin/refactorings/kotlin.refactorings.k2
 plugins/kotlin/refactorings/kotlin.refactorings.tests.k2
@@ -1896,6 +1899,10 @@ plugins/webp
 plugins/webp/tests
 plugins/xpath
 plugins/xpath/xslt-rt
+plugins/xray
+plugins/xray/backend
+plugins/xray/frontend
+plugins/xray/shared
 plugins/yaml
 plugins/yaml/backend
 plugins/yaml/plugin

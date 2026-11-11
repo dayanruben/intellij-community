@@ -6,6 +6,7 @@ import com.intellij.psi.CommonClassNames.JAVA_UTIL_OPTIONAL
 import com.intellij.psi.PsiAnonymousClass
 import com.intellij.psi.PsiArrayType
 import com.intellij.psi.PsiCapturedWildcardType
+import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiClassType
 import com.intellij.psi.PsiDisjunctionType
 import com.intellij.psi.PsiIntersectionType
@@ -24,16 +25,18 @@ import org.jetbrains.kotlin.analysis.api.types.KaType
 import org.jetbrains.kotlin.analysis.api.types.KaTypeParameterType
 import org.jetbrains.kotlin.analysis.api.types.isMarkedNullable
 import org.jetbrains.kotlin.builtins.StandardNames
+import org.jetbrains.kotlin.builtins.jvm.JavaToKotlinClassMap
 import org.jetbrains.kotlin.j2k.JKSymbolProvider
 import org.jetbrains.kotlin.j2k.Nullability
 import org.jetbrains.kotlin.j2k.Nullability.Default
 import org.jetbrains.kotlin.j2k.Nullability.NotNull
 import org.jetbrains.kotlin.j2k.Nullability.Nullable
-import org.jetbrains.kotlin.j2k.NullabilityInfo
+import org.jetbrains.kotlin.j2k.TypeInferenceInfo
 import org.jetbrains.kotlin.j2k.OriginalJavaSemanticResolver
 import org.jetbrains.kotlin.j2k.symbols.JKClassSymbol
 import org.jetbrains.kotlin.j2k.symbols.JKTypeParameterSymbol
 import org.jetbrains.kotlin.j2k.symbols.JKUnresolvedClassSymbol
+import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.FqNameUnsafe
 import org.jetbrains.kotlin.resolve.jvm.JvmPrimitiveType
 
@@ -41,9 +44,11 @@ class JKTypeFactory internal constructor(
     val symbolProvider: JKSymbolProvider,
     private val semanticResolver: OriginalJavaSemanticResolver,
 ) {
-    internal var nullabilityInfo: NullabilityInfo? = null
+    internal var typeInferenceInfo: TypeInferenceInfo? = null
 
     fun fromPsiType(type: PsiType): JKType = createFromPsiType(type)
+
+    internal fun fromPsiTypeAsReadOnly(type: PsiType): JKType = createFromPsiType(type, readOnly = true)
 
     context(_: KaSession)
     fun fromKaType(type: KaType): JKType = createFromKaType(type)
@@ -88,7 +93,7 @@ class JKTypeFactory internal constructor(
 
     val types: DefaultTypes by lazy(LazyThreadSafetyMode.NONE) { DefaultTypes() }
 
-    private fun createFromPsiType(type: PsiType): JKType {
+    private fun createFromPsiType(type: PsiType, readOnly: Boolean = false): JKType {
         val nullability = getNullability(type)
 
         return when (type) {
@@ -113,7 +118,7 @@ class JKTypeFactory internal constructor(
 
                     else -> {
                         JKClassType(
-                            symbolProvider.provideDirectSymbol(target) as JKClassSymbol,
+                            readOnlyClassSymbol(type, target, readOnly) ?: symbolProvider.provideDirectSymbol(target) as JKClassSymbol,
                             parameters,
                             nullability
                         )
@@ -163,7 +168,7 @@ class JKTypeFactory internal constructor(
     }
 
     private fun getNullability(type: PsiType): Nullability {
-        val info = nullabilityInfo ?: return Default
+        val info = typeInferenceInfo ?: return Default
         val referenceElement = if (type is PsiClassReferenceType) type.reference else null
         val nullability = when {
             info.nullableTypes.contains(type) || info.nullableElements.contains(referenceElement) -> Nullable
@@ -172,6 +177,16 @@ class JKTypeFactory internal constructor(
             else -> Default
         }
         return nullability
+    }
+
+    private fun readOnlyClassSymbol(type: PsiClassType, target: PsiClass, readOnly: Boolean): JKClassSymbol? {
+        if (!readOnly) {
+            val info = typeInferenceInfo ?: return null
+            val referenceElement = (type as? PsiClassReferenceType)?.reference
+            if (type !in info.readOnlyTypes && referenceElement !in info.readOnlyElements) return null
+        }
+        val kotlinClass = JavaToKotlinClassMap.mapJavaToKotlin(FqName(target.qualifiedName ?: return null)) ?: return null
+        return symbolProvider.provideClassSymbol(kotlinClass.asSingleFqName())
     }
 
     private fun isOptional(type: PsiType): Boolean =

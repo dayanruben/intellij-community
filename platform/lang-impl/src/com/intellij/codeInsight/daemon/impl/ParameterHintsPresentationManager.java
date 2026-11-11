@@ -3,6 +3,8 @@ package com.intellij.codeInsight.daemon.impl;
 
 import com.intellij.codeInsight.hints.HintWidthAdjustment;
 import com.intellij.codeInsight.hints.InlayHintsUtilsKt;
+import com.intellij.codeInsight.hints.PopupActionsKt;
+import com.intellij.openapi.actionSystem.ActionGroup;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
@@ -184,6 +186,11 @@ public final class ParameterHintsPresentationManager implements Disposable {
         return aBoolean != null && aBoolean ? InlayHintsUtilsKt.strikeOutBuilder(editor).applyTo(attributes.clone()) : attributes;
       }
       return null;
+    }
+
+    @Override
+    public @Nullable ActionGroup getContextMenuGroup(@NotNull Inlay inlay) {
+      return PopupActionsKt.parameterHintContextMenuGroup(inlay);
     }
 
     @Override

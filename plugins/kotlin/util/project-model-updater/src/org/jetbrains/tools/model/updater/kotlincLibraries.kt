@@ -95,7 +95,6 @@ internal fun generateKotlincLibraries(preferences: GeneratorPreferences, isCommu
         kotlincForIdeWithStandardNaming("kotlinc.compose-compiler-plugin", kotlincCoordinates, convertedToModuleLibrary = true)
         kotlincForIdeWithStandardNaming("kotlinc.js-plain-objects-compiler-plugin", kotlincCoordinates, convertedToModuleLibrary = true)
         kotlincForIdeWithStandardNaming("kotlinc.kotlin-dataframe-compiler-plugin", kotlincCoordinates, convertedToModuleLibrary = true)
-        kotlincForIdeWithStandardNaming("kotlinc.kotlin-jps-common", kotlincCoordinates, convertedToModuleLibrary = true)
 
         kotlincForIdeWithStandardNaming("kotlinc.kotlin-objcexport-header-generator", kotlincCoordinates)
         kotlincForIdeWithStandardNaming("kotlinc.kotlin-swift-export", kotlincCoordinates)
@@ -107,6 +106,7 @@ internal fun generateKotlincLibraries(preferences: GeneratorPreferences, isCommu
         kotlincWithStandardNaming("kotlinc.kotlin-script-runtime", kotlincCoordinates, transitive = true, convertedToModule = true)
 
         kotlincWithStandardNaming("kotlinc.kotlin-build-tools-api", kotlincCoordinates)
+        kotlincWithStandardNaming("kotlinc.kotlin-build-tools-api-jps", kotlincCoordinates)
         kotlincWithStandardNaming("kotlinc.kotlin-build-tools-impl", kotlincCoordinates)
         kotlincWithStandardNaming("kotlinc.kotlin-build-tools-cri-impl", kotlincCoordinates)
 

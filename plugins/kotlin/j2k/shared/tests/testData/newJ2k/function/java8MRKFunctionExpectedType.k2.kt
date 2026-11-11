@@ -83,8 +83,8 @@ internal class Java8Class {
     }
 
     fun testGenericFunctions() {
-        val emptyList: Function0<MutableList<String?>?> = { mutableListOf() }
-        val list: MutableList<String?> = emptyList.invoke()!!
+        val emptyList: Function0<List<String?>?> = { mutableListOf() }
+        val list: List<String?> = emptyList.invoke()!!
         list.get(0)
     }
 

@@ -1,0 +1,16 @@
+<idea-plugin>
+  <id>com.intellij.xray</id>
+  <name>X-Ray Mode</name>
+  <vendor>JetBrains</vendor>
+  <description>X-Ray Mode support for IntelliJ Platform Inlay hints</description>
+
+  <dependencies>
+    <plugin id="com.intellij.modules.lang"/>
+  </dependencies>
+
+  <content namespace="jetbrains">
+    <module name="intellij.xray.frontend" required-if-available="intellij.platform.frontend"/>
+    <module name="intellij.xray.shared" loading="required"/>
+    <module name="intellij.xray.backend" required-if-available="intellij.platform.backend"/>
+  </content>
+</idea-plugin>

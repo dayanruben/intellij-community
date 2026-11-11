@@ -32,6 +32,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectRootManager
 import com.intellij.openapi.util.ModificationTracker
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.psi.CommonClassNames
 import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiElement
@@ -343,29 +344,23 @@ class KotlinCompilerReferenceIndexService(private val project: Project, private 
     }
 
     /**
-     * Returns whether we should restrict the scope based on the amount of dirty modules.
-     * Returns true if the percentage of dirty modules is less than [MAX_DIRTY_MODULE_PERCENTAGE].
+     * Returns whether we should restrict the scope based on the amount of dirty modules, see [DirtyScopeHolder.isMostlyDirty].
      * Attempts to acquire a read lock, if no read lock can be acquired, returns false.
      */
     private fun shouldRestrictScope(): Boolean = tryWithReadLock {
-        runReadActionBlocking {
-            val dirtyModuleCount = dirtyModules()?.size ?: return@runReadActionBlocking false
-            val moduleCount = ModuleManager.getInstance(project).modules.size
-            if (dirtyModuleCount == 0) return@runReadActionBlocking true
-            dirtyModuleCount.toLong() * 100 < moduleCount.toLong() * MAX_DIRTY_MODULE_PERCENTAGE
-        }
+        initialized && runReadActionBlocking { !dirtyScopeHolder.isMostlyDirty }
     } == true
 
     fun scopeWithCodeReferences(element: PsiElement): GlobalSearchScope? {
         if (!isServiceEnabledFor(element)) return null
-        if (!shouldRestrictScope()) return null
         val originalElement = element.unwrapped ?: return null
 
         return runActionSafe("scope with code references") {
             CachedValuesManager.getCachedValue(originalElement) {
                 CachedValueProvider.Result.create(
-                    buildScopeWithReferences(referentFiles(originalElement), originalElement),
+                    if (shouldRestrictScope()) buildScopeWithReferences(referentFiles(originalElement), originalElement) else null,
                     PsiModificationTracker.MODIFICATION_COUNT,
+                    VirtualFileManager.getInstance(),
                     this,
                 )
             }
@@ -575,7 +570,6 @@ class KotlinCompilerReferenceIndexService(private val project: Project, private 
         }
 
         private val LOG = logger<KotlinCompilerReferenceIndexService>()
-        private const val MAX_DIRTY_MODULE_PERCENTAGE = 60
         private val ALL_BUILT_IN_TYPES = StandardClassIds.allBuiltinTypes.map { it.asFqNameString() }
     }
 }

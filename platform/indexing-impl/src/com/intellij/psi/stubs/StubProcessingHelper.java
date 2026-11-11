@@ -18,9 +18,10 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
+import static com.intellij.psi.stubs.StubRecoveryService.logStubInconsistency;
+
 @ApiStatus.Internal
 public final class StubProcessingHelper extends StubProcessingHelperBase {
-  private static final boolean SKIP_INDEX_REPAIR_ON_ERROR = Boolean.getBoolean("skip.index.repair");
   static final boolean REPORT_SENSITIVE_DATA_ON_ERROR =
     ApplicationManager.getApplication().isUnitTestMode() || ApplicationManager.getApplication().isInternal();
 
@@ -36,10 +37,11 @@ public final class StubProcessingHelper extends StubProcessingHelperBase {
       Map<Integer, SerializedStubTree> data = StubIndexEx.getStubUpdatingIndex().getIndexedFileData(id);
       if (data.size() != 1) {
         if (failOnMissedKeys) {
-          LOG.error("Stub index points to a file (" + getFileTypeInfo(file, project) + ") without indexed stub tree; " +
-                    "indexing stamp = " + StubTreeLoader.getInstance().getIndexingStampInfo(file) + ", " +
-                    "can have stubs = " + StubUpdatingIndex.canHaveStub(file) + ", " +
-                    "actual stub count = " + data.size());
+          logStubInconsistency(project, LOG,
+                               "Stub index points to a file (" + getFileTypeInfo(file, project) + ") without indexed stub tree; " +
+                               "indexing stamp = " + StubTreeLoader.getInstance().getIndexingStampInfo(file) + ", " +
+                               "can have stubs = " + StubUpdatingIndex.canHaveStub(file) + ", " +
+                               "actual stub count = " + data.size());
           onInternalError(file);
         }
         return null;
@@ -60,7 +62,7 @@ public final class StubProcessingHelper extends StubProcessingHelperBase {
         else {
           additionalMessage = "";
         }
-        LOG.error(mainMessage + additionalMessage);
+        logStubInconsistency(project, LOG, mainMessage + additionalMessage);
         onInternalError(file);
       }
       return stubIdList;
@@ -72,7 +74,7 @@ public final class StubProcessingHelper extends StubProcessingHelperBase {
 
   @Override
   protected void onInternalError(final VirtualFile file) {
-    if (SKIP_INDEX_REPAIR_ON_ERROR) return;
+    if (!StubRecoveryService.isRecoveryEnabled()) return;
     Set<VirtualFile> set = myFilesHavingProblems.get();
     if (set == null) {
       myFilesHavingProblems.set(set = new HashSet<>());
@@ -82,7 +84,7 @@ public final class StubProcessingHelper extends StubProcessingHelperBase {
 
   @Nullable
   Set<VirtualFile> takeAccumulatedFilesWithIndexProblems() {
-    if (SKIP_INDEX_REPAIR_ON_ERROR) return null;
+    if (!StubRecoveryService.isRecoveryEnabled()) return null;
     Set<VirtualFile> filesWithProblems = myFilesHavingProblems.get();
     if (filesWithProblems != null) myFilesHavingProblems.remove();
     return filesWithProblems;

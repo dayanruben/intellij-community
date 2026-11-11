@@ -8,8 +8,8 @@ import com.intellij.python.sdk.backend.impl.cachedPythonEnvironmentResult
 import com.intellij.python.sdk.backend.impl.enrichLocalPythonSdkWithHomeInfo
 import com.intellij.python.sdk.common.PyEnvId
 import com.intellij.python.sdk.common.PyInterpreterRef
-import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.PathMappingSettings
+import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.concurrency.annotations.RequiresBlockingContext
 import com.jetbrains.python.PythonBinary
 import com.jetbrains.python.PythonHomePath
@@ -170,7 +170,8 @@ private fun Sdk.buildPythonInterpreter(forceRefresh: Boolean): PyResult<PythonIn
   if (data == null || ref == null || homePath == null) {
     return PyResult.localizedError(PySdkBundle.message("python.sdk.broken.configuration", name))
   }
-  // An SDK without an owner is no interpreter. The registry adopts such an SDK for the first PyProject that needs it.
+  // An SDK without an owner is no interpreter. PythonSdkAdditionalDataMigrationActivity gives an SDK of an older build the
+  // working directory of the module that uses it, see [projectDirOf].
   val ownerDir = projectDirOf(data) ?: return PyResult.localizedError(PySdkBundle.message("python.sdk.broken.configuration", name))
   val interpreter = when (val mode = ref.mode) {
     is PyInterpreterRef.Mode.Target -> TargetPythonInterpreter(this, mode.targetId, ref.env, ownerDir, PathHolder.Target(homePath))
@@ -230,7 +231,7 @@ suspend fun PythonInterpreter.toFileSystem(): FileSystem<*> = sdk.toFileSystem()
  */
 @ApiStatus.Internal
 suspend fun PythonInterpreter.createMapper(project: Project, console: PathMappingSettings): PyRemotePathMapper =
-  toFileSystem().createMapper(project, console, sdk)
+  withContext(Dispatchers.IO) { toFileSystem().createMapper(project, console, sdk) }
 
 /**
  * [Sdk.pythonInterpreterResult] for a Java caller that reports a broken SDK as an [InvalidSdkException], with the message

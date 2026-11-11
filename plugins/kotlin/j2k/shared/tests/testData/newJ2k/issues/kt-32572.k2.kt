@@ -1,3 +1,3 @@
 class TestClass {
-    private val hashMap: MutableMap<String?, MutableList<Int?>?> = HashMap<String?, MutableList<Int?>?>()
+    private val hashMap: Map<String?, List<Int?>?> = HashMap<String?, List<Int?>?>()
 }

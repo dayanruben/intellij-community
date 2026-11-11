@@ -74,6 +74,14 @@ fun isParameterHintsEnabledForLanguage(language: Language): Boolean {
   return ParameterNameHintsSettings.getInstance().isEnabledForLanguage(getLanguageForSettingKey(language))
 }
 
+@ApiStatus.Internal
+fun isParameterHintsEnabledForLanguageWithOverriders(language: Language): Boolean {
+  @Suppress("DEPRECATION")
+  if (!InlayHintsSettings.instance().hintsShouldBeShown(language)) return false
+  return InlayHintSettingsOverrider.isEnabledByOverriders(ParameterHintSettingsKey(getLanguageForSettingKey(language), null))
+         ?: ParameterNameHintsSettings.getInstance().isEnabledForLanguage(getLanguageForSettingKey(language))
+}
+
 fun setShowParameterHintsForLanguage(value: Boolean, language: Language) {
   ParameterNameHintsSettings.getInstance().setIsEnabledForLanguage(value, getLanguageForSettingKey(language))
 }

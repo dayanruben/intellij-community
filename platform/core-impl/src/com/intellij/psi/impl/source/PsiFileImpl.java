@@ -9,12 +9,9 @@ import com.intellij.lang.Language;
 import com.intellij.lang.LanguageParserDefinitions;
 import com.intellij.lang.ParserDefinition;
 import com.intellij.navigation.ItemPresentation;
-import com.intellij.openapi.application.AppUIExecutor;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
-import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Queryable;
@@ -73,6 +70,8 @@ import com.intellij.psi.stubs.PsiFileStubImpl;
 import com.intellij.psi.stubs.StubBase;
 import com.intellij.psi.stubs.StubElement;
 import com.intellij.psi.stubs.StubElementRegistryService;
+import com.intellij.psi.stubs.StubRecoveryExtraStep;
+import com.intellij.psi.stubs.StubRecoveryService;
 import com.intellij.psi.stubs.StubTree;
 import com.intellij.psi.stubs.StubTreeBuilder;
 import com.intellij.psi.stubs.StubTreeLoader;
@@ -87,7 +86,6 @@ import com.intellij.testFramework.ReadOnlyLightVirtualFile;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.AstLoadingFilter;
 import com.intellij.util.CharTable;
-import com.intellij.util.FileContentUtilCore;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.PatchedWeakReference;
 import com.intellij.util.indexing.IndexingDataKeys;
@@ -108,6 +106,7 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
+import static com.intellij.psi.stubs.StubRecoveryService.logStubInconsistency;
 import static com.intellij.util.ObjectUtils.tryCast;
 
 public abstract class PsiFileImpl extends ElementBase implements PsiFileEx, PsiFileWithStubSupport, Queryable, Cloneable {
@@ -909,9 +908,10 @@ public abstract class PsiFileImpl extends ElementBase implements PsiFileEx, PsiF
         if (stubRoots.length != roots.size()) {
           com.intellij.util.Function<PsiFileStub<?>, String> stubToString =
             stub -> "{" + stub.getClass().getSimpleName() + " " + stub.getFileElementType().getLanguage() + "}";
-          LOG.error("readOrBuilt roots = " + StringUtil.join(stubRoots, stubToString, ", ") + "; " +
-                    StubTreeLoader.getFileViewProviderMismatchDiagnostics(viewProvider));
-          rebuildStub();
+          logStubInconsistency(getProject(), LOG, "readOrBuilt roots = " + StringUtil.join(stubRoots, stubToString, ", ") + "; " +
+                               StubTreeLoader.getFileViewProviderMismatchDiagnostics(viewProvider));
+          StubRecoveryService.scheduleReindexing(this, StubRecoveryExtraStep.DROP_PSI_CACHES,
+                                                StubRecoveryExtraStep.SAVE_DOCUMENT, StubRecoveryExtraStep.REPARSE_FILE);
           return Pair.empty();
         }
 
@@ -1239,7 +1239,8 @@ public abstract class PsiFileImpl extends ElementBase implements PsiFileEx, PsiF
                              "\n\t" + "getTreeElement() = " + getTreeElement() +
                              "\n\t" + "vFile instanceof VirtualFileWithId = " + (vFile instanceof VirtualFileWithId) +
                              "\n\t" + "StubUpdatingIndex.canHaveStub(vFile) = " + StubTreeLoader.getInstance().canHaveStub(vFile);
-            rebuildStub();
+            StubRecoveryService.scheduleReindexing(this, StubRecoveryExtraStep.DROP_PSI_CACHES,
+                                                  StubRecoveryExtraStep.SAVE_DOCUMENT, StubRecoveryExtraStep.REPARSE_FILE);
             throw new AssertionError(message);
           }
 
@@ -1259,25 +1260,6 @@ public abstract class PsiFileImpl extends ElementBase implements PsiFileEx, PsiF
     catch (StubTreeLoader.StubTreeAndIndexUnmatchCoarseException e) {
       throw e.createCompleteException();
     }
-  }
-
-  final void rebuildStub() {
-    AppUIExecutor.onWriteThread(ModalityState.nonModal()).later().submit(() -> {
-      if (!myManager.isDisposed()) {
-        myManager.dropPsiCaches();
-      }
-
-      VirtualFile vFile = getVirtualFile();
-      if (vFile != null && vFile.isValid()) {
-        Document doc = FileDocumentManager.getInstance().getCachedDocument(vFile);
-        if (doc != null) {
-          FileDocumentManager.getInstance().saveDocument(doc);
-        }
-
-        FileContentUtilCore.reparseFiles(vFile);
-        StubTreeLoader.getInstance().rebuildStubTree(vFile);
-      }
-    });
   }
 
   @Override

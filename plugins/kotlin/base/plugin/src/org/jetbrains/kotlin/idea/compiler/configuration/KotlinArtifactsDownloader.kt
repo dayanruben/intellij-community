@@ -57,10 +57,16 @@ object KotlinArtifactsDownloader {
     internal const val USE_BUILD_TOOLS_API_REGISTRY_KEY: String = "kotlin.jps.use.build.tools.api"
 
     /**
-     * @return whether JPS builds can use the Build Tools API.
+     * @return whether JPS builds use the Kotlin JPS builder that the IDE bundles. It compiles through the Build Tools API
+     * implementation of the project's Kotlin version, not through the legacy JPS plugin.
      */
-    fun isBuildToolsApiEnabled(): Boolean = Registry.`is`(USE_BUILD_TOOLS_API_REGISTRY_KEY, false)
+    fun isBuildToolsApiEnabled(jpsVersion: String): Boolean = isBuildToolsApiEnabled(IdeKotlinVersion.get(jpsVersion).kotlinVersion)
 
+    /** @see isBuildToolsApiEnabled */
+    fun isBuildToolsApiEnabled(version: KotlinVersion): Boolean =
+        Registry.`is`(USE_BUILD_TOOLS_API_REGISTRY_KEY, false) && version >= MINIMUM_BUILD_TOOLS_IMPL_VERSION
+
+    /** The first Kotlin version whose Build Tools API implementation accepts the JPS-managed incremental compilation. */
     private val MINIMUM_BUILD_TOOLS_IMPL_VERSION = KotlinVersion(2, 5, 20)
 
     /**
@@ -74,9 +80,6 @@ object KotlinArtifactsDownloader {
 
     fun isLegacyCompilerSupported(version: KotlinVersion): Boolean = version < FIRST_VERSION_WITHOUT_LEGACY_COMPILER
 
-    fun isBuildToolsImplRequired(version: String): Boolean =
-        isBuildToolsApiEnabled() && !isLegacyCompilerSupported(IdeKotlinVersion.get(version).kotlinVersion)
-
     /**
      * @return the BTA implementation directory for Kotlin version [version]. The directory can be missing.
      * Its name must differ from the Kotlin dist directory name, because a remote build copies each path parameter
@@ -87,30 +90,48 @@ object KotlinArtifactsDownloader {
         return KOTLIN_BUILD_TOOLS_IMPL_LOCATION_PREFIX_PATH.resolve("$KOTLIN_BUILD_TOOLS_IMPL_ARTIFACT_ID-$artifactVersion")
     }
 
-    private fun lazyDownloadBuildToolsImpl(project: Project, version: String, indicator: ProgressIndicator): Path? {
-        if (!isBuildToolsApiEnabled() || !isBuildToolsImplSupported(version)) return null
+    /**
+     * Downloads the Build Tools API implementation of [version] with its runtime into [getBuildToolsImplDirectory].
+     *
+     * @return `false` when the implementation is not available. [onError] then gets the reason.
+     */
+    private fun lazyDownloadBuildToolsImpl(
+        project: Project,
+        version: String,
+        indicator: ProgressIndicator,
+        onError: (@Nls(capitalization = Nls.Capitalization.Sentence) String) -> Unit,
+    ): Boolean {
+        if (!isBuildToolsImplSupported(version)) {
+            onError(
+                KotlinBasePluginBundle.message(
+                    "kotlin.jps.build.tools.impl.minimum.supported.version.not.satisfied",
+                    MINIMUM_BUILD_TOOLS_IMPL_VERSION,
+                    version,
+                    USE_BUILD_TOOLS_API_REGISTRY_KEY,
+                )
+            )
+            return false
+        }
 
-        // TODO The IDE bundles the Kotlin dist for its own compiler version, but not the implementation.
-        // For a bundled dev version, the download usually fails, because Maven Central has no dev versions.
-        // JPS then uses the legacy compiler. From Kotlin 2.6.0, the build fails instead
         val context = DownloadContext(
             project,
             indicator,
             KotlinBasePluginBundle.message("progress.text.downloading.kotlin.build.tools.impl"),
         )
-        var failure: Throwable? = null
         val directory = try {
             LazyKotlinBuildToolsImplProducer(version).lazyProduceDirectory(context)
         } catch (e: Throwable) {
             rethrowControlFlowException(e)
-            failure = e
+            LOG.info("Failed to download $KOTLIN_BUILD_TOOLS_IMPL_ARTIFACT_ID for $version", e)
             null
         }
 
         if (directory == null) {
-            LOG.info("No $KOTLIN_BUILD_TOOLS_IMPL_ARTIFACT_ID for $version", failure)
+            val artifactVersion = IdeKotlinVersion.get(version).artifactVersion
+            onError(failedToDownloadUnbundledJpsMavenArtifact(project, KOTLIN_BUILD_TOOLS_IMPL_ARTIFACT_ID, artifactVersion))
+            return false
         }
-        return directory
+        return true
     }
 
     fun getUnpackedKotlinDistPath(version: String): File =
@@ -142,8 +163,9 @@ object KotlinArtifactsDownloader {
 
     /**
      * @return **true** if all dependencies are ready.
-     * Unless [isBuildToolsImplRequired], the Build Tools API implementation is optional, so it does not change the result.
-     * Without it, Kotlin JPS uses the legacy compiler path. Each call tries to download a missing implementation again.
+     * With [isBuildToolsApiEnabled], the dependencies are the Build Tools API implementation and the Kotlin dist of
+     * [jpsVersion]. Otherwise, they are the legacy JPS plugin and the Kotlin dist of [jpsVersion].
+     * The build process needs the dist in both cases: the `KOTLIN_BUNDLED` path macro of the project model points to it.
      */
     @Synchronized // Avoid manipulations with the same files from different threads
     fun lazyDownloadMissingJpsPluginDependencies(
@@ -152,6 +174,11 @@ object KotlinArtifactsDownloader {
         indicator: ProgressIndicator,
         onError: (@Nls(capitalization = Nls.Capitalization.Sentence) String) -> Unit,
     ): Boolean {
+        if (isBuildToolsApiEnabled(jpsVersion)) {
+            return lazyDownloadBuildToolsImpl(project, jpsVersion, indicator, onError) &&
+                    lazyDownloadKotlincDistForJps(project, jpsVersion, indicator, onError)
+        }
+
         val context = LazyKotlinJpsPluginClasspathDownloader.Context(project, indicator)
         val jpsPluginClasspath = LazyKotlinJpsPluginClasspathDownloader(jpsVersion).lazyDownload(context)
         if (jpsPluginClasspath.isEmpty()) {
@@ -159,19 +186,20 @@ object KotlinArtifactsDownloader {
             return false
         }
 
+        return lazyDownloadKotlincDistForJps(project, jpsVersion, indicator, onError)
+    }
+
+    private fun lazyDownloadKotlincDistForJps(
+        project: Project,
+        jpsVersion: String,
+        indicator: ProgressIndicator,
+        onError: (@Nls(capitalization = Nls.Capitalization.Sentence) String) -> Unit,
+    ): Boolean {
         val unpackedDist = lazyDownloadAndUnpackKotlincDist(project, jpsVersion, indicator)
         if (unpackedDist == null) {
             onError(failedToDownloadUnbundledJpsMavenArtifact(project, KOTLIN_DIST_FOR_JPS_META_ARTIFACT_ID, jpsVersion))
             return false
         }
-
-        val buildToolsImpl = lazyDownloadBuildToolsImpl(project, jpsVersion, indicator)
-        if (buildToolsImpl == null && isBuildToolsImplRequired(jpsVersion)) {
-            val artifactVersion = IdeKotlinVersion.get(jpsVersion).artifactVersion
-            onError(failedToDownloadUnbundledJpsMavenArtifact(project, KOTLIN_BUILD_TOOLS_IMPL_ARTIFACT_ID, artifactVersion))
-            return false
-        }
-
         return true
     }
 

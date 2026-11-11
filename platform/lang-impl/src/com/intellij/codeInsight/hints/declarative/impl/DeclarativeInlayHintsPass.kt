@@ -2,7 +2,9 @@
 package com.intellij.codeInsight.hints.declarative.impl
 
 import com.intellij.codeHighlighting.EditorBoundHighlightingPass
+import com.intellij.codeInsight.hints.DeclarativeInlayHintSettingsKey
 import com.intellij.codeInsight.hints.InlayHintsUtils
+import com.intellij.codeInsight.hints.InlayHintSettingsOverrider
 import com.intellij.codeInsight.hints.declarative.AboveLineIndentedPosition
 import com.intellij.codeInsight.hints.declarative.EndOfLinePosition
 import com.intellij.codeInsight.hints.declarative.InlayProviderPassInfo
@@ -54,12 +56,21 @@ class DeclarativeInlayHintsPass(
     val sharedCollectors = ArrayList<CollectionInfo<SharedBypassCollector>>()
     val sinks = ArrayList<InlayTreeSinkImpl>()
     val ignoredProviderIds = mutableSetOf<String>()
+    val overridersActive = InlayHintSettingsOverrider.isActive()
+
     for (providerInfo in providerInfos) {
       val provider = providerInfo.provider
       if (DumbService.isDumb(myProject) && !DumbService.isDumbAware(provider)) {
         ignoredProviderIds.add(providerInfo.providerId)
         continue
       }
+
+      val optionToEnabled =
+        if (!overridersActive) providerInfo.optionToEnabled
+        else providerInfo.optionToEnabled.mapValues { (optionId, enabled) ->
+          InlayHintSettingsOverrider.isEnabledByOverriders(DeclarativeInlayHintSettingsKey(providerInfo.providerId, optionId))
+          ?: enabled
+        }
 
       val providerClass = provider.javaClass
       val collector = runProviderOrLogError(providerClass) {
@@ -69,8 +80,8 @@ class DeclarativeInlayHintsPass(
         continue
       }
 
-      val sink = InlayTreeSinkImpl(providerInfo.providerId, providerInfo.optionToEnabled, isPreview, isProviderDisabled,
-                                   providerClass, passSourceId)
+      val sink = InlayTreeSinkImpl(providerInfo.providerId, optionToEnabled, isPreview,
+                                   isProviderDisabled, providerClass, passSourceId)
       sinks.add(sink)
       when (val collector = collector) {
         is OwnBypassCollector -> ownCollectors.add(CollectionInfo(sink, collector, providerClass))

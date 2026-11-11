@@ -16,6 +16,7 @@
     <orderEntry type="module" module-name="intellij.kotlin.base.codeInsight" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.kotlin.projectWizard.core" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.fir.tests" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.kotlin.propertyBased.tests" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.kotlin.uast" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.kotlin.projectWizard.cli" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.kotlin.projectWizard.compose" scope="RUNTIME" />
@@ -114,6 +115,7 @@
     <orderEntry type="module" module-name="kotlin.gradle.gradle-java.tests.shared.tests" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.j2k.shared.tests" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.jps.graphImplementationTests" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.kotlin.builder.jps.tests" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.jvm-debugger.testFramework" scope="RUNTIME" />
   </component>
 </module>

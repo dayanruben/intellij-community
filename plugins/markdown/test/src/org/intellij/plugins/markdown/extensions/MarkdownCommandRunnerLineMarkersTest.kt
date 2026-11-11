@@ -81,7 +81,7 @@ class MarkdownCommandRunnerLineMarkersTest : BasePlatformTestCase() {
     runnerDisposable = Disposer.newDisposable()
     Disposer.register(testRootDisposable, runnerDisposable)
     ExtensionTestUtil.maskExtensions(markdownRunnerEp, listOf(capturingRunner), runnerDisposable)
-    val testMdFile = myFixture.addFileToProject("foo/test.md", "```shell\npwd\n```")
+    val testMdFile = myFixture.addFileToProject("foo/test.md", "```bash\npwd\n```")
     myFixture.openFileInEditor(testMdFile.virtualFile)
   }
 
@@ -149,7 +149,7 @@ class MarkdownCommandRunnerLineMarkersTest : BasePlatformTestCase() {
     Disposer.dispose(runnerDisposable)
     ExtensionTestUtil.maskExtensions(markdownRunnerEp, emptyList(), testRootDisposable)
 
-    for (alias in listOf("shell", "bash", "sh", "zsh", "powershell", "posh", "pwsh", "PowerShell")) {
+    for (alias in listOf("shell", "bash", "sh", "zsh", "console", "powershell", "posh", "pwsh", "PowerShell")) {
       val file = myFixture.addFileToProject("foo/$alias.md", "```$alias\npwd\n```")
       myFixture.openFileInEditor(file.virtualFile)
       myFixture.doHighlighting()
@@ -159,6 +159,59 @@ class MarkdownCommandRunnerLineMarkersTest : BasePlatformTestCase() {
       val action = (marker!!.createGutterRenderer() as GutterIconRenderer).clickAction!!
       assertEquals("Run in Terminal", action.templatePresentation.text)
     }
+  }
+
+  @Test
+  fun `preview preserves distinct Bash and Zsh fence languages`() {
+    MarkdownSettings.getInstance().useFileDirectoryForCommands = true
+    val pipe = TestBrowserPipe()
+    val extension = createPreviewExtension(pipe)
+    val command = "ls \"$(pwd)\""
+    val bashHtml = extension.processCodeBlock(command, "bash")
+    val zshHtml = extension.processCodeBlock(command, "zsh")
+    assertFalse(bashHtml == zshHtml)
+
+    for (shell in listOf("bash", "zsh")) {
+      capturingRunner.capturedCommand = null
+      clickPreviewBlock(pipe, if (shell == "bash") bashHtml else zshHtml)
+      awaitFrontendRunner()
+
+      assertEquals(command, capturingRunner.capturedCommand)
+      assertEquals(shell, capturingRunner.capturedContext?.fenceLanguage)
+    }
+  }
+
+  @Test
+  fun `block marker runs only the prompt lines of a console block`() {
+    MarkdownSettings.getInstance().useFileDirectoryForCommands = true
+    val file = myFixture.addFileToProject("foo/console.md", "```console\n$ echo one\none\n# whoami\nroot\n```")
+    myFixture.openFileInEditor(file.virtualFile)
+
+    fireBlockMarkerAction()
+
+    assertEquals(" echo one\n whoami", capturingRunner.capturedCommand)
+  }
+
+  @Test
+  fun `preview runs only the prompt lines of a console block`() {
+    replacePreviewCommandRunnability("")
+    MarkdownSettings.getInstance().useFileDirectoryForCommands = true
+    val pipe = TestBrowserPipe()
+    val extension = createPreviewExtension(pipe)
+    val content = "$ echo one\none"
+    val consoleHtml = extension.processCodeBlock(content, "console")
+    val shellHtml = extension.processCodeBlock(content, "shell")
+
+    clickPreviewBlock(pipe, consoleHtml)
+    PlatformTestUtil.waitWithEventsDispatching("The console command did not execute", { capturingRunner.capturedCommand != null }, 10)
+
+    assertEquals(" echo one", capturingRunner.capturedCommand)
+    capturingRunner.capturedCommand = null
+
+    clickPreviewBlock(pipe, shellHtml)
+    PlatformTestUtil.waitWithEventsDispatching("The shell command did not execute", { capturingRunner.capturedCommand != null }, 10)
+
+    assertEquals(" echo one\none", capturingRunner.capturedCommand)
   }
 
   @Test
@@ -351,6 +404,7 @@ class MarkdownCommandRunnerLineMarkersTest : BasePlatformTestCase() {
     fireBlockMarkerAction()
 
     assertEquals(myFixture.file.virtualFile.url, capturingRunner.capturedContext?.sourceFileUrl)
+    assertEquals("bash", capturingRunner.capturedContext?.fenceLanguage)
   }
 
   @Test

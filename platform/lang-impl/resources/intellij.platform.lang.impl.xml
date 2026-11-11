@@ -296,6 +296,18 @@
     <extensionPoint qualifiedName="com.intellij.refactoring.codeVisionSupport"
                     interface="com.intellij.refactoring.RefactoringCodeVisionSupport"
                     dynamic="true" />
+
+    <extensionPoint qualifiedName="com.intellij.codeInsight.inlayHintSettingsOverrider"
+                    interface="com.intellij.codeInsight.hints.InlayHintSettingsOverrider" dynamic="true"/>
+    <extensionPoint qualifiedName="com.intellij.codeInsight.inlayContextMenuContributor"
+                    interface="com.intellij.codeInsight.hints.InlayContextMenuContributor" dynamic="true"/>
+    <extensionPoint qualifiedName="com.intellij.codeInsight.declarativeInlayPayloadContributor"
+                    interface="com.intellij.codeInsight.hints.declarative.impl.DeclarativeInlayPayloadContributor" dynamic="true"/>
+    <extensionPoint qualifiedName="com.intellij.codeVision.codeVisionEntryExtraActionContributor"
+                    interface="com.intellij.codeInsight.codeVision.ui.CodeVisionEntryExtraActionContributor" dynamic="true"/>
+    <extensionPoint qualifiedName="com.intellij.codeInsight.inlaySettingsConfigurableFactory"
+                    interface="com.intellij.codeInsight.hints.settings.InlaySettingsConfigurableFactory" dynamic="true"/>
+
     <extensionPoint qualifiedName="com.intellij.modelScopeItemPresenter" interface="com.intellij.analysis.dialog.ModelScopeItemPresenter" />
     <extensionPoint qualifiedName="com.intellij.defaultLiveTemplatesProvider" interface="com.intellij.codeInsight.template.impl.DefaultLiveTemplatesProvider"/>
     <extensionPoint qualifiedName="com.intellij.defaultLiveTemplates" beanClass="com.intellij.codeInsight.template.impl.DefaultLiveTemplateEP" dynamic="true"/>
@@ -563,6 +575,8 @@
     <projectSettings service="com.intellij.ui.tabs.PerUserFileColorModelStorageManager"/>
     <projectSettings service="com.intellij.ui.tabs.PerTeamFileColorModelStorageManager"/>
     <applicationSettings service="com.intellij.codeInsight.hints.chain.DeclarativeCallChainInlaySettings"/>
+    <registryKey key="daemon.suppress.stub.inconsistency.errors" defaultValue="true" restartRequired="false"
+                 description="Log stub inconsistencies at debug level during highlighting"/>
     <registryKey key="hyperlink.ide.decompiler.open.file" defaultValue="true" description="Load binary files in hyperlink on background thread"/>
     <registryKey key="build.console.max.inlays" defaultValue="100"
                  description="Maximum number of Swing component inlays in the single build console. Extra messages are printed as plain text."/>

@@ -32,6 +32,7 @@ import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.registry.RegistryManager;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiNamedElement;
@@ -216,10 +217,8 @@ public abstract class CompilerReferenceServiceBase<Reader extends CompilerRefere
 
     try {
       return CachedValuesManager.getCachedValue(element, () -> {
-        return CachedValueProvider.Result.create(
-          buildScopeWithReferences(getReferentFiles(element), element),
-          PsiModificationTracker.MODIFICATION_COUNT,
-          this);
+        GlobalSearchScope scope = myDirtyScopeHolder.isMostlyDirty() ? null : buildScopeWithReferences(getReferentFiles(element), element);
+        return CachedValueProvider.Result.create(scope, PsiModificationTracker.MODIFICATION_COUNT, VirtualFileManager.getInstance(), this);
       });
     }
     catch (RuntimeException e1) {
@@ -396,14 +395,27 @@ public abstract class CompilerReferenceServiceBase<Reader extends CompilerRefere
   private @Nullable GlobalSearchScope buildScopeWithReferences(@Nullable Set<VirtualFile> referentFiles, @NotNull PsiElement element) {
     if (referentFiles == null) return null;
 
-    GlobalSearchScope referencesScope = GlobalSearchScope.filesWithoutLibrariesScope(project, referentFiles);
-
-    GlobalSearchScope knownDirtyScope = myDirtyScopeHolder.getDirtyScope();
-    GlobalSearchScope wholeClearScope = GlobalSearchScope.notScope(knownDirtyScope);
-    GlobalSearchScope knownCleanScope = GlobalSearchScope.getScopeRestrictedByFileTypes(wholeClearScope, myFileTypes.toArray(FileType.EMPTY_ARRAY));
-    GlobalSearchScope wholeDirtyScope = GlobalSearchScope.notScope(knownCleanScope);
-    GlobalSearchScope mayContainReferencesScope = referencesScope.uniteWith(wholeDirtyScope);
+    GlobalSearchScope mayContainReferencesScope =
+      mayContainReferencesScope(project, referentFiles, myDirtyScopeHolder.getDirtyScope(), myFileTypes);
     return scopeWithLibraryIfNeeded(project, myProjectFileIndex, mayContainReferencesScope, element);
+  }
+
+  /**
+   * Returns the files that may contain references: the {@code referentFiles} that the index knows,
+   * the files of the {@code dirtyScope}, and every file whose type is not in {@code fileTypes}.
+   * The index has no data for those, so the search must check them.
+   */
+  @ApiStatus.Internal
+  @VisibleForTesting
+  public static @NotNull GlobalSearchScope mayContainReferencesScope(@NotNull Project project,
+                                                                     @NotNull Collection<? extends VirtualFile> referentFiles,
+                                                                     @NotNull GlobalSearchScope dirtyScope,
+                                                                     @NotNull Set<? extends FileType> fileTypes) {
+    GlobalSearchScope referencesScope = GlobalSearchScope.filesWithoutLibrariesScope(project, referentFiles);
+    GlobalSearchScope wholeClearScope = GlobalSearchScope.notScope(dirtyScope);
+    GlobalSearchScope knownCleanScope = GlobalSearchScope.getScopeRestrictedByFileTypes(wholeClearScope, fileTypes.toArray(FileType.EMPTY_ARRAY));
+    GlobalSearchScope wholeDirtyScope = GlobalSearchScope.notScope(knownCleanScope);
+    return referencesScope.uniteWith(wholeDirtyScope);
   }
 
   public static @NotNull GlobalSearchScope scopeWithLibraryIfNeeded(@NotNull Project project,

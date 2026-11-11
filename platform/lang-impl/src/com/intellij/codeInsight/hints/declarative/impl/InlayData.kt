@@ -97,7 +97,7 @@ abstract class InlayDataExternalizer(
 ) : DataExternalizer<InlayData> {
   companion object {
     // increment on format changed
-    private const val SERDE_VERSION = 11
+    private const val SERDE_VERSION = 12
   }
 
   open fun serdeVersion(): Int = SERDE_VERSION + treeExternalizer.serdeVersion()

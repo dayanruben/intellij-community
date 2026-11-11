@@ -2,6 +2,8 @@
 package com.intellij.openapi.editor.state
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotSame
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertThrows
 import org.junit.Test
 
@@ -67,20 +69,20 @@ class ObservableStateBatchTest {
   }
 
   /**
-   * A first override changes the value and the override, so it counts twice. The count grows before the batch ends.
+   * A batch publishes one snapshot, when it ends. The snapshot does not change before the batch ends.
    */
   @Test
-  fun testEachChangeCountsAtOnce() {
+  fun testABatchPublishesOneSnapshotWhenItEnds() {
     val state = TestState()
-    val before = state.getModificationCount()
+    val before = state.getSnapshot()
 
     state.batch {
       state.width = 2
-      assertEquals(before + 2, state.getModificationCount())
+      state.height = 3
+      assertSame(before, state.getSnapshot())
     }
-    state.clearOverriding(state::width)
 
-    assertEquals(before + 4, state.getModificationCount())
+    assertNotSame(before, state.getSnapshot())
   }
 
   @Test
@@ -97,6 +99,32 @@ class ObservableStateBatchTest {
     state.refreshAll()
 
     assertEquals(listOf("first 2x2", "second 2x2"), events)
+  }
+
+  /**
+   * After the single events, a batch gives all its value changes in one call. A write that changes no value gives none.
+   */
+  @Test
+  fun testABatchGivesAllItsValueChangesInOneCallAtItsEnd() {
+    val state = TestState()
+    state.addPropertyChangeListener(object : ObservableStateListener {
+      override fun propertyChanged(event: ObservableStateListener.PropertyChangeEvent) {
+        events.add(event.propertyName)
+      }
+
+      override fun propertiesChanged(events: List<ObservableStateListener.PropertyChangeEvent>) {
+        this@ObservableStateBatchTest.events.add("batch " + events.joinToString(",") { it.propertyName })
+      }
+    })
+
+    state.batch {
+      state.width = 2
+      state.height = 3
+    }
+    state.width = 2
+    state.height = 4
+
+    assertEquals(listOf("width", "height", "batch width,height", "height", "batch height"), events)
   }
 
   /**

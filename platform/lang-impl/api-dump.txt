@@ -1131,6 +1131,7 @@ f:com.intellij.codeInsight.hints.settings.InlaySettingsConfigurable
 - com.intellij.openapi.options.Configurable$NoScroll
 - com.intellij.openapi.options.Configurable$VariableProjectAppLevel
 - com.intellij.openapi.options.SearchableConfigurable
+- selectModel(com.intellij.lang.Language,java.util.function.Predicate):V
 f:com.intellij.codeInsight.hints.settings.language.SingleLanguageInlayHintsSettingsPanelKt
 - sf:isInlaySettingsEditor(com.intellij.openapi.editor.Editor):Z
 com.intellij.codeInsight.intention.impl.AbstractIntentionPopup

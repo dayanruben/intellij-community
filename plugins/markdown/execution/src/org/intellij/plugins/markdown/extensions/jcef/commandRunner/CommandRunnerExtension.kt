@@ -124,7 +124,7 @@ class CommandRunnerExtension(
           && PreviewCommandRunnability.getInstance().isRunnable(project, file, rawCodeLine.trim(), allowRunConfigurations)
       ) {
         val hash = MarkdownUtil.md5(rawCodeLine, sessionKey)
-        hash2Cmd[hash] = rawCodeLine
+        hash2Cmd[hash] = PreviewCommand(rawCodeLine)
         return hash
       }
       else return null
@@ -150,8 +150,9 @@ class CommandRunnerExtension(
       val runner = MarkdownRunner.EP_NAME.extensionList.firstOrNull { it.isApplicable(lang) }
       if (runner == null) return ""
 
-      val hash = MarkdownUtil.md5(codeFenceRawContent, "$sessionKey:${lang?.id}")
-      hash2Cmd[hash] = if (lang?.id == "PowerShell") codeFenceRawContent else trimPrompt(codeFenceRawContent)
+      val hash = MarkdownUtil.md5(codeFenceRawContent, "$sessionKey:$language")
+      val command = if (lang?.id == "PowerShell") codeFenceRawContent else trimPrompt(codeFenceRawContent, language)
+      hash2Cmd[hash] = PreviewCommand(command, language)
       val lines = codeFenceRawContent.trimEnd().lines()
       val firstLineHash = if (lines.size > 1) processLine(lines[0], false) else null
       val firstLineData = if (firstLineHash.isNullOrBlank()) "" else "data-firstLine='$firstLineHash'"
@@ -180,7 +181,7 @@ class CommandRunnerExtension(
       val x = parts.getOrNull(2)?.toIntOrNull() ?: 0
       val y = parts.getOrNull(3)?.toIntOrNull() ?: 0
       val needsConfirmation = PreviewClickConfirmation.needsConfirmation(parts.getOrNull(4))
-      val command = hash2Cmd[cmdHash]
+      val command = hash2Cmd[cmdHash]?.text
       if (command == null) {
         LOG.error("Command index not found. Please attach .md file to error report.")
         return true
@@ -200,12 +201,20 @@ class CommandRunnerExtension(
     }
   }
 
-  private fun executeBlock(command: String, executorId: String, x: Int, y: Int) {
+  private fun executeBlock(command: PreviewCommand, executorId: String, x: Int, y: Int) {
     val project = panel.project ?: return
     val virtualFile = panel.virtualFile ?: return
-    withMarkdownCommandWorkingDirectory(project, virtualFile, panel.component, x, y) { workingDirectory ->
-      launchBlockRunner(project, command, executorId, workingDirectory)
-    }
+    val paths = getMarkdownCommandWorkingDirectoryPaths(project, virtualFile) ?: return
+    val context = MarkdownRunnerContext(
+      sourceFileUrl = virtualFile.url,
+      showTargetChooser = false,
+      component = panel.component,
+      x = x,
+      y = y,
+      workingDirectoryPaths = paths,
+      fenceLanguage = command.fenceLanguage,
+    )
+    launchBlockRunner(project, command.text, executorId, workingDirectory = null, context = context)
   }
 
   private fun runWithConfirmationIfNeeded(needsConfirmation: Boolean, command: String, runAction: () -> Unit) {
@@ -238,7 +247,7 @@ class CommandRunnerExtension(
       val executorId = args[0]
       val cmdHash: String = args[1]
       val command = hash2Cmd[cmdHash]
-      val firstLineCommand = hash2Cmd[args[2]]
+      val firstLineCommand = hash2Cmd[args[2]]?.text
       if (command == null) {
         LOG.error("Command hash not found. Please attach .md file to error report.")
         return true
@@ -247,7 +256,7 @@ class CommandRunnerExtension(
       val y = args[4].toDoubleOrNull()?.toInt() ?: 0
       val needsConfirmation = PreviewClickConfirmation.needsConfirmation(args.getOrNull(5))
       if (needsConfirmation) {
-        confirmThenRun(command) {
+        confirmThenRun(command.text) {
           executeBlock(command, executorId, x, y)
         }
         return false
@@ -293,9 +302,11 @@ class CommandRunnerExtension(
     provider.extensions.remove(panel.virtualFile)
   }
 
+  internal data class PreviewCommand(val text: String, val fenceLanguage: String? = null)
+
   internal class PanelCommands {
     val sessionKey: String = UUID.randomUUID().toString()
-    val hash2Cmd = ConcurrentHashMap<String, String>()
+    val hash2Cmd = ConcurrentHashMap<String, PreviewCommand>()
   }
 
   class Provider: MarkdownCommandRunnerPreviewExtension.Provider {
@@ -339,14 +350,21 @@ class CommandRunnerExtension(
     }
 
     @ApiStatus.Internal
-    fun launchBlockRunner(project: Project, command: String, executorId: String, workingDirectory: String): Boolean {
-      val runner = MarkdownRunner.EP_NAME.extensionList.firstOrNull()
+    fun launchBlockRunner(
+      project: Project,
+      command: String,
+      executorId: String,
+      workingDirectory: String?,
+      context: MarkdownRunnerContext? = null,
+    ): Boolean {
+      val language = context?.fenceLanguage?.let(CodeFenceLanguageGuesser::guessLanguageForExecution)
+      val runner = MarkdownRunner.EP_NAME.extensionList.firstOrNull { context == null || it.isApplicable(language) }
       if (runner == null) {
         LOG.warn("No Markdown runner is registered, the block is not executed.")
         return false
       }
       val trusted = TrustedProjectUtil.executeIfTrusted(project) {
-        startRunner(project, command, executorId, runner, workingDirectory)
+        startRunner(project, command, executorId, runner, workingDirectory, context)
       }
       if (!trusted) {
         LOG.info("Markdown block is not executed: the project is not trusted.")
@@ -354,11 +372,24 @@ class CommandRunnerExtension(
       return trusted
     }
 
-    private fun startRunner(project: Project, command: String, executorId: String, runner: MarkdownRunner, workingDirectory: String) {
+    private fun startRunner(
+      project: Project,
+      command: String,
+      executorId: String,
+      runner: MarkdownRunner,
+      workingDirectory: String?,
+      context: MarkdownRunnerContext?,
+    ) {
       val executor = ExecutorRegistry.getInstance().getExecutorById(executorId) ?: DefaultRunExecutor.getRunExecutorInstance()
-      LOG.info("Markdown block run: ${runner.javaClass.name} in '$workingDirectory'.")
+      LOG.info("Markdown block run: ${runner.javaClass.name}.")
       invokeLater {
-        if (runner.run(command, project, workingDirectory, executor)) {
+        val accepted = if (context == null) {
+          runner.run(command, project, workingDirectory, executor)
+        }
+        else {
+          runner.run(command, project, executor, context)
+        }
+        if (accepted) {
           RUNNER_EXECUTED.log(project, RunnerPlace.PREVIEW, RunnerType.BLOCK, runner.javaClass)
         }
         else {
@@ -448,14 +479,40 @@ class CommandRunnerExtension(
     private val LOG = logger<CommandRunnerExtension>()
 
     @ApiStatus.Internal
-    fun trimPrompt(cmd: String): String {
-      return cmd.lines()
-        .map { line ->
-          val withoutPrompt = if (line.startsWith("$") && line.getOrNull(1)?.isWhitespace() != false) line.drop(1) else line
-          stripTrailingShellComment(withoutPrompt)
-        }
+    fun trimPrompt(cmd: String, language: String = ""): String {
+      val lines = cmd.lines()
+      val commands = if (isConsole(language)) consoleCommands(lines) else shellCommands(lines)
+      return commands
+        .map(::stripTrailingShellComment)
         .filter { line -> line.isNotEmpty() }
         .joinToString("\n")
+    }
+
+    private fun isConsole(language: String): Boolean {
+      return language.trim().takeWhile { !it.isWhitespace() }.equals("console", ignoreCase = true)
+    }
+
+    private fun shellCommands(lines: List<String>): List<String> {
+      return lines.map { line -> if (hasPrompt(line, "$")) line.drop(1) else line }
+    }
+
+    private fun consoleCommands(lines: List<String>): List<String> {
+      val commands = mutableListOf<String>()
+      var continued = false
+      for (line in lines) {
+        val command = when {
+          continued -> line
+          hasPrompt(line, "$#") -> line.drop(1)
+          else -> null
+        }
+        continued = command != null && line.takeLastWhile { it == '\\' }.length % 2 == 1
+        if (command != null) commands.add(command)
+      }
+      return commands.ifEmpty { lines }
+    }
+
+    private fun hasPrompt(line: String, prompts: String): Boolean {
+      return line.isNotEmpty() && line[0] in prompts && line.getOrNull(1)?.isWhitespace() != false
     }
 
     private fun stripTrailingShellComment(line: String): String {

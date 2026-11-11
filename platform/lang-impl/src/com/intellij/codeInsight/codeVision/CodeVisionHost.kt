@@ -9,7 +9,9 @@ import com.intellij.codeInsight.codeVision.ui.model.PlaceholderCodeVisionEntry
 import com.intellij.codeInsight.codeVision.ui.model.RichTextCodeVisionEntry
 import com.intellij.codeInsight.codeVision.ui.model.richText.RichText
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer
+import com.intellij.codeInsight.hints.CodeVisionInlayHintSettingsKey
 import com.intellij.codeInsight.hints.InlayGroup
+import com.intellij.codeInsight.hints.InlayHintSettingsOverrider
 import com.intellij.codeInsight.hints.codeVision.CodeVisionProjectSettings
 import com.intellij.codeInsight.hints.codeVision.ModificationStampUtil
 import com.intellij.codeInsight.hints.settings.language.isInlaySettingsEditor
@@ -63,7 +65,6 @@ import com.intellij.psi.util.PsiModificationTracker
 import com.intellij.testFramework.TestModeFlags
 import com.intellij.ui.SimpleTextAttributes
 import com.intellij.util.application
-import com.intellij.util.concurrency.AppExecutorUtil
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.ui.update.DebouncedUpdates
 import com.jetbrains.rd.util.lifetime.Lifetime
@@ -349,7 +350,8 @@ open class CodeVisionHost(val project: Project, protected val coroutineScope: Co
     val placeholders = ArrayList<Pair<TextRange, CodeVisionEntry>>()
     val settings = CodeVisionSettings.getInstance()
     for (provider in providers) {
-      if (!settings.isProviderEnabled(provider.groupId)) continue
+      if (!(InlayHintSettingsOverrider.isEnabledByOverriders(CodeVisionInlayHintSettingsKey(provider.groupId))
+            ?: settings.isProviderEnabled(provider.groupId))) continue
       if (getAnchorForProvider(provider) != CodeVisionAnchorKind.Top) continue
       val placeholderCollector: CodeVisionPlaceholderCollector = provider.getPlaceholderCollector(editor, psiFile) ?: continue
       if (placeholderCollector is BypassBasedPlaceholderCollector) {
@@ -512,6 +514,7 @@ open class CodeVisionHost(val project: Project, protected val coroutineScope: Co
       it.id to if (shouldSkip) null else it.precomputeOnUiThread(editor)
     }
     val context = editor.lensContext
+
     // dropping all lenses if CV disabled
     if (context == null
         || !lifeSettingModel.isEnabled.value
@@ -534,7 +537,8 @@ open class CodeVisionHost(val project: Project, protected val coroutineScope: Co
       for (p in providers) {
         val provider = p as CodeVisionProvider<Any?>
         val providerId = provider.id
-        val isGroupEnabled = !lifeSettingModel.disabledCodeVisionProviderIds.contains(provider.groupId)
+        val isGroupEnabled = InlayHintSettingsOverrider.isEnabledByOverriders(CodeVisionInlayHintSettingsKey(provider.groupId))
+                             ?: !lifeSettingModel.disabledCodeVisionProviderIds.contains(provider.groupId)
 
         if (isGroupEnabled && !isEditorInsideSettingsPanel) {
           val shouldRecompute = shouldRecomputeForEditor(editor, provider, precalculatedUiThings)

@@ -1,0 +1,47 @@
+load("@jps_dynamic_deps_community//:targets.bzl", "dev_dist_plugin")
+load("@rules_jvm//:jvm.bzl", "jvm_library")
+
+### auto-generated section `dev intellij.xray` start
+dev_dist_plugin(
+    content_modules = [
+        # do not sort,
+        "intellij.xray.frontend",
+        "intellij.xray.shared",
+        "intellij.xray.backend",
+    ],
+    descriptor = "resources/META-INF/plugin.xml",
+    jars = {
+        "lib/xray.jar": ["intellij.xray"],
+    },
+    main_module = "intellij.xray",
+    mode_refused_content_modules = {
+        "frontend": ["intellij.xray.backend"],
+    },
+)
+### auto-generated section `dev intellij.xray` end
+
+### auto-generated section `build intellij.xray` start
+jvm_library(
+    name = "xray",
+    srcs = glob(
+        [],
+        allow_empty = True,
+    ),
+    module_name = "intellij.xray",
+    resource_strip_prefix = "resources",
+    resources = glob(
+        ["resources/**/*"],
+    ),
+    visibility = ["//visibility:public"],
+)
+### auto-generated section `build intellij.xray` end
+
+### auto-generated section `iml intellij.xray` start
+exports_files(
+    [
+        "intellij.xray.iml",
+        "resources/META-INF/plugin.xml",
+    ],
+    visibility = ["//visibility:public"],
+)
+### auto-generated section `iml intellij.xray` end

@@ -283,10 +283,15 @@ internal class PythonInterpreterMasterDetails(private val moduleOrProject: Modul
         ApplicationManager.getApplication().runWriteAction {
           sdkModificator.commitChanges()
         }
-        writeUserPaths(project, sdk, pathEditor.addedPaths, pathEditor.excludedPaths)
+        val added = pathEditor.addedPaths.toList()
+        val excluded = pathEditor.excludedPaths.toList()
         // now added and excluded paths are updated in `sdk` instance
         pythonPathsModified = true
-        reloadSdk(sdk)
+        // The legacy flow commits the facts in a write action, so the write does not run in this EDT action.
+        PyPackageCoroutine.launch(project) {
+          writeUserPaths(project, sdk, added, excluded)
+          reloadSdk(sdk)
+        }
       }
     }
 

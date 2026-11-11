@@ -3,8 +3,10 @@ package com.intellij.platform.searchEverywhere.providers
 
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
+import com.intellij.openapi.options.advanced.AdvancedSettings
 import com.intellij.openapi.util.Disposer
 import com.intellij.platform.searchEverywhere.SeItemsProvider
+import com.intellij.platform.searchEverywhere.SeProviderIdUtils
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -21,6 +23,7 @@ import kotlin.time.TimeSource
  *
  * The breaker of a factory is closed at first, and the popup waits for the provider.
  * An initialization is slow when it takes longer than [slowThreshold].
+ * The guard reads [slowThreshold] for each initialization.
  * After [slowOpeningsToOpen] slow popup openings in a row, the breaker opens.
  * An open breaker does not call the factory, and the popup opens without the provider.
  *
@@ -29,13 +32,16 @@ import kotlin.time.TimeSource
  * The cooldown is a number of popup openings and starts with one opening.
  *
  * One popup opening can call a factory several times. The guard counts each opening only once.
+ *
+ * The guard does not apply to the factories in [exemptFactoryIds]. The popup always waits for their providers.
  */
 @ApiStatus.Internal
 class SeProviderInitializationGuard(
   private val coroutineScope: CoroutineScope,
-  private val slowThreshold: Duration,
+  private val slowThreshold: () -> Duration,
   private val slowOpeningsToOpen: Int,
   private val maxCooldownOpenings: Int,
+  private val exemptFactoryIds: Set<String> = emptySet(),
 ) {
   private val states = ConcurrentHashMap<String, FactoryState>()
 
@@ -50,6 +56,8 @@ class SeProviderInitializationGuard(
     logLabel: String,
     initializer: suspend () -> SeItemsProvider?,
   ): SeItemsProvider? {
+    if (factoryId in exemptFactoryIds) return initializer()
+
     val state = states.computeIfAbsent(factoryId) { FactoryState() }
     val factoryName = "$factoryId (plugin: $pluginId, $logLabel)"
 
@@ -110,7 +118,7 @@ class SeProviderInitializationGuard(
     }
 
     fun recordInitialization(openingId: Any, elapsed: Duration, factoryName: String) {
-      if (elapsed <= slowThreshold) {
+      if (elapsed <= slowThreshold()) {
         // A fast call does not reset the count when an earlier call of the same opening was slow.
         if (lastSlowOpeningId != openingId) slowOpenings = 0
         return
@@ -135,7 +143,7 @@ class SeProviderInitializationGuard(
 
     fun recordTrial(elapsed: Duration, factoryName: String) {
       isTrialRunning = false
-      if (elapsed <= slowThreshold) {
+      if (elapsed <= slowThreshold()) {
         isOpen = false
         slowOpenings = 0
         cooldownOpenings = 0
@@ -153,18 +161,29 @@ class SeProviderInitializationGuard(
   }
 
   companion object {
-    val DEFAULT_SLOW_THRESHOLD: Duration = 500.milliseconds
     const val DEFAULT_SLOW_OPENINGS_TO_OPEN: Int = 2
     const val DEFAULT_MAX_COOLDOWN_OPENINGS: Int = 32
+
+    /**
+     * The factories of the Files, Classes, Symbols, Actions and Text contributors.
+     */
+    val DEFAULT_EXEMPT_FACTORY_IDS: Set<String> = setOf(SeProviderIdUtils.FILES_ID,
+                                                        SeProviderIdUtils.CLASSES_ID,
+                                                        SeProviderIdUtils.SYMBOLS_ID,
+                                                        SeProviderIdUtils.ACTIONS_ID,
+                                                        SeProviderIdUtils.TEXT_ID)
 
     fun getInstance(): SeProviderInitializationGuard = service<SeProviderInitializationGuardHolder>().guard
   }
 }
 
+private const val SLOW_THRESHOLD_SETTING_ID = "search.everywhere.provider.slow.threshold"
+
 @Service(Service.Level.APP)
 internal class SeProviderInitializationGuardHolder(coroutineScope: CoroutineScope) {
   val guard = SeProviderInitializationGuard(coroutineScope,
-                                            SeProviderInitializationGuard.DEFAULT_SLOW_THRESHOLD,
+                                            { AdvancedSettings.getInt(SLOW_THRESHOLD_SETTING_ID).milliseconds },
                                             SeProviderInitializationGuard.DEFAULT_SLOW_OPENINGS_TO_OPEN,
-                                            SeProviderInitializationGuard.DEFAULT_MAX_COOLDOWN_OPENINGS)
+                                            SeProviderInitializationGuard.DEFAULT_MAX_COOLDOWN_OPENINGS,
+                                            SeProviderInitializationGuard.DEFAULT_EXEMPT_FACTORY_IDS)
 }

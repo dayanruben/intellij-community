@@ -31,7 +31,6 @@ abstract class KotlinPluginBuilder(val kind: KotlinPluginKind = System.getProper
       "intellij.libraries.kotlinc.analysis.api.platform.interface",
       "intellij.libraries.kotlinc.kotlin.compiler.fir",
       "intellij.libraries.kotlinc.kotlin.compiler.ir",
-      "intellij.libraries.kotlinc.kotlin.jps.common",
       "intellij.libraries.kotlinc.kotlin.script.runtime",
       "intellij.libraries.kotlinc.kotlin.scripting.common",
       "intellij.libraries.kotlinc.kotlin.scripting.compiler.impl",
@@ -62,6 +61,8 @@ abstract class KotlinPluginBuilder(val kind: KotlinPluginKind = System.getProper
     private val LIBRARIES = java.util.List.of(
       "vavr",
       "javax-inject",
+      // The IDE hands the jar of this library over to the build process, so the library cannot be part of the main jar
+      "kotlinc.kotlin-build-tools-api-jps",
     )
 
   }
@@ -73,6 +74,9 @@ abstract class KotlinPluginBuilder(val kind: KotlinPluginKind = System.getProper
 
       basePluginsAndLibraries(spec)
 
+      // The legacy Kotlin JPS plugin of the bundled Kotlin version, which a project of that version builds with, see
+      // KotlinPluginLayout.jpsPluginClasspath. `jps/` is not on the plugin classpath: the IDE hands the jar over to the
+      // build process itself.
       spec.withProjectLibrary("kotlinc.kotlin-jps-plugin-classpath", "jps/kotlin-jps-plugin.jar")
       withKotlincInPluginDirectory(spec = spec)
       for (script in listOf("kotlin", "kotlinc", "kotlinc-js", "kotlinc-jvm")) {

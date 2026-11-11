@@ -4,77 +4,104 @@ package com.intellij.openapi.editor.state
 import com.intellij.openapi.util.Ref
 
 /**
- * A [StateProperty] that holds its value in memory.
+ * A [StateProperty] with a default and an optional override.
  *
  * The value is the override, or else the result of [defaultValueCalculator]. Then [customOutValueModifier] can change
- * it. A change of the value notifies the [ObservableState], and so does a change of the override, also without a change
- * of the value.
+ * the value.
+ *
+ * - [setValue] stores an override. An override equal to the current one changes nothing.
+ * - [clearOverriding] removes the override, so that the property holds its default again.
+ * - [recalculate] computes the value again, for example after a change of a source of the default.
+ *
+ * The listeners of the state get a value event when the new value is not equal to the old one. They get an override
+ * event when the property gets or loses its override, also when the value stays the same.
+ *
+ * The property always reads and changes [state], the state that declares it. It ignores the `thisRef` parameter of each
+ * method.
  */
-open class ObjectStateProperty<T>(
+open class ObjectStateProperty<T> internal constructor(
+  private val state: ObservableState,
+  index: Int,
   initialValue: T,
   private val defaultValueCalculator: SyncDefaultValueCalculator<T>,
   private val customOutValueModifier: CustomOutValueModifier<T>?,
-) : StateProperty<T>() {
-  private var overriddenValue: T? = null
-  private var outValue: T = initialValue
-
+) : StateProperty<T>(index, initialValue) {
   /**
-   * Whether the property has an override. This is a separate flag, because `null` can be an override.
+   * Whether the property has an override. An override can be `null`.
    */
-  var isValueOverridden: Boolean = false
-    private set
+  val isValueOverridden: Boolean
+    get() = state.isOverriddenAt(index)
 
   /**
-   * The current value, after [customOutValueModifier].
+   * The current value.
    */
   protected val value: T
-    get() = outValue
+    get() = currentValue()
 
   override fun getValue(thisRef: ObservableState): T {
-    return outValue
+    return currentValue()
   }
 
   override fun setValue(thisRef: ObservableState, value: T) {
-    if (isValueOverridden && overriddenValue == value) {
-      return
-    }
-    val wasOverridden = isValueOverridden
-    overriddenValue = value
-    isValueOverridden = true
-    recalculate(thisRef)
-    if (!wasOverridden) {
-      thisRef.overridingChanged(name)
+    state.batch {
+      val wasOverridden = state.isOverriddenAt(index)
+      if (wasOverridden && state.overrideAt(index) == value) {
+        return@batch
+      }
+      val newValue = modify(value)
+      state.storeOverride(index, value)
+      storeValue(newValue)
+      if (!wasOverridden) {
+        state.overridingChanged(name)
+      }
     }
   }
 
   override fun clearOverriding(thisRef: ObservableState) {
-    if (isValueOverridden) {
-      isValueOverridden = false
-      // Drop the reference, so that the old value can be collected.
-      overriddenValue = null
-      recalculate(thisRef)
-      thisRef.overridingChanged(name)
+    state.batch {
+      if (state.isOverriddenAt(index)) {
+        val newValue = modify(defaultValueCalculator.calculate())
+        state.clearOverrideAt(index)
+        storeValue(newValue)
+        state.overridingChanged(name)
+      }
     }
   }
 
   override fun recalculate(thisRef: ObservableState) {
-    if (isValueOverridden) {
-      @Suppress("UNCHECKED_CAST")
-      updateOutValue(thisRef, overriddenValue as T)
-    } else {
-      updateOutValue(thisRef, defaultValueCalculator.calculate())
+    state.batch {
+      if (state.isOverriddenAt(index)) {
+        // Safe: the entry is not NoOverride here, and only setValue stores an override, which is a T.
+        @Suppress("UNCHECKED_CAST")
+        storeValue(modify(state.overrideAt(index) as T))
+      } else {
+        storeValue(modify(defaultValueCalculator.calculate()))
+      }
     }
   }
 
+  private fun currentValue(): T {
+    // Safe: only this property writes the entry at [index], and it writes only values of type T.
+    @Suppress("UNCHECKED_CAST")
+    return state.valueAt(index) as T
+  }
+
   /**
-   * Stores [calculated] after [customOutValueModifier], and notifies [thisRef] when the stored value changes.
+   * The value that the property holds for [calculated]: the result of [customOutValueModifier]. A change computes it
+   * before it stores anything, so a failure of the modifier or of the calculator changes nothing.
    */
-  private fun updateOutValue(thisRef: ObservableState, calculated: T) {
-    val newOutValue = customOutValueModifier?.modifyOutValue(calculated) ?: calculated
-    if (newOutValue != outValue) {
-      val oldOutValue = outValue
-      outValue = newOutValue
-      thisRef.propertyChanged(name, Ref(oldOutValue), newOutValue)
+  private fun modify(calculated: T): T {
+    return customOutValueModifier?.modifyOutValue(calculated) ?: calculated
+  }
+
+  /**
+   * Stores [newValue], and notifies the listeners when it differs from the stored value.
+   */
+  private fun storeValue(newValue: T) {
+    val oldValue = state.valueAt(index)
+    if (newValue != oldValue) {
+      state.storeValue(index, newValue)
+      state.propertyChanged(name, Ref(oldValue), newValue)
     }
   }
 }

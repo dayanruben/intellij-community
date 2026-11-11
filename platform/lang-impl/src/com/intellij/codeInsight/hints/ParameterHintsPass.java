@@ -28,12 +28,15 @@ import com.intellij.psi.SmartPsiElementPointer;
 import com.intellij.util.concurrency.AppExecutorUtil;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.concurrency.AsyncPromise;
 import org.jetbrains.concurrency.CancellablePromise;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Stream;
 
 import static com.intellij.codeInsight.hints.ParameterHintsPassFactory.forceHintsUpdateOnNextPass;
@@ -47,14 +50,26 @@ public final class ParameterHintsPass extends EditorBoundHighlightingPass {
   private final HintInfoFilter myHintInfoFilter;
   private final boolean myForceImmediateUpdate;
 
+  private final boolean myApplySettingsOverriders;
+
   public ParameterHintsPass(@NotNull PsiElement element,
                             @NotNull Editor editor,
                             @NotNull HintInfoFilter hintsFilter,
                             boolean forceImmediateUpdate) {
+    this(element, editor, hintsFilter, forceImmediateUpdate, true);
+  }
+
+  @ApiStatus.Internal
+  public ParameterHintsPass(@NotNull PsiElement element,
+                            @NotNull Editor editor,
+                            @NotNull HintInfoFilter hintsFilter,
+                            boolean forceImmediateUpdate,
+                            boolean applySettingsOverriders) {
     super(editor, element.getContainingFile(), true);
     myRootElement = element;
     myHintInfoFilter = hintsFilter;
     myForceImmediateUpdate = forceImmediateUpdate;
+    myApplySettingsOverriders = applySettingsOverriders;
   }
 
   /**
@@ -106,14 +121,30 @@ public final class ParameterHintsPass extends EditorBoundHighlightingPass {
     if (provider == null || !provider.canShowHintsWhenDisabled() && !isEnabled(language) || DiffUtil.isDiffEditor(myEditor)) return;
     if (!HighlightingLevelManager.getInstance(myFile.getProject()).shouldHighlight(myFile)) return;
 
-    PluginExceptionUtil.computeOrLogPluginException(provider.getClass(), () -> {
-      provider.createTraversal(myRootElement).forEach(element -> process(element, provider));
+    PluginExceptionUtil.computeOrLogPluginException(provider.getClass(), () -> {Runnable traversal = () -> provider.createTraversal(myRootElement).forEach(element -> process(element, provider));
+    if (myApplySettingsOverriders && InlayHintSettingsOverrider.isActive()) {
+      Map<String, Boolean> optionOverrides = new HashMap<>();
+      Language settingsLanguage = HintUtilsKt.getLanguageForSettingKey(language);
+      for (Option option : provider.getSupportedOptions()) {
+        Boolean isEnabled = InlayHintSettingsOverrider.isEnabledByOverriders(new ParameterHintSettingsKey(settingsLanguage, option.getId()));
+          if (isEnabled != null) {
+            optionOverrides.put(option.getId(), isEnabled);
+          }
+        }
+        ParameterHintsPassContext.run(optionOverrides, traversal);
+      }
+      else {
+        traversal.run();
+      }
       return true;
     });
   }
 
-  private static boolean isEnabled(Language language) {
-    return HintUtilsKt.isParameterHintsEnabledForLanguage(language);
+  private boolean isEnabled(Language language) {
+    if (!myApplySettingsOverriders) {
+      return HintUtilsKt.isParameterHintsEnabledForLanguage(language);
+    }
+    return HintUtilsKt.isParameterHintsEnabledForLanguageWithOverriders(language);
   }
 
   private void process(@NotNull PsiElement element, @NotNull InlayParameterHintsProvider provider) {

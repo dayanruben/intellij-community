@@ -11,7 +11,6 @@ import com.intellij.openapi.util.TextRange
 import com.intellij.psi.SmartPsiElementPointer
 import com.intellij.psi.createSmartPointer
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.diagnostics.KaDiagnosticCheckerKind
 import org.jetbrains.kotlin.analysis.api.diagnostics.diagnostics
 import org.jetbrains.kotlin.analysis.api.expressions.isUsedAsExpression
 import org.jetbrains.kotlin.analysis.api.fir.diagnostics.KaFirDiagnostic
@@ -48,6 +47,7 @@ private val FUNCTION_FQ_NAMES = setOf(
     StandardKotlinNames.Collections.onEach,
     StandardKotlinNames.Collections.onEachIndexed,
 )
+private val FUNCTION_SHORT_NAMES: Set<String> = FUNCTION_FQ_NAMES.mapTo(HashSet()) { it.shortName().asString() }
 
 internal class MapToForEachInspection : KotlinApplicableInspectionBase.Simple<KtCallExpression, MapToForEachInspection.Context>() {
 
@@ -75,19 +75,17 @@ internal class MapToForEachInspection : KotlinApplicableInspectionBase.Simple<Kt
 
     override fun isApplicableByPsi(element: KtCallExpression): Boolean {
         // Skip in debugger's Evaluate Expression where the expression result is shown.
-        if (element.containingKtFile is KtCodeFragment) return false
+        val containingKtFile = element.containingKtFile
+        if (containingKtFile is KtCodeFragment) return false
 
-        val calleeText = element.calleeExpression?.text ?: return false
-        if (FUNCTION_FQ_NAMES.none { fqName ->
-                calleeText == fqName.shortName().asString() || element.containingKtFile.importDirectives.any {
-                    it.importedFqName == fqName && calleeText == it.aliasName
-                }
-            }) return false
+        if (element.valueArguments.size != 1) return false
 
         val statementCandidate = element.getQualifiedExpressionForSelectorOrThis()
         if (!KtPsiUtil.isStatement(statementCandidate)) return false
 
-        return element.valueArguments.size == 1
+        val calleeText = element.calleeExpression?.text ?: return false
+        return calleeText in FUNCTION_SHORT_NAMES ||
+                containingKtFile.findImportByAlias(calleeText)?.importedFqName in FUNCTION_FQ_NAMES
     }
 
     context(session: KaSession)
@@ -109,9 +107,7 @@ internal class MapToForEachInspection : KotlinApplicableInspectionBase.Simple<Kt
         if (resolvedCall.typeArgumentsMapping.size != functionSymbol.typeParameters.size) return null
 
         val labeledReturnExpressions = collectReturns(element) ?: return null
-        val isReturnValueNotUsed = whole.diagnostics()
-            .withCheckers(KaDiagnosticCheckerKind.ALL)
-            .any { it is KaFirDiagnostic.ReturnValueNotUsed }
+        val isReturnValueNotUsed = whole.diagnostics().any { it is KaFirDiagnostic.ReturnValueNotUsed }
 
         return Context(labeledReturnExpressions, replacementName, isReturnValueNotUsed)
     }

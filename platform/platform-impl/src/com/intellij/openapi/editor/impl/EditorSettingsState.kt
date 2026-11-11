@@ -18,6 +18,7 @@ import com.intellij.openapi.editor.registry.EditorRegistry
 import com.intellij.openapi.editor.state.CustomOutValueModifier
 import com.intellij.openapi.editor.state.ObservableState
 import com.intellij.openapi.editor.state.ObservableStateListener
+import com.intellij.openapi.editor.state.StateLayout
 import com.intellij.openapi.editor.state.StateProperty
 import com.intellij.openapi.editor.state.SyncDefaultValueCalculator
 import com.intellij.openapi.fileEditor.FileDocumentManager
@@ -82,7 +83,7 @@ class EditorSettingsState(
   var tabSize: Int by codeStyleProperty(projectFileIndent().tabSize) { fileIndent.tabSize }
 
   var myWrapWhenTypingReachesRightMargin: Boolean by codeStyleProperty(initialMargins().wrapOnTyping) { margins.wrapOnTyping }
-  var softMargins: List<Int> by codeStyleProperty(initialMargins().softMargins) { margins.softMargins }
+  var softMargins: List<Int> by codeStyleProperty(initialMargins().softMargins, immutableList()) { margins.softMargins }
   var rightMargin: Int by codeStyleProperty(initialMargins().rightMargin) { margins.rightMargin }
 
   // Defaults from EditorSettingsExternalizable. A setter of SettingsImpl overrides a default for this editor.
@@ -191,7 +192,8 @@ class EditorSettingsState(
    * The language of the editor file, which [languageInput] computes.
    *
    * [initialMargins] reads it while the state is built, before this field gets its value. It sees `null` then, which is
-   * also the value before the first computation.
+   * also the value before the first computation. It changes only inside a batch, so a calculator on any thread sees the
+   * current value.
    */
   private var language: Language? = null
 
@@ -200,6 +202,7 @@ class EditorSettingsState(
    * [softMargins], and [rightMargin] calculate their defaults from it.
    *
    * The code style settings of a file can need a read action, so [marginsInput] computes the value in the background.
+   * It changes only inside a batch, so a calculator on any thread sees the current value.
    */
   private var margins: Margins = initialMargins()
 
@@ -208,7 +211,8 @@ class EditorSettingsState(
    * defaults from it.
    *
    * The per-file value needs the PSI, and therefore the RW lock, so a calculator must not compute it. [fileIndentInput]
-   * computes the value in a background read action, and then refreshes the two properties.
+   * computes the value in a background read action, and then refreshes the two properties. It changes only inside a
+   * batch, so a calculator on any thread sees the current value.
    *
    * The seed is the project setting, and not the global one. It is what the Remote Development frontend reads until the
    * backend pushes the computed value, and this value selects the character an indent writes. The project setting needs
@@ -238,6 +242,17 @@ class EditorSettingsState(
     if (editor != null) {
       subscribeToSources(editor)
     }
+  }
+
+  /**
+   * The current values, with the accessors of [SettingsSnapshot].
+   */
+  override fun getSnapshot(): SettingsSnapshot {
+    return super.getSnapshot() as SettingsSnapshot
+  }
+
+  override fun createSnapshot(layout: StateLayout, values: Array<Any?>, overrides: Array<Any?>): SettingsSnapshot {
+    return SettingsSnapshot(layout, values, overrides)
   }
 
   /**
@@ -386,10 +401,16 @@ class EditorSettingsState(
     }
   }
 
+  /**
+   * Stores [newLanguage], and refreshes the sticky lines setting of the language in one batch. Then it computes the
+   * margins again, because they depend on the language.
+   */
   private fun updateLanguage(newLanguage: Language?) {
     if (language != newLanguage) {
-      language = newLanguage
-      refresh(::myStickyLinesShownForLanguage)
+      batch {
+        language = newLanguage
+        refresh(::myStickyLinesShownForLanguage)
+      }
       marginsInput.recalculate()
     }
   }
@@ -399,8 +420,8 @@ class EditorSettingsState(
    * margin is shown, so the batch also refreshes [myIsRightMarginShown].
    */
   private fun updateMargins(newMargins: Margins) {
-    margins = newMargins
     batch {
+      margins = newMargins
       refresh(::myWrapWhenTypingReachesRightMargin)
       refresh(::softMargins)
       refresh(::rightMargin)
@@ -459,8 +480,8 @@ class EditorSettingsState(
     if (editor != null && !editor.isViewer && fileOptions != null) {
       fileOptions.associateWithDocument(editor.document)
     }
-    fileIndent = newFileIndent
     batch {
+      fileIndent = newFileIndent
       refresh(::myUseTabCharacter)
       refresh(::tabSize)
     }
@@ -565,6 +586,14 @@ class EditorSettingsState(
     }
   }
 
+  /**
+   * Makes the list immutable, so that a snapshot keeps it unchanged. A caller of a setter and the Remote Development
+   * frontend can give a mutable list.
+   */
+  private fun immutableList(): CustomOutValueModifier<List<Int>> {
+    return CustomOutValueModifier { java.util.List.copyOf(it) }
+  }
+
   private fun externalizable(): EditorSettingsExternalizable {
     return EditorSettingsExternalizable.getInstance()
   }
@@ -592,11 +621,13 @@ class EditorSettingsState(
    */
   private inline fun <reified T> codeStyleProperty(
     initialValue: T,
+    outValueModifier: CustomOutValueModifier<T>? = null,
     noinline defaultValueCalculator: () -> T,
   ): StateProperty<T> {
     return property(
       initialValue = initialValue,
       defaultValueCalculator = SyncDefaultValueCalculator(defaultValueCalculator),
+      outValueModifier = outValueModifier,
       alwaysTransfer = true,
     )
   }

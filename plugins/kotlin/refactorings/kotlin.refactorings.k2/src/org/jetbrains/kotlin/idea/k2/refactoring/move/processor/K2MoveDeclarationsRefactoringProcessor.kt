@@ -35,10 +35,13 @@ import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.analysis.api.types.defaultType
 import org.jetbrains.kotlin.asJava.unwrapped
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.shortenReferences
+import org.jetbrains.kotlin.idea.base.facet.platform.platform
+import org.jetbrains.kotlin.idea.base.psi.KotlinPsiHeuristics
 import org.jetbrains.kotlin.idea.base.psi.deleteSingle
 import org.jetbrains.kotlin.idea.base.psi.getOrCreatePrimaryConstructorParameterList
 import org.jetbrains.kotlin.idea.base.psi.insertParameterBefore
 import org.jetbrains.kotlin.idea.base.psi.removeModifierKeyword
+import org.jetbrains.kotlin.idea.base.psi.separateFromPrecedingClassIfNeeded
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.base.util.reformatted
 import org.jetbrains.kotlin.idea.k2.refactoring.move.descriptor.K2MoveDescriptor
@@ -52,9 +55,15 @@ import org.jetbrains.kotlin.idea.k2.refactoring.move.processor.usages.K2MoveRena
 import org.jetbrains.kotlin.idea.k2.refactoring.move.processor.usages.OuterInstanceReferenceUsageInfo
 import org.jetbrains.kotlin.idea.refactoring.KotlinRefactoringListener
 import org.jetbrains.kotlin.idea.refactoring.pullUp.willBeMoved
+import org.jetbrains.kotlin.idea.util.addAnnotation
 import org.jetbrains.kotlin.lexer.KtTokens
+import org.jetbrains.kotlin.name.JvmStandardClassIds
+import org.jetbrains.kotlin.platform.jvm.isJvm
+import org.jetbrains.kotlin.psi.KtCallableDeclaration
 import org.jetbrains.kotlin.psi.KtClass
+import org.jetbrains.kotlin.psi.KtClassBody
 import org.jetbrains.kotlin.psi.KtClassOrObject
+import org.jetbrains.kotlin.psi.KtCompanionBlock
 import org.jetbrains.kotlin.psi.KtDeclaration
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.psi.KtFileAnnotationList
@@ -160,10 +169,12 @@ open class K2MoveDeclarationsRefactoringProcessor(
     private fun deleteMovedElement(element: KtNamedDeclaration, companionObjectsToKeep: Set<KtObjectDeclaration>) {
         val containingClass = element.containingClassOrObject
         element.deleteSingle()
-        if (containingClass is KtObjectDeclaration && containingClass.isCompanion() &&
-            containingClass !in companionObjectsToKeep && containingClass.isEffectivelyEmpty()) {
-            containingClass.deleteSingle()
-        }
+        val shouldDeleteContainingCompanionObject =
+            containingClass is KtObjectDeclaration && containingClass.isCompanion()
+                && containingClass !in companionObjectsToKeep
+                && containingClass.getSuperTypeList() == null
+                && containingClass.isEffectivelyEmpty()
+        if (shouldDeleteContainingCompanionObject) containingClass.deleteSingle()
     }
 
     private val conflicts: MultiMap<PsiElement, String> = MultiMap<PsiElement, String>()
@@ -496,6 +507,12 @@ open class K2MoveDeclarationsRefactoringProcessor(
                 declaration.removeModifierKeyword(KtTokens.FINAL_KEYWORD)
             }
         }
+        if (moveTargetType == DeclarationTargetType.COMPANION_BLOCK) {
+            ((newDeclaration.parent as? KtClassBody)?.parent as? KtCompanionBlock)?.separateFromPrecedingClassIfNeeded()
+        }
+        if (moveTargetType == DeclarationTargetType.COMPANION_OBJECT && newDeclaration is KtCallableDeclaration) {
+            newDeclaration.addJvmStaticIfProtected()
+        }
         when (newDeclaration) {
             is KtClass -> {
                 val primaryConstructor = newDeclaration.primaryConstructor ?: return
@@ -515,6 +532,16 @@ open class K2MoveDeclarationsRefactoringProcessor(
                 }
             }
         }
+    }
+
+    /**
+     * Adds `@JvmStatic` to a protected function or property of a companion object on the JVM, so that a subclass can call it.
+     */
+    private fun KtCallableDeclaration.addJvmStaticIfProtected() {
+        if (this !is KtNamedFunction && this !is KtProperty) return
+        if (!hasModifier(KtTokens.PROTECTED_KEYWORD) || !containingKtFile.platform.isJvm()) return
+        if (this is KtProperty && (hasModifier(KtTokens.CONST_KEYWORD) || KotlinPsiHeuristics.hasJvmFieldAnnotation(this))) return
+        addAnnotation(JvmStandardClassIds.Annotations.JvmStatic)
     }
 
     /**
