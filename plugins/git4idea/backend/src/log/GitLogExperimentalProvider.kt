@@ -10,8 +10,10 @@ import com.intellij.openapi.progress.checkCanceled
 import com.intellij.openapi.progress.coroutineToIndicator
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.registry.Registry
+import com.intellij.openapi.util.registry.RegistryManager
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.vcs.impl.shared.telemetry.VcsTracer
+import com.intellij.platform.vcs.impl.shared.telemetry.trace
 import com.intellij.platform.vcs.impl.shared.telemetry.traceSuspending
 import com.intellij.platform.vcs.impl.shared.telemetry.withVcsAttributes
 import com.intellij.util.ArrayUtilRt
@@ -23,16 +25,20 @@ import com.intellij.vcs.log.VcsRefsContainer
 import com.intellij.vcs.log.data.VcsLogSorter
 import com.intellij.vcs.log.impl.LogDataImpl
 import com.intellij.vcsUtil.VcsFileUtil
-import git4idea.GitUtil
+import git4idea.GitUtil.HEAD
 import git4idea.commands.Git
+import git4idea.commands.GitLineHandler
 import git4idea.history.GitLogOutputSplitter
 import git4idea.history.GitLogParser
 import git4idea.history.GitLogRecord
 import git4idea.history.GitLogUtil
+import git4idea.repo.GitRepoInfo
 import git4idea.repo.GitRepository
 import git4idea.repo.GitRepositoryManager
 import git4idea.telemetry.GitBackendTelemetrySpan.Log
+import git4idea.telemetry.GitBackendTelemetrySpan.LogProvider.FindingRepository
 import git4idea.telemetry.GitBackendTelemetrySpan.LogProvider.LoadingCommitsOnTaggedBranch
+import git4idea.telemetry.GitBackendTelemetrySpan.LogProvider.PreparingTags
 import git4idea.telemetry.GitBackendTelemetrySpan.LogProvider.SortingCommits
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -48,22 +54,41 @@ internal class GitLogExperimentalProvider(private val project: Project) {
     requirements: VcsLogProvider.Requirements,
     refsLoadingPolicy: VcsLogProvider.RefsLoadingPolicy,
   ): VcsLogProvider.DetailedLogData {
-    val repository = withContext(Dispatchers.IO) {
-      coroutineToIndicator {
-        GitRepositoryManager.getInstance(project).getRepositoryUnlessFresh(root)
+    val repository = VcsTracer.traceSuspending(FindingRepository) {
+      it.withVcsAttributes(root)
+      withContext(Dispatchers.IO) {
+        coroutineToIndicator {
+          GitRepositoryManager.getInstance(project).getRepositoryUnlessFresh(root)
+        }
       }
     } ?: return LogDataImpl.empty()
 
     return withContext(Dispatchers.Default) {
-      val branches = vcsLogObjectsFactory.createBranchesRefsSequence(repository)
-      val tagsLoader = TagsLoader.create(repository, refsLoadingPolicy)
+      val repoInfo = repository.info
+      val branches = vcsLogObjectsFactory.createBranchesRefsSequence(repoInfo, root)
+      val tagsLoader = VcsTracer.trace(PreparingTags) { span ->
+        span.withVcsAttributes(root)
+        TagsLoader.create(repository, refsLoadingPolicy).also {
+          span.setAttribute("tagCount", it.tags.size.toLong())
+          span.setAttribute("modifiedTagCount", it.modifiedTags.size.toLong())
+        }
+      }
 
       // need to query more to sort them manually; this doesn't affect performance: it is equal for -1000 and -2000
-      val commitsFromLogCommand = getCommits(root, requirements.commitCount * 2)
+      val commitCount = requirements.commitCount * 2
+      val commitsFromLogCommand = if (RegistryManager.getInstanceAsync().`is`("git.log.provider.experimental.branch.tips")) {
+        getCommits(root, commitCount, getBranchTips(repoInfo))
+      }
+      else {
+        getCommits(root, commitCount) {
+          addParameters(HEAD, "--branches", "--remotes")
+        }
+      }
       val allCommits = commitsFromLogCommand + tagsLoader.loadCommitsReachableOnlyFromTags(commitsFromLogCommand)
 
       val sortedCommits = VcsTracer.traceSuspending(SortingCommits) {
         it.withVcsAttributes(root)
+        it.setAttribute("commitCount", allCommits.size.toLong())
         VcsLogSorter.sortByDateTopoOrder(allCommits).take(requirements.commitCount)
       }
 
@@ -72,16 +97,38 @@ internal class GitLogExperimentalProvider(private val project: Project) {
     }
   }
 
-  private suspend fun getCommits(root: VirtualFile, commitCount: Int): List<VcsCommitMetadata> {
+  /**
+   * Returns the hashes of HEAD and of all branches in [repoInfo].
+   * These are the start commits of `HEAD --branches --remotes`, so Git does not need to read the refs again.
+   */
+  private fun getBranchTips(repoInfo: GitRepoInfo): Set<String> = buildSet {
+    repoInfo.currentRevision?.let { add(it) }
+    repoInfo.localBranchesWithHashes.values.mapTo(this) { it.asString() }
+    repoInfo.remoteBranchesWithHashes.values.mapTo(this) { it.asString() }
+  }
+
+  /**
+   * Runs `git log --stdin` with [hashes].
+   * Git skips a hash that has no object.
+   */
+  private suspend fun getCommits(root: VirtualFile, commitCount: Int, hashes: Collection<String>): List<VcsCommitMetadata> {
+    if (hashes.isEmpty()) return emptyList()
+    return getCommits(root, commitCount) {
+      val handler = this
+      // Git reads the standard input when it gets to --stdin, so --ignore-missing must come before it
+      addParameters("--ignore-missing", GitLogUtil.STDIN)
+      GitLogUtil.sendHashesToStdin(hashes, handler)
+    }
+  }
+
+  private suspend fun getCommits(root: VirtualFile, commitCount: Int, addStartCommits: GitLineHandler.() -> Unit): List<VcsCommitMetadata> {
     checkCanceled()
     val parser = GitLogParser.createDefaultParser(project, *GitLogUtil.COMMIT_METADATA_OPTIONS)
     val handler = GitLogUtil.createGitHandler(project, root).apply {
       setStdoutSuppressed(true)
+      addStartCommits()
       // Don't request refs, don't decorate and don't sort by date
       addParameters(
-        GitUtil.HEAD,
-        "--branches",
-        "--remotes",
         "--max-count=$commitCount",
         parser.pretty,
         "--encoding=UTF-8",
@@ -101,6 +148,7 @@ internal class GitLogExperimentalProvider(private val project: Project) {
           handlerListener.reportErrors()
         }
       }
+      it.setAttribute("commitCount", commits.size.toLong())
     }
     return commits
   }
@@ -141,6 +189,7 @@ private class TagsLoader(
     val commits = HashSet<VcsCommitMetadata>()
     VcsTracer.traceSuspending(LoadingCommitsOnTaggedBranch) {
       it.withVcsAttributes(repository.root)
+      it.setAttribute("tagCount", unreachableTags.size.toLong())
       val maxCountParam = listOf("--max-count=$COMMITS_TO_LOAD")
 
       withContext(Dispatchers.IO) {
@@ -150,6 +199,7 @@ private class TagsLoader(
           commits.addAll(logData.commits)
         }
       }
+      it.setAttribute("commitCount", commits.size.toLong())
     }
     return commits
   }

@@ -82,7 +82,54 @@ interface VcsBackendTelemetrySpan: VcsTelemetrySpan {
      */
     ReadingCurrentUser("vcs-log-reading-current-user"),
 
+    /**
+     * Calling [com.intellij.vcs.log.VcsLogProvider.readRecentCommits] for one root.
+     *
+     * Part of [ReadingRecentCommitsInRoot].
+     */
+    ReadingRecentCommitsFromProvider("vcs-log-reading-recent-commits-from-provider"),
+
+    /**
+     * Calling [com.intellij.vcs.log.VcsLogProvider.readAllHashes] for one root.
+     * The time includes the conversion of each commit, which [CompactingCommits] reports for the recent commits.
+     *
+     * Part of [ReadingAllCommitsInRoot].
+     */
+    ReadingAllCommitsFromProvider("vcs-log-reading-all-commits-from-provider"),
+
+    /**
+     * Converting the references received from [com.intellij.vcs.log.VcsLogProvider] for one root to a `RootRefsModel`.
+     */
+    CompressingRefs("vcs-log-compressing-refs"),
+
+    /**
+     * Passing the commits and the users of one root to the `VcsLogCommitDataConsumer`.
+     */
+    StoringCommitData("vcs-log-storing-commit-data"),
+
+    /**
+     * Telling the `VcsLogCommitDataConsumer` that the data of all roots is loaded.
+     */
+    FlushingCommitData("vcs-log-flushing-commit-data"),
+
     // Building new DataPack
+
+    /**
+     * Building `VcsLogGraphData` from the commits and the references.
+     * It consists of [CreatingRefsModel] and [BuildingGraph].
+     */
+    BuildingGraphData("vcs-log-building-graph-data"),
+
+    /**
+     * Creating a `RefsModel` for the references of all roots.
+     */
+    CreatingRefsModel("vcs-log-creating-refs-model"),
+
+    /**
+     * Building the overlay data from the first recent commits during [Refreshing].
+     * It replaces [PartialRefreshing] when the refresh reads the recent commits of all roots.
+     */
+    BuildingOverlayData("vcs-log-building-overlay-data"),
 
     /**
      * Building a [com.intellij.vcs.log.graph.PermanentGraph] for the list of commits.
@@ -96,6 +143,14 @@ interface VcsBackendTelemetrySpan: VcsTelemetrySpan {
      * Only reported during [Refreshing] and [Initializing].
      */
     CompactingCommits("vcs-log-compacting-commits"),
+
+    /**
+     * Copying the commits of the current [com.intellij.vcs.log.graph.PermanentGraph] to a list,
+     * so that [JoiningNewAndOldCommits] can join the new commits to them.
+     *
+     * Only reported during [Refreshing].
+     */
+    CollectingPreviousCommits("vcs-log-collecting-previous-commits"),
 
     /**
      * Combining new commits, received during [Refreshing], with previously loaded commits, to get a single commit list.
