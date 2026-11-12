@@ -5,9 +5,12 @@ import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.UserDataHolder;
 import com.intellij.util.containers.WeakList;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 final class UserDataBackedStacks<T extends UserDataHolder> {
@@ -24,6 +27,10 @@ final class UserDataBackedStacks<T extends UserDataHolder> {
       holders.add(holder);
     }
     return result;
+  }
+
+  @Nullable UndoRedoList<UndoableGroup> findStack(@NotNull T holder) {
+    return holder.getUserData(stackInHolderKey);
   }
 
   void removeHolder(@NotNull T holder) {
@@ -51,5 +58,16 @@ final class UserDataBackedStacks<T extends UserDataHolder> {
 
   @NotNull Collection<T> getHolders() {
     return holders;
+  }
+
+  @NotNull List<UndoRedoList<UndoableGroup>> getStacks() {
+    List<UndoRedoList<UndoableGroup>> result = new ArrayList<>();
+    for (T holder : holders) {
+      UndoRedoList<UndoableGroup> stack = holder.getUserData(stackInHolderKey);
+      if (stack != null) {
+        result.add(stack);
+      }
+    }
+    return result;
   }
 }

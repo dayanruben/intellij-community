@@ -4,6 +4,7 @@ load("@rules_java//java:defs.bzl", "java_binary", "java_import", "java_test")
 load("@rules_java//toolchains:default_java_toolchain.bzl", "default_java_toolchain")
 load("@rules_kotlin//kotlin:core.bzl", "kt_compiler_plugin", "kt_kotlinc_options")
 load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_library")
+load("//:proto_toolchain_guard.bzl", "proto_toolchain_guard")
 
 exports_files(
     ["intellij.platform.buildScripts.bazel.iml"],
@@ -27,6 +28,23 @@ proto_lang_toolchain(
     visibility = ["//visibility:public"],
 )
 
+# The protobuf code of the monorepo takes a prebuilt protobuf-java runtime, not the protobuf module's source build, that
+# runtime is the release of the protobuf module the rules_kotlin builder compiles its own code against, and protoc is
+# never built from source: the guard fails the analysis otherwise, in the target configuration and, through
+# its exec_check instance, in the exec configuration where tools and their protos are built. Build it to check
+# the toolchain registration of a root module.
+proto_toolchain_guard(
+    name = "proto_toolchain_guard",
+    exec_check = ":proto_toolchain_guard_exec",
+    toolchain_registration = "//:protoc_java_toolchain_toolchain",
+    visibility = ["//visibility:public"],
+)
+
+proto_toolchain_guard(
+    name = "proto_toolchain_guard_exec",
+    toolchain_registration = "//:protoc_java_toolchain_toolchain",
+)
+
 # see usage in .bazelrc
 # this toolchain prevents dependency on C++ toolchain through proguard_allowlister tool
 default_java_toolchain(
@@ -43,8 +61,17 @@ native_binary(
     src = "noop_proguard_allowlister.sh",
 )
 
-kt_compiler_plugin(
+# The serialization compiler plugin of this workspace. The default is the plugin the pinned rules_kotlin bundles,
+# which matches the rules_kotlin default toolchain of a standalone build. A root module that selects another Kotlin
+# toolchain sets the flag to the plugin that matches that toolchain's compiler: the monorepo roots set
+# @lib//:kotlin-serialization-plugin in community/common.bazelrc, next to the toolchain.
+label_flag(
     name = "serialization_plugin",
+    build_setting_default = ":bundled_serialization_plugin",
+)
+
+kt_compiler_plugin(
+    name = "bundled_serialization_plugin",
     compile_phase = True,
     id = "org.jetbrains.kotlin.serialization",
     stubs_phase = True,
@@ -64,12 +91,20 @@ kt_jvm_library(
 
 kt_kotlinc_options(
     name = "jps_to_bazel_kotlinc_options",
+    # The sources use features up to Kotlin 2.2 (multi-dollar string interpolation). The level is
+    # stated here instead of taken from the default of the toolchain rule.
+    api_version = "2.4",
     jvm_target = "17",
+    language_version = "2.4",
+    # The pinned rules_kotlin emits -Xlambdas=class by default; the monorepo modules compile with indy.
+    x_lambdas = "indy",
 )
 
 kt_jvm_library(
     name = "jps_to_bazel-lib",
     srcs = glob(["src/**/*.kt"]),
+    # Every build of this workspace analyzes the guard of the protobuf toolchains.
+    data = [":proto_toolchain_guard"],
     kotlinc_opts = ":jps_to_bazel_kotlinc_options",
     runtime_deps = [],
     deps = [

@@ -5,8 +5,10 @@ import com.intellij.ide.actions.searcheverywhere.SEResultsEqualityProvider.SEEqu
 import com.intellij.ide.actions.searcheverywhere.SEResultsEqualityProvider.SEEqualElementsActionType.Replace
 import com.intellij.ide.actions.searcheverywhere.SEResultsEqualityProvider.SEEqualElementsActionType.Skip
 import com.intellij.ide.actions.searcheverywhere.SearchEverywhereFoundElementInfo
+import com.intellij.psi.JavaPsiFacade
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
+import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.util.parentOfType
 import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase
 import org.jetbrains.kotlin.asJava.findFacadeClass
@@ -154,5 +156,47 @@ abstract class KtSearchEverywhereEqualityProviderTest : LightJavaCodeInsightFixt
             .map { it.element as PsiElement }
             .singleOrNull()
         assertEquals(expectedToRemove(file), actualRemoved)
+    }
+
+    @RunWith(JUnit3RunnerWithInners::class)
+    class JavaSourceAndLibraryClass : KtSearchEverywhereEqualityProviderTest() {
+        fun `test java source class and java library class with same FQN shouldnt be deduplicated`() {
+            val sourceClass = myFixture.addClass("package java.util; public class ArrayList {}")
+            val libraryClass = JavaPsiFacade.getInstance(project)
+                .findClasses("java.util.ArrayList", GlobalSearchScope.allScope(project))
+                .single { it != sourceClass }
+
+            val action1 = KtSearchEverywhereEqualityProvider().compareItemsCollection(
+                newItem = SearchEverywhereFoundElementInfo(sourceClass, 0, null),
+                alreadyFoundItems = listOf(SearchEverywhereFoundElementInfo(libraryClass, 0, null))
+            )
+            val action2 = KtSearchEverywhereEqualityProvider().compareItemsCollection(
+                newItem = SearchEverywhereFoundElementInfo(libraryClass, 0, null),
+                alreadyFoundItems = listOf(SearchEverywhereFoundElementInfo(sourceClass, 0, null))
+            )
+            assertEquals(DoNothing, action1)
+            assertEquals(DoNothing, action2)
+        }
+    }
+
+    @RunWith(JUnit3RunnerWithInners::class)
+    class KotlinClassesWithSameFqName : KtSearchEverywhereEqualityProviderTest() {
+        fun `test expect class and actual class shouldnt be deduplicated`() {
+            val expectClass = (myFixture.addFileToProject("common/Foo.kt", "package one\nexpect class Foo") as KtFile)
+                .declarations.single() as KtClass
+            val actualClass = (myFixture.addFileToProject("jvm/Foo.kt", "package one\nactual class Foo") as KtFile)
+                .declarations.single() as KtClass
+
+            val action1 = KtSearchEverywhereEqualityProvider().compareItemsCollection(
+                newItem = SearchEverywhereFoundElementInfo(expectClass, 0, null),
+                alreadyFoundItems = listOf(SearchEverywhereFoundElementInfo(actualClass, 0, null))
+            )
+            val action2 = KtSearchEverywhereEqualityProvider().compareItemsCollection(
+                newItem = SearchEverywhereFoundElementInfo(actualClass, 0, null),
+                alreadyFoundItems = listOf(SearchEverywhereFoundElementInfo(expectClass, 0, null))
+            )
+            assertEquals(DoNothing, action1)
+            assertEquals(DoNothing, action2)
+        }
     }
 }

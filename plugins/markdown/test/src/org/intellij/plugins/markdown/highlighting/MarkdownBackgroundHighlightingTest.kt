@@ -6,8 +6,10 @@ import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.VisualPosition
 import com.intellij.openapi.editor.colors.EditorColors
 import com.intellij.openapi.editor.colors.EditorColorsManager
+import com.intellij.openapi.editor.colors.EditorFontType
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.ex.EditorEx
+import com.intellij.openapi.editor.impl.IndentsModelImpl
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.impl.source.tree.injected.InjectedLanguageUtil
@@ -121,6 +123,64 @@ class MarkdownBackgroundHighlightingTest : BasePlatformTestCase() {
 
     assertEquals(Color.RED, getPixel(image, corner.x, blankLine.y + editor.lineHeight / 2))
     assertOutsideTheFill(editor, getPixel(image, corner.x, corner.y))
+  }
+
+  fun `test a fence with folded marker lines draws its language at the right end of the closing line`() {
+    val text = "```lang title=\"123\"\naaaa\n```"
+    val editor = configureEditor(text, MarkdownHighlighterColors.CODE_FENCE)
+    editor.colorsScheme.setAttributes(MarkdownHighlighterColors.CODE_FENCE_LANGUAGE, TextAttributes(Color.BLUE, null, null, null, Font.PLAIN))
+    foldMarkerLines(editor, text)
+
+    val image = paintEditor(editor)
+    val x = editor.offsetToXY(text.indexOf("\n```")).x + 10
+    val closingY = editor.offsetToXY(text.length).y
+    val labelXs = (image.width / 2 until image.width).filter { px ->
+      (closingY until closingY + editor.lineHeight).any { distance(Color.BLUE, getPixel(image, px, it)) < distance(Color.RED, getPixel(image, px, it)) }
+    }
+    val languageWidth = editor.contentComponent.getFontMetrics(editor.colorsScheme.getFont(EditorFontType.PLAIN)).stringWidth("lang")
+
+    assertEquals(getEditorBackgroundColor(editor), getPixel(image, x, editor.offsetToXY(0).y + editor.lineHeight / 2))
+    assertEquals(Color.RED, getPixel(image, x, editor.offsetToXY(text.indexOf("aaaa")).y + editor.lineHeight / 2))
+    assertEquals(Color.RED, getPixel(image, x, closingY + editor.lineHeight / 2))
+    assertTrue("The right half of the closing line shows the language", labelXs.isNotEmpty())
+    assertTrue("The label shows only the language, not the title", labelXs.last() - labelXs.first() <= languageWidth + 2)
+  }
+
+  fun `test a fence without a language has no background on folded marker lines`() {
+    val text = "```\naaaa\n```"
+    val editor = configureEditor(text, MarkdownHighlighterColors.CODE_FENCE)
+    foldMarkerLines(editor, text)
+
+    val image = paintEditor(editor)
+    val x = editor.offsetToXY(text.indexOf("\n```")).x + 10
+
+    assertEquals(getEditorBackgroundColor(editor), getPixel(image, x, editor.offsetToXY(0).y + editor.lineHeight / 2))
+    assertEquals(Color.RED, getPixel(image, x, editor.offsetToXY(text.indexOf("aaaa")).y + editor.lineHeight / 2))
+    assertEquals(getEditorBackgroundColor(editor), getPixel(image, x, editor.offsetToXY(text.length).y + editor.lineHeight / 2))
+  }
+
+  private fun foldMarkerLines(editor: Editor, text: String) {
+    val folding = (editor as EditorEx).foldingModel
+    folding.runBatchFoldingOperation {
+      folding.createFoldRegion(0, text.indexOf('\n'), "", null, true)
+      folding.createFoldRegion(text.lastIndexOf("```"), text.length, "", null, true)
+    }
+  }
+
+  fun `test the indent of a fence line has no background`() {
+    val pixels = listOf("java", "").associateWith { language ->
+      val editor = configureEditor("    ```$language\n    class C {}\n    ```")
+      getPixelAt(editor, paintEditor(editor), editor.document.getLineStartOffset(1)) to getEditorBackgroundColor(editor)
+    }
+    assertEquals(pixels.mapValues { it.value.second }, pixels.mapValues { it.value.first })
+  }
+
+  fun `test a fence has no indent guides and a list keeps its indent guide`() {
+    myFixture.configureByText("test.md", "- a\n    - b\n        - c\n\n```\na\n    b\n        c\n```")
+    myFixture.doHighlighting()
+
+    val model = myFixture.editor.indentsModel as IndentsModelImpl
+    assertEquals(listOf(1 to 4), model.indents.map { it.startLine to it.indentLevel })
   }
 
   fun `test the background of a code span covers the content between the backtick runs`() {

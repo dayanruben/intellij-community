@@ -1,7 +1,7 @@
 package com.intellij.ide.starter.sdk.go
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties
-import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import com.intellij.ide.starter.config.ConfigurationStorage
+import com.intellij.ide.starter.config.useDockerContainer
 import com.intellij.ide.starter.path.GlobalPaths
 import com.intellij.ide.starter.runner.SetupException
 import com.intellij.ide.starter.runner.targets.TargetIdentifier
@@ -17,6 +17,7 @@ import com.intellij.tools.ide.util.common.logOutput
 import com.intellij.tools.ide.util.common.withRetryBlocking
 import com.intellij.util.system.CpuArch
 import com.intellij.util.system.OS
+import com.intellij.util.text.SemVer
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.ExperimentalPathApi
@@ -40,23 +41,45 @@ object GoSdkDownloaderFacade {
   }
 
   /**
-   * Fetches the latest available Go SDK version (including RC) from the go.dev/dl API.
+   * Fetches the latest available Go SDK version, including a beta or an RC, from the Go module proxy through Cache Redirector.
+   *
+   * The proxy lists each release of the `golang.org/toolchain` module once per platform and in no particular order.
    */
   fun getLatestAvailableVersion(): String {
-    val url = "https://go.dev/dl/?mode=json&include=all"
+    val url = "https://cache-redirector.jetbrains.com/proxy.golang.org/golang.org/toolchain/@v/list"
     logOutput("Fetching Go versions from $url")
     val response = java.net.URI(url).toURL().openStream().bufferedReader().use { it.readText() }
-    val mapper = jacksonObjectMapper()
-    val versions = mapper.readValue(response, Array<GoVersionInfo>::class.java)
-    val latest = versions?.firstOrNull()
+    val latest = response.lineSequence()
+                   .mapNotNull { toolchainLinuxAmd64.matchEntire(it)?.groups["version"]?.value }
+                   .mapNotNull { version ->
+                     val semVer = version.replace(minorRelease, "$0.0").replace(preRelease, "-$0.")
+                     SemVer.parseFromText(semVer)?.let { version to it }
+                   }
+                   .maxByOrNull { (_, semVer) -> semVer }
+                   ?.first
                  ?: error("No Go versions found at $url")
-    logOutput("Latest available Go version: ${latest.version}")
-    return latest.version.removePrefix("go")
+    logOutput("Latest available Go version: $latest")
+    return latest
   }
 
+  private val toolchainLinuxAmd64 = Regex("""v0\.0\.1-go(?<version>.+)\.linux-amd64""")
+
   /**
-   * Returns platform info for the current target (local or remote).
-   * Falls back to SystemInfo when the target is local or cannot be resolved.
+   * A Go release without a patch number, such as `1.21` in `1.21` and `1.27rc3`; [SemVer] needs `1.21.0` and `1.27.0-rc.3`.
+   */
+  private val minorRelease = Regex("""^\d+\.\d+(?=beta|rc|$)""")
+
+  /**
+   * The pre-release of a Go release, such as `rc` in `1.27rc3`; [SemVer] needs `-rc.3`, which sorts a beta before an RC
+   * and an RC before the release.
+   */
+  private val preRelease = Regex("beta|rc")
+
+  /**
+   * Returns platform info for the platform where the IDE runs.
+   * A remote target gives its own platform.
+   * A local target, or a remote target whose platform cannot be resolved, gives the host platform.
+   * A Docker run reports a local target, but its IDE runs in a Linux container, so it gets Linux on the host architecture.
    */
   fun getTargetPlatformInfo(): PlatformInfo {
     val platform = getTargetPlatform()
@@ -73,15 +96,17 @@ object GoSdkDownloaderFacade {
       )
     }
     else {
+      val os = when {
+        ConfigurationStorage.useDockerContainer() -> "linux"
+        OS.CURRENT == OS.Windows -> "windows"
+        OS.CURRENT == OS.Linux -> "linux"
+        OS.CURRENT == OS.macOS -> "darwin"
+        else -> throw DownloadGoSdkException("Unknown OS")
+      }
       PlatformInfo(
-        os = when (OS.CURRENT) {
-            OS.Windows -> "windows"
-            OS.Linux -> "linux"
-            OS.macOS -> "darwin"
-            else -> throw DownloadGoSdkException("Unknown OS")
-        },
+        os = os,
         arch = if (CpuArch.isArm64()) "arm64" else "amd64",
-        extension = if (OS.CURRENT == OS.Windows) ".zip" else ".tar.gz"
+        extension = if (os == "windows") ".zip" else ".tar.gz"
       )
     }
   }
@@ -138,7 +163,4 @@ object GoSdkDownloaderFacade {
   }
 
   data class PlatformInfo(val os: String, val arch: String, val extension: String)
-
-  @JsonIgnoreProperties(ignoreUnknown = true)
-  private data class GoVersionInfo(val version: String = "", val stable: Boolean = false)
 }

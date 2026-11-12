@@ -18,12 +18,9 @@ import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.checkCanceled
 import com.intellij.openapi.progress.runBlockingCancellable
 import com.intellij.openapi.util.Computable
-import com.intellij.openapi.util.registry.Registry
 import com.intellij.util.ThrowableConvertor
 import com.intellij.util.io.HttpSecurityUtil
 import com.intellij.util.net.PlatformHttpClient
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
 import org.jetbrains.plugins.github.api.GithubApiRequestExecutor.Companion.PLUGIN_USER_AGENT_NAME
 import org.jetbrains.plugins.github.exceptions.GithubConfusingException
 import org.jetbrains.plugins.github.i18n.GithubBundle
@@ -41,30 +38,17 @@ import java.net.http.HttpResponse
 import java.nio.charset.Charset
 import kotlin.jvm.optionals.getOrNull
 
-private const val MAX_CONCURRENT_REQUESTS_REGISTRY_KEY = "github.api.max.concurrent.requests"
-/**
- * The default maximum number of concurrent requests.
- * GitHub allows no more than 100 concurrent requests:
- * https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api?apiVersion=2026-03-10#about-secondary-rate-limits.
- * The default stays below that limit.
- */
-internal const val DEFAULT_MAX_CONCURRENT_REQUESTS = 50
-
 /**
  * [HttpApiHelper]-based executor
+ *
+ * The [tokenSupplier] gives the token for the URL of a request, or `null` if the request goes without a token.
  */
 internal class GithubApiHelperRequestExecutor(
   private val helper: HttpApiHelper,
+  private val tokenSupplier: suspend (URL) -> String?,
 ) : GithubApiRequestExecutor() {
 
-  constructor(useProxy: Boolean, tokenSupplier: suspend (URL) -> String?) : this(createHelper(useProxy, tokenSupplier))
-
-  /**
-   * Limits the number of concurrent requests of this executor.
-   * The registry key [MAX_CONCURRENT_REQUESTS_REGISTRY_KEY] sets the limit.
-   */
-  private val requestsSemaphore =
-    Semaphore(Registry.intValue(MAX_CONCURRENT_REQUESTS_REGISTRY_KEY, DEFAULT_MAX_CONCURRENT_REQUESTS).coerceAtLeast(1))
+  constructor(useProxy: Boolean, tokenSupplier: suspend (URL) -> String?) : this(createHelper(useProxy), tokenSupplier)
 
   @Suppress("UsagesOfObsoleteApi")
   override fun <T> execute(indicator: ProgressIndicator, request: GithubApiRequest<T>): T {
@@ -76,18 +60,27 @@ internal class GithubApiHelperRequestExecutor(
     }
   }
 
-  override suspend fun <T> execute(request: GithubApiRequest<T>): T =
-    requestsSemaphore.withPermit {
-      doExecute(request)
-    }
+  override suspend fun <T> execute(request: GithubApiRequest<T>): T {
+    // the request gets the token once, so that the rate limits count the token that the request sends
+    val token = tokenSupplier(URI.create(request.url).toURL())
+    return service<GHApiRateLimiter>().execute(
+      request,
+      token,
+      send = { send(request, token) },
+      parse = { response, rateLimitHeaders -> parse(request, response, rateLimitHeaders) },
+    )
+  }
 
-  private suspend fun <T> doExecute(request: GithubApiRequest<T>): T {
+  /**
+   * Sends the [request] and returns the response before its body is read.
+   */
+  private suspend fun send(request: GithubApiRequest<*>, token: String?): HttpResponse<out InputStream> {
     check(!service<GHRequestExecutorBreaker>().isRequestsShouldFail) {
       "Request failure was triggered by user action. This a pretty long description of this failure that should resemble some long error which can go out of bounds."
     }
 
     val activity = GHPRStatisticsCollector.logApiRequestStart(request.operation)
-    val httpRequest = createHttpRequest(request).forceAcceptGzipEncoding()
+    val httpRequest = createHttpRequest(request, token).forceAcceptGzipEncoding()
     val requestName = httpRequest.logName()
 
     if (LOG.isTraceEnabled && request is GithubApiRequest.WithBody) {
@@ -110,13 +103,25 @@ internal class GithubApiHelperRequestExecutor(
       throw e
     }
 
+    val rateLimitHeaders = GHRateLimitHeaders.parse(response)
     GHPRStatisticsCollector.logApiResponseReceived(
       activity = activity,
-      remaining = response.headers().firstValue(RATE_LIMIT_REMAINING_HEADER).getOrNull()?.toIntOrNull() ?: -1,
-      resourceName = response.headers().firstValue(RATE_LIMIT_RESOURCE_HEADER).getOrNull() ?: "unknown",
+      remaining = rateLimitHeaders.remaining ?: -1,
+      resourceName = rateLimitHeaders.resource ?: "unknown",
       statusCode = response.statusCode(),
     )
+    return response
+  }
 
+  /**
+   * Checks the status of the [response] to the [request] and reads its body.
+   */
+  private suspend fun <T> parse(
+    request: GithubApiRequest<T>,
+    response: HttpResponse<out InputStream>,
+    rateLimitHeaders: GHRateLimitHeaders,
+  ): T {
+    val requestName = response.request().logName()
     try {
       response.checkStatusCodeWithLogging(LOG, requestName)
       checkCanceled()
@@ -141,7 +146,7 @@ internal class GithubApiHelperRequestExecutor(
       if (request is GithubApiRequest.Get.Optional<*> && e.statusCode == HttpURLConnection.HTTP_NOT_FOUND) return null as T
 
       val responseContentType = response.headers().firstValue(HttpClientUtil.CONTENT_TYPE_HEADER).getOrNull()
-      throw createApiException(requestName, e.statusCode, e.body, responseContentType)
+      throw createApiException(requestName, e.statusCode, e.body, responseContentType, rateLimitHeaders)
     }
     catch (e: GithubConfusingException) {
       if (request.operationName != null) {
@@ -153,8 +158,11 @@ internal class GithubApiHelperRequestExecutor(
     }
   }
 
-  private suspend fun createHttpRequest(request: GithubApiRequest<*>): HttpRequest {
+  private suspend fun createHttpRequest(request: GithubApiRequest<*>, token: String?): HttpRequest {
     val builder = helper.request(URI.create(request.url))
+    if (token != null) {
+      builder.header(HttpSecurityUtil.AUTHORIZATION_HEADER_NAME, HttpSecurityUtil.createBearerAuthHeaderValue(token))
+    }
     request.acceptMimeType?.let { builder.header(HttpClientUtil.ACCEPT_HEADER, it) }
     for ((name, value) in request.additionalHeaders) {
       // the client computes the length from the body publisher
@@ -198,17 +206,8 @@ internal class GithubApiHelperRequestExecutor(
   }
 }
 
-private fun createHelper(
-  useProxy: Boolean = true,
-  tokenSupplier: (suspend (URL) -> String?)? = null,
-): HttpApiHelper {
-  val configurers = buildList {
-    add(RequestTimeoutConfigurer())
-    add(GHHeadersConfigurer())
-    if (tokenSupplier != null) {
-      add(GHAuthorizationConfigurer(tokenSupplier))
-    }
-  }
+private fun createHelper(useProxy: Boolean = true): HttpApiHelper {
+  val configurers = listOf(RequestTimeoutConfigurer(), GHHeadersConfigurer())
   return HttpApiHelper(logger = GithubApiRequestExecutor.LOG,
                        clientFactory = GHHttpClientFactory(useProxy),
                        requestConfigurer = CompoundRequestConfigurer(configurers))
@@ -225,20 +224,4 @@ private class GHHeadersConfigurer : HttpRequestConfigurer {
       header(HttpClientUtil.ACCEPT_ENCODING_HEADER, HttpClientUtil.CONTENT_ENCODING_GZIP)
       header(HttpClientUtil.USER_AGENT_HEADER, HttpClientUtil.getUserAgentValue(PLUGIN_USER_AGENT_NAME))
     }
-}
-
-private class GHAuthorizationConfigurer(
-  private val tokenSupplier: suspend (URL) -> String?,
-) : HttpRequestConfigurer {
-  override suspend fun configureSuspend(builder: HttpRequest.Builder): HttpRequest.Builder {
-    val url = builder.build().uri().toURL()
-    val token = tokenSupplier(url)
-    return if (token == null) {
-      builder
-    }
-    else {
-      val headerValue = HttpSecurityUtil.createBearerAuthHeaderValue(token)
-      builder.header(HttpSecurityUtil.AUTHORIZATION_HEADER_NAME, headerValue)
-    }
-  }
 }

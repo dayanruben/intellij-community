@@ -18,12 +18,12 @@ import com.intellij.openapi.application.AccessToken;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.CoroutinesKt;
 import com.intellij.openapi.application.ReadAction;
-import com.intellij.openapi.application.WriteIntentReadAction;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.Inlay;
 import com.intellij.openapi.editor.ScrollType;
 import com.intellij.openapi.editor.VisualPosition;
 import com.intellij.openapi.editor.ex.util.EditorUtil;
+import com.intellij.openapi.progress.Cancellation;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.popup.Balloon.Position;
 import com.intellij.openapi.util.Disposer;
@@ -129,7 +129,7 @@ public final class ParameterInfoController extends ParameterInfoControllerBase {
       final UpdateQueue<Unit> queue = DebouncedUpdates.<Unit>forScope(queueScope, "Update parameter info position", 200)
         .withContext(CoroutinesKt.getEDT(Dispatchers.INSTANCE))
         .withComponentModality(myComponent)
-        .runLatest(ignored -> refreshUi())
+        .runLatest(ignored -> Cancellation.executeInNonCancelableSection(this::refreshUi))
         .cancelOnDispose(ParameterInfoController.this);
 
       @Override
@@ -144,7 +144,7 @@ public final class ParameterInfoController extends ParameterInfoControllerBase {
 
       private void refreshUi() {
         if (isLookupActive[0]) {
-          WriteIntentReadAction.run(ParameterInfoController.this::updateComponent);
+          updateComponent();
         }
       }
     };

@@ -1,10 +1,12 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.browsers.actions;
 
 import com.intellij.concurrency.ConcurrentCollectionFactory;
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.IdeBundle;
+import com.intellij.ide.browsers.KnownBrowser;
 import com.intellij.ide.browsers.SystemDefaultBrowser;
+import com.intellij.ide.browsers.SystemDefaultBrowserDetector;
 import com.intellij.ide.browsers.WebBrowser;
 import com.intellij.ide.browsers.WebBrowserManager;
 import com.intellij.ide.browsers.WebBrowserProvider;
@@ -18,6 +20,7 @@ import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.Presentation;
+import com.intellij.openapi.actionSystem.Separator;
 import com.intellij.openapi.diff.impl.DiffUtil;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.fileTypes.LanguageFileType;
@@ -63,7 +66,7 @@ public abstract class OpenInBrowserBaseGroupAction extends ActionGroup implement
   public AnAction @NotNull [] getChildren(@Nullable AnActionEvent e) {
     List<WebBrowser> providedBrowsers = WebBrowserProvider.getAvailableBrowsers();
     List<WebBrowser> browsers = WebBrowserManager.getInstance().getBrowsers();
-    List<AnAction> actions = new ArrayList<>(providedBrowsers.size() + browsers.size() + 2);
+    List<AnAction> actions = new ArrayList<>(providedBrowsers.size() + browsers.size() + 3);
     for (WebBrowser browser : providedBrowsers) {
       actions.add(myBrowserActions.computeIfAbsent(browser, OpenInProvidedBrowserAction::new));
     }
@@ -71,10 +74,17 @@ public abstract class OpenInBrowserBaseGroupAction extends ActionGroup implement
     if (localBrowserAction != null) {
       actions.add(localBrowserAction);
     }
+    // the browsers in the IDE come before the external browsers; the action system hides a separator at the edge
+    actions.add(Separator.getInstance());
+    KnownBrowser systemDefaultBrowser = null;
     if (usesSystemDefaultBrowser()) {
       actions.add(mySystemDefaultBrowserAction);
+      systemDefaultBrowser = SystemDefaultBrowserDetector.getInstance().getKnownBrowser();
     }
     for (WebBrowser browser : browsers) {
+      if (systemDefaultBrowser != null && SystemDefaultBrowserDetector.opensSameAs(browser, systemDefaultBrowser)) {
+        continue;
+      }
       actions.add(myBrowserActions.computeIfAbsent(browser, BaseOpenInBrowserAction::new));
     }
     return actions.toArray(EMPTY_ARRAY);
@@ -103,6 +113,7 @@ public abstract class OpenInBrowserBaseGroupAction extends ActionGroup implement
   /**
    * Returns {@code true} when the default browser of the IDE is {@link SystemDefaultBrowser}.
    * That browser is not in the browser list, so the group adds an action for it.
+   * The group then hides a browser of the list that opens a page in the same way, see {@link SystemDefaultBrowserDetector#opensSameAs}.
    * For any other default browser, the group already has the action of that browser.
    */
   private static boolean usesSystemDefaultBrowser() {

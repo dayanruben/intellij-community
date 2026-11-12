@@ -39,8 +39,24 @@ import javax.swing.Icon
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+/**
+ * The Project View node of a file.
+ *
+ * The node stores the virtual file of the value and no PSI, see [PsiFileSystemItemAnchor].
+ * [getValue] finds the file in any code insight context.
+ * It returns the root of the language of the original value, or null when the file type or the PSI class changed.
+ * A subclass that needs the file of one code insight context must look it up itself.
+ * A light file, which has no virtual file, and an invalid file keep a smart pointer.
+ */
 open class PsiFileNode(project: Project?, value: PsiFile, viewSettings: ViewSettings?)
   : BasePsiNode<PsiFile>(project, value, viewSettings), NavigatableWithText, PathElementIdProvider, AsyncNavigatable {
+  override fun createAnchor(value: PsiFile): Any {
+    if (!value.isValid || value.virtualFile == null) {
+      return super.createAnchor(value)
+    }
+    return PsiFileSystemItemAnchor.of(value)
+  }
+
   public override fun getChildrenImpl(): Collection<AbstractTreeNode<*>>? {
     val project = project
     val jarRoot = jarRoot
@@ -62,10 +78,10 @@ open class PsiFileNode(project: Project?, value: PsiFile, viewSettings: ViewSett
 
   override fun updateImpl(data: PresentationData) {
     val value = value ?: return
-    data.presentableText = value.name
+    val file = virtualFile
+    data.presentableText = file?.name ?: value.name
     data.setIcon(computeIcon(value))
 
-    val file = virtualFile
     if (file != null && file.`is`(VFileProperty.SYMLINK)) {
       val target: @NlsSafe String? = file.canonicalPath
       if (target == null) {
@@ -183,7 +199,7 @@ open class PsiFileNode(project: Project?, value: PsiFile, viewSettings: ViewSett
   final override fun isMarkReadOnly(): Boolean = true
 
   override fun getTypeSortKey(): Comparable<ExtensionSortKey?>? {
-    return ExtensionSortKey(extension(value) ?: return null)
+    return ExtensionSortKey(extension(virtualFile) ?: return null)
   }
 
   class ExtensionSortKey(private val ext: String) : Comparable<ExtensionSortKey?> {
@@ -191,9 +207,8 @@ open class PsiFileNode(project: Project?, value: PsiFile, viewSettings: ViewSett
   }
 
   override fun shouldDrillDownOnEmptyElement(): Boolean {
-    val file = value
     @Suppress("DEPRECATION")
-    return file != null && file.fileType === com.intellij.openapi.fileTypes.StdFileTypes.JAVA
+    return virtualFile?.fileType === com.intellij.openapi.fileTypes.StdFileTypes.JAVA
   }
 
   override fun canRepresent(element: Any?): Boolean {
@@ -201,8 +216,8 @@ open class PsiFileNode(project: Project?, value: PsiFile, viewSettings: ViewSett
       return true
     }
 
-    val value = value
-    return value != null && element != null && element == value.virtualFile
+    val file = virtualFile
+    return file != null && file.isValid && element == file
   }
 
   override fun contains(file: VirtualFile): Boolean {
@@ -228,8 +243,10 @@ open class PsiFileNode(project: Project?, value: PsiFile, viewSettings: ViewSett
   }
 }
 
-private fun extension(file: PsiFile?): String? {
-  val vFile = file?.virtualFile ?: return null
+private fun extension(vFile: VirtualFile?): String? {
+  if (vFile == null) {
+    return null
+  }
   val type = vFile.fileType
   val defaultExtension = type.defaultExtension
   when {

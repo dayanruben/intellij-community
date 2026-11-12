@@ -35,7 +35,7 @@ import java.util.ResourceBundle;
 /**
  * @deprecated use {@link MavenArchetypeNewProjectWizard} instead
  */
-@Deprecated
+@Deprecated(forRemoval = true)
 @SuppressWarnings("DeprecatedIsStillUsed")
 public class SelectPropertiesStep extends ModuleWizardStep {
 
@@ -166,6 +166,7 @@ public class SelectPropertiesStep extends ModuleWizardStep {
   }
 
   @Override
+  @SuppressWarnings("removal")
   public void updateDataModel() {
     myBuilder.setEnvironmentForm(myEnvironmentForm);
     myBuilder.setPropertiesToCreateByArtifact(myMavenPropertiesPanel.getDataAsMap());

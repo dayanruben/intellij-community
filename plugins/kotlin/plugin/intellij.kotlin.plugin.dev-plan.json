@@ -986,6 +986,21 @@
             }
         },
         {
+            "destination": "lib/intellij.kotlin.ide.kotlinc.jar",
+            "recipe": {
+                "sources": [
+                    {
+                        "input": "intellij.kotlin.ide.kotlinc",
+                        "kind": "module",
+                        "filter": "module-v1"
+                    }
+                ],
+                "writer": {
+                    "mergeEntities": true
+                }
+            }
+        },
+        {
             "destination": "lib/intellij.libraries.kotlinc.kotlin.scripting.compiler.impl.jar",
             "recipe": {
                 "sources": [
@@ -1056,6 +1071,26 @@
                     },
                     {
                         "input": "@lib//:libraries-kotlinc-kotlin-script-runtime-kotlinc-kotlin-script-runtime",
+                        "kind": "library",
+                        "filter": "library-v1"
+                    }
+                ],
+                "writer": {
+                    "mergeEntities": true
+                }
+            }
+        },
+        {
+            "destination": "lib/main-kts/kotlin-main-kts.jar",
+            "recipe": {
+                "sources": [
+                    {
+                        "input": "intellij.libraries.kotlinc.kotlin.main.kts",
+                        "kind": "module",
+                        "filter": "module-v1"
+                    },
+                    {
+                        "input": "@lib//:libraries-kotlinc-kotlin-main-kts-kotlinc-kotlin-main-kts",
                         "kind": "library",
                         "filter": "library-v1"
                     }

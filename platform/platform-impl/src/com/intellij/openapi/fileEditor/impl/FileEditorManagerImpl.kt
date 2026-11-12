@@ -50,8 +50,10 @@ import com.intellij.openapi.diagnostic.getOrLogException
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorBundle
+import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.ScrollType
 import com.intellij.openapi.editor.colors.ColorKey
+import com.intellij.openapi.editor.impl.EditorFactoryImpl
 import com.intellij.openapi.extensions.ExtensionPointListener
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.extensions.PluginDescriptor
@@ -121,6 +123,8 @@ import com.intellij.openapi.vfs.newvfs.events.VFileEvent
 import com.intellij.openapi.vfs.newvfs.events.VFileMoveEvent
 import com.intellij.openapi.vfs.newvfs.events.VFilePropertyChangeEvent
 import com.intellij.openapi.wm.IdeFocusManager
+import com.intellij.platform.diagnostic.telemetry.Scope
+import com.intellij.platform.diagnostic.telemetry.TelemetryManager
 import com.intellij.platform.fileEditor.FileEntry
 import com.intellij.platform.util.coroutines.attachAsChildTo
 import com.intellij.platform.util.coroutines.childScope
@@ -177,6 +181,7 @@ import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.future.asCompletableFuture
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.plus
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
@@ -209,6 +214,8 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.time.Duration.Companion.milliseconds
 
 private val LOG = logger<FileEditorManagerImpl>()
+
+private val editorTracer by lazy { TelemetryManager.getSimpleTracer(Scope("editor")) }
 
 @Internal
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -418,6 +425,9 @@ open class FileEditorManagerImpl(
       })
     }
     else {
+      coroutineScope.launch {
+        (serviceAsync<EditorFactory>() as? EditorFactoryImpl)?.startEditorClassesPreparation()
+      }
       initJob = coroutineScope.launch(Dispatchers.UI + ModalityState.any().asContextElement()) {
         val component = EditorsSplitters(manager = this@FileEditorManagerImpl, coroutineScope = coroutineScope)
         component.isFocusable = false
@@ -1752,7 +1762,9 @@ open class FileEditorManagerImpl(
     if (startupProgress == null) {
       return model
     }
-    return prepareStartupEditorModel(model, compositeCoroutineScope, publicationReady, startupProgress)
+    // the preparation coroutine creates the file editors, and the root span makes their spans visible in the startup trace
+    val preparationScope = compositeCoroutineScope + editorTracer.rootSpan("EditorComposite model creation", arrayOf("file", fileEntry?.url ?: ""))
+    return prepareStartupEditorModel(model, preparationScope, publicationReady, startupProgress)
   }
 
   /**

@@ -1,11 +1,13 @@
 load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
 load("@rules_java//java:defs.bzl", "java_import", "java_library")
 load("@rules_jvm//:jvm.bzl", "jvm_import")
-load("@rules_kotlin//kotlin:kotlin.bzl", "kt_compiler_plugin")
+load("@rules_kotlin//kotlin:core.bzl", "kt_compiler_plugin")
 
 kt_compiler_plugin(
     name = "kotlin-serialization-plugin",
     id = "org.jetbrains.kotlin.kotlin-serialization-compiler-plugin",
+    # The plugin jar is the embeddable dialect.
+    target_embedded_compiler = True,
     visibility = ["//visibility:public"],
     deps = ["@rules_jvm//:kotlin-serialization-compiler-plugin-embeddable_import"],
 )
@@ -13,6 +15,8 @@ kt_compiler_plugin(
 kt_compiler_plugin(
     name = "compose-plugin",
     id = "org.jetbrains.kotlin.kotlin-compose-compiler-plugin",
+    # The plugin jar is the embeddable dialect.
+    target_embedded_compiler = True,
     visibility = ["//visibility:public"],
     deps = ["@rules_jvm//:kotlin-compose-compiler-plugin-embeddable_import"],
 )
@@ -1331,9 +1335,9 @@ jvm_import(
 )
 
 copy_file(
-    name = "org.jetbrains.diogen/diogen-analysis-1.0.0.jar_copy",
-    src = "@org_jetbrains_diogen-diogen-analysis-1_0_0_http//file",
-    out = "org.jetbrains.diogen/diogen-analysis-1.0.0.jar",
+    name = "org.jetbrains.diogen/diogen-analysis-1.4.0.jar_copy",
+    src = "@org_jetbrains_diogen-diogen-analysis-1_4_0_http//file",
+    out = "org.jetbrains.diogen/diogen-analysis-1.4.0.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
@@ -1351,15 +1355,15 @@ java_library(
     visibility = ["//visibility:public"],
     exports = [
         # do not sort,
-        ":org_jetbrains_diogen-diogen-analysis-1_0_0_http_import",
+        ":org_jetbrains_diogen-diogen-analysis-1_4_0_http_import",
         ":com_hankcs-aho-corasick-double-array-trie-1_2_3_http_import",
     ],
 )
 
 jvm_import(
-    name = "org_jetbrains_diogen-diogen-analysis-1_0_0_http_import",
-    jar = "@org_jetbrains_diogen-diogen-analysis-1_0_0_http//file",
-    source_jar = "@org_jetbrains_diogen-diogen-analysis-1_0_0-sources_http//file",
+    name = "org_jetbrains_diogen-diogen-analysis-1_4_0_http_import",
+    jar = "@org_jetbrains_diogen-diogen-analysis-1_4_0_http//file",
+    source_jar = "@org_jetbrains_diogen-diogen-analysis-1_4_0-sources_http//file",
 )
 
 jvm_import(
@@ -2602,7 +2606,7 @@ copy_file(
 )
 
 java_library(
-    name = "gradle-tooling_extension-tests-org-jeasy-easy-random-core-4-2-0",
+    name = "gradle-tooling_extension-tests-compatibility-org-jeasy-easy-random-core-4-2-0",
     visibility = ["//visibility:public"],
     exports = [
         # do not sort,
@@ -2621,6 +2625,36 @@ jvm_import(
     name = "org_objenesis-objenesis-3_1_http_import",
     jar = "@org_objenesis-objenesis-3_1_http//file",
     source_jar = "@org_objenesis-objenesis-3_1-sources_http//file",
+)
+
+java_library(
+    name = "gradle-tooling_extension-tests-integration-org-jeasy-easy-random-core-4-2-0",
+    visibility = ["//visibility:public"],
+    exports = [
+        # do not sort,
+        ":org_jeasy-easy-random-core-4_2_0_http_import",
+        ":org_objenesis-objenesis-3_1_http_import",
+    ],
+)
+
+java_library(
+    name = "gradle-tooling_extension-tests-org-jeasy-easy-random-core-4-2-0",
+    visibility = ["//visibility:public"],
+    exports = [
+        # do not sort,
+        ":org_jeasy-easy-random-core-4_2_0_http_import",
+        ":org_objenesis-objenesis-3_1_http_import",
+    ],
+)
+
+java_library(
+    name = "gradle-tooling_extension-tests-util-org-jeasy-easy-random-core-4-2-0",
+    visibility = ["//visibility:public"],
+    exports = [
+        # do not sort,
+        ":org_jeasy-easy-random-core-4_2_0_http_import",
+        ":org_objenesis-objenesis-3_1_http_import",
+    ],
 )
 
 copy_file(
@@ -5565,17 +5599,17 @@ jvm_import(
 )
 
 copy_file(
-    name = "ai.grazie/grazie-rules-llm-0.4.82.jar_copy",
-    src = "@ai_grazie-grazie-rules-llm-0_4_82_http//file",
-    out = "ai.grazie/grazie-rules-llm-0.4.82.jar",
+    name = "ai.grazie/grazie-rules-llm-0.4.84.jar_copy",
+    src = "@ai_grazie-grazie-rules-llm-0_4_84_http//file",
+    out = "ai.grazie/grazie-rules-llm-0.4.84.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
 
 jvm_import(
     name = "libraries-ai-grazie-semantic-engine-ai-grazie-semantic-engine",
-    jar = "@ai_grazie-grazie-rules-llm-0_4_82_http//file",
-    source_jar = "@ai_grazie-grazie-rules-llm-0_4_82-sources_http//file",
+    jar = "@ai_grazie-grazie-rules-llm-0_4_84_http//file",
+    source_jar = "@ai_grazie-grazie-rules-llm-0_4_84-sources_http//file",
     visibility = ["//visibility:public"],
 )
 
@@ -11245,6 +11279,21 @@ jvm_import(
     name = "libraries-kotlinc-kotlin-dataframe-compiler-plugin-kotlinc-kotlin-dataframe-compiler-plugin",
     jar = "@org_jetbrains_kotlin-kotlin-dataframe-compiler-plugin-for-ide-2_5_20-dev-3853_http//file",
     source_jar = "@org_jetbrains_kotlin-kotlin-dataframe-compiler-plugin-for-ide-2_5_20-dev-3853-sources_http//file",
+    visibility = ["//visibility:public"],
+)
+
+copy_file(
+    name = "org.jetbrains.kotlin/kotlin-main-kts-2.5.20-dev-3853.jar_copy",
+    src = "@org_jetbrains_kotlin-kotlin-main-kts-2_5_20-dev-3853_http//file",
+    out = "org.jetbrains.kotlin/kotlin-main-kts-2.5.20-dev-3853.jar",
+    allow_symlink = True,
+    visibility = ["//visibility:public"],
+)
+
+jvm_import(
+    name = "libraries-kotlinc-kotlin-main-kts-kotlinc-kotlin-main-kts",
+    jar = "@org_jetbrains_kotlin-kotlin-main-kts-2_5_20-dev-3853_http//file",
+    source_jar = "@org_jetbrains_kotlin-kotlin-main-kts-2_5_20-dev-3853-sources_http//file",
     visibility = ["//visibility:public"],
 )
 
@@ -18605,6 +18654,13 @@ jvm_import(
 
 jvm_import(
     name = "platform-images-build-tests-pngencoder",
+    jar = "@com_pngencoder-pngencoder-0_14_0_http//file",
+    source_jar = "@com_pngencoder-pngencoder-0_14_0-sources_http//file",
+    visibility = ["//visibility:public"],
+)
+
+jvm_import(
+    name = "platform-images-build-tests-smoke-pngencoder",
     jar = "@com_pngencoder-pngencoder-0_14_0_http//file",
     source_jar = "@com_pngencoder-pngencoder-0_14_0-sources_http//file",
     visibility = ["//visibility:public"],

@@ -25,6 +25,7 @@ import com.intellij.util.ui.EmptyIcon
 import com.intellij.util.ui.tree.AbstractTreeModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -59,13 +60,22 @@ import kotlin.time.Duration.Companion.seconds
  * collapse cancel it, so a Refresh restarts the load. A child whose attributes do not
  * arrive in time appears as an unresolved node, and a lazy background job resolves it.
  * A symlink is not expandable; it becomes expandable when the resolution finds a directory target.
+ *
+ * @param parentScope the parent of the scope that runs the background jobs of the model.
  */
 @ApiStatus.Internal
-class NioFileTreeModel(
+class NioFileTreeModel internal constructor(
   descriptor: FileChooserDescriptor,
-  sortDirectories: Boolean = true,
-  internal val contributor: UniversalFileChooserContributor? = null,
+  sortDirectories: Boolean,
+  internal val contributor: UniversalFileChooserContributor?,
+  parentScope: CoroutineScope,
 ) : AbstractTreeModel(), InvokerSupplier {
+
+  constructor(
+    descriptor: FileChooserDescriptor,
+    sortDirectories: Boolean = true,
+    contributor: UniversalFileChooserContributor? = null,
+  ) : this(descriptor, sortDirectories, contributor, service<NioFileTreeModelScopeHolder>().scope)
 
   companion object {
 
@@ -111,7 +121,7 @@ class NioFileTreeModel(
   }
 
   private val invoker: Invoker = Invoker.forBackgroundThreadWithoutReadAction(this)
-  private val scope = service<NioFileTreeModelScopeHolder>().scope.childScope("NioFileTreeModel")
+  private val scope = parentScope.childScope("NioFileTreeModel")
   private val resolveSemaphore = Semaphore(MAX_SYM_LINKS_RESOLVED)
   private val listingJobs = ConcurrentHashMap<Path, Deferred<List<ChildEntry>?>>()
   private val state: State = State(descriptor, sortDirectories, this)
@@ -256,16 +266,28 @@ class NioFileTreeModel(
   private fun loadChildren(node: Node): Listing? {
     val path = node.path
     if (path == null || !node.isDirectory) return Listing(null)
-    val deferred = listingJobs.computeIfAbsent(path) {
-      val job = scope.async { listChildren(path) }
-      job.invokeOnCompletion { listingJobs.remove(path, job) }
-      job
-    }
+    val deferred = listingJobs[path] ?: publishListingJob(path)
     return runBlockingMaybeCancellable {
       deferred.join()
       // `isCancelled` also covers a failed listing; the entry stays in the loading-required state
       if (deferred.isCancelled) null else Listing(deferred.await())
     }
+  }
+
+  /**
+   * Publishes a new listing job for [path], or returns the job that another thread published first.
+   * The job starts only after the map call returns, so its completion handler never runs inside a map operation.
+   */
+  private fun publishListingJob(path: Path): Deferred<List<ChildEntry>?> {
+    val job = scope.async(start = CoroutineStart.LAZY) { listChildren(path) }
+    val existing = listingJobs.putIfAbsent(path, job)
+    if (existing != null) {
+      job.cancel()
+      return existing
+    }
+    job.invokeOnCompletion { listingJobs.remove(path, job) }
+    job.start()
+    return job
   }
 
   /**

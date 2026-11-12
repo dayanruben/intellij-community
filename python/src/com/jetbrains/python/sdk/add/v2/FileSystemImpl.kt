@@ -6,6 +6,7 @@ import com.intellij.execution.target.TargetBrowserHints
 import com.intellij.execution.target.TargetEnvironmentConfiguration
 import com.intellij.execution.target.getTargetType
 import com.intellij.execution.target.joinTargetPaths
+import com.intellij.execution.wsl.listWindowsLocalDriveRoots
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.fileLogger
 import com.intellij.openapi.fileChooser.FileChooser
@@ -23,12 +24,12 @@ import com.intellij.openapi.util.UserDataHolderBase
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.io.toNioPathOrNull
 import com.intellij.openapi.vfs.LocalFileSystem
-import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.platform.eel.EelApi
 import com.intellij.platform.eel.EelDescriptor
 import com.intellij.platform.eel.EelExecApi
 import com.intellij.platform.eel.environmentVariables
+import com.intellij.platform.eel.isWindows
 import com.intellij.platform.eel.provider.LocalEelDescriptor
 import com.intellij.platform.eel.provider.asEelPath
 import com.intellij.platform.eel.provider.asNioPath
@@ -160,10 +161,13 @@ data class EelFileSystem(
     title: String,
   ): ActionListener = ActionListener { event ->
     // The roots are read on a click, not when the form is built: a form that is never browsed does no VFS lookup.
-    val roots = runWithModalProgressBlocking(ModalTaskOwner.component(textField), message("sdk.create.custom.browse.roots.progress")) {
-      withContext(Dispatchers.IO) { getRootsForBrowsing() }
+    val browseDescriptor = runWithModalProgressBlocking(
+      owner = ModalTaskOwner.component(textField),
+      title = message("sdk.create.custom.browse.roots.progress")
+    ) {
+      withContext(Dispatchers.IO) { descriptor.withEelRoots() }
     }
-    ComponentWithBrowseButton.BrowseFolderActionListener(textField, null, descriptor.withRoots(roots), fieldAccessor).actionPerformed(event)
+    ComponentWithBrowseButton.BrowseFolderActionListener(textField, null, browseDescriptor, fieldAccessor).actionPerformed(event)
   }
 
   @RequiresBackgroundThread
@@ -173,18 +177,20 @@ data class EelFileSystem(
     sdk: Sdk,
   ): PyRemotePathMapper = PyEelPathMapper(eelApi.descriptor)
 
+  /**
+   * Limits the chooser to the file system of this eel: the file system roots for the local eel, and the root of the home
+   * directory for another eel. On Windows, the local roots are the fixed drives only, see [listWindowsLocalDriveRoots].
+   */
   @RequiresBackgroundThread
-  private fun getRootsForBrowsing(): List<VirtualFile> {
-    val vfs = LocalFileSystem.getInstance()
+  private fun FileChooserDescriptor.withEelRoots(): FileChooserDescriptor {
     // TODO: get the roots from the eel API, not from FileSystems.getDefault()
-    return if (eelDescriptor == LocalEelDescriptor) {
-      FileSystems.getDefault().rootDirectories
+    val roots = when {
+      eelDescriptor != LocalEelDescriptor -> listOf(eelApi.userInfo.home.root.asNioPath())
+      eelDescriptor.osFamily.isWindows -> listWindowsLocalDriveRoots()
+      else -> FileSystems.getDefault().rootDirectories.toList()
     }
-    else {
-      listOf(eelApi.userInfo.home.root.asNioPath())
-    }.mapNotNull {
-      vfs.findFileByNioFile(it) ?: vfs.refreshAndFindFileByNioFile(it)
-    }
+    val vfs = LocalFileSystem.getInstance()
+    return withRoots(roots.mapNotNull { vfs.findFileByNioFile(it) ?: vfs.refreshAndFindFileByNioFile(it) })
   }
 
   override fun getBinaryToExec(path: PathHolder.Eel, workingDir: Path?): BinaryToExec {
@@ -215,7 +221,7 @@ data class EelFileSystem(
     ) {
       withContext(Dispatchers.IO) {
         val home = LocalFileSystem.getInstance().findFileByNioFile(eelApi.userInfo.home.asNioPath())
-        val descriptor = PythonSdkType.getInstance().homeChooserDescriptor.withTitle(browseTitle).withRoots(getRootsForBrowsing())
+        val descriptor = PythonSdkType.getInstance().homeChooserDescriptor.withTitle(browseTitle).withEelRoots()
         home to descriptor
       }
     }
@@ -985,16 +991,23 @@ internal suspend fun Path.toEelFileSystem(): EelFileSystem = getEelDescriptor().
  */
 internal suspend fun EelDescriptor.toEelFileSystem(): EelFileSystem = EelFileSystem(toEelApi())
 
-internal fun <P : PathHolder> FileSystem<P>.getInstallableInterpreters(): List<InstallableSelectableInterpreter<P>> =
+/**
+ * The Python versions that the IDE can install on this file system. Only a local file system has them.
+ *
+ * The first call parses `sdks.json`, so the list is read on [Dispatchers.IO].
+ */
+internal suspend fun <P : PathHolder> FileSystem<P>.getInstallableInterpreters(): List<InstallableSelectableInterpreter<P>> =
   if (isLocal) {
-    getSdksToInstall()
-      .mapNotNull { sdk ->
-        LanguageLevel.fromPythonVersionSafe(sdk.installation.release.version)?.let { it to sdk }
-      }
-      .sortedByDescending { it.first }
-      .map { (languageLevel, sdk) ->
-        InstallableSelectableInterpreter(PythonInfo(languageLevel), sdk)
-      }
+    withContext(Dispatchers.IO) {
+      getSdksToInstall()
+        .mapNotNull { sdk ->
+          LanguageLevel.fromPythonVersionSafe(sdk.installation.release.version)?.let { it to sdk }
+        }
+        .sortedByDescending { it.first }
+        .map { (languageLevel, sdk) ->
+          InstallableSelectableInterpreter(PythonInfo(languageLevel), sdk)
+        }
+    }
   }
   else emptyList()
 

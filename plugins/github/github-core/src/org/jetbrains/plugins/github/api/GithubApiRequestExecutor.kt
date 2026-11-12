@@ -21,6 +21,7 @@ import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.VisibleForTesting
 import org.jetbrains.plugins.github.api.data.GithubErrorMessage
+import org.jetbrains.plugins.github.api.data.graphql.GHGQLError
 import org.jetbrains.plugins.github.authentication.accounts.GHAccountManager
 import org.jetbrains.plugins.github.authentication.accounts.GithubAccount
 import org.jetbrains.plugins.github.exceptions.GithubAuthenticationException
@@ -28,6 +29,7 @@ import org.jetbrains.plugins.github.exceptions.GithubConfusingException
 import org.jetbrains.plugins.github.exceptions.GithubJsonException
 import org.jetbrains.plugins.github.exceptions.GithubMissingTokenException
 import org.jetbrains.plugins.github.exceptions.GithubRateLimitExceededException
+import org.jetbrains.plugins.github.exceptions.GithubSecondaryRateLimitExceededException
 import org.jetbrains.plugins.github.exceptions.GithubStatusCodeException
 import org.jetbrains.plugins.github.i18n.GithubBundle
 import org.jetbrains.plugins.github.pullrequest.GHPRStatisticsCollector
@@ -117,14 +119,15 @@ sealed class GithubApiRequestExecutor {
             LOG.debug("Request: ${connection.requestMethod} ${connection.url} : Connected")
           }
 
+          val rateLimitHeaders = GHRateLimitHeaders.parse(connection::getHeaderField)
           GHPRStatisticsCollector.logApiResponseReceived(
             activity = activity,
-            remaining = connection.getHeaderFieldInt(RATE_LIMIT_REMAINING_HEADER, -1),
-            resourceName = connection.getHeaderField(RATE_LIMIT_RESOURCE_HEADER) ?: "unknown",
+            remaining = rateLimitHeaders.remaining ?: -1,
+            resourceName = rateLimitHeaders.resource ?: "unknown",
             statusCode = connection.responseCode,
           )
 
-          checkResponseCode(connection)
+          checkResponseCode(connection, rateLimitHeaders)
           checkServerVersion(connection)
 
           indicator.checkCanceled()
@@ -178,12 +181,12 @@ sealed class GithubApiRequestExecutor {
     }
 
     @Throws(IOException::class)
-    private fun checkResponseCode(connection: HttpURLConnection) {
+    private fun checkResponseCode(connection: HttpURLConnection, rateLimitHeaders: GHRateLimitHeaders) {
       if (connection.responseCode < 400) return
       val requestName = "Request: ${connection.requestMethod} ${connection.url}"
       val errorText = getErrorText(connection)
       LOG.debug("$requestName : Error ${connection.responseCode} body:\n$errorText")
-      throw createApiException(requestName, connection.responseCode, errorText, connection.contentType)
+      throw createApiException(requestName, connection.responseCode, errorText, connection.contentType, rateLimitHeaders)
     }
 
     private fun checkServerVersion(connection: HttpURLConnection) {
@@ -282,8 +285,10 @@ sealed class GithubApiRequestExecutor {
     internal const val PLUGIN_USER_AGENT_NAME = "IntelliJ-GitHub-Plugin"
     internal val LOG = logger<GithubApiRequestExecutor>()
 
-    internal const val RATE_LIMIT_REMAINING_HEADER : String = "X-RateLimit-Remaining"
-    internal const val RATE_LIMIT_RESOURCE_HEADER : String = "X-RateLimit-Resource"
+    private const val HTTP_TOO_MANY_REQUESTS = 429
+
+    private val GRAPHQL_RATE_LIMIT_ERROR_TYPES = setOf("RATE_LIMIT", "RATE_LIMITED")
+    private const val GRAPHQL_RATE_LIMIT_ERROR_CODE = "graphql_rate_limit"
 
     internal fun isAuthorizedUrl(serverPath: GithubServerPath, url: URL): Boolean {
       val targetHost = url.host
@@ -331,6 +336,7 @@ sealed class GithubApiRequestExecutor {
       responseCode: Int,
       responseText: String?,
       responseContentType: String?,
+      rateLimitHeaders: GHRateLimitHeaders? = null,
     ): IOException {
       val jsonError = if (responseText != null && responseContentType != null) {
         getJsonError(requestName, responseText, responseContentType)
@@ -338,19 +344,20 @@ sealed class GithubApiRequestExecutor {
       else {
         null
       }
+      val presentableError = jsonError?.presentableError ?: responseText ?: responseCode.toString()
 
-      val exception = when (responseCode) {
-        HttpURLConnection.HTTP_UNAUTHORIZED,
-        HttpURLConnection.HTTP_PAYMENT_REQUIRED,
-        HttpURLConnection.HTTP_FORBIDDEN,
-          -> {
-          if (jsonError?.containsReasonMessage("API rate limit exceeded") == true) {
-            GithubRateLimitExceededException(jsonError.presentableError)
-          }
-          else GithubAuthenticationException(
-            GithubBundle.message("request.response.0", jsonError?.presentableError ?: responseText ?: responseCode))
+      val exception = when {
+        isPrimaryRateLimitError(responseCode, jsonError, rateLimitHeaders) -> {
+          GithubRateLimitExceededException(presentableError, rateLimitHeaders?.resetAt)
         }
-
+        isSecondaryRateLimitError(responseCode, jsonError, rateLimitHeaders) -> {
+          GithubSecondaryRateLimitExceededException(presentableError, rateLimitHeaders?.retryAfter)
+        }
+        responseCode == HttpURLConnection.HTTP_UNAUTHORIZED ||
+        responseCode == HttpURLConnection.HTTP_PAYMENT_REQUIRED ||
+        responseCode == HttpURLConnection.HTTP_FORBIDDEN -> {
+          GithubAuthenticationException(GithubBundle.message("request.response.0", presentableError))
+        }
         else -> {
           if (jsonError != null) {
             GithubStatusCodeException("$responseCode - ${jsonError.presentableError}", jsonError, responseCode)
@@ -361,6 +368,53 @@ sealed class GithubApiRequestExecutor {
         }
       }
       return exception
+    }
+
+    /**
+     * GitHub answers with 403 or 429 and reports no remaining requests.
+     * See https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api?apiVersion=2026-03-10#exceeding-the-rate-limit.
+     */
+    private fun isPrimaryRateLimitError(responseCode: Int, jsonError: GithubErrorMessage?, headers: GHRateLimitHeaders?): Boolean {
+      if (jsonError?.containsReasonMessage("API rate limit exceeded") == true) {
+        return responseCode == HttpURLConnection.HTTP_UNAUTHORIZED ||
+               responseCode == HttpURLConnection.HTTP_PAYMENT_REQUIRED ||
+               responseCode == HttpURLConnection.HTTP_FORBIDDEN ||
+               responseCode == HTTP_TOO_MANY_REQUESTS
+      }
+      return (responseCode == HttpURLConnection.HTTP_FORBIDDEN || responseCode == HTTP_TOO_MANY_REQUESTS) && headers?.remaining == 0
+    }
+
+    /**
+     * GitHub answers with 403 or 429, and the requests of the primary rate limit remain.
+     * A 403 is a secondary rate limit error only with the `Retry-After` header or with the message about the secondary rate limit,
+     * otherwise it is an access error.
+     * See https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api?apiVersion=2026-03-10#exceeding-the-rate-limit.
+     */
+    private fun isSecondaryRateLimitError(responseCode: Int, jsonError: GithubErrorMessage?, headers: GHRateLimitHeaders?): Boolean =
+      when (responseCode) {
+        HTTP_TOO_MANY_REQUESTS -> true
+        HttpURLConnection.HTTP_FORBIDDEN -> headers?.retryAfter != null || jsonError?.containsReasonMessage("secondary rate limit") == true
+        else -> false
+      }
+
+    /**
+     * The GraphQL API reports rate limit errors in the [errors] of a response with the status 200:
+     * https://docs.github.com/en/graphql/overview/rate-limits-and-query-limits-for-the-graphql-api#exceeding-the-rate-limit.
+     * * A secondary rate limit error has a message about the secondary rate limit.
+     * * The documentation doesn't name the type of primary rate limit error.
+     *   GitHub used to send `RATE_LIMITED`, and now sends `RATE_LIMIT` with the code `graphql_rate_limit`:
+     *   https://github.com/github/docs/issues/22607.
+     *
+     * @return the rate limit exception, or `null` if the errors aren't about a rate limit
+     */
+    internal fun createGraphQLRateLimitException(errors: List<GHGQLError>, headers: GHRateLimitHeaders): GithubRateLimitExceededException? {
+      errors.firstOrNull { it.message.contains("secondary rate limit", ignoreCase = true) }?.let {
+        return GithubSecondaryRateLimitExceededException(it.message, headers.retryAfter)
+      }
+      errors.firstOrNull { it.type in GRAPHQL_RATE_LIMIT_ERROR_TYPES || it.code == GRAPHQL_RATE_LIMIT_ERROR_CODE }?.let {
+        return GithubRateLimitExceededException(it.message, headers.resetAt)
+      }
+      return null
     }
 
     internal fun getJsonError(requestName: String, errorText: String, contentType: String): GithubErrorMessage? {

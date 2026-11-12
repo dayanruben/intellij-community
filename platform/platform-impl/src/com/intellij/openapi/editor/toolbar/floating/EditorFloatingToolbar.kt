@@ -14,14 +14,15 @@ import com.intellij.openapi.extensions.impl.ExtensionPointImpl
 import com.intellij.openapi.extensions.withEachExtensionSafe
 import com.intellij.openapi.observable.util.addComponent
 import com.intellij.openapi.observable.util.whenKeyPressed
-import com.intellij.openapi.rd.createLifetime
 import com.intellij.openapi.ui.isComponentUnderMouse
 import com.intellij.openapi.ui.isFocusAncestor
-import com.intellij.util.asDisposable
+import com.intellij.openapi.util.Disposer
+import com.intellij.platform.util.coroutines.childScope
+import com.intellij.util.cancelOnDispose
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.cancel
+import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import org.jetbrains.annotations.ApiStatus
 import java.awt.FlowLayout
@@ -39,21 +40,18 @@ class EditorFloatingToolbar(editor: EditorImpl) :
   JPanel(),
   Disposable.Default {
 
-  private val coroutineScope = createLifetime().coroutineScope
-
   init {
     layout = FlowLayout(FlowLayout.RIGHT, 20, 20)
     border = BorderFactory.createEmptyBorder()
     isOpaque = false
 
     FloatingToolbarProvider.EP_NAME.launchEachExtensionSafe(
-      coroutineScope = coroutineScope,
+      toolbarDisposable = this,
       context = Dispatchers.EDT,
-    ) { providerScope, provider ->
+    ) { providerDisposable, provider ->
       val dataContext = editor.dataContext
       val providerApplicable = provider.isApplicableAsync(dataContext)
       if (providerApplicable) {
-        val providerDisposable = providerScope.asDisposable()
         val component = EditorFloatingToolbarComponent(editor, provider, providerDisposable)
         addComponent(component, providerDisposable)
         provider.register(dataContext, component, providerDisposable)
@@ -112,29 +110,21 @@ class EditorFloatingToolbar(editor: EditorImpl) :
 
   companion object {
 
-    fun <Extension : Any> ExtensionPointName<Extension>.launchEachExtensionSafe(
-      coroutineScope: CoroutineScope,
+    @OptIn(DelicateCoroutinesApi::class)
+    private fun <Extension : Any> ExtensionPointName<Extension>.launchEachExtensionSafe(
+      toolbarDisposable: Disposable,
       context: CoroutineContext = EmptyCoroutineContext,
-      start: CoroutineStart = CoroutineStart.DEFAULT,
-      handler: suspend CoroutineScope.(CoroutineScope, Extension) -> Unit,
+      handler: suspend CoroutineScope.(Disposable, Extension) -> Unit,
     ) {
-      withEachExtensionSafe(coroutineScope) { extension ->
-        val extensionScope = createExtensionScope(coroutineScope, extension)
-        extensionScope.launch(context, start) {
-          runCatching { handler(extensionScope, extension) }
-            .onFailure { extensionScope.cancel() }
+      @Suppress("DEPRECATION")
+      withEachExtensionSafe(toolbarDisposable) { extension ->
+        val extensionDisposable = createExtensionDisposable(extension, toolbarDisposable)
+        GlobalScope.childScope("EditorFloatingToolbar").launch(context) {
+          runCatching { handler(extensionDisposable, extension) }
+            .onFailure { Disposer.dispose(extensionDisposable) }
             .getOrLogException(logger<ExtensionPointImpl<*>>())
-        }
+        }.cancelOnDispose(extensionDisposable)
       }
-    }
-
-    private fun <T : Any> ExtensionPointName<T>.createExtensionScope(
-      coroutineScope: CoroutineScope,
-      extension: T,
-    ): CoroutineScope {
-      return createExtensionDisposable(extension, coroutineScope.asDisposable())
-        .createLifetime()
-        .coroutineScope
     }
   }
 }

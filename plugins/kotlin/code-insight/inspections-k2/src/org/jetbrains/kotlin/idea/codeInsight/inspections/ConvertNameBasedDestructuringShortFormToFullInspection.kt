@@ -40,6 +40,7 @@ internal class ConvertNameBasedDestructuringShortFormToFullInspection :
         // Allow destructuring declarations with initializers OR lambda parameters
         if (element.initializer == null && element.parent !is KtParameter) return false
         if (element.entries.isEmpty()) return false
+        if (element.entries.any { it.annotationEntries.isNotEmpty() }) return false
         if (element.isFullForm) return false
         return true
     }
@@ -58,9 +59,18 @@ internal class ConvertNameBasedDestructuringShortFormToFullInspection :
     context(session: KaSession)
     override fun prepareContext(element: KtDestructuringDeclaration): Context? {
         if (element.isPositionalDestructuringType()) return null
-        if (element.entries.all { it.name == "_" }) return null
-        val constructorParameters = extractPrimaryParameters(element) ?: return null
-        return Context(constructorParameters.take(element.entries.size).map { it.name })
+        val entries = element.entries
+        if (entries.all { it.name == "_" }) return null
+
+        val propertyNames = if (!element.hasSquareBrackets() &&
+            element.languageVersionSettings.supportsFeature(LanguageFeature.EnableNameBasedDestructuringShortForm)
+        ) {
+            entries.map { it.initializer?.getReferencedNameAsName() ?: it.nameAsName ?: return null }
+        } else {
+            val constructorParameters = extractPrimaryParameters(element) ?: return null
+            constructorParameters.take(entries.size).map { it.name }
+        }
+        return Context(propertyNames)
     }
 }
 

@@ -10,7 +10,7 @@ follow it.
 | `community/tools/bt`: BT | `@bt` | `bt_rust_crate` |
 | `community/tools/vm`: the Air UI-lane tooling | `@avl` | `avl_crate` |
 | `docs/ij-void/portal-server`: the server of the docs portal | none | none |
-| `plugins/air/native`: the Air session supervisor, the library `air-ide` of the IDE, and `air-core` | `@air` | `air_session_crate`, `air_core_crate`, `air_ide_crate` |
+| `plugins/air/native`: the Air session supervisor, the library `air-ide` of the IDE, `air-core`, `air-acp` and `air-host` | `@air` | `air_session_crate`, `air_library_crate`, `air_ide_crate` |
 
 ## The files here
 
@@ -63,6 +63,11 @@ equal to the sources.
     the clone markers of jscpd, `// jscpd:ignore-start <reason>` and `// jscpd:ignore-end`, and the reason names the
     kept copy and why it stays, in three words or more. A layout change that only hides a clone below the threshold
     does not remove it.
+12. No dead code, off for now. `//build/rust-tools:rust-tools-unused-code_test`, the `accio_unused_test` that
+    `code_gates` declares beside item 11, runs `accio unused` over the same directories of the checkout, without the
+    generated libaom headers of `community/tools/vm/aom/config`. It fails on each declaration that nothing uses. Delete
+    it, or keep it with `#[expect(dead_code, reason = "<why it stays>")]`, which accio leaves out. The test is
+    incompatible until `--//tools/jscpd-test:unused` turns it on.
 
 ### Where each workspace stands
 
@@ -82,7 +87,7 @@ declaration states its arguments.
 - `rust_tool_hub` binds the core to one crate hub. Starlark cannot load a file by a name that is known only at run
   time, so the `defs.bzl` of a workspace loads the functions of its hub and passes them in.
 - `rust_tool_crate` declares one crate: the library or the binary, a `<bin>-bin` per binary of a library crate, its
-  unit test, an integration test per `tests/*.rs` of a binary, the `testdata/` filegroup, the closure test, and
+  unit test, an integration test per `tests/*.rs`, the `testdata/` filegroup, the closure test, and
   `<crate>-clippy`. A workspace can give it another test rule, such as a wrapper that writes a JUnit report, which
   the integration tests use too, the run-time data and environment of the integration tests, and the constraints of a
   crate that some hosts do not build. With the `dep_data` of its hub, a package without `src/lib.rs` is a binary

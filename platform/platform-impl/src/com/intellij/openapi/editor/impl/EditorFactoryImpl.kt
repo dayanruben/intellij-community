@@ -12,6 +12,7 @@ import com.intellij.openapi.application.impl.LaterInvocator
 import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.debug
+import com.intellij.openapi.diagnostic.getOrHandleException
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.ClientEditorManager
 import com.intellij.openapi.editor.Document
@@ -28,6 +29,8 @@ import com.intellij.openapi.editor.highlighter.EditorHighlighter
 import com.intellij.openapi.editor.highlighter.EditorHighlighterFactory
 import com.intellij.openapi.editor.impl.event.EditorEventMulticasterImpl
 import com.intellij.openapi.editor.impl.view.EditorPainter
+import com.intellij.openapi.editor.impl.warmup.scheduleHighlighterWarmUp
+import com.intellij.openapi.editor.impl.warmup.warmUpEditorClasses
 import com.intellij.openapi.editor.impl.zombie.Necropolis
 import com.intellij.openapi.editor.registry.EditorRegistryService
 import com.intellij.openapi.extensions.ExtensionPointName
@@ -45,8 +48,11 @@ import com.intellij.testFramework.LightVirtualFile
 import com.intellij.util.EventDispatcher
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.text.CharArrayCharSequence
+import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.VisibleForTesting
@@ -56,9 +62,15 @@ import kotlin.streams.asStream
 private val EP: ExtensionPointName<EditorFactoryListener> = ExtensionPointName<EditorFactoryListener>("com.intellij.editorFactoryListener")
 private val LOG: Logger = logger<EditorFactoryImpl>()
 
-class EditorFactoryImpl(coroutineScope: CoroutineScope?) : EditorFactory() {
+class EditorFactoryImpl(private val coroutineScope: CoroutineScope) : EditorFactory() {
   private val editorEventMulticaster: EditorEventMulticasterImpl = EditorEventMulticasterImpl()
   private val editorFactoryEventDispatcher: EventDispatcher<EditorFactoryListener?> = EventDispatcher.create(EditorFactoryListener::class.java)
+  private val classPreparation = coroutineScope.async(
+    context = Dispatchers.Default + CoroutineName("editor classes preparation"),
+    start = CoroutineStart.LAZY,
+  ) {
+    warmUpEditorClasses(EP)
+  }
 
   init {
     EditorRegistryService.ensureCreated()
@@ -68,9 +80,11 @@ class EditorFactoryImpl(coroutineScope: CoroutineScope?) : EditorFactory() {
         // validate all editors are disposed after fireProjectClosed() was called, because it's the place where editor should be released
         Disposer.register(project) {
           // EditorTextField.releaseEditorLater defer releasing its editor; invokeLater to avoid false positives about such editors.
-          coroutineScope?.launch(Dispatchers.EDT + ModalityState.any().asContextElement()) {
-            LOG.runCatching {
+          coroutineScope.launch(Dispatchers.EDT + ModalityState.any().asContextElement()) {
+            runCatching {
               validateEditorsAreReleased(project = project, isLastProjectClosed = serviceAsync<ProjectManager>().openProjects.isEmpty())
+            }.getOrHandleException {
+              LOG.warn("An editor is not released after its project is closed", it)
             }
           }
         }
@@ -114,6 +128,37 @@ class EditorFactoryImpl(coroutineScope: CoroutineScope?) : EditorFactory() {
         }
       }
     }
+  }
+
+  /**
+   * Starts the BG preparation of the editor classes and returns at once.
+   * Call it where an editor comes soon, but the code cannot wait for [prepareEditorClasses].
+   */
+  @ApiStatus.Internal
+  fun startEditorClassesPreparation() {
+    if (ApplicationManager.getApplication().isHeadlessEnvironment) {
+      return
+    }
+    classPreparation.start()
+  }
+
+  @ApiStatus.Internal
+  fun startHighlighterPreparation(project: Project?, document: Document?, fileType: FileType?) {
+    if (ApplicationManager.getApplication().isHeadlessEnvironment || project == null || document == null && fileType == null) {
+      return
+    }
+
+    coroutineScope.scheduleHighlighterWarmUp(project, document, fileType)
+  }
+
+  /**
+   * Starts the BG preparation of the editor classes if necessary and waits for its end.
+   * Call it before the EDT creates an editor. Unlike [startEditorClassesPreparation], it also runs in a headless environment.
+   */
+  @ApiStatus.Internal
+  suspend fun prepareEditorClasses() {
+    val preparation = classPreparation
+    preparation.await()
   }
 
   override fun createDocument(text: CharArray): Document = createDocument(CharArrayCharSequence(*text))

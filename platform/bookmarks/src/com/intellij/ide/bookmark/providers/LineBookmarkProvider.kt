@@ -47,6 +47,8 @@ import com.intellij.util.ui.tree.TreeUtil
 import com.intellij.util.ui.update.DebouncedUpdates
 import kotlinx.coroutines.CoroutineScope
 import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.TestOnly
+import java.util.UUID
 import javax.swing.tree.TreePath
 import kotlin.coroutines.cancellation.CancellationException
 
@@ -124,7 +126,10 @@ class LineBookmarkProvider(private val project: Project, coroutineScope: Corouti
     val url = map["url"] ?: return null
     val line = StringUtil.parseInt(map["line"], -1)
     val lineText = map["lineText"]
-    return createValidBookmark(url, line, lineText) ?: InvalidBookmark(this, url, line, lineText)
+    val memorialKey = map["memorialKey"]
+    val isMemorial = map["memorial"] == "true"
+    return createValidBookmark(url, line, lineText, memorialKey.takeUnless { isMemorial })
+           ?: InvalidBookmark(this, url, line, lineText, memorialKey, isMemorial)
   }
 
   override fun createBookmark(context: Any?): Bookmark? = when (context) {
@@ -143,9 +148,14 @@ class LineBookmarkProvider(private val project: Project, coroutineScope: Corouti
 
   fun createBookmark(file: VirtualFile, line: Int = -1): FileBookmark? = createBookmark(file, line, null)
 
-  internal fun createBookmark(file: VirtualFile, line: Int, expectedText: String?): FileBookmark? = when {
+  internal fun createBookmark(
+    file: VirtualFile,
+    line: Int,
+    expectedText: String?,
+    memorialKey: String? = null,
+  ): FileBookmark? = when {
     !file.isValid || file is LightVirtualFile -> null
-    line >= 0 -> LineBookmarkImpl(this, file, line, expectedText)
+    line >= 0 -> LineBookmarkImpl(this, file, line, expectedText, memorialKey)
     else -> FileBookmarkImpl(this, file)
   }
 
@@ -155,14 +165,14 @@ class LineBookmarkProvider(private val project: Project, coroutineScope: Corouti
     return createBookmark(file, line ?: editor.caretModel.logicalPosition.line)
   }
 
-  internal fun createValidBookmark(url: String, line: Int = -1, expectedText: String? = null): Bookmark? {
+  internal fun createValidBookmark(url: String, line: Int = -1, expectedText: String? = null, memorialKey: String? = null): Bookmark? {
     val file = VirtualFileManager.getInstance().findFileByUrl(url) ?: return null
     if (expectedText != null && line >= 0) {
       val document = FileDocumentManager.getInstance().getDocument(file) ?: return null
       val currentText = Util.readLineText(document, line)
       if (expectedText != currentText) return null
     }
-    return createBookmark(file, line, expectedText)
+    return createBookmark(file, line, expectedText, memorialKey)
   }
 
   private fun createBookmark(element: PsiElement): FileBookmark? {
@@ -187,7 +197,14 @@ class LineBookmarkProvider(private val project: Project, coroutineScope: Corouti
   private val TreePath.asVirtualFile
     get() = TreeUtil.getLastUserObject(ProjectViewNode::class.java, this)?.virtualFile
 
+  private var lineTextsBeforeWholeTextReplace: Pair<Document, Map<LineBookmarkImpl, String>>? = null
+
   private inner class BookmarkDocumentListener : BulkAwareDocumentListener {
+    override fun beforeDocumentChange(event: DocumentEvent) {
+      if (event.isWholeTextReplaced) captureLineTexts(event.document)
+      super.beforeDocumentChange(event)
+    }
+
     override fun beforeDocumentChangeNonBulk(event: DocumentEvent): Unit = captureExpectedText(event.document)
     override fun bulkUpdateStarting(document: Document): Unit = captureExpectedText(document)
 
@@ -204,13 +221,27 @@ class LineBookmarkProvider(private val project: Project, coroutineScope: Corouti
     }
   }
 
+  private fun captureLineTexts(document: Document) {
+    val file = FileDocumentManager.getInstance().getFile(document) ?: return
+    val manager = BookmarksManager.getInstance(project) ?: return
+    val lineTexts = hashMapOf<LineBookmarkImpl, String>()
+    for (bookmark in manager.bookmarks) {
+      if (bookmark is LineBookmarkImpl && bookmark.file == file) {
+        Util.readLineText(document, bookmark.line)?.let { lineTexts[bookmark] = it }
+      }
+    }
+    lineTextsBeforeWholeTextReplace = document to lineTexts
+  }
+
   private fun afterDocumentChange(document: Document, event: DocumentEvent?) {
+    val lineTextsBefore = lineTextsBeforeWholeTextReplace?.takeIf { it.first === document }?.second.orEmpty()
+    lineTextsBeforeWholeTextReplace = null
     val file = FileDocumentManager.getInstance().getFile(document) ?: return
     if (file is LightVirtualFile) return
     val manager = BookmarksManager.getInstance(project) ?: return
 
     if (event != null && event.isWholeTextReplaced) {
-      if (updateBookmarksUsingDiffMapping(file, document, event, manager)) {
+      if (updateBookmarksUsingDiffMapping(file, document, event, manager, lineTextsBefore)) {
         return
       }
     }
@@ -244,12 +275,12 @@ class LineBookmarkProvider(private val project: Project, coroutineScope: Corouti
     val bookmarks = mutableMapOf<Bookmark, Bookmark?>()
     map.forEach { (bookmark, line) ->
       bookmarks[bookmark] = when {
-        line < 0 -> InvalidBookmark(this, file.url, bookmark.line, bookmark.expectedText)
+        line < 0 -> bookmark.invalidated()
         set.contains(line) -> null
         else -> {
           set.add(line)
           val newExpectedText = document?.let { Util.readLineText(it, line) }
-          createBookmark(file, line, newExpectedText)
+          bookmark.movedTo(line, newExpectedText)
         }
       }
     }
@@ -288,34 +319,36 @@ class LineBookmarkProvider(private val project: Project, coroutineScope: Corouti
     file: VirtualFile,
     indexBuilder: LineTextIndexBuilder,
     processedLines: MutableSet<Int>,
-    updates: MutableMap<Bookmark, Bookmark?>
+    updates: MutableMap<Bookmark, Bookmark?>,
+    lineTextBefore: String?,
   ) {
     val mappedLine = event.translateLineViaDiffStrict(bookmark.line)
     val expectedText = bookmark.expectedText
+    val mappedLineText = Util.readLineText(document, mappedLine)
 
     when {
-      mappedLine >= 0 && mappedLine < document.lineCount && expectedText == Util.readLineText(document, mappedLine) -> {
+      mappedLineText != null && (mappedLineText == expectedText || mappedLineText == lineTextBefore) -> {
         if (processedLines.add(mappedLine)) {
           if (bookmark.line != mappedLine) {
-            updates[bookmark] = createBookmark(file, mappedLine, expectedText)
+            updates[bookmark] = bookmark.movedTo(mappedLine)
           }
         }
         else {
-          updates[bookmark] = InvalidBookmark(this, file.url, bookmark.line, expectedText)
+          updates[bookmark] = bookmark.invalidated()
         }
       }
       expectedText != null -> {
         val preferredLine = if (mappedLine >= 0) mappedLine else bookmark.line
         val foundLine = indexBuilder.findLineByText(expectedText, preferredLine)
         updates[bookmark] = if (foundLine >= 0 && processedLines.add(foundLine)) {
-          createBookmark(file, foundLine, expectedText)
+          bookmark.movedTo(foundLine)
         }
         else {
-          InvalidBookmark(this, file.url, bookmark.line, expectedText)
+          bookmark.invalidated()
         }
       }
       else -> {
-        updates[bookmark] = InvalidBookmark(this, file.url, bookmark.line, null)
+        updates[bookmark] = bookmark.invalidated()
       }
     }
   }
@@ -342,7 +375,7 @@ class LineBookmarkProvider(private val project: Project, coroutineScope: Corouti
       for (line in insertedLines) {
         if (Util.readLineText(document, line) == expectedText) {
           if (processedLines.add(line)) {
-            updates[bookmark] = createBookmark(file, line, expectedText)
+            updates[bookmark] = createBookmark(file, line, expectedText, bookmark.restoredMemorialKey)
             return
           }
           else {
@@ -356,7 +389,7 @@ class LineBookmarkProvider(private val project: Project, coroutineScope: Corouti
       val foundLine = indexBuilder.findLineByText(expectedText, bookmark.line)
       if (foundLine >= 0) {
         if (processedLines.add(foundLine)) {
-          updates[bookmark] = createBookmark(file, foundLine, expectedText)
+          updates[bookmark] = createBookmark(file, foundLine, expectedText, bookmark.restoredMemorialKey)
         }
         else {
           updates[bookmark] = null
@@ -393,7 +426,8 @@ class LineBookmarkProvider(private val project: Project, coroutineScope: Corouti
     file: VirtualFile,
     document: Document,
     event: DocumentEvent,
-    manager: BookmarksManager
+    manager: BookmarksManager,
+    lineTextsBefore: Map<LineBookmarkImpl, String>,
   ): Boolean {
     if (event !is DocumentEventImpl) {
       return false
@@ -408,7 +442,7 @@ class LineBookmarkProvider(private val project: Project, coroutineScope: Corouti
       val invalidBookmarks = manager.bookmarks.filterIsInstance<InvalidBookmark>().filter { it.url == file.url }
 
       for (bookmark in lineBookmarks) {
-        updateLineBookmark(bookmark, event, document, file, indexBuilder, processedLines, updates)
+        updateLineBookmark(bookmark, event, document, file, indexBuilder, processedLines, updates, lineTextsBefore[bookmark])
       }
       for (bookmark in invalidBookmarks) {
         tryRestoreInvalidBookmark(bookmark, file, document, event, indexBuilder, processedLines, updates)
@@ -454,6 +488,10 @@ class LineBookmarkProvider(private val project: Project, coroutineScope: Corouti
     validateQueue.queue(Unit)
   }
 
+  @TestOnly
+  @ApiStatus.Internal
+  fun hasPendingUpdates(): Boolean = !validateQueue.isAllExecuted || !bookmarkEditQueue.isAllExecuted
+
   private val bookmarkEditQueue = DebouncedUpdates.forScope<VirtualFile>(coroutineScope, "bookmark-edit", 2000)
     .runBatchedDistinct { files -> onBookmarkEdit(files) }
 
@@ -470,19 +508,20 @@ class LineBookmarkProvider(private val project: Project, coroutineScope: Corouti
         val document = FileDocumentManager.getInstance().getCachedDocument(bookmark.file) ?: continue
         val currentText = Util.readLineText(document, bookmark.line) ?: continue
         if (currentText == oldExpectedText) continue
-        result[bookmark] = LineBookmarkImpl(this@LineBookmarkProvider, bookmark.file, bookmark.line, currentText, memorialAdded = true)
+        val memorialKey = bookmark.memorialKey ?: UUID.randomUUID().toString()
+        result[bookmark] = LineBookmarkImpl(this@LineBookmarkProvider, bookmark.file, bookmark.line, currentText, memorialKey)
       }
       result
     }
 
     if (replacements.isEmpty()) return
-    val originalsNeedingMemorial = replacements.keys
-      .filterIsInstance<LineBookmarkImpl>()
-      .filter { !it.memorialAdded }
+    val originalsNeedingMemorial = replacements
+      .filterKeys { it is LineBookmarkImpl && !it.memorialAdded }
+      .map { (original, replacement) -> (original as LineBookmarkImpl) to (replacement as LineBookmarkImpl).memorialKey }
     manager.update(replacements)
 
-    for (original in originalsNeedingMemorial) {
-      val memorial = InvalidBookmark(this, original.file.url, original.line, original.expectedText)
+    for ((original, memorialKey) in originalsNeedingMemorial) {
+      val memorial = InvalidBookmark(this, original.file.url, original.line, original.expectedText, memorialKey, isMemorial = true)
       for (group in manager.getGroups(original)) {
         group.add(memorial, BookmarkType.DEFAULT, null)
       }
@@ -513,7 +552,7 @@ class LineBookmarkProvider(private val project: Project, coroutineScope: Corouti
   private fun validate(bookmark: Bookmark, indexBuilderCache: MutableMap<String, LineTextIndexBuilder>): Bookmark? {
     return when (bookmark) {
       is InvalidBookmark -> {
-        val created = createValidBookmark(bookmark.url, bookmark.line, bookmark.expectedText)
+        val created = createValidBookmark(bookmark.url, bookmark.line, bookmark.expectedText, bookmark.restoredMemorialKey)
         if (created != null) return created
 
         if (bookmark.expectedText != null && bookmark.line >= 0) {
@@ -523,12 +562,12 @@ class LineBookmarkProvider(private val project: Project, coroutineScope: Corouti
             LineTextIndexBuilder(document)
           }
           val foundLine = indexBuilder.findLineByText(bookmark.expectedText, bookmark.line)
-          if (foundLine >= 0) return createValidBookmark(bookmark.url, foundLine, bookmark.expectedText)
+          if (foundLine >= 0) return createValidBookmark(bookmark.url, foundLine, bookmark.expectedText, bookmark.restoredMemorialKey)
         }
         null
       }
       is FileBookmarkImpl -> bookmark.file.run { if (isValid) null else InvalidBookmark(this@LineBookmarkProvider, url, -1, null) }
-      is LineBookmarkImpl -> bookmark.file.run { if (isValid) null else InvalidBookmark(this@LineBookmarkProvider, url, bookmark.line, bookmark.expectedText) }
+      is LineBookmarkImpl -> if (bookmark.file.isValid) null else bookmark.invalidated()
       else -> null
     }
   }

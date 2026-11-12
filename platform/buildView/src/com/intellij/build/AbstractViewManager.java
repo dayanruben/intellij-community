@@ -51,8 +51,14 @@ public abstract class AbstractViewManager implements ViewManager, BuildProgressL
       ApplicationManager.getApplication().invokeAndWait(() -> {
         if (!isDisposed.get()) {
           MultipleBuildsView view = createMultipleBuildsView();
-          Disposer.register(this, view);
-          ref.set(view);
+          // MultipleBuildsView should be disposed on EDT. Normally AbstractViewManager instances are disposed on EDT (as project services),
+          // and it would suffice to call Disposer.register(this, view) here. But sometimes it's not the case (e.g. in tests which mock
+          // AbstractViewManager instances and can dispose them on arbitrary thread), so we explicitly ensure disposal on EDT here.
+          if (tryRegisterWithDisposalOnEdt(this, view)) {
+            ref.set(view);
+          } else {
+            Disposer.dispose(view);
+          }
         }
       });
       return ref.get();
@@ -165,6 +171,21 @@ public abstract class AbstractViewManager implements ViewManager, BuildProgressL
       buildsView.lockContent();
       myPinnedViews.add(buildsView);
       myBuildsViewValue.drop();
+    }
+  }
+
+  // equivalent of Disposer.tryRegister, but the child will always be disposed on EDT
+  private static boolean tryRegisterWithDisposalOnEdt(Disposable parent, Disposable child) {
+    Disposable mediator = Disposer.newDisposable();
+    if (Disposer.tryRegister(parent, () -> {
+      ApplicationManager.getApplication().invokeAndWait(() -> {
+        Disposer.dispose(mediator);
+      });
+    })) {
+      return Disposer.tryRegister(mediator, child);
+    }
+    else {
+      return false;
     }
   }
 }

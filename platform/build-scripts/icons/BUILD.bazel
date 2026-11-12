@@ -9,16 +9,6 @@ java_binary(
 )
 
 jps_test(
-    name = "images-build-tests_test_smoke",
-    timeout = "moderate",
-    env = {
-        "JB_TEST_JUNIT5_FILTERS": "include-classname=org.jetbrains.intellij.build.images.CommunityIconClassesTest;include-classname=org.jetbrains.intellij.build.images.CommunityImageResourcesSanityTest",
-    },
-    tags = ["ultimate-smoke"],
-    runtime_deps = [":images-build-tests_test_lib"],
-)
-
-jps_test(
     name = "images-build-tests_test",
     timeout = "moderate",
     tags = ["community-aggregator"],
@@ -88,9 +78,9 @@ jvm_library(
     testonly = True,
     srcs = glob(
         [
-            "tests/**/*.kt",
-            "tests/**/*.java",
-            "tests/**/*.form",
+            "testSrc/**/*.kt",
+            "testSrc/**/*.java",
+            "testSrc/**/*.form",
         ],
         allow_empty = True,
     ),

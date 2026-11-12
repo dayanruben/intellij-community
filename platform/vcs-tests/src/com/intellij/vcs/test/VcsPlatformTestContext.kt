@@ -19,6 +19,7 @@ import com.intellij.project.stateStore
 import com.intellij.testFramework.HeavyTestHelper
 import com.intellij.testFramework.common.runAll
 import com.intellij.testFramework.junit5.fixture.TestFixture
+import com.intellij.testFramework.junit5.fixture.projectFixture
 import com.intellij.testFramework.junit5.fixture.replacedServiceFixture
 import com.intellij.testFramework.junit5.fixture.tempPathFixture
 import com.intellij.testFramework.junit5.fixture.testFixture
@@ -77,6 +78,14 @@ fun TestFixture<Path>.projectPathFixture(name: String = "project", createDirecto
  */
 fun vcsTestProjectPathFixture(): TestFixture<Path> = vcsTestRootFixture().projectPathFixture()
 
+/**
+ * A project opened in [projectPathFixture] with the VCS test infrastructure set up.
+ */
+fun vcsPlatformContextFixture(
+  projectPathFixture: TestFixture<Path> = vcsTestProjectPathFixture(),
+): TestFixture<VcsPlatformTestContext> =
+  projectFixture(projectPathFixture, openAfterCreation = true).vcsPlatformFixture()
+
 fun TestFixture<Project>.vcsPlatformFixture(): TestFixture<VcsPlatformTestContext> = testFixture {
   val project = init()
 
@@ -118,6 +127,12 @@ private fun selfTearDownRunnable(vcsPlatformTestContext: VcsPlatformTestContext)
     { vcsPlatformTestContext.vcsNotifier.cleanup() }
   )
 }
+
+/**
+ * [VcsPlatformTestContext.testNioRoot] as a [VirtualFile].
+ */
+val VcsPlatformTestContext.testRoot: VirtualFile
+  get() = requireNotNull(VirtualFileManager.getInstance().refreshAndFindFileByNioPath(testNioRoot))
 
 fun VcsPlatformTestContext.updateChangeListManager() {
   VcsDirtyScopeManager.getInstance(project).markEverythingDirty()

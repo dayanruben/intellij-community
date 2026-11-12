@@ -44,7 +44,7 @@ import java.util.ResourceBundle;
 /**
  * @deprecated use {@link MavenNewProjectWizardStep} instead
  */
-@Deprecated
+@Deprecated(forRemoval = true)
 @SuppressWarnings("DeprecatedIsStillUsed")
 public class MavenModuleWizardStep extends ModuleWizardStep {
   private static final Icon WIZARD_ICON = null;
@@ -192,10 +192,6 @@ public class MavenModuleWizardStep extends ModuleWizardStep {
     }
     initComponents();
     loadSettings();
-  }
-
-  public MavenModuleWizardStep(MavenModuleBuilder builder, WizardContext context, boolean includeArtifacts) {
-    this((AbstractMavenModuleBuilder)builder, context, includeArtifacts);
   }
 
   private static Method $$$cachedGetBundleMethod$$$ = null;

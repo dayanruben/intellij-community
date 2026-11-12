@@ -22,6 +22,8 @@ private class KotlinCodeFragmentPatcher(val codeFragment: KtCodeFragment) {
 
 fun patchCodeFragment(context: ExecutionContext, codeFragment: KtCodeFragment, stats: CodeFragmentCompilationStats) {
     KotlinCodeFragmentPatcher(codeFragment)
+        .addWrapper(KotlinRuntimeTypeCastWrapper(stats, context))
+        .addWrapper(KotlinRuntimeStaticMemberWrapper(stats, context))
         .addWrapper(KotlinValueClassToStringWrapper(stats))
         .addWrapper(
             KotlinSuspendFunctionWrapper(

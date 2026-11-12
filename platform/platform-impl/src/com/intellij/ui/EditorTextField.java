@@ -35,7 +35,9 @@ import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.editor.highlighter.EditorHighlighter;
 import com.intellij.openapi.editor.highlighter.EditorHighlighterFactory;
 import com.intellij.openapi.editor.impl.DocumentImpl;
+import com.intellij.openapi.editor.impl.EditorFactoryImpl;
 import com.intellij.openapi.editor.impl.EditorImpl;
+import com.intellij.openapi.editor.impl.SettingsImpl;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileEditor.impl.zoomIndicator.ZoomIndicatorManager;
 import com.intellij.openapi.fileTypes.FileType;
@@ -168,6 +170,10 @@ public class EditorTextField extends NonOpaquePanel implements EditorTextCompone
   }
 
   public EditorTextField(Document document, Project project, FileType fileType, boolean isViewer, boolean oneLineMode) {
+    if (EditorFactory.getInstance() instanceof EditorFactoryImpl factory) {
+      factory.startEditorClassesPreparation();
+      factory.startHighlighterPreparation(project, document, fileType);
+    }
     myOneLineMode = oneLineMode;
     myIsViewer = isViewer;
     setDocument(document);
@@ -826,17 +832,25 @@ public class EditorTextField extends NonOpaquePanel implements EditorTextCompone
 
   public static void setupTextFieldEditor(@NotNull EditorEx editor) {
     EditorSettings settings = editor.getSettings();
-    settings.setAdditionalLinesCount(0);
-    settings.setAdditionalColumnsCount(1);
-    settings.setRightMarginShown(false);
-    settings.setRightMargin(-1);
-    settings.setFoldingOutlineShown(false);
-    settings.setLineNumbersShown(false);
-    settings.setLineMarkerAreaShown(false);
-    settings.setIndentGuidesShown(false);
-    settings.setVirtualSpace(false);
-    settings.setWheelFontChangeEnabled(false);
-    settings.setAdditionalPageAtBottom(false);
+    Runnable configureSettings = () -> {
+      settings.setAdditionalLinesCount(0);
+      settings.setAdditionalColumnsCount(1);
+      settings.setRightMarginShown(false);
+      settings.setRightMargin(-1);
+      settings.setFoldingOutlineShown(false);
+      settings.setLineNumbersShown(false);
+      settings.setLineMarkerAreaShown(false);
+      settings.setIndentGuidesShown(false);
+      settings.setVirtualSpace(false);
+      settings.setWheelFontChangeEnabled(false);
+      settings.setAdditionalPageAtBottom(false);
+    };
+    if (settings instanceof SettingsImpl impl) {
+      impl.runWithDeferredEditorRefresh(configureSettings);
+    }
+    else {
+      configureSettings.run();
+    }
     editor.setHorizontalScrollbarVisible(false);
     editor.setVerticalScrollbarVisible(false);
     settings.setLineCursorWidth(1);

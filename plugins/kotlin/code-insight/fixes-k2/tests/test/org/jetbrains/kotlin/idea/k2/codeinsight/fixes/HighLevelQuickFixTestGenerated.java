@@ -8805,6 +8805,16 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
         }
 
+        @TestMetadata("annotatedEntryOnlySyntaxOption.kt")
+        public void testAnnotatedEntryOnlySyntaxOption() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/destructingShortForm/annotatedEntryOnlySyntaxOption.kt");
+        }
+
+        @TestMetadata("bodyPropertiesCompleteOption.kt")
+        public void testBodyPropertiesCompleteOption() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/destructingShortForm/bodyPropertiesCompleteOption.kt");
+        }
+
         @TestMetadata("commentsPreserve.kt")
         public void testCommentsPreserve() throws Exception {
             runTest("../../../idea/tests/testData/quickfix/destructingShortForm/commentsPreserve.kt");
@@ -8818,6 +8828,26 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
         @TestMetadata("entryUsedInLambda.kt")
         public void testEntryUsedInLambda() throws Exception {
             runTest("../../../idea/tests/testData/quickfix/destructingShortForm/entryUsedInLambda.kt");
+        }
+
+        @TestMetadata("escapedPropertiesOnlySyntaxOption.kt")
+        public void testEscapedPropertiesOnlySyntaxOption() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/destructingShortForm/escapedPropertiesOnlySyntaxOption.kt");
+        }
+
+        @TestMetadata("escapedPropertyCompleteOption.kt")
+        public void testEscapedPropertyCompleteOption() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/destructingShortForm/escapedPropertyCompleteOption.kt");
+        }
+
+        @TestMetadata("explicitEntryTypeCompleteOption.kt")
+        public void testExplicitEntryTypeCompleteOption() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/destructingShortForm/explicitEntryTypeCompleteOption.kt");
+        }
+
+        @TestMetadata("explicitEntryTypeOnlySyntaxOption.kt")
+        public void testExplicitEntryTypeOnlySyntaxOption() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/destructingShortForm/explicitEntryTypeOnlySyntaxOption.kt");
         }
 
         @TestMetadata("featureDisabled.kt")
@@ -8855,6 +8885,11 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
             runTest("../../../idea/tests/testData/quickfix/destructingShortForm/genericDataClassFullForm.kt");
         }
 
+        @TestMetadata("lambdaCompleteOption.kt")
+        public void testLambdaCompleteOption() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/destructingShortForm/lambdaCompleteOption.kt");
+        }
+
         @TestMetadata("multipleEntriesSameOriginalName.kt")
         public void testMultipleEntriesSameOriginalName() throws Exception {
             runTest("../../../idea/tests/testData/quickfix/destructingShortForm/multipleEntriesSameOriginalName.kt");
@@ -8879,6 +8914,36 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
         public void testPreserveFormatting() throws Exception {
             runTest("../../../idea/tests/testData/quickfix/destructingShortForm/preserveFormatting.kt");
         }
+
+        @TestMetadata("renamedEntriesCompleteOption.kt")
+        public void testRenamedEntriesCompleteOption() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/destructingShortForm/renamedEntriesCompleteOption.kt");
+        }
+
+        @TestMetadata("reversedEntriesCompleteOption.kt")
+        public void testReversedEntriesCompleteOption() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/destructingShortForm/reversedEntriesCompleteOption.kt");
+        }
+
+        @TestMetadata("reversedEntriesNameMismatchOption.kt")
+        public void testReversedEntriesNameMismatchOption() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/destructingShortForm/reversedEntriesNameMismatchOption.kt");
+        }
+
+        @TestMetadata("reversedEntriesOnlySyntaxOption.kt")
+        public void testReversedEntriesOnlySyntaxOption() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/destructingShortForm/reversedEntriesOnlySyntaxOption.kt");
+        }
+
+        @TestMetadata("singleEntryCompleteOption.kt")
+        public void testSingleEntryCompleteOption() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/destructingShortForm/singleEntryCompleteOption.kt");
+        }
+
+        @TestMetadata("underscoreWithGetterCompleteOption.kt")
+        public void testUnderscoreWithGetterCompleteOption() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/destructingShortForm/underscoreWithGetterCompleteOption.kt");
+        }
     }
 
     @RunWith(JUnit3RunnerWithInners.class)
@@ -8886,6 +8951,11 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
     public static class DestructingShortFormNameMismatchDiagnostic extends AbstractHighLevelQuickFixTest {
         private void runTest(String testDataFilePath) throws Exception {
             KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        @TestMetadata("annotatedEntryNameMismatchOption.kt")
+        public void testAnnotatedEntryNameMismatchOption() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/destructingShortFormNameMismatchDiagnostic/annotatedEntryNameMismatchOption.kt");
         }
 
         @TestMetadata("completeLambda.kt")
@@ -8926,6 +8996,11 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
         @TestMetadata("destructuringNameMismatchActionsOrder.kt")
         public void testDestructuringNameMismatchActionsOrder() throws Exception {
             runTest("../../../idea/tests/testData/quickfix/destructingShortFormNameMismatchDiagnostic/destructuringNameMismatchActionsOrder.kt");
+        }
+
+        @TestMetadata("explicitEntryTypeNameMismatchOption.kt")
+        public void testExplicitEntryTypeNameMismatchOption() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/destructingShortFormNameMismatchDiagnostic/explicitEntryTypeNameMismatchOption.kt");
         }
 
         @TestMetadata("fullFormLambdaNameMismatch.kt")
@@ -9007,6 +9082,21 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
         @TestMetadata("convertFullFormUnderscoreToPositional.kt")
         public void testConvertFullFormUnderscoreToPositional() throws Exception {
             runTest("../../../idea/tests/testData/quickfix/destructuringShortFormUnderscoreDiagnostics/convertFullFormUnderscoreToPositional.kt");
+        }
+
+        @TestMetadata("namedUnderscoreBeyondConstructor.kt")
+        public void testNamedUnderscoreBeyondConstructor() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/destructuringShortFormUnderscoreDiagnostics/namedUnderscoreBeyondConstructor.kt");
+        }
+
+        @TestMetadata("namedUnderscoreComplete.kt")
+        public void testNamedUnderscoreComplete() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/destructuringShortFormUnderscoreDiagnostics/namedUnderscoreComplete.kt");
+        }
+
+        @TestMetadata("namedUnderscoreFullForm.kt")
+        public void testNamedUnderscoreFullForm() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/destructuringShortFormUnderscoreDiagnostics/namedUnderscoreFullForm.kt");
         }
 
         @TestMetadata("shortUnderscoreToFullForm.kt")

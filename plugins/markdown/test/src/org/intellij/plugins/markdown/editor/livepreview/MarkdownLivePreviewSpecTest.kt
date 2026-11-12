@@ -177,13 +177,18 @@ class MarkdownLivePreviewSpecTest : BasePlatformTestCase() {
     assertEquals(listOf("[Markdown Guide][docs]", "[IntelliJ IDEA][]", "[GitHub]"), revealRanges(content))
   }
 
-  fun testCodeFenceContentIsNotConcealed() {
+  fun testCodeFenceConcealsOnlyItsMarkerLines() {
     val content = """
       |```markdown
       |**bold** and [docs](https://example.org)
       |```
     """.trimMargin()
-    assertEmpty(concealed(content))
+    assertEquals(listOf("```markdown", "```"), concealed(content))
+    assertEquals(listOf("```", "```"), concealed("```\nplain\n```"))
+    assertEquals(listOf("~~~python", "~~~"), concealed("~~~python\nprint(1)\n~~~"))
+    assertEquals(listOf("```kotlin", "```"), concealed("  ```kotlin\n  val a = 1\n  ```"))
+    assertEquals(listOf("```kotlin"), concealed("```kotlin\nopen\n"))
+    assertEquals(listOf("```java title=\"123\"", "```"), concealed("```java title=\"123\"\ncode\n```"))
   }
 
   fun testIndentedCodeBlockContentIsNotConcealed() {
@@ -677,6 +682,13 @@ class MarkdownLivePreviewSpecTest : BasePlatformTestCase() {
       ),
       codeRanges.map { [start, end] -> content.substring(start, end) },
     )
+  }
+
+  fun testCodeFontCoversTheIndentOfEveryLineOfAnIndentedFence() {
+    val content = "\t```bash\n\tgit pull\n\t```"
+    val codeRanges = elements(content).filterIsInstance<MarkdownLivePreviewSpec.CodeFont>().flatMap { it.codeRanges }
+
+    assertEquals(listOf("\t```", "bash", "\tgit pull", "\t```"), codeRanges.map { [start, end] -> content.substring(start, end) })
   }
 
   fun testDocumentVersionUsesLocalStampWithoutPatchVersion() {
