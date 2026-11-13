@@ -6,7 +6,9 @@ import com.intellij.ide.browsers.BrowserLauncherAppless.Companion.canUseSystemDe
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.JDOMUtil
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.testFramework.ExtensionTestUtil
+import com.intellij.testFramework.LightVirtualFile
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.junit5.TestDisposable
 import com.intellij.testFramework.runInEdtAndWait
@@ -95,13 +97,13 @@ class DefaultBrowserDropdownTest {
   }
 
   @Test
-  fun `dropdown offers a provided browser after the system default browser`() {
+  fun `dropdown offers a provided browser before the external browsers`() {
     loadState("""<state />""")
     val providedBrowser = withProvidedBrowser()
 
     withPage { page, comboBox ->
       val ids = (0 until comboBox.itemCount).map { comboBox.getItemAt(it).id }
-      val expectedIndex = if (canUseSystemDefaultBrowserPolicy()) 1 else 0
+      val expectedIndex = 0
       assertEquals(expectedIndex, ids.indexOf(providedBrowser.id))
 
       comboBox.selectedItem = comboBox.getItemAt(expectedIndex)
@@ -169,27 +171,23 @@ class DefaultBrowserDropdownTest {
   }
 
   private fun withProvidedBrowser(id: UUID = PROVIDED_BROWSER_ID): WebBrowser {
-    val providedBrowser = object : WebBrowser() {
+    val providedBrowser = object : EditorTabWebBrowser() {
       override fun getName(): String = "Provided"
 
       override fun getId(): UUID = id
 
-      override fun getFamily(): BrowserFamily? = null
-
       override fun getIcon(): Icon = SystemDefaultBrowser.icon
-
-      override fun getPath(): String? = null
 
       override fun getBrowserNotFoundMessage(): String = "not found"
 
-      override fun getSpecificSettings(): BrowserSpecificSettings? = null
-
       override fun browse(url: String, project: Project?) {}
+
+      override fun createEditorTabFile(project: Project, url: String): VirtualFile = LightVirtualFile(url)
     }
-    val provider = object : WebBrowserProvider {
-      override val browser: WebBrowser = providedBrowser
+    val provider = object : EditorTabWebBrowserProvider {
+      override val browser: EditorTabWebBrowser = providedBrowser
     }
-    ExtensionTestUtil.maskExtensions(WebBrowserProvider.EP_NAME, listOf(provider), disposable)
+    ExtensionTestUtil.maskExtensions(EditorTabWebBrowserProvider.EP_NAME, listOf(provider), disposable)
     return providedBrowser
   }
 

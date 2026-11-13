@@ -24,8 +24,12 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.regex.Pattern;
@@ -374,5 +378,48 @@ final class PostUpdateTasks {
 
   private static String stripCeSuffixes(String line) {
     return line.replace(" CE", "").replace(" Community Edition", "");
+  }
+
+  static final String AFTER_INSTALL_SCRIPT = "bin/afterInstall.cmd";
+  static final long AFTER_PATCH_TIMEOUT_MINUTES = 30;
+
+  static @Nullable List<String> afterPatchCommand(Path targetDir) {
+    var script = targetDir.resolve(AFTER_INSTALL_SCRIPT);
+    if (!Files.isRegularFile(script)) {
+      LOG.info("after-patch: no " + script);
+      return null;
+    }
+    return List.of(script.toString());
+  }
+
+  static @Nullable Path afterPatchLogFile(@Nullable Path updaterLogDir) throws IOException {
+    if (updaterLogDir == null) return null;
+    var dir = Files.createDirectories(updaterLogDir.resolve("afterInstallScript"));
+    var timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss", Locale.ROOT));
+    return dir.resolve("afterInstall-" + timestamp + ".log");
+  }
+
+  static void runAfterPatch(Path targetDir, Path logDir) {
+    var command = afterPatchCommand(targetDir);
+    if (command == null) return;
+    try {
+      var outputFile = afterPatchLogFile(logDir);
+      LOG.info("after-patch: running " + command + "; output: " + outputFile);
+      @SuppressWarnings("IO_FILE_USAGE")
+      var builder = new ProcessBuilder(command)
+        .directory(targetDir.toFile())
+        .redirectErrorStream(true)
+        .redirectOutput(outputFile != null ? ProcessBuilder.Redirect.to(outputFile.toFile()) : ProcessBuilder.Redirect.DISCARD);
+      var process = builder.start();
+      if (!process.waitFor(AFTER_PATCH_TIMEOUT_MINUTES, TimeUnit.MINUTES)) {
+        LOG.warning("after-patch: timed out after " + AFTER_PATCH_TIMEOUT_MINUTES + " min; the process is left running");
+        return;
+      }
+      var exitCode = process.exitValue();
+      LOG.log(exitCode == 0 ? Level.INFO : Level.WARNING, "after-patch: ec=" + exitCode);
+    }
+    catch (Throwable t) {
+      LOG.log(Level.WARNING, "after-patch: failed", t);
+    }
   }
 }

@@ -48,6 +48,7 @@ import org.jetbrains.kotlin.name.render
 import org.jetbrains.kotlin.psi.KtBreakExpression
 import org.jetbrains.kotlin.psi.KtCallExpression
 import org.jetbrains.kotlin.psi.KtCallableDeclaration
+import org.jetbrains.kotlin.psi.KtClassOrObject
 import org.jetbrains.kotlin.psi.KtContinueExpression
 import org.jetbrains.kotlin.psi.KtDeclaration
 import org.jetbrains.kotlin.psi.KtDeclarationWithBody
@@ -63,7 +64,9 @@ import org.jetbrains.kotlin.psi.KtParameter
 import org.jetbrains.kotlin.psi.KtPropertyAccessor
 import org.jetbrains.kotlin.psi.KtPsiFactory
 import org.jetbrains.kotlin.psi.KtSimpleNameExpression
+import org.jetbrains.kotlin.psi.KtThisExpression
 import org.jetbrains.kotlin.psi.KtTreeVisitorVoid
+import org.jetbrains.kotlin.psi.KtTypeReference
 import org.jetbrains.kotlin.psi.KtValueArgument
 import org.jetbrains.kotlin.psi.LambdaArgument
 import org.jetbrains.kotlin.psi.buildExpression
@@ -71,8 +74,10 @@ import org.jetbrains.kotlin.psi.createExpressionByPattern
 import org.jetbrains.kotlin.psi.psiUtil.forEachDescendantOfType
 import org.jetbrains.kotlin.psi.psiUtil.getAssignmentByLHS
 import org.jetbrains.kotlin.psi.psiUtil.getQualifiedExpressionForSelectorOrThis
+import org.jetbrains.kotlin.psi.psiUtil.getParentOfType
 import org.jetbrains.kotlin.psi.psiUtil.getStrictParentOfType
 import org.jetbrains.kotlin.psi.psiUtil.parameterIndex
+import org.jetbrains.kotlin.psi.psiUtil.quoteIfNeeded
 import org.jetbrains.kotlin.resolution.KtResolvableCall
 import org.jetbrains.kotlin.types.Variance
 
@@ -97,7 +102,7 @@ internal class ValueParameterInliner(
     private val contextArguments: List<String?>? = analyze(call) {
         val treeUpToCall = call.treeUpToCall() as? KtResolvableCall ?: return@analyze null
         treeUpToCall.tryResolveCall()?.single?.simple?.contextArguments?.map {
-            createReplacementForContextArgument(it)
+            createReplacementForContextArgument(it, qualifyThis = true)
         }
     }
 
@@ -155,7 +160,7 @@ internal class ValueParameterInliner(
             .sortedByDescending { PsiTreeUtil.getDepth(it, null) }
         usages.forEach { expr ->
             val contextParameterUsage = expr.getCopyableUserData(CodeToInline.CONTEXT_PARAMETER_USAGE_KEY) ?: return@forEach
-            val oldExpression = expr.parent as? KtExpression ?: return@forEach
+            val oldExpression = expr.parent as? KtExpression ?: expr
             val arguments = contextParameterUsage.filter { explicitContextArgumentsNames.contains(it.second) }
             if (arguments.isEmpty()) return@forEach
 
@@ -176,10 +181,11 @@ internal class ValueParameterInliner(
 
             val contextScopeArguments = if (callExpression == null) arguments else arguments.filter { it.first.isSpecial }
             if (contextScopeArguments.isNotEmpty()) {
-                val replacement: KtExpression = contextScopeArguments.foldRight(oldExpression) { pair, expr ->
+                val expressionToWrap = oldExpression.getQualifiedExpressionForSelectorOrThis()
+                val replacement: KtExpression = contextScopeArguments.foldRight(expressionToWrap) { pair, expr ->
                     psiFactory.createExpressionByPattern("kotlin.context($0) { $1 }", contextParameterReference(pair.second), expr)
                 }
-                codeToInline.replaceExpression(oldExpression, replacement)
+                codeToInline.replaceExpression(expressionToWrap, replacement)
             }
         }
     }

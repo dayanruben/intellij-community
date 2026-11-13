@@ -310,6 +310,7 @@ java/compiler/instrumentation-util-8
 java/compiler/javac2
 java/compiler/openapi
 java/compiler/testFramework
+java/compiler/tests/exploratory
 java/debugger/backend
 java/debugger/frontend
 java/debugger/impl
@@ -1310,6 +1311,7 @@ plugins/devkit/intellij.devkit.gradle
 plugins/devkit/intellij.devkit.gradle.toml
 plugins/devkit/intellij.devkit.gradle.tooling
 plugins/devkit/intellij.devkit.i18n
+plugins/devkit/intellij.devkit.ide
 plugins/devkit/intellij.devkit.intelliLang
 plugins/devkit/intellij.devkit.mcp
 plugins/devkit/intellij.devkit.mcp.inspections

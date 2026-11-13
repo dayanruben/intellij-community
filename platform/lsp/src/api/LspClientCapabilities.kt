@@ -128,15 +128,19 @@ internal fun createClientCapabilities(lspCustomization: LspCustomization): Clien
     documentHighlight = DocumentHighlightCapabilities(true)
     diagnostic = DiagnosticCapabilities(true)
     definition = DefinitionCapabilities().apply {
+      dynamicRegistration = true
       linkSupport = true
     }
     typeDefinition = TypeDefinitionCapabilities().apply {
+      dynamicRegistration = true
       linkSupport = true
     }
     implementation = ImplementationCapabilities().apply {
+      dynamicRegistration = true
       linkSupport = true
     }
     completion = CompletionCapabilities().apply {
+      dynamicRegistration = true
       completionItem = CompletionItemCapabilities().apply {
         documentationFormat = listOf(MarkupKind.MARKDOWN, MarkupKind.PLAINTEXT)
         deprecatedSupport = true
@@ -158,6 +162,7 @@ internal fun createClientCapabilities(lspCustomization: LspCustomization): Clien
       }
     }
     hover = HoverCapabilities().apply {
+      dynamicRegistration = true
       contentFormat = listOf(MarkupKind.MARKDOWN, MarkupKind.PLAINTEXT)
     }
     signatureHelp = SignatureHelpCapabilities(true).apply {
@@ -194,6 +199,7 @@ internal fun createClientCapabilities(lspCustomization: LspCustomization): Clien
     val semanticTokensSupport = lspCustomization.semanticTokensCustomizer
     if (semanticTokensSupport is LspSemanticTokensSupport) {
       semanticTokens = SemanticTokensCapabilities().apply {
+        dynamicRegistration = true
         requests = SemanticTokensClientCapabilitiesRequests().apply {
           range = Either.forLeft(false)
           full = Either.forRight(SemanticTokensClientCapabilitiesRequestsFull().apply {
@@ -215,6 +221,7 @@ internal fun createClientCapabilities(lspCustomization: LspCustomization): Clien
       dataSupport = true
     }
     codeAction = CodeActionCapabilities().apply {
+      dynamicRegistration = true
       codeActionLiteralSupport = CodeActionLiteralSupportCapabilities().apply {
         codeActionKind = CodeActionKindCapabilities(
             listOf(

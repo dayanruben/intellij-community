@@ -16,6 +16,8 @@ import com.intellij.openapi.editor.SelectionModel;
 import com.intellij.openapi.editor.VisualPosition;
 import com.intellij.openapi.editor.colors.EditorColorsScheme;
 import com.intellij.openapi.editor.colors.EditorFontType;
+import com.intellij.openapi.editor.colors.FontPreferences;
+import com.intellij.openapi.editor.colors.impl.FontPreferencesSnapshot;
 import com.intellij.openapi.editor.event.VisibleAreaEvent;
 import com.intellij.openapi.editor.event.VisibleAreaListener;
 import com.intellij.openapi.editor.ex.DocumentEx;
@@ -703,12 +705,35 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
     Font specialCharacterFont = myEditor.getSettings().isShowingSpecialChars() ? colorsScheme.getFont(EditorFontType.PLAIN) : null;
     boolean fontFamiliesEnabled = EditorRegistry.current().isFontFamiliesEnabled();
     return EditorFontResolver.create(
-      colorsScheme.getFontPreferences(),
+      layoutFontPreferences(colorsScheme),
       context,
       specialCharacterFont,
       fontFamiliesEnabled,
       withSourceFontFamilies(fontFamilies, colorsScheme)
     );
+  }
+
+  /**
+   * Returns the font preferences of the text layout.
+   * A grid editor, such as the terminal, has its own column spacing, so its text layout has no letter spacing.
+   */
+  private @NotNull FontPreferences layoutFontPreferences(@NotNull EditorColorsScheme colorsScheme) {
+    FontPreferences preferences = colorsScheme.getFontPreferences();
+    if (myEditor.getCharacterGrid() == null || preferences.getLetterSpacing() == 0) {
+      return preferences;
+    }
+    FontPreferences current = preferences.getSnapshot();
+    if (current instanceof FontPreferencesSnapshot snapshot) {
+      return snapshot.withLetterSpacing(0);
+    }
+    return current;
+  }
+
+  /**
+   * Returns true when the text layout adds a letter spacing, see {@link FontPreferences#getLetterSpacing()}.
+   */
+  public boolean hasLetterSpacing() {
+    return layoutFontPreferences(myEditor.getColorsScheme()).getLetterSpacing() != 0;
   }
 
   private Collection<FontFamilies> withSourceFontFamilies(Collection<FontFamilies> fontFamilies, EditorColorsScheme scheme) {
@@ -969,7 +994,13 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
     FontLayoutService fontLayout = FontLayoutService.getInstance();
     Font font = colorsScheme.getFont(EditorFontType.PLAIN);
     FontMetrics fm = FontInfo.getFontMetrics(font, fontRenderContext);
-    float width = fontLayout.charWidth2D(fm, ' ');
+    // The fonts have no letter spacing, so the metrics add it as FontInfo.charWidth2D does
+    float letterSpacing = FontInfo.letterSpacingPixels(
+      layoutFontPreferences(colorsScheme).getLetterSpacing(),
+      font.getSize2D(),
+      fontRenderContext
+    );
+    float width = fontLayout.charWidth2D(fm, ' ') + letterSpacing;
 
     float newPlainSpaceWidth = width > 0 ? width : 1;
     int newCharHeight = fontLayout.charWidth(fm, 'a');
@@ -989,7 +1020,7 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
 
     // assuming that bold italic 'W' gives a good approximation of font's widest character
     FontMetrics fmBI = FontInfo.getFontMetrics(colorsScheme.getFont(EditorFontType.BOLD_ITALIC), fontRenderContext);
-    float newMaxCharWidth = fontLayout.charWidth2D(fmBI, 'W');
+    float newMaxCharWidth = fontLayout.charWidth2D(fmBI, 'W') + letterSpacing;
     int newCapHeight = (int)font.createGlyphVector(fontRenderContext, "H").getVisualBounds().getHeight();
 
     return new EditorViewMetrics(

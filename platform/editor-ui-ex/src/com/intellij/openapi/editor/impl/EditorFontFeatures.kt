@@ -33,18 +33,6 @@ object EditorFontFeatures {
   }
 
   /**
-   * Returns the font with the ligatures on.
-   * When [enabled] is false, it returns the same font.
-   */
-  @JvmStatic
-  fun withLigatures(font: Font, enabled: Boolean): Font {
-    if (enabled) {
-      return font.deriveFont(LIGATURES_ON)
-    }
-    return font
-  }
-
-  /**
    * Returns the font with the ligatures and the character variants of the editor settings.
    * When [characterVariants] is empty, the font gets only the ligatures.
    */
@@ -55,5 +43,17 @@ object EditorFontFeatures {
       return fontWithLigatures
     }
     return JBR.getFontExtensions().deriveFontWithFeatures(fontWithLigatures, *characterVariants.toTypedArray())
+  }
+
+  /**
+   * Returns the font with the ligatures on.
+   * When [enabled] is false, it returns the same font.
+   */
+  @JvmStatic
+  fun withLigatures(font: Font, enabled: Boolean): Font {
+    if (enabled) {
+      return font.deriveFont(LIGATURES_ON)
+    }
+    return font
   }
 }

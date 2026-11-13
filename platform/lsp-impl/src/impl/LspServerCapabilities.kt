@@ -3,6 +3,7 @@ package com.intellij.platform.lsp.impl
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.lsp.api.LspClient
 import org.eclipse.lsp4j.SaveOptions
+import org.eclipse.lsp4j.SemanticTokensWithRegistrationOptions
 import org.eclipse.lsp4j.TextDocumentRegistrationOptions
 import org.eclipse.lsp4j.TextDocumentSyncKind
 import org.jetbrains.annotations.ApiStatus
@@ -34,24 +35,70 @@ internal fun LspClientImpl.supportsFoldingRange(file: VirtualFile): Boolean =
   serverCapabilities?.foldingRangeProvider?.let { it.left ?: true }
   ?: hasDynamicCapabilityToHandleThisFile(file, LspDynamicCapabilities.foldingRange)
 
-internal fun LspClientImpl.supportsCodeActions(codeActionKindsFilter: (List<String>) -> Boolean): Boolean =
-  serverCapabilities?.codeActionProvider?.let {
-    if (it.isLeft) return it.left!!
-    val kinds = it.right!!.codeActionKinds
-    if (kinds == null) return true // well, the server doesn't have to list code action kinds explicitly, but it does support them!
-    return codeActionKindsFilter(kinds)
+/**
+ * A capability without listed kinds supports every kind. For it, the IDE does not call [codeActionKindsFilter].
+ * The static capabilities do not veto a dynamic registration. Every dynamic registration that matches [file] counts.
+ */
+internal fun LspClientImpl.supportsCodeActions(file: VirtualFile, codeActionKindsFilter: (List<String>) -> Boolean): Boolean {
+  val provider = serverCapabilities?.codeActionProvider
+  val staticSupport = when {
+    provider == null -> false
+    provider.isLeft -> provider.left == true
+    else -> provider.right?.codeActionKinds?.let(codeActionKindsFilter) != false
   }
-  ?: false
+  if (staticSupport) return true
+  return getDynamicCapabilityOptionsListForFile(file, LspDynamicCapabilities.codeAction)
+    .any { it.codeActionKinds?.let(codeActionKindsFilter) != false }
+}
 
-internal fun LspClientImpl.supportsGotoDefinition(): Boolean = serverCapabilities?.definitionProvider?.let { it.left ?: true } == true
+/** A `CodeAction` has no document URI. So every dynamic registration counts, whatever its document selector. */
+internal fun LspClientImpl.hasCodeActionResolveProvider(): Boolean =
+  serverCapabilities?.codeActionProvider?.right?.resolveProvider == true ||
+  dynamicCapabilities.getCapabilityRegistrationOptions(LspDynamicCapabilities.codeAction).any { it.resolveProvider == true }
 
-internal fun LspClientImpl.supportsGotoTypeDefinition(): Boolean = serverCapabilities?.typeDefinitionProvider?.let { it.left ?: true } == true
+internal fun LspClientImpl.supportsCompletion(file: VirtualFile): Boolean =
+  serverCapabilities?.completionProvider != null ||
+  hasDynamicCapabilityToHandleThisFile(file, LspDynamicCapabilities.completion)
+
+internal fun LspClientImpl.getCompletionTriggerCharacters(file: VirtualFile): List<String>? {
+  val dynamicTriggerCharacters = getDynamicCapabilityOptionsListForFile(file, LspDynamicCapabilities.completion)
+    .flatMap { it.triggerCharacters.orEmpty() }
+    .ifEmpty { null }
+
+  return dynamicTriggerCharacters ?: serverCapabilities?.completionProvider?.triggerCharacters
+}
+
+internal fun LspClientImpl.supportsCompletionResolve(file: VirtualFile): Boolean =
+  serverCapabilities?.completionProvider?.resolveProvider
+  ?: getDynamicCapabilityOptionsListForFile(file, LspDynamicCapabilities.completion).any { it.resolveProvider == true }
+
+internal fun LspClientImpl.supportsCodeLensResolve(file: VirtualFile): Boolean =
+  serverCapabilities?.codeLensProvider?.resolveProvider
+  ?: getDynamicCapabilityOptionsListForFile(file, LspDynamicCapabilities.codeLens).any { it.resolveProvider == true }
+
+internal fun LspClientImpl.getSemanticTokensFullOptions(file: VirtualFile): SemanticTokensWithRegistrationOptions? {
+  val candidates = buildList {
+    addAll(getDynamicCapabilityOptionsListForFile(file, LspDynamicCapabilities.semanticTokens))
+    serverCapabilities?.semanticTokensProvider?.let { add(it) }
+  }
+  return candidates.firstOrNull { options -> options.full?.let { it.left ?: true } == true }
+}
+
+internal fun LspClientImpl.supportsGotoDefinition(file: VirtualFile): Boolean =
+  serverCapabilities?.definitionProvider?.let { it.left ?: true } == true ||
+  hasDynamicCapabilityToHandleThisFile(file, LspDynamicCapabilities.definition)
+
+internal fun LspClientImpl.supportsGotoTypeDefinition(file: VirtualFile): Boolean =
+  serverCapabilities?.typeDefinitionProvider?.let { it.left ?: true } == true ||
+  hasDynamicCapabilityToHandleThisFile(file, LspDynamicCapabilities.typeDefinition)
 
 internal fun LspClientImpl.supportsGotoImplementation(file: VirtualFile): Boolean =
   serverCapabilities?.implementationProvider?.let { it.left ?: true }
   ?: hasDynamicCapabilityToHandleThisFile(file, LspDynamicCapabilities.implementation)
 
-internal fun LspClientImpl.supportsHover(): Boolean = serverCapabilities?.hoverProvider?.let { it.left ?: true } == true
+internal fun LspClientImpl.supportsHover(file: VirtualFile): Boolean =
+  serverCapabilities?.hoverProvider?.let { it.left ?: true } == true ||
+  hasDynamicCapabilityToHandleThisFile(file, LspDynamicCapabilities.hover)
 
 /** True when the server provides the text for [scheme] URIs, through the `workspace/textDocumentContent` request. */
 internal fun LspClientImpl.providesTextDocumentContent(scheme: String?): Boolean =
@@ -98,7 +145,7 @@ internal fun LspClientImpl.supportsRename(file: VirtualFile): Boolean =
 
 internal fun LspClientImpl.supportsPrepareRename(file: VirtualFile): Boolean {
   return serverCapabilities?.renameProvider?.right?.prepareProvider == true ||
-         getDynamicCapabilityOptionsForFile(file, LspDynamicCapabilities.rename)?.prepareProvider == true
+         getDynamicCapabilityOptionsListForFile(file, LspDynamicCapabilities.rename).any { it.prepareProvider == true }
 }
 
 /**
@@ -118,9 +165,22 @@ internal fun LspClientImpl.supportsCodeActionsOfKind(file: VirtualFile, kind: St
     .any { it.codeActionKinds?.matchesCodeActionKind(kind) != false }
 }
 
+/**
+ * Unlike [supportsCodeActionsOfKind], the server must list [kind] or a child of [kind].
+ * For example, `source.organizeImports.ts` is a child of `source.organizeImports`.
+ * A parent kind, `codeActionProvider: true`, and a capability without `codeActionKinds` do not count.
+ */
+internal fun LspClientImpl.supportsExplicitlyCodeActionOfKind(file: VirtualFile, kind: String): Boolean =
+  serverCapabilities?.codeActionProvider?.right?.codeActionKinds?.containsCodeActionKindOrChild(kind) == true ||
+  getDynamicCapabilityOptionsListForFile(file, LspDynamicCapabilities.codeAction)
+    .any { it.codeActionKinds?.containsCodeActionKindOrChild(kind) == true }
+
 // a kind covers its own dot-separated subtree only: `refactor.extract.variable2` is not under `refactor.extract.variable`
 private fun List<String>.matchesCodeActionKind(kind: String): Boolean =
   any { it == kind || kind.startsWith("$it.") || it.startsWith("$kind.") }
+
+private fun List<String>.containsCodeActionKindOrChild(kind: String): Boolean =
+  any { it == kind || it.startsWith("$kind.") }
 
 internal fun LspClientImpl.getDidSaveOptions(file: VirtualFile): SaveOptions? {
   val textDocumentSync = serverCapabilities?.textDocumentSync
@@ -131,7 +191,8 @@ internal fun LspClientImpl.getDidSaveOptions(file: VirtualFile): SaveOptions? {
   // that the client must send didSave notification, but VS Code does it in the case of TextDocumentSyncKind.Incremental and
   // TextDocumentSyncKind.Full. As good practice we should follow VS Code behavior.
   if (textDocumentSync?.left != null && textDocumentSync.left != TextDocumentSyncKind.None) return SaveOptions(false)
-  getDynamicCapabilityOptionsForFile(file, LspDynamicCapabilities.didSave)?.let { return SaveOptions(it.includeText) }
+  val dynamicOptions = getDynamicCapabilityOptionsListForFile(file, LspDynamicCapabilities.didSave)
+  if (dynamicOptions.isNotEmpty()) return SaveOptions(dynamicOptions.any { it.includeText == true })
   return null
 }
 
@@ -171,10 +232,10 @@ internal fun LspClientImpl.doesServerExplicitlyWantToFormatThisFile(file: Virtua
 
 internal fun LspClientImpl.getSignatureHelpTriggerCharacters(file: VirtualFile): List<String>? {
   val staticTriggerCharacters = serverCapabilities?.signatureHelpProvider?.triggerCharacters
-  val dynamicOptions = getDynamicCapabilityOptionsForFile(file, LspDynamicCapabilities.signatureHelp)
-  val dynamicTriggerCharacters = dynamicOptions?.triggerCharacters
+  val dynamicOptions = getDynamicCapabilityOptionsListForFile(file, LspDynamicCapabilities.signatureHelp)
+  val dynamicTriggerCharacters = dynamicOptions.flatMap { it.triggerCharacters.orEmpty() }
   return when {
-    dynamicTriggerCharacters != null -> dynamicTriggerCharacters
+    dynamicTriggerCharacters.isNotEmpty() -> dynamicTriggerCharacters
     staticTriggerCharacters != null -> staticTriggerCharacters
     else -> null
   }
@@ -188,25 +249,20 @@ internal fun LspClientImpl.getOnTypeFormattingTriggerCharacters(file: VirtualFil
       it.moreTriggerCharacter?.let { chars -> addAll(chars) }
     }
   }
-  val dynamicOptions = getDynamicCapabilityOptionsForFile(file, LspDynamicCapabilities.onTypeFormatting)
-  val dynamicTriggerChars = dynamicOptions?.let {
+  val dynamicOptions = getDynamicCapabilityOptionsListForFile(file, LspDynamicCapabilities.onTypeFormatting)
+  val dynamicTriggerChars = dynamicOptions.flatMap {
     buildList {
       add(it.firstTriggerCharacter)
       it.moreTriggerCharacter?.let { chars -> addAll(chars) }
     }
-  }
+  }.ifEmpty { null }
   return dynamicTriggerChars ?: staticTriggerChars
 }
 
 private fun <T : TextDocumentRegistrationOptions> LspClientImpl.hasDynamicCapabilityToHandleThisFile(
   file: VirtualFile,
   capabilityAndOptionsClass: Pair<String, Class<T>>,
-): Boolean = getDynamicCapabilityOptionsForFile(file, capabilityAndOptionsClass) != null
-
-private fun <T : TextDocumentRegistrationOptions> LspClientImpl.getDynamicCapabilityOptionsForFile(
-  file: VirtualFile,
-  capabilityAndOptionsClass: Pair<String, Class<T>>,
-): T? = getDynamicCapabilityOptionsListForFile(file, capabilityAndOptionsClass).firstOrNull()
+): Boolean = getDynamicCapabilityOptionsListForFile(file, capabilityAndOptionsClass).isNotEmpty()
 
 /** Every registration of the capability whose document selector matches [file]; a registration without a selector matches any file. */
 private fun <T : TextDocumentRegistrationOptions> LspClientImpl.getDynamicCapabilityOptionsListForFile(

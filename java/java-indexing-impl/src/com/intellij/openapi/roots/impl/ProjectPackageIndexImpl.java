@@ -16,7 +16,7 @@ import org.jetbrains.annotations.Nullable;
 @ApiStatus.Internal
 public final class ProjectPackageIndexImpl extends PackageIndex {
   private static final Logger LOG = Logger.getInstance(ProjectPackageIndexImpl.class);
-  
+
   private final WorkspaceFileIndexEx myWorkspaceFileIndex;
 
   @ApiStatus.Internal

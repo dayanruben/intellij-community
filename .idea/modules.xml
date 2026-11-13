@@ -475,6 +475,8 @@
       <module fileurl="file://$PROJECT_DIR$/plugins/devkit/intellij.devkit.gradle.tooling/intellij.devkit.gradle.tooling.iml" filepath="$PROJECT_DIR$/plugins/devkit/intellij.devkit.gradle.tooling/intellij.devkit.gradle.tooling.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/devkit/intellij.devkit.i18n/intellij.devkit.i18n.iml" filepath="$PROJECT_DIR$/plugins/devkit/intellij.devkit.i18n/intellij.devkit.i18n.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/devkit/intellij.devkit.i18n/intellij.devkit.i18n.tests.iml" filepath="$PROJECT_DIR$/plugins/devkit/intellij.devkit.i18n/intellij.devkit.i18n.tests.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/devkit/intellij.devkit.ide/intellij.devkit.ide.iml" filepath="$PROJECT_DIR$/plugins/devkit/intellij.devkit.ide/intellij.devkit.ide.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/devkit/intellij.devkit.ide/intellij.devkit.ide.tests.iml" filepath="$PROJECT_DIR$/plugins/devkit/intellij.devkit.ide/intellij.devkit.ide.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/devkit/intellij.devkit.intelliLang/intellij.devkit.intelliLang.iml" filepath="$PROJECT_DIR$/plugins/devkit/intellij.devkit.intelliLang/intellij.devkit.intelliLang.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/devkit/devkit-java-tests/intellij.devkit.java.tests.iml" filepath="$PROJECT_DIR$/plugins/devkit/devkit-java-tests/intellij.devkit.java.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/devkit/jps-plugin/intellij.devkit.jps.iml" filepath="$PROJECT_DIR$/plugins/devkit/jps-plugin/intellij.devkit.jps.iml" />
@@ -707,6 +709,7 @@
       <module fileurl="file://$PROJECT_DIR$/java/compiler/instrumentation-util-8/intellij.java.compiler.instrumentationUtil.java8.iml" filepath="$PROJECT_DIR$/java/compiler/instrumentation-util-8/intellij.java.compiler.instrumentationUtil.java8.iml" />
       <module fileurl="file://$PROJECT_DIR$/java/compiler/testFramework/intellij.java.compiler.testFramework.iml" filepath="$PROJECT_DIR$/java/compiler/testFramework/intellij.java.compiler.testFramework.iml" />
       <module fileurl="file://$PROJECT_DIR$/java/compiler/intellij.java.compiler.tests.iml" filepath="$PROJECT_DIR$/java/compiler/intellij.java.compiler.tests.iml" />
+      <module fileurl="file://$PROJECT_DIR$/java/compiler/tests/exploratory/intellij.java.compiler.tests.exploratory.iml" filepath="$PROJECT_DIR$/java/compiler/tests/exploratory/intellij.java.compiler.tests.exploratory.iml" />
       <module fileurl="file://$PROJECT_DIR$/java/compiler/intellij.java.compiler.tests.main.iml" filepath="$PROJECT_DIR$/java/compiler/intellij.java.compiler.tests.main.iml" />
       <module fileurl="file://$PROJECT_DIR$/java/java-completion-tests/intellij.java.completion.tests.iml" filepath="$PROJECT_DIR$/java/java-completion-tests/intellij.java.completion.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/java/java-copyright/intellij.java.copyright.iml" filepath="$PROJECT_DIR$/java/java-copyright/intellij.java.copyright.iml" />

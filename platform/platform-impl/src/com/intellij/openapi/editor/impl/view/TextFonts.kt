@@ -53,6 +53,9 @@ internal class TextFonts private constructor(
   /** The font family of each code point that is not ASCII, in a lossy cache. See [familyIndex]. */
   private val familyIndices by lazy { AtomicLongArray(FAMILY_INDICES_SIZE) }
 
+  /** The editor font of each ASCII char in each style, for [fontRenderContext]. See [editorAsciiFont]. */
+  private val editorAsciiFonts = arrayOfNulls<FontInfo>(STYLE_COUNT * FIRST_NON_ASCII)
+
   @Volatile private var maxPrintableAsciiWidth = -1f
 
   private val ascent: Int = families.maxOfOrNull { family -> family.fonts.maxOf { fontAscent(it) } } ?: 0
@@ -75,6 +78,9 @@ internal class TextFonts private constructor(
         return familyFont(index, validStyle, context)
       }
     }
+    if (end - start == 1 && text[start].code < FIRST_NON_ASCII && context === fontRenderContext) {
+      return editorAsciiFont(text[start].code, style)
+    }
     return editorFontLookup.fontAbleToDisplay(text, start, end, style, context)
   }
 
@@ -91,6 +97,9 @@ internal class TextFonts private constructor(
       if (index >= 0) {
         return familyFont(index, validStyle, context)
       }
+    }
+    if (end - start == 1 && text[start].code < FIRST_NON_ASCII && context === fontRenderContext) {
+      return editorAsciiFont(text[start].code, style)
     }
     return editorFontLookup.fontAbleToDisplay(text, start, end, style, context)
   }
@@ -178,6 +187,22 @@ internal class TextFonts private constructor(
       }
     }
     return fontAbleToDisplay(codePoint, fontStyle).charWidth2D(codePoint)
+  }
+
+  /**
+   * Returns the editor font of the ASCII char [codePoint] in [style], for [fontRenderContext].
+   * It is the font that the registry gives, see [RegistryFontLookup].
+   */
+  private fun editorAsciiFont(codePoint: Int, @FontStyle style: Int): FontInfo {
+    val validStyle = validStyle(style)
+    val index = validStyle * FIRST_NON_ASCII + codePoint
+    val cached = editorAsciiFonts[index]
+    if (cached != null) {
+      return cached
+    }
+    val font = editorFontLookup.fontAbleToDisplay(codePoint, validStyle, fontRenderContext)
+    editorAsciiFonts[index] = font
+    return font
   }
 
   private fun fontAbleToDisplay(codePoint: Int, @FontStyle fontStyle: Int): FontInfo {
@@ -274,7 +299,7 @@ internal class TextFonts private constructor(
     if (context == fontRenderContext) {
       return font
     }
-    return ComplementaryFontsRegistry.getFamilyFontInfo(family.name, style, font.size2D, family.useLigatures, context)
+    return ComplementaryFontsRegistry.getFamilyFontInfo(family.name, style, font.size2D, family.useLigatures, family.letterSpacing, context)
   }
 
   /**
@@ -297,10 +322,12 @@ internal class TextFonts private constructor(
    * The fonts of one font family at the editor size, one for each style.
    *
    * @param useLigatures whether the fonts use ligatures. A monospaced family follows the editor setting, a proportional one has none.
+   * @param letterSpacing the letter spacing of the editor, see [FontPreferences.getLetterSpacing]
    */
   private class FamilyFonts(
     val name: String,
     val useLigatures: Boolean,
+    val letterSpacing: Float,
     val fonts: List<FontInfo>,
   )
 
@@ -344,7 +371,7 @@ internal class TextFonts private constructor(
 
     /**
      * Creates the fonts of text with font families: the families, in their order, and then the editor fonts.
-     * The families use the editor size. Their fonts have no character variants.
+     * The families use the editor size and the editor letter spacing. Their fonts have no character variants.
      * The bounds of the families, including [maxPrintableAsciiWidth], are ready after the creation.
      *
      * @param familyNames the names of the font families, see [FontFamilyService.isAvailable]. The list is not empty.
@@ -361,12 +388,13 @@ internal class TextFonts private constructor(
       requireFamilyNames(familyNames)
       val snapshot = preferences.snapshot
       val size = snapshot.getSize2D(snapshot.fontFamily)
+      val letterSpacing = snapshot.letterSpacing
       val families = familyNames.map { name ->
         val useLigatures = snapshot.useLigatures() && FontFamilyService.isMonospaced(name)
         val fonts = (0 until STYLE_COUNT).map { style ->
-          ComplementaryFontsRegistry.getFamilyFontInfo(name, style, size, useLigatures, fontRenderContext)
+          ComplementaryFontsRegistry.getFamilyFontInfo(name, style, size, useLigatures, letterSpacing, fontRenderContext)
         }
-        FamilyFonts(name, useLigatures, java.util.List.copyOf(fonts))
+        FamilyFonts(name, useLigatures, letterSpacing, java.util.List.copyOf(fonts))
       }
       val textFonts = TextFonts(snapshot, fontRenderContext, specialCharacterFont, java.util.List.copyOf(families))
       textFonts.maxPrintableAsciiWidth()

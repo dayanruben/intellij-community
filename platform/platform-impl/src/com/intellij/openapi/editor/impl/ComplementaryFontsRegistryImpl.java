@@ -128,21 +128,21 @@ final class ComplementaryFontsRegistryImpl {
     @NotNull String defaultFontFamily,
     @Nullable FontRenderContext context
   ) {
-    FontInfo result = findInFamily(codePoint, size, style, defaultFontFamily, false, Set.of(), context);
+    FontInfo result = findInFamily(codePoint, size, style, defaultFontFamily, false, 0, Set.of(), context);
     if (result != null) {
       return result;
     }
     if (!DEFAULT_FALLBACK_FONT.equals(defaultFontFamily)) {
-      result = findInFamily(codePoint, size, style, DEFAULT_FALLBACK_FONT, false, Set.of(), context);
+      result = findInFamily(codePoint, size, style, DEFAULT_FALLBACK_FONT, false, 0, Set.of(), context);
       if (result != null) {
         return result;
       }
     }
-    return findInFallbackFonts(codePoint, null, 0, 0, size, style, false, Set.of(), context);
+    return findInFallbackFonts(codePoint, null, 0, 0, size, style, false, 0, Set.of(), context);
   }
 
   /**
-   * Returns the font of the typographic font family in the style, at the size, without character variants.
+   * Returns the font of the typographic font family in the style, at the size, with the letter spacing and without character variants.
    * It checks no code point and keeps the last fallbacks of the search.
    */
   @NotNull FontInfo getFamilyFontInfo(
@@ -150,12 +150,13 @@ final class ComplementaryFontsRegistryImpl {
     @FontStyle int style,
     float size,
     boolean useLigatures,
+    float letterSpacing,
     @Nullable FontRenderContext context
   ) {
     Font font = FontFamilyService.getFont(family, null, null, validStyle(style));
     synchronized (this) {
       FontFallback fallback = preferredFamilyFonts.computeIfAbsent(font, FontFallback::new);
-      return fallback.getFontInfo(size, useLigatures, Set.of(), context);
+      return fallback.getFontInfo(size, useLigatures, letterSpacing, Set.of(), context);
     }
   }
 
@@ -195,6 +196,7 @@ final class ComplementaryFontsRegistryImpl {
     List<String> fontFamilies = preferences.getEffectiveFontFamilies();
     boolean useLigatures = preferences.useLigatures();
     Set<String> variants = preferences.getCharacterVariants();
+    float letterSpacing = preferences.getLetterSpacing();
     FontInfo result;
     // avoid foreach, it instantiates ArrayList$Itr, this traversal happens very often
     for (int i = 0, len = fontFamilies.size(); i < len; i++) {
@@ -207,6 +209,7 @@ final class ComplementaryFontsRegistryImpl {
         i == 0 ? preferences.getRegularSubFamily() : null,
         i == 0 ? preferences.getBoldSubFamily() : null,
         useLigatures,
+        letterSpacing,
         variants,
         context
       );
@@ -220,12 +223,12 @@ final class ComplementaryFontsRegistryImpl {
       size = preferences.getSize2D(fontFamilies.getFirst());
     }
     if (tryDefaultFallback) {
-      result = findInFamily(codePoint, size, style, DEFAULT_FALLBACK_FONT, useLigatures, Set.of(), context);
+      result = findInFamily(codePoint, size, style, DEFAULT_FALLBACK_FONT, useLigatures, letterSpacing, Set.of(), context);
       if (result != null && canDisplayAll(result.getFont(), remainingText, start, end)) {
         return result;
       }
     }
-    result = findInFallbackFonts(codePoint, remainingText, start, end, size, style, useLigatures, Set.of(), context);
+    result = findInFallbackFonts(codePoint, remainingText, start, end, size, style, useLigatures, letterSpacing, Set.of(), context);
     if (LOG.isTraceEnabled()) {
       LOG.trace("Fallback font: " + result.getFont().getFontName());
     }
@@ -244,6 +247,7 @@ final class ComplementaryFontsRegistryImpl {
     @Nullable String regularSubFamily,
     @Nullable String boldSubFamily,
     boolean useLigatures,
+    float letterSpacing,
     @Unmodifiable @NotNull Set<@NotNull String> variants,
     @Nullable FontRenderContext context
   ) {
@@ -256,7 +260,7 @@ final class ComplementaryFontsRegistryImpl {
       state.lastFallback = fallback;
     }
     if (fallback.canDisplay(codePoint, true)) {
-      return fallback.getFontInfo(size, useLigatures, variants, context);
+      return fallback.getFontInfo(size, useLigatures, letterSpacing, variants, context);
     }
     return null;
   }
@@ -270,6 +274,7 @@ final class ComplementaryFontsRegistryImpl {
     @FontStyle int style,
     @NotNull String fontFamily,
     boolean useLigatures,
+    float letterSpacing,
     @Unmodifiable @NotNull Set<@NotNull String> variants,
     @Nullable FontRenderContext context
   ) {
@@ -285,7 +290,7 @@ final class ComplementaryFontsRegistryImpl {
       state.lastFallback = fallback;
     }
     if (fallback.canDisplay(codePoint, false)) {
-      return fallback.getFontInfo(size, useLigatures, variants, context);
+      return fallback.getFontInfo(size, useLigatures, letterSpacing, variants, context);
     }
     return null;
   }
@@ -327,6 +332,7 @@ final class ComplementaryFontsRegistryImpl {
     float size,
     @FontStyle int style,
     boolean useLigatures,
+    float letterSpacing,
     @Unmodifiable @NotNull Set<@NotNull String> variants,
     @Nullable FontRenderContext context
   ) {
@@ -364,7 +370,7 @@ final class ComplementaryFontsRegistryImpl {
         }
       }
     }
-    return fallback.getFontInfo(size, useLigatures, variants, context);
+    return fallback.getFontInfo(size, useLigatures, letterSpacing, variants, context);
   }
 
   private void clearLastFallbacks() {

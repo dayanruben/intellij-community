@@ -46,8 +46,6 @@ import com.intellij.openapi.actionSystem.PlatformCoreDataKeys;
 import com.intellij.openapi.actionSystem.Separator;
 import com.intellij.openapi.actionSystem.UiDataProvider;
 import com.intellij.openapi.actionSystem.ex.ActionUtil;
-import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.components.Service;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
@@ -60,6 +58,9 @@ import com.intellij.openapi.util.io.FileUtilRt;
 import com.intellij.openapi.util.io.NioPathUtil;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFileUtil;
+import com.intellij.platform.backend.navigation.NavigationRequest;
+import com.intellij.platform.ide.navigation.NavigateUtil;
+import com.intellij.platform.ide.navigation.NavigationOptions;
 import com.intellij.platform.util.coroutines.CoroutineScopeKt;
 import com.intellij.pom.Navigatable;
 import com.intellij.psi.search.GlobalSearchScope;
@@ -687,10 +688,45 @@ public final class BuildTreeConsoleView
     if (myNavigateToTheFirstErrorLocation) {
       var navigatable = node.getNavigatable();
       if (navigatable != null) {
-        ApplicationManager.getApplication()
-          .invokeLater(() -> navigatable.navigate(true), ModalityState.defaultModalityState(), myProject.getDisposed());
+        NavigateUtil.requestNavigate(myProject, withSourceRequest(navigatable), NavigationOptions.requestFocus());
       }
     }
+  }
+
+  /**
+   * A plain {@link OpenFileDescriptor} gives a raw request, and a raw request runs the blocking {@link Navigatable#navigate} on the EDT.
+   * The result gives a source request instead, so the navigation service opens the editor.
+   */
+  private @NotNull Navigatable withSourceRequest(@NotNull Navigatable navigatable) {
+    // a subclass can navigate in its own way, and a source request has no window or preview tab choice
+    if (navigatable.getClass() != OpenFileDescriptor.class) {
+      return navigatable;
+    }
+    var descriptor = (OpenFileDescriptor)navigatable;
+    if (descriptor.isUseCurrentWindow() || descriptor.isUsePreviewTab()) {
+      return navigatable;
+    }
+    return new Navigatable() {
+      @Override
+      public @Nullable NavigationRequest navigationRequest() {
+        return NavigationRequest.sourceNavigationRequest(myProject, descriptor.getFile(), descriptor.getOffset());
+      }
+
+      @Override
+      public void navigate(boolean requestFocus) {
+        descriptor.navigate(requestFocus);
+      }
+
+      @Override
+      public boolean canNavigate() {
+        return descriptor.canNavigate();
+      }
+
+      @Override
+      public boolean canNavigateToSource() {
+        return descriptor.canNavigateToSource();
+      }
+    };
   }
 
   @Override
