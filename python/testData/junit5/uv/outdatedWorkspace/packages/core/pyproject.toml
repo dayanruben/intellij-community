@@ -2,4 +2,4 @@
 name = "core"
 version = "0.1.0"
 requires-python = ">=3.9"
-dependencies = ["idna==3.4"]
+dependencies = ["idna==3.15"]
