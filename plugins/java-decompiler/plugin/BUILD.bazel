@@ -1,4 +1,5 @@
 load("@community//build:tests-options.bzl", "jps_test")
+load("@community//platform/build-scripts/bazel-rules:ij_plugin.bzl", "ij_plugin")
 load("@jps_dynamic_deps_community//:targets.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
@@ -26,12 +27,12 @@ dev_dist_plugin(
     content_modules = ["intellij.java.decompiler.engine"],
     descriptor = "resources/META-INF/plugin.xml",
     jars = {
-        "lib/java-decompiler.jar": [
-            "intellij.java.decompiler",
-            "intellij.java.decompiler.engine",
-        ],
+        "lib/java-decompiler.jar": ["intellij.java.decompiler"],
     },
     main_module = "intellij.java.decompiler",
+    module_jar_paths = {
+        "intellij.java.decompiler.engine": "lib/intellij.java.decompiler.engine.jar",
+    },
 )
 ### auto-generated section `dev intellij.java.decompiler` end
 
@@ -78,6 +79,15 @@ jvm_library(
     ],
 )
 ### auto-generated section `build intellij.java.decompiler` end
+
+### auto-generated section `plugin intellij.java.decompiler` start
+ij_plugin(
+    name = "java-decompiler_plugin",
+    descriptor_module = ":java-decompiler",
+    content_modules = ["//plugins/java-decompiler/engine"],
+    visibility = ["//visibility:public"],
+)
+### auto-generated section `plugin intellij.java.decompiler` end
 
 ### auto-generated section `iml intellij.java.decompiler` start
 exports_files(

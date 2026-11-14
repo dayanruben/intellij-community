@@ -12,6 +12,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.setValue
 import com.intellij.icons.AllIcons
+import com.intellij.ide.actions.RevealFileAction
 import com.intellij.ide.impl.ProjectUtil
 import com.intellij.mcpserver.McpServerBundle
 import com.intellij.mcpserver.clients.McpClient
@@ -20,6 +21,7 @@ import com.intellij.mcpserver.createStdioMcpServerJsonConfiguration
 import com.intellij.mcpserver.createStreamableServerJsonEntry
 import com.intellij.mcpserver.frontend.util.getConsentDialog
 import com.intellij.mcpserver.icons.McpserverIcons
+import com.intellij.mcpserver.impl.IJ_MCP_AUTH_TOKEN
 import com.intellij.mcpserver.impl.McpClientDetector
 import com.intellij.mcpserver.impl.McpServerService
 import com.intellij.mcpserver.impl.McpServerServiceImpl
@@ -42,8 +44,10 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.util.NlsActions
 import com.intellij.openapi.util.NlsContexts
+import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.platform.compose.swing.ComposeSwingSearchableConfigurable
+import com.intellij.platform.compose.swing.components.ActionLink
 import com.intellij.platform.compose.swing.components.BrowserLink
 import com.intellij.platform.compose.swing.components.Comment
 import com.intellij.platform.compose.swing.components.FormGap
@@ -56,6 +60,8 @@ import com.intellij.platform.ide.progress.TaskCancellation
 import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.ui.JBColor
 import com.intellij.util.io.createParentDirectories
+import com.intellij.util.system.LowLevelLocalMachineAccess
+import com.intellij.util.system.OS
 import com.intellij.util.ui.ColorizeProxyIcon
 import com.intellij.util.ui.TextTransferable
 import kotlinx.coroutines.CoroutineScope
@@ -77,12 +83,13 @@ import org.jetbrains.annotations.TestOnly
 import org.jetbrains.compose.swing.components.Label
 import org.jetbrains.compose.swing.components.button.Button
 import org.jetbrains.compose.swing.components.button.CheckBox
+import org.jetbrains.compose.swing.components.style.icon
 import org.jetbrains.compose.swing.components.text.TextField
 import org.jetbrains.compose.swing.modifier.SwingModifier
-import org.jetbrains.compose.swing.modifier.appearance.icon
-import org.jetbrains.compose.swing.modifier.appearance.toolTip
-import org.jetbrains.compose.swing.modifier.interaction.enabled
-import org.jetbrains.compose.swing.modifier.layout.visible
+import org.jetbrains.compose.swing.style.enabled
+import org.jetbrains.compose.swing.style.styleable
+import org.jetbrains.compose.swing.style.toolTip
+import org.jetbrains.compose.swing.style.visible
 import java.nio.file.Files
 import java.nio.file.Path
 import javax.swing.Icon
@@ -152,7 +159,7 @@ class McpServerSettingsConfigurable : ComposeSwingSearchableConfigurable() {
       // TODO Ask the page's owners whether those 8px are meant. They only show while the server is on - the
       //  state in which the row they come from is invisible - which reads more like a side effect of
       //  visibleIf than a decision. If they are not, this goes back to being an `if` and the page moves up.
-      FormRow { Comment(disabledExplanationHtml, modifier = SwingModifier.visible(!enabled)) }
+      FormRow { Comment(disabledExplanationHtml, modifier = SwingModifier.styleable { visible(!enabled) }) }
 
       if (enabled) {
         projectClients?.let { ProjectClientsGroup(it) }
@@ -250,6 +257,8 @@ class McpServerSettingsConfigurable : ComposeSwingSearchableConfigurable() {
       )
     }
     if (enabled) {
+      val tokenFile = McpServerService.getInstance().globalAuthTokenFile
+      @NlsSafe val tokenFileStr = tokenFile.toString()
       FormGroup(McpServerBundle.message("mcp.server.global.configuration"), indent = true) {
         FormRow(McpServerBundle.message("mcp.server.global.port.label")) {
           TextField(
@@ -266,7 +275,7 @@ class McpServerSettingsConfigurable : ComposeSwingSearchableConfigurable() {
             columns = PORT_TXT_WIDTH
           )
           portChangedWarning?.let {
-            Label(text = "", modifier = SwingModifier.gap(FormRightGap.SMALL).icon(AllIcons.General.Warning))
+            Label(text = "", modifier = SwingModifier.gap(FormRightGap.SMALL), style = { icon(AllIcons.General.Warning) })
             Comment(it)
           }
         }
@@ -274,18 +283,50 @@ class McpServerSettingsConfigurable : ComposeSwingSearchableConfigurable() {
           BrowserLink(
             text = sseUrl,
             url = sseUrl,
-            modifier = SwingModifier.gap(FormRightGap.SMALL).toolTip(sseUrl),
+            modifier = SwingModifier.gap(FormRightGap.SMALL).styleable { toolTip(sseUrl) },
           )
-          BrowserLink(text = streamUrl, url = streamUrl, modifier = SwingModifier.toolTip(streamUrl))
+          BrowserLink(text = streamUrl, url = streamUrl, modifier = SwingModifier.styleable { toolTip(streamUrl) })
+        }
+        FormRow(McpServerBundle.message("mcp.server.global.token")) {
+          ActionLink(
+            text = tokenFileStr,
+            onClick = { RevealFileAction.openFile(tokenFile) },
+            modifier = SwingModifier.styleable { toolTip(RevealFileAction.getActionName()) },
+          )
+        }
+        FormRow(comment = McpServerBundle.message("mcp.server.global.token.comment", IJ_MCP_AUTH_TOKEN)) {
+          ActionLink(
+            text = McpServerBundle.message("copy.mcp.server.token.file.path"),
+            onClick = { CopyPasteManager.getInstance().setContents(TextTransferable(tokenFileStr as CharSequence)) },
+          )
         }
       }
     }
   }
 
+  @OptIn(LowLevelLocalMachineAccess::class)
+  private fun exportEnvToken(tokenFile: Path): String =
+    if (OS.CURRENT == OS.Windows) {
+      $$"$env:$$IJ_MCP_AUTH_TOKEN = Get-Content \"$$tokenFile\""
+    }
+    else {
+      $$"export $$IJ_MCP_AUTH_TOKEN=\"$(cat \"$$tokenFile\")\""
+    }
+
   @Composable
   private fun FormScope.ProjectClientsGroup(projectClients: ProjectClientsState) {
+    val tokenFile = McpServerService.getInstance().globalAuthTokenFile
     FormGroup(McpServerBundle.message("settings.client.project.group", projectClients.projectName), indent = false) {
-      FormComment(McpServerBundle.message("settings.client.project.setup.description"))
+      FormComment(McpServerBundle.message("settings.client.project.setup.description", IJ_MCP_AUTH_TOKEN))
+      FormIndent {
+        FormRow {
+          ActionLink(
+            text = McpServerBundle.message("settings.client.project.setup.copy.env.cmd"),
+            onClick = { CopyPasteManager.getInstance().setContents(TextTransferable(exportEnvToken(tokenFile) as CharSequence)) },
+            modifier = SwingModifier.styleable { toolTip(McpServerBundle.message("settings.client.project.setup.copy.env.cmd.tooltip")) },
+          )
+        }
+      }
       FormIndent {
         projectClients.clients.forEach { key(it.displayName) { ClientRows(it) } }
       }
@@ -304,6 +345,7 @@ class McpServerSettingsConfigurable : ComposeSwingSearchableConfigurable() {
 
   @Composable
   private fun FormScope.ManualConfigGroup() {
+    val server = McpServerService.getInstance()
     FormGroup(McpServerBundle.message("mcp.general.client"), indent = false) {
       FormComment(McpServerBundle.message("settings.comment.manual.config"))
       FormIndent {
@@ -311,23 +353,29 @@ class McpServerSettingsConfigurable : ComposeSwingSearchableConfigurable() {
         FormRow {
           Button(
             McpServerBundle.message("copy.mcp.server.sse.configuration"),
-            modifier = SwingModifier.enabled(serverRunning),
+            style = { enabled(serverRunning) },
             onClick = {
-              copyJsonToClipboard(createSseServerJsonEntry(McpServerService.getInstance().port, mcpPath()))
+              copyJsonToClipboard(createSseServerJsonEntry(server.port,
+                                                           mcpPath(),
+                                                           server.getGlobalAuthToken()))
             },
           )
           Button(
             McpServerBundle.message("copy.mcp.server.stdio.configuration"),
-            modifier = SwingModifier.enabled(serverRunning),
+            style = { enabled(serverRunning) },
             onClick = {
-              copyJsonToClipboard(createStdioMcpServerJsonConfiguration(McpServerService.getInstance().port, mcpPath()))
+              copyJsonToClipboard(createStdioMcpServerJsonConfiguration(server.port,
+                                                                        mcpPath(),
+                                                                        server.getGlobalAuthToken()))
             },
           )
           Button(
             McpServerBundle.message("copy.mcp.server.stream.configuration"),
-            modifier = SwingModifier.enabled(serverRunning),
+            style = { enabled(serverRunning) },
             onClick = {
-              copyJsonToClipboard(createStreamableServerJsonEntry(McpServerService.getInstance().port, mcpPath()))
+              copyJsonToClipboard(createStreamableServerJsonEntry(server.port,
+                                                                  mcpPath(),
+                                                                  server.getGlobalAuthToken()))
             },
           )
         }
@@ -388,10 +436,10 @@ class McpServerSettingsConfigurable : ComposeSwingSearchableConfigurable() {
         onClick = state.onAutoConfigure,
         options = options,
         addSeparator = false,
-        modifier = SwingModifier.enabled(serverRunning),
+        modifier = SwingModifier.styleable { enabled(serverRunning) },
       )
       state.statusIcon?.let {
-        Label(text = "", modifier = SwingModifier.gap(FormRightGap.SMALL).icon(it))
+        Label(text = "", modifier = SwingModifier.gap(FormRightGap.SMALL), style = { icon(it) })
       }
       if (state.statusText.isNotEmpty()) {
         if (state.statusIsComment) Comment(state.statusText) else Label(state.statusText)
@@ -471,7 +519,7 @@ class McpServerSettingsConfigurable : ComposeSwingSearchableConfigurable() {
   /** Owns the mutable per-client status and derives an immutable [ClientRowState] for the view. */
   private inner class ClientController(val client: McpClient, val project: Project?) {
     private var isConfigured = client.isConfigured() ?: false
-    private var isPortCorrect = client.isPortCorrect()
+    private var isConfigUpToDate = client.isConfigUpToDate()
     private var autoConfigured = false
     private var errorMessage: String? = null
 
@@ -492,7 +540,7 @@ class McpServerSettingsConfigurable : ComposeSwingSearchableConfigurable() {
         autoConfigured = false
       }
       isConfigured = client.isConfigured() ?: false
-      isPortCorrect = client.isPortCorrect()
+      isConfigUpToDate = client.isConfigUpToDate()
     }
 
     /** How the client stands, in the order the states override one another. */
@@ -509,7 +557,7 @@ class McpServerSettingsConfigurable : ComposeSwingSearchableConfigurable() {
 
       return when {
         autoConfigured -> ClientStatus.configured(McpServerBundle.message("mcp.server.client.restart.info.settings", configured))
-        isConfigured && isPortCorrect -> ClientStatus.configured(configured)
+        isConfigured && isConfigUpToDate -> ClientStatus.configured(configured)
         isConfigured -> ClientStatus.problem(McpServerBundle.message("mcp.server.configured.port.invalid"))
         else -> ClientStatus(
           icon = ColorizeProxyIcon.Simple(McpserverIcons.Expui.StatusDisabled, JBColor.GRAY),
@@ -574,7 +622,7 @@ class McpServerSettingsConfigurable : ComposeSwingSearchableConfigurable() {
       }.onSuccess {
         errorMessage = null
         isConfigured = true
-        isPortCorrect = true
+        isConfigUpToDate = true
         autoConfigured = true
       }
       refreshClients()

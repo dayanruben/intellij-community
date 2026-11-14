@@ -429,6 +429,7 @@ libraries/ai-grazie-semantic-engine
 libraries/ai.grazie.spell.gec.engine.local
 libraries/allure/java-commons
 libraries/androidx-collections
+libraries/antlr4-runtime
 libraries/asm
 libraries/asm-tools
 libraries/assertj-core
@@ -1969,7 +1970,7 @@ python/IntelliLang-python
 python/aliasProvider
 python/build
 python/build/build-debug-binaries
-python/build/tests/disabled
+python/build/tests/sdks
 python/common
 python/conda
 python/conda/common

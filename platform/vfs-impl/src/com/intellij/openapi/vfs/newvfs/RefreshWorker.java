@@ -4,6 +4,7 @@ package com.intellij.openapi.vfs.newvfs;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.diagnostic.ThrottledLogger;
 import com.intellij.openapi.progress.Cancellation;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.SystemInfoRt;
@@ -68,9 +69,11 @@ import static com.intellij.util.containers.CollectionFactory.createFilePathMap;
 import static com.intellij.util.containers.CollectionFactory.createFilePathSet;
 import static com.intellij.util.containers.FastUtilHashingStrategies.getCaseInsensitiveStringStrategy;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
+import static java.util.concurrent.TimeUnit.SECONDS;
 
 final class RefreshWorker {
   private static final Logger LOG = Logger.getInstance(RefreshWorker.class);
+  private static final ThrottledLogger THROTTLED_LOG = new ThrottledLogger(LOG, SECONDS.toMillis(30));
 
   private static final int PARALLELISM = MathUtil.clamp(
     Registry.intValue("vfs.refresh.worker.parallelism", 6),
@@ -182,8 +185,8 @@ final class RefreshWorker {
           try {
             attributes = computeAttributesForFile(fs, fakeChild);
           }
-          catch (FileSystemUnavailableException _) {
-            LOG.info("refresh skipped a new file, the file system is unavailable: " + fakeChild);
+          catch (FileStateUnknownException e) {
+            THROTTLED_LOG.info("refresh skipped a new file, the FS can't tell its state: " + fakeChild + ": " + e.getMessage());
             continue;
           }
           if (attributes == null) continue;
@@ -320,8 +323,8 @@ final class RefreshWorker {
           dir.markClean();
         }
       }
-      catch (FileSystemUnavailableException _) {
-        LOG.info("refresh skipped, the file system is unavailable: " + file);
+      catch (FileStateUnknownException e) {
+        THROTTLED_LOG.info("refresh skipped, the FS can't tell the state: " + file + ": " + e.getMessage());
         skipped.add(file);
       }
       finally {
@@ -331,7 +334,7 @@ final class RefreshWorker {
   }
 
   private boolean fullDirRefresh(List<VFileEvent> events, NewVirtualFileSystem fs, VirtualDirectoryImpl dir)
-    throws FileSystemUnavailableException {
+    throws FileStateUnknownException {
     var t = System.nanoTime();
     Pair<VirtualFile[], List<String>> snapshot = ReadAction.computeBlocking(() -> {
       VirtualFile[] children = dir.getChildren();
@@ -344,11 +347,13 @@ final class RefreshWorker {
     boolean dirIsCaseSensitive = dir.isCaseSensitive();
 
     Map<String, FileAttributes> childrenWithAttributes;
+    Set<String> unknownNames = createFilePathSet(/*expectedSize: */0, dirIsCaseSensitive);
     t = System.nanoTime();
-    if (fs instanceof BatchingFileSystem) {
-      childrenWithAttributes = adjustCaseSensitivity(
-        computeAllChildrenAttributes((BatchingFileSystem)fs, dir, /*filter: */null),
-        dirIsCaseSensitive
+    if (fs instanceof BatchingFileSystem batchingFileSystem) {
+      childrenWithAttributes = listOrCheckByName(
+        batchingFileSystem, dir, /*filter: */null, dirIsCaseSensitive,
+        /* namesToCheck: */ vfsNames,
+        /* unknownNames: */  unknownNames
       );
     }
     else {
@@ -370,6 +375,7 @@ final class RefreshWorker {
 
     Set<String> deletedNames = createFilePathSet(vfsNames, dirIsCaseSensitive);
     childrenWithAttributes.keySet().forEach(deletedNames::remove);
+    unknownNames.forEach(deletedNames::remove);
 
     ObjectOpenCustomHashSet<String> actualNames = dirIsCaseSensitive ?
                                                   null :
@@ -395,7 +401,7 @@ final class RefreshWorker {
 
     List<Pair<VirtualFile, FileAttributes>> existingMap = new ArrayList<>(vfsChildren.length - deletedNames.size());
     for (VirtualFile child : vfsChildren) {
-      if (!deletedNames.contains(child.getName())) {
+      if (!deletedNames.contains(child.getName()) && !unknownNames.contains(child.getName())) {
         existingMap.add(new Pair<>(child, getAttributes(fs, childrenWithAttributes, child)));
       }
     }
@@ -430,7 +436,7 @@ final class RefreshWorker {
   }
 
   private boolean partialDirRefresh(List<VFileEvent> events, NewVirtualFileSystem fs, VirtualDirectoryImpl dir)
-    throws FileSystemUnavailableException {
+    throws FileStateUnknownException {
     var t = System.nanoTime();
     Pair<List<VirtualFile>, List<String>> snapshot = ReadAction.computeBlocking(
       () -> new Pair<>(dir.getCachedChildren(), dir.getSuspiciousNames())
@@ -444,11 +450,11 @@ final class RefreshWorker {
     for (VirtualFile file : cached) namesToRefresh.add(file.getName());
 
     Map<String, FileAttributes> childrenWithAttributes = null;
+    Set<String> unknownNames = createFilePathSet(/*expectedSize: */ 0, dirIsCaseSensitive);
     if (fs instanceof BatchingFileSystem batchingFileSystem) {
       t = System.nanoTime();
-      childrenWithAttributes = adjustCaseSensitivity(
-        computeAllChildrenAttributes(batchingFileSystem, dir, namesToRefresh),
-        dirIsCaseSensitive
+      childrenWithAttributes = listOrCheckByName(
+        batchingFileSystem, dir, namesToRefresh, dirIsCaseSensitive, /*namesToCheck: */namesToRefresh, unknownNames
       );
       ioTime.addAndGet(System.nanoTime() - t);
     }
@@ -483,7 +489,9 @@ final class RefreshWorker {
 
     List<Pair<VirtualFile, FileAttributes>> existingMap = cached.isEmpty() ? List.of() : new ArrayList<>(cached.size());
     for (VirtualFile child : cached) {
-      existingMap.add(new Pair<>(child, getAttributes(fs, childrenWithAttributes, child)));
+      if (!unknownNames.contains(child.getName())) {
+        existingMap.add(new Pair<>(child, getAttributes(fs, childrenWithAttributes, child)));
+      }
     }
 
     checkCancelled(dir);
@@ -504,6 +512,62 @@ final class RefreshWorker {
     var changed = ReadAction.computeBlocking(() -> !cached.equals(dir.getCachedChildren()) || !wanted.equals(dir.getSuspiciousNames()));
     vfsTime.addAndGet(System.nanoTime() - t);
     return changed;
+  }
+
+  /// Gets the actual children of `dir`, to compare with the VFS children.
+  /// The answer has 3 states for a name:
+  /// - child exists: childName is in the result map;
+  /// - child is unknown: childName is returned in `unknownNames`;
+  /// - child is absent: not in result, not in `unknownNames`
+  /// It is expected that the caller deletes the absent children from VFS -- but keeps the unknown children as-is.
+  /// <p>
+  /// A successful listing is returned as-is: [BatchingFileSystem#listWithAttributes] promises a complete listing, `unknownNames`
+  /// remains empty.
+  /// A failed listing does not prove that a child is absent -- e.g. it could be the user has no access to the dir listing, but has
+  /// access to specific children -- so then the method checks each of `namesToCheck`, and adds `dir` to `skipped`.
+  ///
+  /// @param filter       the names to list, or null for all names
+  /// @param namesToCheck the names to check one by one if the listing fails: the VFS children, and the wanted names of a partial scan
+  /// @param unknownNames out: the names whose state is unknown. The caller generates no event for them
+  /// @return the existing children with their attributes
+  /// @throws FileSystemUnavailableException if the file system is unavailable
+  private @NotNull Map<String, FileAttributes> listOrCheckByName(@NotNull BatchingFileSystem fs,
+                                                                 @NotNull VirtualDirectoryImpl dir,
+                                                                 @Nullable Set<String> filter,
+                                                                 boolean caseSensitive,
+                                                                 @NotNull Collection<String> namesToCheck,
+                                                                 @NotNull Set<String> unknownNames) throws FileSystemUnavailableException {
+    try {
+      return adjustCaseSensitivity(computeAllChildrenAttributes(fs, dir, filter), caseSensitive);
+    }
+    catch (FileSystemUnavailableException e) {
+      throw e;
+    }
+    catch (FileStateUnknownException e) {
+      THROTTLED_LOG.info("refresh checks the children by name, the listing failed: " + dir + ": " + e.getMessage());
+    }
+
+    // without a listing, no new child appears, and the next refresh must try the listing again
+    skipped.add(dir);
+    Map<String, FileAttributes> childrenWithAttributes = createFilePathMap(namesToCheck.size(), caseSensitive);
+    for (String name : namesToCheck) {
+      FakeVirtualFile child = new FakeVirtualFile(dir, name);
+      try {
+        // non-cancellable, see computeAttributesForFile()
+        FileAttributes attributes = Cancellation.computeInNonCancelableSection(() -> fs.getAttributesOrThrow(child));
+        if (attributes != null) {
+          childrenWithAttributes.put(name, attributes);
+        }
+      }
+      catch (FileSystemUnavailableException e) {
+        throw e;
+      }
+      catch (FileStateUnknownException e) {
+        LOG.debug("refresh keeps a child, the file system cannot tell its state: " + child, e);
+        unknownNames.add(name);
+      }
+    }
+    return childrenWithAttributes;
   }
 
   /**
@@ -532,7 +596,7 @@ final class RefreshWorker {
 
   private @Nullable FileAttributes getAttributes(@NotNull NewVirtualFileSystem fs,
                                                  @Nullable Map<String, FileAttributes> dirList,
-                                                 @NotNull VirtualFile child) throws FileSystemUnavailableException {
+                                                 @NotNull VirtualFile child) throws FileStateUnknownException {
     FileAttributes attributes = null;
     if (dirList != null) {
       attributes = dirList.get(child.getName());
@@ -552,11 +616,14 @@ final class RefreshWorker {
    * The non-cancellable section here is merely a reification of the existing implicit assumption on cancellability,
    * so it does not make anything worse.
    * In the future, it should be removed in favor of non-blocking or suspending IO.
+   * <p>
+   * @throws FileStateUnknownException when the state of a file is unknown => the refresh should keep the file and keep it dirty, with
+   * no events, until the state become known
    */
   private static @Nullable FileAttributes computeAttributesForFile(NewVirtualFileSystem fs, VirtualFile file)
-    throws FileSystemUnavailableException {
-    return Cancellation.computeInNonCancelableSection(() -> fs instanceof UnavailabilityAwareFileSystem uafs
-                                                            ? uafs.getAttributesOrThrowIfUnavailable(file)
+    throws FileStateUnknownException {
+    return Cancellation.computeInNonCancelableSection(() -> fs instanceof BatchingFileSystem bfs
+                                                            ? bfs.getAttributesOrThrow(file)
                                                             : fs.getAttributes(file));
   }
 
@@ -564,10 +631,8 @@ final class RefreshWorker {
   private static Map<String, FileAttributes> computeAllChildrenAttributes(@NotNull BatchingFileSystem fs,
                                                                           @NotNull VirtualFile dir,
                                                                           @Nullable Set<String> filter)
-    throws FileSystemUnavailableException {
-    return Cancellation.computeInNonCancelableSection(() -> fs instanceof UnavailabilityAwareFileSystem uafs
-                                                            ? uafs.listWithAttributesOrThrowIfUnavailable(dir, filter)
-                                                            : fs.listWithAttributes(dir, filter));
+    throws FileStateUnknownException {
+    return Cancellation.computeInNonCancelableSection(() -> fs.listWithAttributes(dir, filter));
   }
 
   private ChildInfo childRecord(NewVirtualFileSystem fs, FakeVirtualFile child, FileAttributes attributes, boolean canonicalize) {

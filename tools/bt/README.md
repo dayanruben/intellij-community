@@ -50,6 +50,14 @@ shard, and forces one shard. `--dry-run` shows these groups as `heavy`, `argv` a
 `out/bt/profile-heavy.json.gz`, `out/bt/profile.json.gz` and `out/bt/profile-single.json.gz`. An explicit `--shards` and
 a BEP file of the caller give one invocation.
 
+A plan entry is a hint, because the plan keeps the targets of each branch that ran in the checkout. Bazel fails each
+invocation that names a target that the tree does not have, also as a negative pattern. So `bazel query` finds the
+test targets of the patterns in the current tree before the first invocation. The heavy and single groups name only
+those targets. A stderr line names the targets of the plan that the query does not find. A plan that names no heavy
+or single-shard target of the patterns needs no query. A query file that bt cannot write leaves each target in the
+second group. A query that ends without a verdict, such as after an interrupt, stops the run as INFRA. `--dry-run`
+runs no query, so it shows the groups of the plan unchecked, and a `note` line says so.
+
 A shard that hits the Bazel timeout of its target is a shard timeout. The digest names the shard and the test where it
 stopped, and that test is not a failure. The `--json` payload lists the shard in `shardTimeouts`. When the times of
 such a target in the run want more than two shards, bt raises its record in the plan, so the next run makes it a
@@ -86,8 +94,11 @@ status or the exit code.
 ## Builds
 
 `bt build <pattern>...` runs `bazel build -k` over target patterns that start with `//` or `@`, with the UI of bazel
-silenced. The digest is `BUILD OK`, or `BUILD FAILED` with the compile errors and the targets that did not build.
-`bins/bt/src/build.rs` holds it. The exit code is 0, 5 for a build failure, or 6 for any other exit of bazel.
+silenced. The digest is `BUILD OK`, or `BUILD FAILED` with the build errors and the targets that did not build. A
+build error is a compile error, or the description of a loading or analysis failure in the BEP, such as `no such
+package`. A `BUILD FAILED` test run names the same build errors, and it shows the tail of the bazel output on the
+stderr when it has none. `bins/bt/src/build.rs` holds `bt build`. The exit code is 0, 5 for a build failure, or 6 for
+any other exit of bazel.
 
 Bazel exits 0 for a pattern under an ignored directory: it only warns, and it builds nothing for that pattern. So a
 green build is `BUILD OK` only when the BEP names a completed target and bazel dropped no pattern. Otherwise the digest

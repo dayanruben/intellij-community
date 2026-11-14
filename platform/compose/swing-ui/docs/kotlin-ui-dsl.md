@@ -4,8 +4,8 @@ The DSL builds a form by calling into a builder; here the form *is* the composit
 through everything below:
 
 - **Visibility and enabled state differ.** A conditional can replace `visibleIf` when removing the control preserves its state contract.
-  Use `SwingModifier.visible(...)` when the hidden control must keep its state and identity.
-  Use `SwingModifier.enabled(...)` for one control or `ProvideComponentDefaults(DefaultEnabled provides enabled)` for a composed region. Disable children inside a hosted Swing container through its own enabled contract.
+  Use `style = { visible(...) }` when the hidden control must keep its state and identity.
+  Use `style = { enabled(...) }` for one control, or `style = { provideNestedStyle(AllComponents) { enabled(...) } }` on a container for a composed region. Disable children inside a hosted Swing container through its own enabled contract.
 - **Binding is state, not a call.** `bindSelected(prop)` becomes `bind(prop)` on the configurable, read and
   written as an ordinary `var`.
 
@@ -141,13 +141,13 @@ override fun apply() {
 }
 ```
 
-To mark the offending field as well, use the outline modifier:
+To mark the offending field as well, set its outline in the style:
 
 ```kotlin
 TextField(
   value = host,
   onValueChange = { host = it },
-  modifier = SwingModifier.errorOutline(host.isBlank()),
+  style = { errorOutline(host.isBlank()) },
 )
 ```
 
@@ -217,14 +217,14 @@ Two consequences decide whether a settings page should be split this way at all:
 |---|---|---|
 | `cell(component)` | `SwingNode(factory = { component })` | |
 | `cell()` | omit the cell | |
-| `scrollCell(component)` | `ScrollPane { }` | |
+| `scrollCell(component)` | `ScrollPane { Viewport { } }` | Import `ScrollPane` from `com.intellij.platform.compose.swing.components.layout`. It builds a `JBScrollPane`, as `scrollCell` does |
 | `placeholder()` | **obsolete by design** | Conditional content is native |
 | `panel { }` | a nested `FormPanel` | |
 | `layout(RowLayout)` | - | The form derives the layout from the row |
 | `resizableRow()` | `FormRow(resizable = true)` | |
 | `rowComment(...)` | `FormRow(comment = ...)` | `FormComment(...)` is a row holding nothing but a comment |
-| `visible` / `visibleIf` | `if (condition)`, or `SwingModifier.visible(...)` | |
-| `enabled` / `enabledIf` | `SwingModifier.enabled(...)` | Per component |
+| `visible` / `visibleIf` | `if (condition)`, or `style = { visible(...) }` | |
+| `enabled` / `enabledIf` | `style = { enabled(...) }` | Per component |
 | `topGap(TopGap.X)` / `bottomGap(BottomGap.X)` | `FormRow(topGap = FormGap.X)` / `bottomGap = FormGap.X` | `FormGap` names the same NONE/SMALL/MEDIUM steps. A dropped gap is invisible in a diff: the rows still line up but stand closer together. Read the gaps off every row of the original page |
 | `customize(UnscaledGapsY)` | **gap** | Only the named steps; a row wanting an exact distance stays with `panel {}` |
 | `checkBox(text)` | `CheckBox` | |
@@ -237,14 +237,14 @@ Two consequences decide whether a settings page should be split this way at all:
 | `label(text)` | `Label` | |
 | `text(text, maxLineLength, action)` | `Label` for plain text | `Comment` is dimmed. `Comment` has no `action` parameter: it opens `<a href>` links in a browser. **Gap** for a custom link action; use `ActionLink` or `SwingNode` |
 | `comment(comment, maxLineLength, action)` | `Comment` | By default it wraps to the width its row has left. Pass `maxLineLength` for a fixed width. **Gap** for `action`, as in `text` |
-| `link(text, action)` | `ActionLink` | |
+| `link(text, action)` | `ActionLink` | The link icon and the visited state are style setters: `style = { externalLinkIcon() }` |
 | `browserLink(text, url)` | `BrowserLink` | |
 | `dropDownLink(item, items)` | `DropDownLink` | |
-| `icon(icon)` | `SwingModifier.icon(...)` | `AllIcons` directly, with no icon-key indirection |
+| `icon(icon)` | `Label(style = { icon(...) })` | `AllIcons` directly, with no icon-key indirection |
 | `contextHelp(description, title)` | `SwingNode(factory = { ContextHelpLabel.create(...) })` | Deliberately unwrapped |
 | `textField()` | `TextField` | |
 | `passwordField()` | `PasswordField` | |
-| `textArea()` | `ScrollPane { TextArea(...) }` | The DSL wraps the area in a scroll pane, but `TextArea` does not |
+| `textArea()` | `ScrollPane { Viewport { TextArea(...) } }` | The DSL wraps the area in a scroll pane, but `TextArea` does not |
 | `intTextField(range, keyboardStep)` | **gap** | `Spinner` for a bounded number, otherwise `SwingNode` over `JBTextField` |
 | `spinner(range, step)` | `Spinner` | |
 | `comboBox(model / items, renderer)` | `ComboBox` | |
@@ -266,8 +266,8 @@ Two consequences decide whether a settings page should be split this way at all:
 | `comment(...)` / `commentRight(...)` | `FormRow(comment = ..., commentMaxLineLength = ...)` | **Gap** for `commentRight`: a `Comment` placed as a second control gets the default gap, not the comment gap, and does not describe the control for accessibility |
 | `focused()` | `SwingModifier.initialFocus()` | |
 | `applyToComponent { }` | the `update` block of `SwingNode` | |
-| `bold()` | `SwingModifier.font(...)` | |
-| `accessibleName` / `accessibleDescription` | the library's accessibility modifiers | |
+| `bold()` | `style = { font(...) }` | |
+| `accessibleName` / `accessibleDescription` | `style = { accessibleName(...) }` / `style = { accessibleDescription(...) }` | |
 | `contextHelp(...)` | `SwingNode(factory = { ContextHelpLabel.create(...) })` | |
 | `applyIfEnabled()` | **gap** | `apply()` writes every binding, also the binding of a disabled control. Use the computed `bind(get, set)` and check the enabled condition in `set` |
 | `onChanged` / `onChangedContext` | the component's own callback | |
@@ -275,12 +275,12 @@ Two consequences decide whether a settings page should be split this way at all:
 | `bind(get, set, prop)` and every `bind*` extension | `bind(...)` on the configurable | `bindSelected`, `bindText`, `bindIntText`, `bindItem`, `bindValue`, `bindIntValue`, `bindState` |
 | `widthGroup(group)` | `SwingModifier.widthGroup(group)` | Controls in the group have the same width. A cell cannot also use `FormAlignX.FILL` |
 | `validationOnApply` / `errorOnApply` / `addValidationRule` | `ConfigurationException` from `apply` | See [Refusing a value](#refusing-a-value) |
-| `validationOnInput` / `validationRequestor` / `cellValidation` / `validationInfo` / `validation` | **gap** | No on-input validation framework; `SwingModifier.errorOutline(...)` for the look |
+| `validationOnInput` / `validationRequestor` / `cellValidation` / `validationInfo` / `validation` | **gap** | No on-input validation framework; the `errorOutline(...)` style setter for the look |
 
 ### `RowsRange` and `ButtonsGroup`
 
 | DSL | Compose |
 |---|---|
 | `RowsRange.visible` / `visibleIf` | a conditional, or visibility modifiers when the controls must retain their state |
-| `RowsRange.enabled` / `enabledIf` | enabled properties or `SwingModifier.enabled(...)` on the affected components |
+| `RowsRange.enabled` / `enabledIf` | `FormPanel(style = { provideNestedStyle(AllComponents) { enabled(...) } })` on a nested form, or `style = { enabled(...) }` on the affected components |
 | `ButtonsGroup.bind(prop, type)` | **gap**. `RadioGroup` from the library, bound by hand |

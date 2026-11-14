@@ -5,6 +5,10 @@ import com.intellij.mcpserver.clients.configs.STDIOServerConfig
 import com.intellij.mcpserver.clients.configs.ServerConfig
 import com.intellij.mcpserver.clients.configs.VSCodeNetworkConfig
 import com.intellij.mcpserver.clients.impl.VSCodeClient
+import com.intellij.mcpserver.createStdioMcpServerCommandLine
+import com.intellij.mcpserver.impl.IJ_MCP_AUTH_TOKEN
+import com.intellij.mcpserver.impl.McpServerService
+import com.intellij.mcpserver.impl.McpServerServiceImpl
 import com.intellij.testFramework.junit5.TestApplication
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -201,7 +205,7 @@ class McpClientTest {
     )
 
     assertTrue(client.hasPromotionCandidateConfig(expectedPort = 64342))
-    assertFalse(client.isPortCorrect(expectedPort = 64342))
+    assertFalse(client.isConfigUpToDate(expectedPort = 64342))
   }
 
   @Test
@@ -212,7 +216,7 @@ class McpClientTest {
     )
 
     assertTrue(client.hasPromotionCandidateConfig(expectedPort = 64342))
-    assertFalse(client.isPortCorrect(expectedPort = 64342))
+    assertFalse(client.isConfigUpToDate(expectedPort = 64342))
   }
 
   @Test
@@ -222,7 +226,7 @@ class McpClientTest {
     )
 
     assertTrue(client.hasPromotionCandidateConfig(expectedPort = 64342))
-    assertFalse(client.isPortCorrect(expectedPort = 64342))
+    assertFalse(client.isConfigUpToDate(expectedPort = 64342))
   }
 
   @Test
@@ -232,7 +236,7 @@ class McpClientTest {
     )
 
     assertTrue(client.hasPromotionCandidateConfig(expectedPort = 64342))
-    assertFalse(client.isPortCorrect(expectedPort = 64342))
+    assertFalse(client.isConfigUpToDate(expectedPort = 64342))
   }
 
   @Test
@@ -242,7 +246,7 @@ class McpClientTest {
     )
 
     assertFalse(client.hasPromotionCandidateConfig(expectedPort = 64342))
-    assertTrue(client.isPortCorrect(expectedPort = 64342))
+    assertTrue(client.isConfigUpToDate(expectedPort = 64342))
   }
 
   @Test
@@ -252,7 +256,7 @@ class McpClientTest {
     )
 
     assertFalse(client.hasPromotionCandidateConfig(expectedPort = 64342))
-    assertTrue(client.isPortCorrect(expectedPort = 64342))
+    assertTrue(client.isConfigUpToDate(expectedPort = 64342))
   }
 
   @Test
@@ -262,7 +266,63 @@ class McpClientTest {
     )
 
     assertFalse(client.hasPromotionCandidateConfig(expectedPort = 64342))
-    assertTrue(client.isPortCorrect(expectedPort = 64342))
+    assertTrue(client.isConfigUpToDate(expectedPort = 64342))
+  }
+
+  @Test
+  fun `global config without the auth token is outdated`() {
+    val client = PromotionAwareMcpClient(
+      linkedMapOf("fallback" to ExistingConfig(url = "http://localhost:64342/stream", type = "http"))
+    )
+
+    assertFalse(client.isConfigUpToDate(expectedPort = 64342))
+  }
+
+  @Test
+  fun `global config with the current auth token is correct`() {
+    val token = McpServerServiceImpl.getInstance().globalToken
+    val client = PromotionAwareMcpClient(
+      linkedMapOf("fallback" to ExistingConfig(url = "http://localhost:64342/stream", type = "http",
+                                               headers = mapOf(IJ_MCP_AUTH_TOKEN to token)))
+    )
+
+    assertTrue(client.isConfigUpToDate(expectedPort = 64342))
+  }
+
+  @Test
+  fun `global stdio config with the current auth token is correct`() {
+    val port = 64342
+    val cmd = createStdioMcpServerCommandLine(port, null, McpServerService.getInstance().getGlobalAuthToken())
+    val client = PromotionAwareMcpClient(
+      linkedMapOf("jetbrains" to ExistingConfig(command = cmd.exePath, args = cmd.parametersList.parameters, env = cmd.environment)),
+    )
+
+    assertTrue(client.isConfigUpToDate(expectedPort = port))
+  }
+
+  @Test
+  fun `global stdio config without the auth token is incorrect`() {
+    val port = 64342
+    val cmd = createStdioMcpServerCommandLine(port, null)
+    val client = PromotionAwareMcpClient(
+      linkedMapOf("jetbrains" to ExistingConfig(command = cmd.exePath, args = cmd.parametersList.parameters, env = cmd.environment)),
+    )
+
+    assertFalse(client.isConfigUpToDate(expectedPort = port))
+  }
+
+  @Test
+  fun `project stdio config without the auth token is correct`() {
+    val port = 64342
+    val projectPath = "/my/project"
+    val cmd = createStdioMcpServerCommandLine(port, null)
+    val scope = McpClientInfo.McpClientScope.McpClientProjectScope(projectPath)
+    val client = PromotionAwareMcpClient(
+      linkedMapOf("jetbrains" to ExistingConfig(command = cmd.exePath, args = cmd.parametersList.parameters, env = cmd.environment)),
+      scope = scope,
+    )
+
+    assertTrue(client.isConfigUpToDate(expectedPort = port))
   }
 }
 
@@ -279,8 +339,9 @@ private class TestableVSCodeClient : VSCodeClient(McpClientInfo.McpClientScope.M
 
 private class PromotionAwareMcpClient(
   private val servers: Map<String, ExistingConfig>?,
+  scope: McpClientInfo.McpClientScope = McpClientInfo.McpClientScope.McpClientGlobalScope,
 ) : McpClient(
-  mcpClientInfo = McpClientInfo(name = McpClientInfo.Name.CURSOR, scope = McpClientInfo.McpClientScope.McpClientGlobalScope),
+  mcpClientInfo = McpClientInfo(name = McpClientInfo.Name.CURSOR, scope = scope),
   configPath = Paths.get("promotion.json")
 ) {
   override fun readMcpServers(): Map<String, ExistingConfig>? = servers

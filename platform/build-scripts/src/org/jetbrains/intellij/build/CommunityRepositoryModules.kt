@@ -79,14 +79,6 @@ fun getCommunityRepositoryPlugins(): PersistentList<PluginLayout> {
     pluginAuto(listOf("intellij.vcs.git")) { spec ->
       spec.withModule("intellij.vcs.git.rt", "git4idea-rt.jar")
     },
-    pluginAuto(listOf("intellij.xpath")) { spec ->
-      spec.withModule("intellij.xpath.rt", "rt/xslt-rt.jar")
-    },
-    pluginAuto("intellij.tasks.core") { spec ->
-      spec.withModule("intellij.tasks")
-      spec.withModule("intellij.tasks.compatibility")
-      spec.withModule("intellij.tasks.java")
-    },
     // The relative paths below (`lib/maven3`, `lib/intellij.maven.server3`, ...) are a runtime contract, not an
     // internal packaging detail: the Maven plugin reads them back at runtime through
     // `MavenClasspathBuilder.addMavenServerLibraries` and `MavenDistributionsCache.resolveEmbeddedMavenHome`.
@@ -191,14 +183,6 @@ fun getCommunityRepositoryPlugins(): PersistentList<PluginLayout> {
       spec.withProjectLibrary("Ant", "ant", LibraryPackMode.STANDALONE_SEPARATE)
     },
     pluginAuto(listOf("intellij.gradle.java.plugin", "intellij.gradle.java")),
-    pluginAuto("intellij.junit") { spec ->
-      spec.withModule("intellij.junit.rt", "junit-rt.jar")
-      spec.withModule("intellij.junit.v5.rt", "junit5-rt.jar")
-      spec.withModule("intellij.junit.v6.rt", "junit6-rt.jar")
-    },
-    plugin("intellij.testng") { spec ->
-      spec.withModule("intellij.testng.rt", "testng-rt.jar")
-    },
     pluginAuto(listOf("intellij.devkit")) { spec ->
       spec.bundlingRestrictions.includeInDistribution = PluginDistribution.NOT_FOR_PUBLIC_BUILDS
     },
@@ -206,14 +190,7 @@ fun getCommunityRepositoryPlugins(): PersistentList<PluginLayout> {
       // explicitly pack JaCoCo as a separate JAR
       spec.withModuleLibrary(libraryName = "JaCoCo", moduleName = "intellij.java.coverage", relativeOutputPath = "jacoco.jar")
     },
-    plugin("intellij.java.decompiler") { spec ->
-      spec.withModule("intellij.java.decompiler.engine", spec.mainJarName)
-    },
-    pluginAuto("intellij.javaFX.community") { spec ->
-      spec.withModule("intellij.javaFX.sceneBuilder", "rt/sceneBuilderBridge.jar")
-    },
     pluginAuto("intellij.terminal") { spec ->
-      spec.withModule("intellij.terminal.completion")
       spec.withResource("resources/shell-integrations", "shell-integrations")
       // bundle the libghostty-vt native library
       for (platform in SUPPORTED_DISTRIBUTIONS) {
@@ -243,9 +220,6 @@ fun getCommunityRepositoryPlugins(): PersistentList<PluginLayout> {
       spec.bundlingRestrictions.includeInDistribution = PluginDistribution.NOT_FOR_RELEASE
     },
     pluginAuto(listOf("intellij.lombok.plugin")),
-    pluginAuto("intellij.java.jshell") { spec ->
-      spec.withModule("intellij.java.jshell.protocol", "jshell-protocol.jar")
-    },
   ).addingAll(allJcefPlugins().toList())
 }
 

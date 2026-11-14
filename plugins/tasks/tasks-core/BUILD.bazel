@@ -9,24 +9,23 @@ dev_dist_plugin(
         "intellij.tasks.bugzilla",
         "intellij.tasks.jira",
         "intellij.tasks.java",
-        "intellij.libraries.xml.rpc",
-        "intellij.tasks.core.libraries.commonsDiscovery",
         "intellij.tasks",
         "intellij.tasks.compatibility",
+        "intellij.libraries.xml.rpc",
+        "intellij.tasks.core.libraries.commonsDiscovery",
     ],
     descriptor = "resources/META-INF/plugin.xml",
     jars = {
+        "lib/intellij.tasks.compatibility.jar": [
+            "intellij.tasks.compatibility",
+            "@lib//:tasks-compatibility-http-client-3-1",
+        ],
         "lib/intellij.tasks.core.libraries.commonsDiscovery.jar": [
             "intellij.tasks.core.libraries.commonsDiscovery",
             "@lib//:tasks-core-libraries-commons_discovery-commons-discovery",
         ],
-        "lib/tasks-core.jar": [
-            "intellij.tasks.core",
-            "intellij.tasks",
-            "intellij.tasks.compatibility",
-        ],
+        "lib/tasks-core.jar": ["intellij.tasks.core"],
         "lib/axis.jar": ["//plugins/tasks/tasks-core/lib:tasks-core-axis-1-4"],
-        "lib/http-client.jar": ["@lib//:tasks-compatibility-http-client-3-1"],
     },
     main_module = "intellij.tasks.core",
     mode_refused_content_modules = {
@@ -36,6 +35,9 @@ dev_dist_plugin(
             "intellij.tasks.jira",
             "intellij.tasks.java",
         ],
+    },
+    module_jar_paths = {
+        "intellij.tasks": "lib/intellij.tasks.jar",
     },
 )
 ### auto-generated section `dev intellij.tasks.core` end

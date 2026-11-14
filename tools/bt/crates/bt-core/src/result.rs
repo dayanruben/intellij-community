@@ -152,8 +152,8 @@ pub struct ClassifyInput<'a> {
 /// nothing exits 3, and reading that as a test failure is a red run nobody can reproduce.
 pub fn classify_run(input: ClassifyInput<'_>) -> (RunStatus, u8) {
     let sum = totals_of(input.targets);
-    // 8 is bazel's own "command failed", 33 is "out of memory", 127 is "wrapper not found".
-    if matches!(input.bazel_exit, 8 | 33 | 127) || (input.degraded && input.targets.is_empty()) {
+    // A code that is no verdict ends the run, as it ends the run of the next invocation: see [`is_verdict`].
+    if !is_verdict(input.bazel_exit) || (input.degraded && input.targets.is_empty()) {
         return (RunStatus::Infra, exit::INFRA);
     }
     if input.bep.aborted.iter().any(|reason| reason == "ANALYSIS_FAILURE")
@@ -174,6 +174,13 @@ pub fn classify_run(input: ClassifyInput<'_>) -> (RunStatus, u8) {
         return (RunStatus::Infra, exit::INFRA);
     }
     (RunStatus::Pass, exit::GREEN)
+}
+
+/// Whether an exit code of bazel is a verdict, after which a run goes on to its next bazel command. The verdicts are 0,
+/// 1 for a failed build, 3 for a failed test or a partial answer of a query, and 4 for no test target. Each other code
+/// ends the run, such as 8 for an interrupt, 33 for no memory, 127 for a wrapper that did not start, and a signal.
+pub const fn is_verdict(code: i32) -> bool {
+    matches!(code, 0 | 1 | 3 | 4)
 }
 
 /// Whether any target's runner exited 42, "the test filter matched no test class". [`classify_run`] turns it into
@@ -396,6 +403,12 @@ pub fn collect_results(runtime: &dyn Runtime, bep: &BepSummary, duration_ms: u64
             if let Ok(text) = runtime.read_text_file(path) {
                 build_errors.extend(parse_compile_errors(&text));
             }
+        }
+    }
+    // A pattern or a target that bazel could not load or analyse has no compile error and no test result.
+    for error in &bep.abort_causes {
+        if !build_errors.contains(error) {
+            build_errors.push(error.clone());
         }
     }
 

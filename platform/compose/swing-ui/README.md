@@ -58,12 +58,31 @@ val panel: JComponent = composeSwingPanel(parentDisposable) {
 `parentDisposable` on the EDT. Only `parentDisposable` ends the composition. A host that leaves the Swing
 hierarchy and comes back keeps its state.
 
+The host is the root of the content's layout. Each top-level composable is measured under the host's size
+and placed at its top-start corner, so `fillMaxWidth`, `width` and `wrapContentHeight` work at the top
+level. The host implements `WidthBasedLayout`: an IDE layout that asks for the height at a width gets the
+content's height at that width.
+
 The library's `JComponent.setContent` is the built-in alternative. It returns a `DisposableHandle`, and the
 caller disposes it.
 
 A host composes when it reaches a window, so an
 off-screen traversal, such as settings search, reads an empty panel. A `ComposeSwingSearchableConfigurable` composes when it is built, so settings search finds its
 options. See [kotlin-ui-dsl.md](docs/kotlin-ui-dsl.md).
+
+## Popups
+
+```kotlin
+val popup = JBPopupFactory.getInstance().createComposeSwingPopup(
+  positionProvider = AnchorAlignmentPositionProvider(anchorAlignment = Alignment.TopEnd, popupAlignment = Alignment.BottomEnd),
+  configure = { setRequestFocus(true) },
+) {
+  MyPopupContent(modifier = SwingModifier.width(JBUI.scale(400)))
+}
+popup.show(component)
+```
+
+`createComposeSwingPopup` creates the popup and composes its content. The caller closes the popup with `popup.cancel()`. The popup takes the size of the content and follows it when the content changes, so the content sets its limits with layout modifiers. The `PopupPositionProvider` places the popup against the component it is shown for, as the `Popup` of androidx Compose does. For a popup that the platform builds, such as a documentation popup, `composeSwingPopupContent` returns the content component, and the platform sizes the popup.
 
 ## What this module adds
 
@@ -73,7 +92,7 @@ those first: a plain `JCheckBox` already looks like an IDE checkbox.
 
 What lives here is only what the library cannot express, an IntelliJ component with behavior of its
 own. Those wrappers are in `com.intellij.platform.compose.swing.components`, and their KDoc is the
-catalog. A component with no wrapper is hosted directly; see [raw-swing.md](docs/raw-swing.md).
+catalog. A wrapper that replaces a library component takes the name of that component, and its package mirrors the package of that component. For example, `ScrollPane` on a `JBScrollPane` is in `components.layout`. A component with no wrapper is hosted directly; see [raw-swing.md](docs/raw-swing.md).
 
 Forms are `FormPanel` rather than a component, laid out by the platform grid engine that `panel { }` uses.
 

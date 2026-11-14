@@ -17,6 +17,7 @@ import com.intellij.ide.ui.laf.darcula.DarculaInstaller
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.diagnostic.runAndLogException
 import com.intellij.openapi.editor.colors.EditorColorsManager
+import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.keymap.ex.KeymapManagerEx
 import com.intellij.openapi.progress.ProgressIndicator
@@ -25,6 +26,7 @@ import com.intellij.openapi.util.IconLoader
 import com.intellij.openapi.util.io.toCanonicalPath
 import com.intellij.ui.JBColor
 import com.intellij.util.ui.StartupUiUtil
+import org.jetbrains.annotations.ApiStatus
 import kotlin.io.path.Path
 
 /**
@@ -33,15 +35,21 @@ import kotlin.io.path.Path
 
 private val logger = logger<PartialImportPerformer>()
 
+@ApiStatus.Internal
 interface PartialImportPerformer {
   fun willPerform(settings: Settings): Boolean
   fun collectAllRequiredPlugins(settings: Settings): Set<PluginId>
   fun patchSettingsAfterPluginInstallation(settings: Settings, pluginIds: Set<String>): Settings
   fun perform(project: Project?, settings: Settings, pi: ProgressIndicator)
   fun performEdt(project: Project?, settings: Settings)
+
+  companion object {
+    val EP_NAME: ExtensionPointName<PartialImportPerformer> =
+      ExtensionPointName("com.intellij.transferSettings.partialImportPerformer")
+  }
 }
 
-class LookAndFeelImportPerformer : PartialImportPerformer {
+internal class LookAndFeelImportPerformer : PartialImportPerformer {
   override fun willPerform(settings: Settings): Boolean = settings.preferences[SettingsPreferencesKind.Laf] && settings.laf != null
 
   override fun collectAllRequiredPlugins(settings: Settings): Set<PluginId> {
@@ -97,7 +105,7 @@ class LookAndFeelImportPerformer : PartialImportPerformer {
   }
 }
 
-class SyntaxSchemeImportPerformer : PartialImportPerformer {
+internal class SyntaxSchemeImportPerformer : PartialImportPerformer {
   override fun willPerform(settings: Settings): Boolean = settings.preferences[SettingsPreferencesKind.SyntaxScheme] && settings.syntaxScheme != null
 
   override fun collectAllRequiredPlugins(settings: Settings): Set<PluginId> {
@@ -135,7 +143,7 @@ class SyntaxSchemeImportPerformer : PartialImportPerformer {
 
 }
 
-class KeymapSchemeImportPerformer : PartialImportPerformer {
+internal class KeymapSchemeImportPerformer : PartialImportPerformer {
   override fun willPerform(settings: Settings): Boolean = settings.preferences[SettingsPreferencesKind.Keymap] && settings.keymap != null
   override fun collectAllRequiredPlugins(settings: Settings): Set<PluginId> {
     (settings.keymap as? PluginKeymap)?.let {
@@ -221,7 +229,7 @@ class KeymapSchemeImportPerformer : PartialImportPerformer {
   }
 }
 
-class RecentProjectsImportPerformer : PartialImportPerformer {
+internal class RecentProjectsImportPerformer : PartialImportPerformer {
   override fun willPerform(settings: Settings): Boolean = settings.preferences[SettingsPreferencesKind.RecentProjects] && settings.recentProjects.isNotEmpty()
 
   override fun collectAllRequiredPlugins(settings: Settings): Set<PluginId> = emptySet()

@@ -162,7 +162,10 @@ internal class McpServerTerminalPromotionNotifierTest {
                  linkedMapOf("idea" to ExistingConfig(url = "http://localhost:63000/stream", type = "http")))
     val globalClient =
       FakeClient(McpClientInfo.McpClientScope.McpClientGlobalScope,
-                 linkedMapOf("idea" to ExistingConfig(url = "http://127.0.0.1:64000/stream", type = "http")))
+                 linkedMapOf("idea" to ExistingConfig(url = "http://127.0.0.1:64000/stream",
+                                                      type = "http",
+                                                      headers = mapOf(McpServerService.getInstance().getGlobalAuthToken()))
+                 ))
 
     val reconfigureClients =
       McpServerTerminalPromotionCandidates(projectClient, globalClient).reconfigureClients(expectedPort = 64000)
@@ -219,7 +222,7 @@ internal class McpServerTerminalPromotionNotifierTest {
     assertThat(determineMcpServerTerminalPromotionIssue(isServerRunning = false,
                                                         isClientConfigured = false,
                                                         hasPromotionCandidateConfig = false,
-                                                        isPortCorrect = true))
+                                                        isConfigUpToDate = true))
       .isEqualTo(McpServerTerminalPromotionIssue.ENABLE_SERVER)
   }
 
@@ -228,7 +231,7 @@ internal class McpServerTerminalPromotionNotifierTest {
     assertThat(determineMcpServerTerminalPromotionIssue(isServerRunning = true,
                                                         isClientConfigured = false,
                                                         hasPromotionCandidateConfig = false,
-                                                        isPortCorrect = true))
+                                                        isConfigUpToDate = true))
       .isEqualTo(McpServerTerminalPromotionIssue.CONFIGURE_CLIENT)
   }
 
@@ -237,7 +240,7 @@ internal class McpServerTerminalPromotionNotifierTest {
     assertThat(determineMcpServerTerminalPromotionIssue(isServerRunning = true,
                                                         isClientConfigured = true,
                                                         hasPromotionCandidateConfig = true,
-                                                        isPortCorrect = false))
+                                                        isConfigUpToDate = false))
       .isEqualTo(McpServerTerminalPromotionIssue.RECONFIGURE_CLIENT)
   }
 
@@ -246,7 +249,7 @@ internal class McpServerTerminalPromotionNotifierTest {
     assertThat(determineMcpServerTerminalPromotionIssue(isServerRunning = true,
                                                         isClientConfigured = true,
                                                         hasPromotionCandidateConfig = true,
-                                                        isPortCorrect = true)).isNull()
+                                                        isConfigUpToDate = true)).isNull()
   }
 
   @Test

@@ -1124,6 +1124,7 @@
       <module fileurl="file://$PROJECT_DIR$/libraries/ai.grazie.spell.gec.engine.local/intellij.libraries.ai.grazie.spell.gec.engine.local.iml" filepath="$PROJECT_DIR$/libraries/ai.grazie.spell.gec.engine.local/intellij.libraries.ai.grazie.spell.gec.engine.local.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/allure/java-commons/intellij.libraries.allure.java.commons.iml" filepath="$PROJECT_DIR$/libraries/allure/java-commons/intellij.libraries.allure.java.commons.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/androidx-collections/intellij.libraries.androidx.collections.iml" filepath="$PROJECT_DIR$/libraries/androidx-collections/intellij.libraries.androidx.collections.iml" />
+      <module fileurl="file://$PROJECT_DIR$/libraries/antlr4-runtime/intellij.libraries.antlr4.runtime.iml" filepath="$PROJECT_DIR$/libraries/antlr4-runtime/intellij.libraries.antlr4.runtime.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/asm/intellij.libraries.asm.iml" filepath="$PROJECT_DIR$/libraries/asm/intellij.libraries.asm.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/asm-tools/intellij.libraries.asm.tools.iml" filepath="$PROJECT_DIR$/libraries/asm-tools/intellij.libraries.asm.tools.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/assertj-core/intellij.libraries.assertj.core.iml" filepath="$PROJECT_DIR$/libraries/assertj-core/intellij.libraries.assertj.core.iml" />
@@ -2187,7 +2188,7 @@
       <module fileurl="file://$PROJECT_DIR$/python/build/intellij.pycharm.community.build.iml" filepath="$PROJECT_DIR$/python/build/intellij.pycharm.community.build.iml" />
       <module fileurl="file://$PROJECT_DIR$/python/build/build-debug-binaries/intellij.pycharm.community.build.debugBinaries.iml" filepath="$PROJECT_DIR$/python/build/build-debug-binaries/intellij.pycharm.community.build.debugBinaries.iml" />
       <module fileurl="file://$PROJECT_DIR$/python/build/intellij.pycharm.community.build.tests.iml" filepath="$PROJECT_DIR$/python/build/intellij.pycharm.community.build.tests.iml" />
-      <module fileurl="file://$PROJECT_DIR$/python/build/tests/disabled/intellij.pycharm.community.build.tests.disabled.iml" filepath="$PROJECT_DIR$/python/build/tests/disabled/intellij.pycharm.community.build.tests.disabled.iml" />
+      <module fileurl="file://$PROJECT_DIR$/python/build/tests/sdks/intellij.pycharm.community.build.tests.sdks.iml" filepath="$PROJECT_DIR$/python/build/tests/sdks/intellij.pycharm.community.build.tests.sdks.iml" />
       <module fileurl="file://$PROJECT_DIR$/python/intellij.pycharm.community.customization.iml" filepath="$PROJECT_DIR$/python/intellij.pycharm.community.customization.iml" />
       <module fileurl="file://$PROJECT_DIR$/python/ide/customization.backend/intellij.pycharm.community.customization.backend.iml" filepath="$PROJECT_DIR$/python/ide/customization.backend/intellij.pycharm.community.customization.backend.iml" />
       <module fileurl="file://$PROJECT_DIR$/python/ide/customization.frontend/intellij.pycharm.community.customization.frontend.iml" filepath="$PROJECT_DIR$/python/ide/customization.frontend/intellij.pycharm.community.customization.frontend.iml" />

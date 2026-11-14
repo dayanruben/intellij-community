@@ -23,6 +23,7 @@ import com.intellij.platform.settings.v2.KeyLocality
 import com.intellij.platform.settings.v2.LayerData
 import com.intellij.platform.settings.v2.LayerLocality
 import com.intellij.platform.settings.v2.LayerProvider
+import com.intellij.platform.settings.v2.ProjectAware
 import com.intellij.platform.settings.v2.ReadOnlySettingsException
 import com.intellij.platform.settings.v2.SaveResult
 import com.intellij.platform.settings.v2.SettingsChangeListener
@@ -195,6 +196,9 @@ internal class SettingsVaultImpl(private val scope: CoroutineScope) : SettingsVa
    */
   private val appCache = if (isSnapshotCacheEnabled()) SettingsSnapshotCache(SettingsCacheStorage.appCacheFile(), project = null) else null
 
+  /** Runs the settings migrations after a reload installs the layers of their kind. See [installBucket]. */
+  private val migrationRunner = SettingsMigrationRunner(scope, this)
+
   init {
     checkCreatedByInitializer()
     scope.launch {
@@ -221,6 +225,7 @@ internal class SettingsVaultImpl(private val scope: CoroutineScope) : SettingsVa
       }
       reload(bootScope())
     }
+    migrationRunner.watchExtensionPoints()
   }
 
   /**
@@ -394,7 +399,7 @@ internal class SettingsVaultImpl(private val scope: CoroutineScope) : SettingsVa
    * not supply it again. A layer with a pending save is not stale, because an unpersisted mutation must survive until
    * the disk catches up. The install, the sweep and the readiness change run under one [vaultWriteMutex] hold, so the
    * bucket swaps in atomically, and the change events deliver once. The caller holds the reload mutex of [kind]
-   * (ADR 0162).
+   * (ADR 0162). After the install, the [migrationRunner] starts the migration check of [kind].
    *
    * @param answers the answer of each provider whose range of context kinds contains [kind], or `null` for a provider
    *   that failed. The vault does not sweep a failed provider.
@@ -421,6 +426,7 @@ internal class SettingsVaultImpl(private val scope: CoroutineScope) : SettingsVa
     }
     loadingGeneration.update { it + 1 }
     notifyListeners(settingsChangeEvents)
+    migrationRunner.layersInstalled(reload.scopeContext, kind)
   }
 
   /**

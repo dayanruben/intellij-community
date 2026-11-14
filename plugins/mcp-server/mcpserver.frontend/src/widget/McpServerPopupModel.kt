@@ -99,7 +99,7 @@ internal class McpServerPopupModelImpl(
   override suspend fun detectClients(): List<DetectedClientInfo> = withContext(Dispatchers.IO) {
     McpClientDetector.detectGlobalMcpClients().map { client ->
       val needsConfig = !client.isConnectedToThisIde()
-      val initialError = if (!client.isPortCorrect()) {
+      val initialError = if (!client.isConfigUpToDate()) {
         McpServerBundle.message("mcp.server.configured.port.mismatch")
       }
       else null
@@ -153,13 +153,20 @@ internal class McpServerPopupModelImpl(
   }
 
   override fun copySseConfig(): Boolean =
-    copyToClipboard(McpClient.json.encodeToString(createSseServerJsonEntry(McpServerService.getInstance().port, project.getPathForMcp())))
+    copyToClipboard(McpClient.json.encodeToString(createSseServerJsonEntry(McpServerService.getInstance().port,
+                                                                           project.getPathForMcp(),
+                                                                           McpServerServiceImpl.getInstance().getGlobalAuthToken())))
 
   override fun copyStdioConfig(): Boolean =
-    copyToClipboard(McpClient.json.encodeToString(createStdioMcpServerJsonConfiguration(McpServerService.getInstance().port, project.getPathForMcp())))
+    copyToClipboard(McpClient.json.encodeToString(createStdioMcpServerJsonConfiguration(McpServerService.getInstance().port,
+                                                                                        project.getPathForMcp(),
+                                                                                        McpServerServiceImpl.getInstance()
+                                                                                          .getGlobalAuthToken())))
 
   override fun copyStreamConfig(): Boolean =
-    copyToClipboard(McpClient.json.encodeToString(createStreamableServerJsonEntry(McpServerService.getInstance().port, project.getPathForMcp())))
+    copyToClipboard(McpClient.json.encodeToString(createStreamableServerJsonEntry(McpServerService.getInstance().port,
+                                                                                  project.getPathForMcp(),
+                                                                                  McpServerServiceImpl.getInstance().getGlobalAuthToken())))
 
   override fun copySseUrl(): Boolean = sseUrl?.let { copyToClipboard(it) } ?: false
 

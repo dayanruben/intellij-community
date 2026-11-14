@@ -23,7 +23,9 @@ import org.jetbrains.kotlin.idea.codeinsight.api.classic.intentions.SelfTargetin
 import org.jetbrains.kotlin.idea.codeinsight.intentions.contexts.ContextParameterUtils.findContextParameterInChangeInfo
 import org.jetbrains.kotlin.idea.codeinsight.intentions.contexts.ContextParameterUtils.isAnonymousParameter
 import org.jetbrains.kotlin.idea.codeinsight.intentions.contexts.ContextParameterUtils.isConvertibleContextParameter
+import org.jetbrains.kotlin.idea.codeinsight.intentions.contexts.ContextParameterUtils.overridesOnlyModifiableDeclarations
 import org.jetbrains.kotlin.idea.codeinsight.intentions.contexts.ContextParameterUtils.runChangeSignatureForParameter
+import org.jetbrains.kotlin.idea.codeinsight.utils.findExistingEditor
 import org.jetbrains.kotlin.idea.findUsages.KotlinFindUsagesSupport
 import org.jetbrains.kotlin.idea.k2.refactoring.changeSignature.KotlinChangeInfo
 import org.jetbrains.kotlin.idea.k2.refactoring.renameParameter
@@ -39,10 +41,20 @@ class ConvertContextParameterToRegularParameterIntention : SelfTargetingIntentio
 ), LowPriorityAction {
     override fun startInWriteAction(): Boolean = false
 
+    override fun visitTargetTypeOnlyOnce(): Boolean = true
+
     override fun isApplicableTo(element: KtParameter, caretOffset: Int): Boolean {
         if (!isConvertibleContextParameter(element)) return false
         val ownerFunction = (element.parent as? KtContextParameterList)?.ownerDeclaration as? KtNamedFunction ?: return false
-        return !isAnonymousParameter(element) || !ownerFunction.hasModifier(OVERRIDE_KEYWORD) // KTIJ-34978
+        if (!ownerFunction.hasModifier(OVERRIDE_KEYWORD)) return true
+        if (isAnonymousParameter(element)) return false // KTIJ-34978
+
+        val editor = element.findExistingEditor() ?: return false
+        return computeWithProgressIconIfNeeded(editor, caretOffset) {
+            analyze(ownerFunction) {
+                overridesOnlyModifiableDeclarations(ownerFunction)
+            }
+        }
     }
 
     override fun applyTo(element: KtParameter, editor: Editor?) {

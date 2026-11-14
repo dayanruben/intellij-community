@@ -1257,6 +1257,8 @@ class PyLiteralTypeTest : PyCodeInsightTestCase() {
       #        └ TYPE Literal[-2]
       invert_zero = ~0
       #             └ TYPE Literal[-1]
+      minus_beyond_long = -18446744073709551616
+      #                   └ TYPE Literal[-18446744073709551616]
       """.trimIndent())
 
     @Test
@@ -1313,6 +1315,15 @@ class PyLiteralTypeTest : PyCodeInsightTestCase() {
       #   └ TYPE int
           expr = ~b
       #   └ TYPE int
+
+      def mixed_unions(literals_then_float: Literal[1, 2] | float, float_then_literals: float | Literal[1, 2],
+                       int_and_bool: Literal[1, True]):
+          expr = -literals_then_float
+      #   └ TYPE int | float
+          expr = -float_then_literals
+      #   └ TYPE float | int
+          expr = -int_and_bool
+      #   └ TYPE int
       """.trimIndent())
 
     @Test
@@ -1340,6 +1351,10 @@ class PyLiteralTypeTest : PyCodeInsightTestCase() {
           expr = not u
       #   └ TYPE Literal[False, True]
           expr = not i
+      #   └ TYPE bool
+
+      def mixed_union(bool_and_int: Literal[True, 1]):
+          expr = not bool_and_int
       #   └ TYPE bool
       """.trimIndent())
 
@@ -1396,6 +1411,24 @@ class PyLiteralTypeTest : PyCodeInsightTestCase() {
       #└ TYPE Literal[-1]
       """.trimIndent(),
       "m.py" to "a = 1",
+    )
+
+    @Test
+    @TestFor(issues = ["PY-94106"])
+    fun `imported name assigned an int literal gets widened`() = test("""
+      from m import positive, negative, plus
+      expr = positive
+      #└ TYPE Literal[1] FIXME int
+      expr = negative
+      #└ TYPE Type mismatch for code analysis context ('Unknown') and user initiated context ('Literal[-1]') FIXME int # PY-94106
+      expr = plus
+      #└ TYPE Type mismatch for code analysis context ('Unknown') and user initiated context ('Literal[1]') FIXME int # PY-94106
+      """.trimIndent(),
+      "m.py" to """
+        positive = 1
+        negative = -1
+        plus = +1
+        """.trimIndent(),
     )
 
     @Test

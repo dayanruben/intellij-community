@@ -1,3 +1,5 @@
+<!-- BUILD_USING_BAZEL_MARKER: this plugin is also packaged by the `ij_plugin` Bazel rule, and IjPluginDistributionEquivalenceTest
+     checks that the result matches the distribution produced by the build scripts. See MRI-4743. -->
 <idea-plugin>
   <name>JavaFX</name>
   <id>org.jetbrains.plugins.javaFX</id>
@@ -20,6 +22,7 @@
     <module name="intellij.javaFX.properties"/>
     <module name="intellij.javaFX.common" loading="required"/>
     <module name="intellij.javaFX.jps" loading="on-demand"/>
+    <module name="intellij.javaFX.sceneBuilder" loading="on-demand"/>
     <module name="intellij.javaFX.css" loading="optional"/>
   </content>
 

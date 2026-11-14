@@ -5,6 +5,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import com.intellij.BundleBase
 import com.intellij.openapi.util.NlsContexts
+import com.intellij.platform.compose.swing.components.style.FormLabelKind
+import com.intellij.platform.compose.swing.components.style.FormPanelKind
+import com.intellij.platform.compose.swing.components.style.SeparatorKind
+import com.intellij.platform.compose.swing.components.style.TitledSeparatorKind
 import com.intellij.ui.SeparatorComponent
 import com.intellij.ui.dsl.builder.DEFAULT_COMMENT_WIDTH
 import com.intellij.ui.dsl.builder.DslComponentProperty
@@ -12,9 +16,6 @@ import com.intellij.ui.dsl.builder.MAX_LINE_LENGTH_WORD_WRAP
 import com.intellij.ui.dsl.gridLayout.GridLayout
 import com.intellij.util.ui.JBUI
 import org.jetbrains.annotations.ApiStatus
-import org.jetbrains.compose.swing.defaults.ProvideComponentDefaults
-import org.jetbrains.compose.swing.defaults.componentDefaultKeyOf
-import org.jetbrains.compose.swing.defaults.provides
 import org.jetbrains.compose.swing.layout.LayoutScopeMarker
 import org.jetbrains.compose.swing.layout.ParentDataModifier
 import org.jetbrains.compose.swing.layout.ParentLayoutElement
@@ -22,9 +23,13 @@ import org.jetbrains.compose.swing.layout.ParentProtocol
 import org.jetbrains.compose.swing.layout.parentProtocolOf
 import org.jetbrains.compose.swing.modifier.SwingModifier
 import org.jetbrains.compose.swing.node.SwingNode
+import org.jetbrains.compose.swing.node.VirtualSwingNode
 import javax.swing.JLabel
 import javax.swing.JPanel
 import com.intellij.ui.TitledSeparator as IdeaTitledSeparator
+import org.jetbrains.compose.swing.style.ContainerStyleScope
+import org.jetbrains.compose.swing.style.SwingStyle
+import org.jetbrains.compose.swing.style.styleable
 
 /**
  * A form: rows with aligned labels, comments, groups, separators and indents, measured by the platform's
@@ -74,7 +79,7 @@ import com.intellij.ui.TitledSeparator as IdeaTitledSeparator
  * | `group("Title") { }`, `indent { }`, `separator()` | `FormGroup`, `FormIndent`, `FormSeparator` |
  * | `row { comment("...") }` | `FormComment("...")` |
  * | `.bindText(::property)`, `.bindSelected(...)` | state in, callback out; see `SettingState` |
- * | `.visibleIf(predicate)`, `.enabledIf(...)` | an `if` around the row, or a `SwingModifier` |
+ * | `.visibleIf(predicate)`, `.enabledIf(...)` | an `if` around the row, or a style |
  *
  * A cell is left-aligned and vertically centered unless [FormRowScope.align] says otherwise.
  * Exact gaps stay with `panel {}`.
@@ -94,14 +99,14 @@ import com.intellij.ui.TitledSeparator as IdeaTitledSeparator
 @ApiStatus.Experimental
 public fun FormPanel(
   modifier: SwingModifier = SwingModifier,
+  style: SwingStyle<ContainerStyleScope> = SwingStyle,
   content: @Composable FormScope.() -> Unit,
 ) {
   val scope = remember { FormScopeInstance(group = null, indentLevel = 0) }
   SwingNode(
     factory = { JPanel(newFormLayout()) },
-    modifier = modifier,
-    // A form nested in a row of another form holds rows of its own, not the outer row's controls.
-    content = { ProvideComponentDefaults(FormRowDefault provides null) { scope.content() } },
+    modifier = modifier.styleable(FormPanelKind, style),
+    content = { scope.content() },
   )
 }
 
@@ -414,21 +419,16 @@ internal data class FormCellMark(
   val rightGap: FormRightGap? = null,
 ) : FormMark
 
-/**
- * The row a control is composed in. [FormScope.FormRow] provides it to every component in its content as a
- * component default, so a control needs no declaration of its own to take a cell of the row.
- */
+/** The row a control is composed in. [FormScope.FormRow] declares it to the form's panel for each control. */
 internal data class FormRowElement(val row: FormRowMark) : ParentLayoutElement {
   override val parentProtocol: ParentProtocol get() = FormParentProtocol
-
-  override val inheritable: Boolean get() = true
 
   override val name: String get() = "formRow"
 
   override val declaredValues: Map<String, Any?> get() = mapOf("row" to row)
 }
 
-private val FormRowDefault = componentDefaultKeyOf<FormRowMark>("FormRow") { this then FormRowElement(it) }
+private fun SwingModifier.formRow(row: FormRowMark): SwingModifier = this then FormRowElement(row)
 
 /** The parents a [FormMark] is declared for: the panel of a [FormPanel], and no other. */
 private val FormParentProtocol: ParentProtocol = parentProtocolOf("FormPanel row") { it.layout is FormGridLayout }
@@ -524,7 +524,7 @@ private class FormScopeInstance(
     if (label != null) {
       FormRowStart(label, SwingModifier.formMark(row))
     }
-    ProvideComponentDefaults(FormRowDefault provides row) {
+    VirtualSwingNode(SwingModifier.formRow(row)) {
       FormRowScopeInstance.content()
     }
     if (comment != null) {
@@ -601,7 +601,7 @@ private fun FormRowStart(text: @NlsContexts.Label String, modifier: SwingModifie
         putClientProperty(DslComponentProperty.ROW_LABEL, true)
       }
     },
-    modifier = modifier,
+    modifier = modifier.styleable(FormLabelKind, SwingStyle),
     // A label spells a mnemonic the way every other IDE label does, with an ampersand before the letter.
     update = {
       set(text) { this.text = BundleBase.replaceMnemonicAmpersand(it) }
@@ -613,7 +613,7 @@ private fun FormRowStart(text: @NlsContexts.Label String, modifier: SwingModifie
 private fun FormSeparatorComponent(modifier: SwingModifier) {
   SwingNode(
     factory = { SeparatorComponent(0, 0, JBUI.CurrentTheme.CustomFrameDecorations.separatorForeground(), null) },
-    modifier = modifier,
+    modifier = modifier.styleable(SeparatorKind, SwingStyle),
   )
 }
 
@@ -622,7 +622,7 @@ private fun FormTitledSeparator(title: @NlsContexts.Separator String, modifier: 
   // A titled separator draws space of its own above and below, and a form decides that space.
   SwingNode(
     factory = { IdeaTitledSeparator().apply { border = null } },
-    modifier = modifier,
+    modifier = modifier.styleable(TitledSeparatorKind, SwingStyle),
     update = {
       set(title) { this.text = it }
     },

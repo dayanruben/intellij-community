@@ -1,3 +1,4 @@
+load("@community//platform/build-scripts/bazel-rules:ij_plugin.bzl", "ij_plugin")
 load("@jps_dynamic_deps_community//:targets.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
@@ -8,18 +9,15 @@ dev_dist_plugin(
         "intellij.junit.properties",
         "intellij.junit.vcs",
         "intellij.junit.dashboard",
-        "intellij.libraries.hamcrest",
-        "intellij.libraries.junit4",
         "intellij.junit.rt",
         "intellij.junit.v5.rt",
         "intellij.junit.v6.rt",
+        "intellij.libraries.hamcrest",
+        "intellij.libraries.junit4",
     ],
     descriptor = "resources/META-INF/plugin.xml",
     jars = {
         "lib/junit.jar": ["intellij.junit"],
-        "lib/junit-rt.jar": ["intellij.junit.rt"],
-        "lib/junit5-rt.jar": ["intellij.junit.v5.rt"],
-        "lib/junit6-rt.jar": ["intellij.junit.v6.rt"],
     },
     main_module = "intellij.junit",
     mode_refused_content_modules = {
@@ -30,6 +28,9 @@ dev_dist_plugin(
         ],
     },
     module_jar_paths = {
+        "intellij.junit.rt": "lib/intellij.junit.rt.jar",
+        "intellij.junit.v5.rt": "lib/intellij.junit.v5.rt.jar",
+        "intellij.junit.v6.rt": "lib/intellij.junit.v6.rt.jar",
         "intellij.libraries.hamcrest": "lib/intellij.libraries.hamcrest.jar",
         "intellij.libraries.junit4": "lib/intellij.libraries.junit4.jar",
     },
@@ -109,6 +110,25 @@ jvm_library(
     ],
 )
 ### auto-generated section `build intellij.junit` end
+
+### auto-generated section `plugin intellij.junit` start
+ij_plugin(
+    name = "junit_plugin",
+    descriptor_module = ":junit",
+    content_modules = [
+        # do not sort,
+        "//plugins/junit/properties",
+        "//plugins/junit/vcs",
+        "//plugins/junit/dashboard",
+        "//plugins/junit_rt:junit-rt",
+        "//plugins/junit5_rt:junit-v5-rt",
+        "//plugins/junit6_rt:junit-v6-rt",
+        "//libraries/hamcrest:hamcrest_plugin_module",
+        "//libraries/junit4:junit4_plugin_module",
+    ],
+    visibility = ["//visibility:public"],
+)
+### auto-generated section `plugin intellij.junit` end
 
 ### auto-generated section `iml intellij.junit` start
 exports_files(
