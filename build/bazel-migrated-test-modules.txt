@@ -18,6 +18,7 @@ intellij.python.community.services.internal.impl.tests
 intellij.python.community.tests.env
 intellij.python.community.tests.junit5
 intellij.python.community.tests.junit5.win
+intellij.python.markdown.tests
 intellij.python.pyproject.tests
 intellij.python.sdk.tests
 intellij.vcs.gitlab.tests
@@ -68,6 +69,7 @@ intellij.gradle.completion.kotlin.tests.benchmark
 intellij.gradle.completion.tests
 intellij.gradle.java.maven.tests
 intellij.gradle.java.tests.benchmark
+intellij.gradle.java.toml.tests
 intellij.gradle.tests.benchmark
 intellij.gradle.toolingExtension.tests.compatibility
 intellij.gradle.toolingExtension.tests.util
@@ -94,6 +96,7 @@ intellij.java.debugger.streams.tests
 intellij.java.debugger.tests
 intellij.java.decompiler.engine.tests
 intellij.java.decompiler.tests
+intellij.java.dumb.completion.tests
 intellij.java.execution.tests
 intellij.java.featuresTrainer.tests
 intellij.java.frontback.tests
@@ -254,6 +257,7 @@ intellij.platform.testFramework.selfContainedProjects.tests
 intellij.platform.testFramework.tests
 intellij.platform.testRunner.tests
 intellij.platform.tests
+intellij.platform.tests.debugger
 intellij.platform.threadDumpParser.tests
 intellij.platform.uast.tests
 intellij.platform.uast.tests.java
@@ -297,10 +301,12 @@ intellij.searchEverywhereLucene.backend.tests
 intellij.searchEverywhereMl.ranking.core.tests
 intellij.searchEverywhereMl.tests
 intellij.searchEverywhereMl.typos.tests
+intellij.settingsRepository.tests
 intellij.settingsSync.tests
 intellij.sh.tests
 intellij.statsCollector.tests
 intellij.tasks.tests
+intellij.terminal.completion.tests
 intellij.terminal.emulator.tests
 intellij.terminal.tests
 intellij.testng.rt.tests

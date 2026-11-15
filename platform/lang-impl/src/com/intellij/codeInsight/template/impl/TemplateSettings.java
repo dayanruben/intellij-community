@@ -8,8 +8,10 @@ import com.intellij.codeInsight.template.Macro;
 import com.intellij.codeInsight.template.Template;
 import com.intellij.codeInsight.template.TemplateContextType;
 import com.intellij.diagnostic.PluginException;
+import com.intellij.ide.plugins.cl.PluginAwareClassLoader;
 import com.intellij.internal.statistic.utils.PluginInfo;
 import com.intellij.internal.statistic.utils.PluginInfoDetectorKt;
+import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.components.PersistentStateComponent;
 import com.intellij.openapi.components.SettingsCategory;
@@ -46,6 +48,8 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
+import java.lang.ref.Reference;
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -54,7 +58,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.ResourceBundle;
+import java.util.function.Supplier;
 
 import static com.intellij.codeInsight.template.impl.TemplateContext.contextsEqual;
 import static com.intellij.diagnostic.ControlFlowExceptionsKt.rethrowControlFlowException;
@@ -563,6 +567,17 @@ public final class TemplateSettings implements PersistentStateComponent<Template
     return result;
   }
 
+  private void preloadDescriptions() {
+    Application app = ApplicationManager.getApplication();
+    if (app.isHeadlessEnvironment() || app.isDisposed()) {
+      return;
+    }
+    LiveTemplateDescriptionPreloader preloader = app.getService(LiveTemplateDescriptionPreloader.class);
+    if (preloader != null) {
+      preloader.preload(List.copyOf(myDefaultTemplates.values()));
+    }
+  }
+
   private static void parseDefaultLiveTemplatesOfProvider(@NotNull DefaultLiveTemplatesProvider provider,
                                                           @NotNull List<ParsedDefaultTemplateGroup> result) throws JDOMException {
     for (String defTemplate : provider.getDefaultLiveTemplateFiles()) {
@@ -602,6 +617,7 @@ public final class TemplateSettings implements PersistentStateComponent<Template
         LOG.error(new PluginException(e, pluginId == null ? null : PluginId.getId(pluginId)));
       }
     }
+    preloadDescriptions();
   }
 
   private void applyDefTemplate(@NotNull ParsedDefaultTemplateGroup parsed) {
@@ -764,20 +780,17 @@ public final class TemplateSettings implements PersistentStateComponent<Template
                                                      @NotNull LiveTemplateContextService ltContextService) {
     String name = element.getAttributeValue(NAME);
     String value = element.getAttributeValue(VALUE);
-    String description;
     String resourceBundle = element.getAttributeValue(RESOURCE_BUNDLE);
     String key = element.getAttributeValue(KEY);
     String id = element.getAttributeValue(ID);
-    if (resourceBundle != null && key != null) {
-      ResourceBundle bundle = DynamicBundle.getResourceBundle(classLoader, resourceBundle);
-      description = bundle.getString(key);
-    }
-    else {
-      description = element.getAttributeValue(DESCRIPTION); //NON-NLS
-    }
+    boolean isBundleDescription = resourceBundle != null && key != null;
+    String description = isBundleDescription ? null : element.getAttributeValue(DESCRIPTION); //NON-NLS
 
     String shortcut = element.getAttributeValue(SHORTCUT);
     TemplateImpl template = createTemplate(name, value, groupName, description, shortcut, id);
+    if (isBundleDescription) {
+      template.setLazyDescription(bundleDescription(classLoader, resourceBundle, key));
+    }
 
     template.setToReformat(Boolean.parseBoolean(element.getAttributeValue(TO_REFORMAT)));
     template.setToShortenLongNames(Boolean.parseBoolean(element.getAttributeValue(TO_SHORTEN_FQ_NAMES)));
@@ -802,6 +815,25 @@ public final class TemplateSettings implements PersistentStateComponent<Template
     }
 
     return template;
+  }
+
+  /**
+   * Returns a supplier that reads {@code key} from {@code resourceBundle}.
+   * The supplier keeps only a weak reference to {@code classLoader}.
+   * It returns {@code null} when the class loader is collected or its plugin unloads.
+   */
+  private static @NotNull Supplier<@NlsContexts.DetailedDescription String> bundleDescription(@NotNull ClassLoader classLoader,
+                                                                                              @NotNull String resourceBundle,
+                                                                                              @NotNull String key) {
+    Reference<ClassLoader> classLoaderRef = new WeakReference<>(classLoader);
+    return () -> {
+      ClassLoader loader = classLoaderRef.get();
+      if (loader == null ||
+          loader instanceof PluginAwareClassLoader pluginClassLoader && pluginClassLoader.getState() != PluginAwareClassLoader.ACTIVE) {
+        return null;
+      }
+      return DynamicBundle.getResourceBundle(loader, resourceBundle).getString(key);
+    };
   }
 
   public static @NotNull Element serializeTemplate(@NotNull TemplateImpl template,
