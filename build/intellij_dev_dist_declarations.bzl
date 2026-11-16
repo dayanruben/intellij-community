@@ -11,7 +11,7 @@ tables name the community products and the community tables in `community`, see 
 
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "dev_dist_platform_jar")
 load("//platform/build-scripts/bazel-rules:dev_dist_content.bzl", "dev_dist_platform_payload")
-load("//platform/build-scripts/bazel-rules:dev_dist_product_files.bzl", "dev_dist_product_files", "home_prefix", "product_info_destination")
+load("//platform/build-scripts/bazel-rules:dev_dist_product_files.bzl", "MAC_APP_FILES", "build_txt_destination", "dev_dist_product_files", "home_prefix", "mac_app_icon_roles", "product_info_destination")
 load("//platform/build-scripts/bazel-rules:dev_dist_runtime_module_repository.bzl", "dev_dist_runtime_layout_parts", "dev_dist_runtime_module_repository")
 load("//platform/build-scripts/bazel-rules:intellij_dev_dist.bzl", "intellij_dev_fragments_dist", "intellij_dev_packed_jars_component")
 load(":download_rules.bzl", "EXECUTABLE_LIST_NAME")
@@ -311,22 +311,20 @@ def _runtime_executable_lists(platform):
 # files action renders from the launch model of the product.
 _PLATFORM_RESOURCES_FRAGMENT = "platform_resources"
 
-# The dev marker of a dev distribution. The product files action appends it to `additionalJvmArguments`, so a bare
-# start of the export through the native launcher is a dev-mode IDE. Production states none.
-_DEV_JVM_ARGUMENTS = ["-Didea.use.dev.build.server=true"]
-
 def _launch_destinations(plan, os):
-    """The destinations of the launch files, as `struct(vm_options, product_info, frontend_vm_options)`.
+    """The destinations of the launch files, as `struct(vm_options, product_info, build_txt, frontend_vm_options)`.
 
     `os` is an OS token of `platform_parts`. The `platform_resources` component places the files there. The native
     launcher of a row reads the main vmoptions file and `product-info.json` there. A vmoptions file is `bin/<name>`,
-    with the name of the plan. `product_info_destination` states the path of `product-info.json`.
-    `frontend_vm_options` is `None` for a product without an embedded frontend.
+    with the name of the plan. `product_info_destination` and `build_txt_destination` state the paths of
+    `product-info.json` and `build.txt`. `frontend_vm_options` is `None` for a product without an embedded frontend.
     """
     frontend_vmoptions = getattr(plan.launch, "frontend_vmoptions", None)
+    language_server = plan.launch.launcher.language_server
     return struct(
         vm_options = "bin/" + plan.launch.vmoptions[os],
-        product_info = product_info_destination(os, plan.launch.launcher.language_server),
+        product_info = product_info_destination(os, language_server),
+        build_txt = build_txt_destination(os, language_server),
         frontend_vm_options = "bin/" + frontend_vmoptions[os] if frontend_vmoptions else None,
     )
 
@@ -577,12 +575,22 @@ def _platform_set(tables, product, name, target_platform, visibility):
         # model the plan generator writes for the product, so the component reads no project model and starts no JVM.
         # The action reads the application info sources and `build.txt` for the version, the names and the build number.
         # The rendered files have fixed names, and the component maps each one to its path in the distribution.
-        # `_launch_destinations` states the paths of the vmoptions files and of `product-info.json`. The component also
-        # declares the main class of the launch model. A classic-loader launch takes its boot class path from the core
-        # classpath of the platform payload. A modular-loader launch states `platform-loader.jar` in the model. The
-        # launch and each custom command with JVM arguments of its own get the dev marker `_DEV_JVM_ARGUMENTS`.
+        # `_launch_destinations` states the paths of the vmoptions files, `product-info.json` and `build.txt`.
+        # The component also declares the main class of the launch model. A classic-loader launch takes its boot class
+        # path from the core classpath of the platform payload. A modular-loader launch states `platform-loader.jar`
+        # in the model.
         files = name + "_product_files"
         frontend_vmoptions = getattr(plan.launch, "frontend_vmoptions", None)
+
+        # The macOS app: `Info.plist`, the strings files and the icons that the action writes. The plan states the icons
+        # for a product with an app. A product without one gets no macOS app files.
+        mac_bundle = getattr(plan.launch, "mac_bundle", None)
+        mac_app_paths = MAC_APP_FILES + ["Resources/" + name for name in mac_bundle.icons] if mac_bundle else []
+        mac_app_files = {path: "%s/Contents/%s" % (files, path) for path in mac_app_paths}
+
+        def on_mac(platform, value, other):
+            return value if mac_bundle and platform_parts(platform).os == "darwin" else other
+
         application_info = tables.application_infos[product]
         dev_dist_product_files(
             name = files,
@@ -599,19 +607,24 @@ def _platform_set(tables, product, name, target_platform, visibility):
             product_info = files + "/product-info.json",
             frontend_vmoptions = files + "/frontend.vmoptions" if frontend_vmoptions else None,
             platform_payload = None if _modular_loader(tables, product) else ":" + name + "_platform_payload",
-            dev_jvm_arguments = _DEV_JVM_ARGUMENTS,
+            mac_app_files = mac_app_files.values(),
+            mac_app_template = per_platform(lambda platform: on_mac(platform, Label("//platform/build-scripts:mac_app_template"), None)),
+            mac_app_icons = per_platform(lambda platform: on_mac(platform, mac_app_icon_roles(mac_bundle.icons) if mac_bundle else {}, {})),
         )
 
         def placed(platform):
             destinations = _launch_destinations(plan, platform_parts(platform).os)
             result = {
-                "build.txt": ":%s/build.txt" % files,
+                destinations.build_txt: ":%s/build.txt" % files,
                 "bin/idea.properties": ":%s/idea.properties" % files,
                 destinations.vm_options: ":%s/vmoptions" % files,
                 destinations.product_info: ":%s/product-info.json" % files,
             }
             if destinations.frontend_vm_options:
                 result[destinations.frontend_vm_options] = ":%s/frontend.vmoptions" % files
+            if on_mac(platform, True, False):
+                for path, output in mac_app_files.items():
+                    result[path] = ":" + output
             return result
 
         intellij_dev_packed_jars_component(

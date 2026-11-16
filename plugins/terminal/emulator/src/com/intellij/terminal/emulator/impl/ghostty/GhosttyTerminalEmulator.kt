@@ -34,7 +34,7 @@ import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyCellContentTa
 import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyCellData
 import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyCellWide
 import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyColorScheme
-import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyCursorVisualStyle
+import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyCursorStyle
 import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyKeyAction
 import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyKeyEncoderOption
 import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyLayouts
@@ -52,20 +52,15 @@ import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyLayouts.POINT
 import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyLayouts.POINT_OFF_TAG
 import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyLayouts.POINT_OFF_X
 import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyLayouts.POINT_OFF_Y
-import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyLayouts.PROGRESS_REPORT_MIN_SIZE
 import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyLayouts.PROGRESS_REPORT_OFF_PROGRESS
 import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyLayouts.PROGRESS_REPORT_OFF_STATE
-import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyLayouts.STYLE_OFF_BG_TAG
-import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyLayouts.STYLE_OFF_BG_VAL
-import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyLayouts.STYLE_OFF_BLINK
-import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyLayouts.STYLE_OFF_BOLD
-import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyLayouts.STYLE_OFF_FAINT
-import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyLayouts.STYLE_OFF_FG_TAG
-import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyLayouts.STYLE_OFF_FG_VAL
-import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyLayouts.STYLE_OFF_INVERSE
-import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyLayouts.STYLE_OFF_INVISIBLE
-import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyLayouts.STYLE_OFF_ITALIC
-import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyLayouts.STYLE_OFF_UNDERLINE
+import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyLayouts.PROGRESS_REPORT_SIZE
+import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyLayouts.STRING
+import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyLayouts.STRING_OFF_LEN
+import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyLayouts.STYLE_COLOR_OFF_VALUE
+import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyLayouts.STYLE_OFF_BG
+import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyLayouts.STYLE_OFF_FG
+import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyLayouts.STYLE_OFF_FLAGS
 import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyLayouts.STYLE_SIZE
 import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyLayouts.allocateString
 import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyMode
@@ -84,6 +79,7 @@ import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyResult
 import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyRowData
 import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttySgrUnderline
 import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyStyleColorTag
+import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyStyleFlags
 import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyTerminalData
 import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyTerminalOption
 import com.intellij.terminal.emulator.impl.ghostty.bindings.GhosttyTerminalProgressState
@@ -239,10 +235,11 @@ internal class GhosttyTerminalEmulator(
   private var scratchEncode: MemorySegment = scratchArena.allocate(128L)  // grows on OUT_OF_SPACE
   private val scratchEncodeLen: MemorySegment = scratchArena.allocate(C_LONG)
   private var scratchKeyText: MemorySegment = scratchArena.allocate(64L)  // grows on demand (IME strings)
+  private val scratchKeyTextString: MemorySegment = scratchArena.allocate(STRING) // GhosttyString over scratchKeyText
   private val scratchMousePosition: MemorySegment = scratchArena.allocate(GhosttyLayouts.MOUSE_POSITION)
   private val scratchMouseSize: MemorySegment = scratchArena.allocate(GhosttyLayouts.MOUSE_ENCODER_SIZE_BYTES)
 
-  /** See [setOptionAsAlt]; applied on every encode, because `setopt_from_terminal` resets it. */
+  /** See [setOptionAsAlt]; applied on every encode, because `set_from_terminal` resets it. */
   private var optionAsAlt = false
 
   init {
@@ -376,7 +373,8 @@ internal class GhosttyTerminalEmulator(
       // the encoder would silently drop repeated motion in the same cell.
       try {
         scratchOut.set(C_BYTE, 0L, 0)
-        LibGhosttyVt.mouseEncoderSetopt(mouseEncoderHandle, GhosttyMouseEncoderOption.TRACK_LAST_CELL.code, scratchOut)
+        LibGhosttyVt.mouseEncoderSet(mouseEncoderHandle, GhosttyMouseEncoderOption.TRACK_LAST_CELL.code, scratchOut)
+          .requireSuccess("ghostty_mouse_encoder_set(TRACK_LAST_CELL)")
       } catch (t: Throwable) {
         throw RuntimeException("configuring the mouse encoder failed", t)
       }
@@ -427,6 +425,13 @@ internal class GhosttyTerminalEmulator(
     return out.get(C_PTR, 0L)
   }
 
+  /** Fails like the other native calls when a setter of the key or mouse encoding API rejects its value. */
+  private fun GhosttyResult.requireSuccess(call: String) {
+    if (this != GhosttyResult.SUCCESS) {
+      throw IllegalStateException("$call returned $this")
+    }
+  }
+
   // ---- geometry / state ----
 
   override val size: TerminalSize
@@ -454,7 +459,7 @@ internal class GhosttyTerminalEmulator(
   override fun setDefaultCursorShape(shape: CursorShape) {
     ensureOpen()
     try {
-      scratchOut.set(C_INT, 0L, shape.toGhosttyCursorVisualStyle().code)
+      scratchOut.set(C_INT, 0L, shape.toGhosttyCursorStyle().code)
       val r = LibGhosttyVt.terminalSet(terminal, GhosttyTerminalOption.DEFAULT_CURSOR_STYLE.code, scratchOut)
       if (r != GhosttyResult.SUCCESS) {
         throw IllegalStateException("ghostty_terminal_set(DEFAULT_CURSOR_STYLE) returned $r")
@@ -477,10 +482,10 @@ internal class GhosttyTerminalEmulator(
     }
   }
 
-  private fun CursorShape.toGhosttyCursorVisualStyle(): GhosttyCursorVisualStyle = when (this) {
-    CursorShape.BAR -> GhosttyCursorVisualStyle.BAR
-    CursorShape.BLOCK -> GhosttyCursorVisualStyle.BLOCK
-    CursorShape.UNDERLINE -> GhosttyCursorVisualStyle.UNDERLINE
+  private fun CursorShape.toGhosttyCursorStyle(): GhosttyCursorStyle = when (this) {
+    CursorShape.BAR -> GhosttyCursorStyle.BAR
+    CursorShape.BLOCK -> GhosttyCursorStyle.BLOCK
+    CursorShape.UNDERLINE -> GhosttyCursorStyle.UNDERLINE
   }
 
   override val title: String
@@ -666,19 +671,22 @@ internal class GhosttyTerminalEmulator(
   override fun encodeKeyEvent(event: TerminalKeyEvent): ByteArray {
     ensureOpen()
     try {
-      LibGhosttyVt.keyEventSetAction(keyEvent, event.action.toGhostty().code)
+      LibGhosttyVt.keyEventSetAction(keyEvent, event.action.toGhostty().code).requireSuccess("ghostty_key_event_set_action")
       // TerminalKey mirrors GhosttyKey entry by entry, so the ordinal is the C value.
-      LibGhosttyVt.keyEventSetKey(keyEvent, event.key.ordinal)
-      LibGhosttyVt.keyEventSetMods(keyEvent, modsBits(event.modifiers))
+      LibGhosttyVt.keyEventSetKey(keyEvent, event.key.ordinal).requireSuccess("ghostty_key_event_set_key")
+      LibGhosttyVt.keyEventSetMods(keyEvent, modsBits(event.modifiers)).requireSuccess("ghostty_key_event_set_mods")
       LibGhosttyVt.keyEventSetConsumedMods(keyEvent, modsBits(event.consumedModifiers))
+        .requireSuccess("ghostty_key_event_set_consumed_mods")
       setKeyEventText(event.text)
       LibGhosttyVt.keyEventSetUnshiftedCodepoint(keyEvent, event.unshiftedCodepoint)
-      LibGhosttyVt.keyEventSetComposing(keyEvent, event.composing)
+        .requireSuccess("ghostty_key_event_set_unshifted_codepoint")
+      LibGhosttyVt.keyEventSetComposing(keyEvent, event.composing).requireSuccess("ghostty_key_event_set_composing")
 
-      LibGhosttyVt.keyEncoderSetoptFromTerminal(keyEncoder, terminal)
-      // No terminal mode carries this option, and setopt_from_terminal has just reset it.
+      LibGhosttyVt.keyEncoderSetFromTerminal(keyEncoder, terminal).requireSuccess("ghostty_key_encoder_set_from_terminal")
+      // No terminal mode carries this option, and set_from_terminal has just reset it.
       scratchOut.set(C_INT, 0L, (if (optionAsAlt) GhosttyOptionAsAlt.TRUE else GhosttyOptionAsAlt.FALSE).code)
-      LibGhosttyVt.keyEncoderSetopt(keyEncoder, GhosttyKeyEncoderOption.MACOS_OPTION_AS_ALT.code, scratchOut)
+      LibGhosttyVt.keyEncoderSet(keyEncoder, GhosttyKeyEncoderOption.MACOS_OPTION_AS_ALT.code, scratchOut)
+        .requireSuccess("ghostty_key_encoder_set(MACOS_OPTION_AS_ALT)")
       return encodeToBytes { buf, size, outLen -> LibGhosttyVt.keyEncoderEncode(keyEncoder, keyEvent, buf, size, outLen) }
     } catch (t: Throwable) {
       throw RuntimeException("ghostty key encoding failed", t)
@@ -688,7 +696,7 @@ internal class GhosttyTerminalEmulator(
   override fun encodeMouseEvent(event: TerminalMouseEvent): ByteArray {
     ensureOpen()
     try {
-      LibGhosttyVt.mouseEncoderSetoptFromTerminal(mouseEncoder, terminal)
+      LibGhosttyVt.mouseEncoderSetFromTerminal(mouseEncoder, terminal).requireSuccess("ghostty_mouse_encoder_set_from_terminal")
       // The encoder converts surface pixels to cells; 1x1-pixel cells make the cell coordinates of
       // [event] pass through unchanged. SGR-pixels reports then carry cell-granularity values, which
       // is the best this cell-based API can do.
@@ -699,25 +707,27 @@ internal class GhosttyTerminalEmulator(
       scratchMouseSize.set(C_INT, GhosttyLayouts.MOUSE_ENCODER_SIZE_OFF_SCREEN_HEIGHT, rows)
       scratchMouseSize.set(C_INT, GhosttyLayouts.MOUSE_ENCODER_SIZE_OFF_CELL_WIDTH, 1)
       scratchMouseSize.set(C_INT, GhosttyLayouts.MOUSE_ENCODER_SIZE_OFF_CELL_HEIGHT, 1)
-      LibGhosttyVt.mouseEncoderSetopt(mouseEncoder, GhosttyMouseEncoderOption.SIZE.code, scratchMouseSize)
+      LibGhosttyVt.mouseEncoderSet(mouseEncoder, GhosttyMouseEncoderOption.SIZE.code, scratchMouseSize)
+        .requireSuccess("ghostty_mouse_encoder_set(SIZE)")
 
       // Button-event tracking (mode 1002) reports motion only while a button is held.
       val anyButtonPressed = event.button != null && event.action != TerminalMouseAction.RELEASE
       scratchOut.set(C_BYTE, 0L, if (anyButtonPressed) 1 else 0)
-      LibGhosttyVt.mouseEncoderSetopt(mouseEncoder, GhosttyMouseEncoderOption.ANY_BUTTON_PRESSED.code, scratchOut)
+      LibGhosttyVt.mouseEncoderSet(mouseEncoder, GhosttyMouseEncoderOption.ANY_BUTTON_PRESSED.code, scratchOut)
+        .requireSuccess("ghostty_mouse_encoder_set(ANY_BUTTON_PRESSED)")
 
-      LibGhosttyVt.mouseEventSetAction(mouseEvent, event.action.toGhostty().code)
+      LibGhosttyVt.mouseEventSetAction(mouseEvent, event.action.toGhostty().code).requireSuccess("ghostty_mouse_event_set_action")
       val button = event.button
       if (button != null) {
-        LibGhosttyVt.mouseEventSetButton(mouseEvent, button.toGhostty().code)
+        LibGhosttyVt.mouseEventSetButton(mouseEvent, button.toGhostty().code).requireSuccess("ghostty_mouse_event_set_button")
       }
       else {
-        LibGhosttyVt.mouseEventClearButton(mouseEvent)
+        LibGhosttyVt.mouseEventClearButton(mouseEvent).requireSuccess("ghostty_mouse_event_clear_button")
       }
-      LibGhosttyVt.mouseEventSetMods(mouseEvent, modsBits(event.modifiers))
+      LibGhosttyVt.mouseEventSetMods(mouseEvent, modsBits(event.modifiers)).requireSuccess("ghostty_mouse_event_set_mods")
       scratchMousePosition.set(C_FLOAT, GhosttyLayouts.MOUSE_POSITION_OFF_X, event.column.toFloat())
       scratchMousePosition.set(C_FLOAT, GhosttyLayouts.MOUSE_POSITION_OFF_Y, event.row.toFloat())
-      LibGhosttyVt.mouseEventSetPosition(mouseEvent, scratchMousePosition)
+      LibGhosttyVt.mouseEventSetPosition(mouseEvent, scratchMousePosition).requireSuccess("ghostty_mouse_event_set_position")
 
       return encodeToBytes { buf, size, outLen -> LibGhosttyVt.mouseEncoderEncode(mouseEncoder, mouseEvent, buf, size, outLen) }
     } catch (t: Throwable) {
@@ -750,7 +760,9 @@ internal class GhosttyTerminalEmulator(
       scratchKeyText = scratchArena.allocate(bytes.size.toLong())
     }
     MemorySegment.copy(bytes, 0, scratchKeyText, C_BYTE, 0L, bytes.size)
-    LibGhosttyVt.keyEventSetUtf8(keyEvent, scratchKeyText, bytes.size.toLong())
+    scratchKeyTextString.set(C_PTR, 0L, scratchKeyText)
+    scratchKeyTextString.set(C_LONG, STRING_OFF_LEN, bytes.size.toLong())
+    LibGhosttyVt.keyEventSetUtf8(keyEvent, scratchKeyTextString).requireSuccess("ghostty_key_event_set_utf8")
   }
 
   private fun modsBits(modifiers: Set<TerminalInputModifier>): Short {
@@ -821,7 +833,6 @@ internal class GhosttyTerminalEmulator(
    */
   private fun readRowWrapped(pointTag: GhosttyPointTag, y: Int): Boolean {
     scratchGridRef.fill(0.toByte())
-    scratchGridRef.set(C_LONG, 0L, GRID_REF.byteSize()) // GHOSTTY_INIT_SIZED
     scratchPoint.fill(0.toByte())
     scratchPoint.set(C_INT, POINT_OFF_TAG, pointTag.code)
     scratchPoint.set(C_SHORT, POINT_OFF_X, 0)
@@ -937,12 +948,7 @@ internal class GhosttyTerminalEmulator(
    */
   @Suppress("unused", "UNUSED_PARAMETER")
   private fun onProgressReport(terminal: MemorySegment, userdata: MemorySegment, report: MemorySegment) {
-    // A sized struct: only the fields covered by its own `size` may be read (terminal.h).
-    val size = report.reinterpret(C_LONG.byteSize()).get(C_LONG, 0L)
-    if (size < PROGRESS_REPORT_MIN_SIZE) {
-      return
-    }
-    val struct = report.reinterpret(size)
+    val struct = report.reinterpret(PROGRESS_REPORT_SIZE)
     val state = GhosttyTerminalProgressState.of(struct.get(C_INT, PROGRESS_REPORT_OFF_STATE)) ?: return
     // `progress` is -1 when the program omitted (or malformed) the percentage, otherwise 0..100.
     val percent = struct.get(C_BYTE, PROGRESS_REPORT_OFF_PROGRESS).toInt().takeIf { it in 0..100 }
@@ -979,12 +985,12 @@ internal class GhosttyTerminalEmulator(
       if (LibGhosttyVt.renderStateGet(renderState, GhosttyRenderStateData.CURSOR_VISUAL_STYLE.code, scratchOut) != GhosttyResult.SUCCESS) {
         return CursorShape.BLOCK
       }
-      return when (GhosttyCursorVisualStyle.of(scratchOut.get(C_INT, 0L))) {
-        GhosttyCursorVisualStyle.BAR -> CursorShape.BAR
-        GhosttyCursorVisualStyle.UNDERLINE -> CursorShape.UNDERLINE
+      return when (GhosttyCursorStyle.of(scratchOut.get(C_INT, 0L))) {
+        GhosttyCursorStyle.BAR -> CursorShape.BAR
+        GhosttyCursorStyle.UNDERLINE -> CursorShape.UNDERLINE
         // BLOCK, and BLOCK_HOLLOW (the unfocused-window render variant this headless engine never
         // emits), both surface as BLOCK; the embedder owns the hollow-on-unfocus decision.
-        GhosttyCursorVisualStyle.BLOCK, GhosttyCursorVisualStyle.BLOCK_HOLLOW -> CursorShape.BLOCK
+        GhosttyCursorStyle.BLOCK, GhosttyCursorStyle.BLOCK_HOLLOW -> CursorShape.BLOCK
       }
     } catch (t: Throwable) {
       throw RuntimeException("ghostty render-state cursor shape read failed", t)
@@ -1037,69 +1043,47 @@ internal class GhosttyTerminalEmulator(
   }
 
   /**
-   * A [HistoryMark] backed by a ghostty tracked grid reference (grid_ref_tracked.h) pinned at the top
-   * of the active screen — the boundary between finalized scrollback and the live screen. The tracked
-   * reference follows that content as the screen scrolls, so [finalizedLineCount] stays exact even
-   * after the scrollback byte cap begins evicting, where the raw [scrollbackRows] delta would plateau.
+   * A [HistoryMark] backed by two ghostty tracked grid references (grid_ref_tracked.h).
+   *
+   * The [boundaryRef] pins the top of the active screen — the boundary between finalized scrollback
+   * and the live screen. It follows that content as the screen scrolls, so [finalizedLineCount] stays exact
+   * even after the scrollback byte cap begins evicting, where the raw [scrollbackRows] delta would plateau.
+   *
+   * The [tailRef] pins the newest history row. It helps to detect an erase of the history (`CSI 3 J`, a full reset): it frees
+   * that row, and the library then reports the reference gone. The boundary alone cannot see such an erase:
+   * it is on the active screen, which the erase leaves as it is.
    */
   private inner class GhosttyHistoryMark : HistoryMark {
-    // A mark can be closed (its native ref freed) independently of the emulator, so it owns its own
+    // A mark can be closed (its native refs freed) independently of the emulator, so it owns its own
     // arena + scratch rather than borrowing the emulator's shared one.
     private val markArena: Arena = Arena.ofShared()
     private val markPoint: MemorySegment = markArena.allocate(POINT)      // reused for track / set
     private val markCoord: MemorySegment = markArena.allocate(POINT_COORD)
-    private val trackedRef: MemorySegment
-    private var markClosed = false
-
-    init {
-      writeActiveTop(markPoint)
-      val outRef = markArena.allocate(C_PTR)
-      val r = try {
-        LibGhosttyVt.terminalGridRefTrack(terminal, markPoint, outRef)
-      } catch (t: Throwable) {
-        markArena.close()
-        throw RuntimeException("ghostty_terminal_grid_ref_track failed", t)
-      }
-      if (r != GhosttyResult.SUCCESS) {
-        markArena.close()
-        throw IllegalStateException("ghostty_terminal_grid_ref_track returned $r")
-      }
-      trackedRef = outRef.get(C_PTR, 0L)
+    private val boundaryRef: MemorySegment = track(activeTop()) { markArena.close() }
+    private val tailRef: MemorySegment = track(newestHistoryRow()) {
+      LibGhosttyVt.trackedGridRefFree(boundaryRef)
+      markArena.close()
     }
+    private var markClosed = false
 
     override fun finalizedLineCount(): Int? {
       ensureOpen()
       ensureMarkOpen()
-      val r = try {
-        LibGhosttyVt.trackedGridRefPoint(trackedRef, GhosttyPointTag.SCREEN.code, markCoord)
-      } catch (t: Throwable) {
-        throw RuntimeException("ghostty_tracked_grid_ref_point failed", t)
-      }
-      if (r == GhosttyResult.NO_VALUE) {
-        return null // the pinned boundary line has been evicted from the bounded scrollback
-      }
-      if (r != GhosttyResult.SUCCESS) {
-        throw IllegalStateException("ghostty_tracked_grid_ref_point returned $r")
+      if (screenY(tailRef) == null) {
+        return null // the history above the boundary was erased, or evicted up to the boundary
       }
       // SCREEN y is the pinned line's absolute row: history occupies rows [0, scrollbackRows), then the
       // active screen. At anchor time the top active row is at y == scrollbackRows, so the number of
       // lines finalized since is the amount that absolute row has moved above the current boundary.
-      val screenY = markCoord.get(C_INT, POINT_COORD_OFF_Y)
-      return scrollbackRows - screenY
+      val boundaryY = screenY(boundaryRef) ?: return null // the boundary was evicted from the bounded scrollback
+      return scrollbackRows - boundaryY
     }
 
     override fun reset() {
       ensureOpen()
       ensureMarkOpen()
-      writeActiveTop(markPoint)
-      val r = try {
-        LibGhosttyVt.trackedGridRefSet(trackedRef, terminal, markPoint)
-      } catch (t: Throwable) {
-        throw RuntimeException("ghostty_tracked_grid_ref_set failed", t)
-      }
-      if (r != GhosttyResult.SUCCESS) {
-        throw IllegalStateException("ghostty_tracked_grid_ref_set returned $r")
-      }
+      repin(boundaryRef, activeTop())
+      repin(tailRef, newestHistoryRow())
     }
 
     override fun close() {
@@ -1107,10 +1091,14 @@ internal class GhosttyTerminalEmulator(
         return
       }
       markClosed = true
-      // Freeing the tracked ref is safe even after the terminal is freed (grid_ref_tracked.h), so this
+      // Freeing a tracked ref is safe even after the terminal is freed (grid_ref_tracked.h), so this
       // works regardless of whether the emulator was closed first.
       try {
-        LibGhosttyVt.trackedGridRefFree(trackedRef)
+        try {
+          LibGhosttyVt.trackedGridRefFree(boundaryRef)
+        } finally {
+          LibGhosttyVt.trackedGridRefFree(tailRef)
+        }
       } catch (t: Throwable) {
         throw RuntimeException("ghostty_tracked_grid_ref_free failed", t)
       } finally {
@@ -1124,12 +1112,67 @@ internal class GhosttyTerminalEmulator(
       }
     }
 
-    /** Fill [seg] (a `GhosttyPoint`) with the top-left cell of the active screen: `ACTIVE (0, 0)`. */
-    private fun writeActiveTop(seg: MemorySegment) {
-      seg.fill(0.toByte())
-      seg.set(C_INT, POINT_OFF_TAG, GhosttyPointTag.ACTIVE.code)
-      seg.set(C_SHORT, POINT_OFF_X, 0.toShort())
-      seg.set(C_INT, POINT_OFF_Y, 0)
+    /** A new tracked ref at [point]. Runs [onFailure] before it throws, to free what the mark already holds. */
+    private inline fun track(point: MemorySegment, onFailure: () -> Unit): MemorySegment {
+      val outRef = markArena.allocate(C_PTR)
+      val r = try {
+        LibGhosttyVt.terminalGridRefTrack(terminal, point, outRef)
+      } catch (t: Throwable) {
+        onFailure()
+        throw RuntimeException("ghostty_terminal_grid_ref_track failed", t)
+      }
+      if (r != GhosttyResult.SUCCESS) {
+        onFailure()
+        throw IllegalStateException("ghostty_terminal_grid_ref_track returned $r")
+      }
+      return outRef.get(C_PTR, 0L)
+    }
+
+    private fun repin(ref: MemorySegment, point: MemorySegment) {
+      val r = try {
+        LibGhosttyVt.trackedGridRefSet(ref, terminal, point)
+      } catch (t: Throwable) {
+        throw RuntimeException("ghostty_tracked_grid_ref_set failed", t)
+      }
+      if (r != GhosttyResult.SUCCESS) {
+        throw IllegalStateException("ghostty_tracked_grid_ref_set returned $r")
+      }
+    }
+
+    /** The SCREEN row of the cell that [ref] pins, or null when the library reports that row gone. */
+    private fun screenY(ref: MemorySegment): Int? {
+      val r = try {
+        LibGhosttyVt.trackedGridRefPoint(ref, GhosttyPointTag.SCREEN.code, markCoord)
+      } catch (t: Throwable) {
+        throw RuntimeException("ghostty_tracked_grid_ref_point failed", t)
+      }
+      if (r == GhosttyResult.NO_VALUE) {
+        return null
+      }
+      if (r != GhosttyResult.SUCCESS) {
+        throw IllegalStateException("ghostty_tracked_grid_ref_point returned $r")
+      }
+      return markCoord.get(C_INT, POINT_COORD_OFF_Y)
+    }
+
+    /** [markPoint] filled with the top-left cell of the active screen: `ACTIVE (0, 0)`. */
+    private fun activeTop(): MemorySegment = pointAt(GhosttyPointTag.ACTIVE, 0)
+
+    /**
+     * [markPoint] filled with the first cell of the newest history row. With no history, the point is the
+     * active top instead: the tail then pins the boundary row and adds nothing to the boundary check.
+     */
+    private fun newestHistoryRow(): MemorySegment {
+      val rows = scrollbackRows
+      return if (rows > 0) pointAt(GhosttyPointTag.HISTORY, rows - 1) else activeTop()
+    }
+
+    private fun pointAt(tag: GhosttyPointTag, y: Int): MemorySegment {
+      markPoint.fill(0.toByte())
+      markPoint.set(C_INT, POINT_OFF_TAG, tag.code)
+      markPoint.set(C_SHORT, POINT_OFF_X, 0.toShort())
+      markPoint.set(C_INT, POINT_OFF_Y, y)
+      return markPoint
     }
   }
 
@@ -1183,7 +1226,6 @@ internal class GhosttyTerminalEmulator(
     ensureOpen()
     out.reset()
     scratchGridRef.fill(0.toByte())
-    scratchGridRef.set(C_LONG, 0L, GRID_REF.byteSize()) // GHOSTTY_INIT_SIZED
     scratchPoint.fill(0.toByte())
     scratchPoint.set(C_INT, POINT_OFF_TAG, pointTag.code)
     scratchPoint.set(C_SHORT, POINT_OFF_X, x.toShort())
@@ -1259,24 +1301,24 @@ internal class GhosttyTerminalEmulator(
   /** Read the current grid ref's style; the default style if the engine fails the read. */
   private fun readStyleFromGridRef(): CellStyle {
     scratchStyle.fill(0.toByte())
-    scratchStyle.set(C_LONG, 0L, STYLE_SIZE) // GHOSTTY_INIT_SIZED
     val styleRead = LibGhosttyVt.gridRefStyle(scratchGridRef, scratchStyle)
     if (styleRead != GhosttyResult.SUCCESS) {
       logGridReadFailure("ghostty_grid_ref_style", styleRead)
       return CellStyle.Default
     }
-    val fgTag = GhosttyStyleColorTag.of(scratchStyle.get(C_INT, STYLE_OFF_FG_TAG))
-    val bgTag = GhosttyStyleColorTag.of(scratchStyle.get(C_INT, STYLE_OFF_BG_TAG))
+    val fgTag = GhosttyStyleColorTag.of(scratchStyle.get(C_BYTE, STYLE_OFF_FG).toInt() and 0xFF)
+    val bgTag = GhosttyStyleColorTag.of(scratchStyle.get(C_BYTE, STYLE_OFF_BG).toInt() and 0xFF)
+    val flags = scratchStyle.get(C_SHORT, STYLE_OFF_FLAGS).toInt() and 0xFFFF
     return CellStyle(
-      foreground = toColor(fgTag, readColorValue(fgTag, STYLE_OFF_FG_VAL)),
-      background = toColor(bgTag, readColorValue(bgTag, STYLE_OFF_BG_VAL)),
-      bold = scratchStyle.get(C_BYTE, STYLE_OFF_BOLD).toInt() != 0,
-      faint = scratchStyle.get(C_BYTE, STYLE_OFF_FAINT).toInt() != 0,
-      italic = scratchStyle.get(C_BYTE, STYLE_OFF_ITALIC).toInt() != 0,
-      blink = scratchStyle.get(C_BYTE, STYLE_OFF_BLINK).toInt() != 0,
-      inverse = scratchStyle.get(C_BYTE, STYLE_OFF_INVERSE).toInt() != 0,
-      hidden = scratchStyle.get(C_BYTE, STYLE_OFF_INVISIBLE).toInt() != 0,
-      underline = when (GhosttySgrUnderline.of(scratchStyle.get(C_INT, STYLE_OFF_UNDERLINE))) {
+      foreground = toColor(fgTag, readColorValue(fgTag, STYLE_OFF_FG + STYLE_COLOR_OFF_VALUE)),
+      background = toColor(bgTag, readColorValue(bgTag, STYLE_OFF_BG + STYLE_COLOR_OFF_VALUE)),
+      bold = (flags and GhosttyStyleFlags.BOLD) != 0,
+      faint = (flags and GhosttyStyleFlags.FAINT) != 0,
+      italic = (flags and GhosttyStyleFlags.ITALIC) != 0,
+      blink = (flags and GhosttyStyleFlags.BLINK) != 0,
+      inverse = (flags and GhosttyStyleFlags.INVERSE) != 0,
+      hidden = (flags and GhosttyStyleFlags.INVISIBLE) != 0,
+      underline = when (GhosttySgrUnderline.of((flags and GhosttyStyleFlags.UNDERLINE_MASK) shr GhosttyStyleFlags.UNDERLINE_SHIFT)) {
         GhosttySgrUnderline.NONE -> Underline.NONE
         GhosttySgrUnderline.SINGLE -> Underline.SINGLE
         GhosttySgrUnderline.DOUBLE -> Underline.DOUBLE

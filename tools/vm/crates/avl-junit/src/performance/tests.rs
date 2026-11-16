@@ -174,6 +174,18 @@ fn a_plan_that_cannot_be_made_says_why() {
 }
 
 #[test]
+fn a_macos_app_holds_the_build_file_in_its_resources_and_every_other_distribution_at_its_root() {
+    let app = Path::new("/out/idea.dist/Contents");
+    assert_eq!(build_txt(app, "darwin_aarch64"), app.join("Resources/build.txt"));
+    assert_eq!(build_txt(app, "darwin_x64"), app.join("Resources/build.txt"));
+    let language_server = Path::new("/out/kotlin-server.dist");
+    assert_eq!(build_txt(language_server, "darwin_aarch64"), language_server.join("build.txt"));
+    let linux = Path::new("/out/idea_linux.dist");
+    assert_eq!(build_txt(linux, "linux_aarch64"), linux.join("build.txt"));
+    assert_eq!(build_txt(linux, "linux_x64"), linux.join("build.txt"));
+}
+
+#[test]
 fn the_ide_build_of_a_build_file_drops_the_product_code_and_names_a_read_failure_and_an_empty_file() {
     let path = Path::new("/dist/build.txt");
     assert_eq!(ide_build(path, Ok("IU-271.1234\n".to_owned())), Ok("271.1234".to_owned()));

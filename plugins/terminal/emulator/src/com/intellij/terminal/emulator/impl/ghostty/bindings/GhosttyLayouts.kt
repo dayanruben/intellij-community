@@ -13,7 +13,7 @@ import java.lang.foreign.ValueLayout
  * those structs.
  *
  * This is the single source of truth for struct sizes/offsets — the fragile part that must track
- * the (pre-1.0, still-moving) C API. `GhosttyStyle` in particular is read via raw offsets rather
+ * the C API. `GhosttyStyle` in particular is read via raw offsets rather
  * than layout var-handles, so the offsets live here alongside the layouts.
  *
  * Every size and offset here is checked against `ghostty_type_json()` by `GhosttyStructLayoutsTest`.
@@ -64,22 +64,19 @@ internal object GhosttyLayouts {
     return string
   }
 
-  /** `GhosttyGridRef`: `size_t size; void* node; uint16 x; uint16 y;` (24 bytes, align 8). */
+  /** `GhosttyGridRef`: `void* node; uint16 x; uint16 y;` (frozen layout, 16 bytes, align 8). */
   val GRID_REF: MemoryLayout = MemoryLayout.structLayout(
-    C_LONG.withName("size"),
     C_PTR.withName("node"),
     C_SHORT.withName("x"),
     C_SHORT.withName("y"),
     MemoryLayout.paddingLayout(4L))
 
-  // `GhosttyTerminalProgressReport` (sized struct, 16 bytes, align 8): `size_t size; int state; int8_t progress`
+  // `GhosttyTerminalProgressReport` (frozen layout, 8 bytes, align 4): `int state; int8_t progress`
   // — the payload borrowed by the GHOSTTY_TERMINAL_OPT_PROGRESS_REPORT callback. Field byte offsets:
-  //   size@0  state@8  progress@12 ; total padded to 16.
-  const val PROGRESS_REPORT_OFF_STATE = 8L
-  const val PROGRESS_REPORT_OFF_PROGRESS = 12L
-
-  /** Smallest `GhosttyTerminalProgressReport.size` that still covers every field the bridge reads. */
-  const val PROGRESS_REPORT_MIN_SIZE = PROGRESS_REPORT_OFF_PROGRESS + 1L
+  //   state@0  progress@4 ; total padded to 8.
+  const val PROGRESS_REPORT_SIZE = 8L
+  const val PROGRESS_REPORT_OFF_STATE = 0L
+  const val PROGRESS_REPORT_OFF_PROGRESS = 4L
 
   /**
    * `GhosttyTerminalModeConfig` (terminal.h, frozen layout, 4 bytes, align 2): `GhosttyMode mode; bool value;`.
@@ -103,21 +100,12 @@ internal object GhosttyLayouts {
   const val MOUSE_ENCODER_SIZE_OFF_CELL_WIDTH = 16L
   const val MOUSE_ENCODER_SIZE_OFF_CELL_HEIGHT = 20L
 
-  // `GhosttyStyle` (sized struct, 72 bytes). Each GhosttyStyleColor is {int tag; union{...} value} =
-  // 16 bytes (tag @+0, 8-byte value @+8). Field byte offsets:
-  //   size@0  fg(tag@8,val@16)  bg(tag@24,val@32)  underline_color(tag@40,val@48)
-  //   bold@56 italic@57 faint@58 blink@59 inverse@60 invisible@61 strikethrough@62 overline@63
-  //   underline(int)@64 ; total padded to 72.
-  const val STYLE_SIZE = 72L
-  const val STYLE_OFF_FG_TAG = 8L
-  const val STYLE_OFF_FG_VAL = 16L
-  const val STYLE_OFF_BG_TAG = 24L
-  const val STYLE_OFF_BG_VAL = 32L
-  const val STYLE_OFF_BOLD = 56L
-  const val STYLE_OFF_ITALIC = 57L
-  const val STYLE_OFF_FAINT = 58L
-  const val STYLE_OFF_BLINK = 59L
-  const val STYLE_OFF_INVERSE = 60L
-  const val STYLE_OFF_INVISIBLE = 61L
-  const val STYLE_OFF_UNDERLINE = 64L
+  // `GhosttyStyle` (frozen layout, 16 bytes, align 2). Each GhosttyStyleColor is {uint8 tag; union{...} value} =
+  // 4 bytes (tag @+0, 3-byte value @+1). Field byte offsets:
+  //   fg_color@0  bg_color@4  underline_color@8  flags(uint16, see GhosttyStyleFlags)@12  reserved@14.
+  const val STYLE_SIZE = 16L
+  const val STYLE_OFF_FG = 0L
+  const val STYLE_OFF_BG = 4L
+  const val STYLE_COLOR_OFF_VALUE = 1L
+  const val STYLE_OFF_FLAGS = 12L
 }
