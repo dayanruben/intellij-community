@@ -6,6 +6,7 @@
  */
 package com.intellij.tests.bazel;
 
+import com.intellij.tests.ClassTemplateInvocations;
 import com.intellij.tests.IgnoreException;
 import org.junit.platform.engine.TestExecutionResult;
 import org.junit.platform.engine.UniqueId;
@@ -155,9 +156,12 @@ public class BazelJUnitOutputListener implements TestExecutionListener, Closeabl
       // closest parent that is either a class or nested class when nested classes are involved.
       // Vintage descriptors use "test" segments for both suites and test cases, so if no class
       // parent exists we keep the nearest suite parent instead of reporting each test as a suite.
+      // The tests of all invocations of a class template go to the suite of the template class:
+      // the test case name holds the invocation, see TeamCityTestNames.
       List<UniqueId.Segment> segments = testCase.getId().getUniqueIdObject().getSegments();
       for (int i = segments.size() - 2; i >= 0; i--) {
-        if (SegmentClassTypes.contains(segments.get(i).getType())) {
+        String segmentType = segments.get(i).getType();
+        if (SegmentClassTypes.contains(segmentType)) {
           foundClassSegment = true;
           break;
         }
@@ -166,6 +170,10 @@ public class BazelJUnitOutputListener implements TestExecutionListener, Closeabl
         }
 
         parent = parent.get().getId().getParentIdObject().map(results::get);
+        if (ClassTemplateInvocations.SEGMENT_TYPE.equals(segmentType)) {
+          foundClassSegment = parent.isPresent();
+          break;
+        }
       }
 
       TestData suite = foundClassSegment ? parent.orElse(testCase) : directParent.orElse(testCase);
@@ -218,7 +226,7 @@ public class BazelJUnitOutputListener implements TestExecutionListener, Closeabl
 
   @Override
   public void dynamicTestRegistered(TestIdentifier testIdentifier) {
-    getResult(testIdentifier).setDynamic(true);
+    getResult(testIdentifier);
   }
 
   @Override
@@ -310,8 +318,10 @@ public class BazelJUnitOutputListener implements TestExecutionListener, Closeabl
       // (because tests and containers are arranged in a hierarchy --- the
       // containers only complete when all the things they contain are
       // finished. We are leaving all the test data that we have _not_ written
-      // to the XML file.
-      Stream.concat(testCases.stream(), testSuites.keySet().stream())
+      // to the XML file. The written tests include the descendants added for a
+      // suite that did not succeed, so an interrupted run does not write them again.
+      Stream.of(testCases.stream(), testSuites.keySet().stream(), testSuites.values().stream().flatMap(List::stream))
+        .flatMap(data -> data)
         .forEach(data -> results.remove(data.getId().getUniqueIdObject()));
     }
   }
@@ -321,7 +331,7 @@ public class BazelJUnitOutputListener implements TestExecutionListener, Closeabl
       .flatMap(
         testIdentifier -> {
           if (testIdentifier.isContainer()) {
-            return getTestsFromSuite(testIdentifier).stream();
+            return Stream.concat(Stream.of(testIdentifier), getTestsFromSuite(testIdentifier).stream());
           }
           return Stream.of(testIdentifier);
         })

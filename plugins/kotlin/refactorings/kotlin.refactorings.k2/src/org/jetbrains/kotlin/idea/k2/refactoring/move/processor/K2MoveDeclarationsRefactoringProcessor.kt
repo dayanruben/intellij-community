@@ -11,6 +11,7 @@ import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiWhiteSpace
 import com.intellij.psi.SmartPsiElementPointer
 import com.intellij.psi.createSmartPointer
+import com.intellij.psi.search.searches.ReferencesSearch
 import com.intellij.refactoring.BaseRefactoringProcessor
 import com.intellij.refactoring.RefactoringBundle
 import com.intellij.refactoring.listeners.RefactoringEventData
@@ -26,8 +27,8 @@ import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisFromWriteAct
 import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisOnEdt
 import org.jetbrains.kotlin.analysis.api.permissions.allowAnalysisFromWriteAction
 import org.jetbrains.kotlin.analysis.api.permissions.allowAnalysisOnEdt
-import org.jetbrains.kotlin.analysis.api.renderer.render
-import org.jetbrains.kotlin.analysis.api.renderer.types.impl.KaTypeRendererForSource
+import org.jetbrains.kotlin.analysis.api.rendering.KaRenderer
+import org.jetbrains.kotlin.analysis.api.rendering.renderToString
 import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.classSymbol
@@ -48,7 +49,6 @@ import org.jetbrains.kotlin.idea.k2.refactoring.move.descriptor.K2MoveDescriptor
 import org.jetbrains.kotlin.idea.k2.refactoring.move.descriptor.K2MoveOperationDescriptor
 import org.jetbrains.kotlin.idea.k2.refactoring.move.descriptor.K2MoveSourceDescriptor
 import org.jetbrains.kotlin.idea.k2.refactoring.move.descriptor.K2MoveTargetDescriptor
-import org.jetbrains.kotlin.idea.k2.refactoring.move.descriptor.K2MoveTargetDescriptor.Declaration
 import org.jetbrains.kotlin.idea.k2.refactoring.move.descriptor.K2MoveTargetDescriptor.Declaration.DeclarationTargetType
 import org.jetbrains.kotlin.idea.k2.refactoring.move.processor.usages.K2MoveRenameUsageInfo
 import org.jetbrains.kotlin.idea.k2.refactoring.move.processor.usages.K2MoveRenameUsageInfo.Companion.markInternalUsages
@@ -56,6 +56,8 @@ import org.jetbrains.kotlin.idea.k2.refactoring.move.processor.usages.OuterInsta
 import org.jetbrains.kotlin.idea.refactoring.KotlinRefactoringListener
 import org.jetbrains.kotlin.idea.refactoring.pullUp.willBeMoved
 import org.jetbrains.kotlin.idea.util.addAnnotation
+import org.jetbrains.kotlin.idea.util.renderToStringIfPresent
+import org.jetbrains.kotlin.idea.util.withQualifiedNames
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.JvmStandardClassIds
 import org.jetbrains.kotlin.platform.jvm.isJvm
@@ -84,7 +86,6 @@ import org.jetbrains.kotlin.psi.psiUtil.containingClass
 import org.jetbrains.kotlin.psi.psiUtil.containingClassOrObject
 import org.jetbrains.kotlin.psi.psiUtil.isIdentifier
 import org.jetbrains.kotlin.psi.psiUtil.startOffset
-import org.jetbrains.kotlin.types.Variance
 import org.jetbrains.kotlin.util.capitalizeDecapitalize.decapitalizeAsciiOnly
 
 open class K2MoveDeclarationsRefactoringProcessor(
@@ -162,20 +163,23 @@ open class K2MoveDeclarationsRefactoringProcessor(
         return body?.children?.all { it is PsiWhiteSpace } == true
     }
 
-    /**
-     * Deletes the [element] from its file but also deletes the containing declaration or file
-     * if it can be deleted and is
-     */
-    private fun deleteMovedElement(element: KtNamedDeclaration, companionObjectsToKeep: Set<KtObjectDeclaration>) {
-        val containingClass = element.containingClassOrObject
-        element.deleteSingle()
-        val shouldDeleteContainingCompanionObject =
-            containingClass is KtObjectDeclaration && containingClass.isCompanion()
-                && containingClass !in companionObjectsToKeep
-                && containingClass.getSuperTypeList() == null
-                && containingClass.isEffectivelyEmpty()
-        if (shouldDeleteContainingCompanionObject) containingClass.deleteSingle()
+    private fun collectContainingDeclarations(descriptor: K2MoveDescriptor.Declarations): List<SmartPsiElementPointer<KtClassOrObject>> =
+        descriptor.source.elements
+            .mapNotNullTo(mutableSetOf()) { it.containingClassOrObject }
+            .map { it.createSmartPointer() }
+
+    private fun deleteUnusedCompanionObjects(containingDeclarations: List<SmartPsiElementPointer<KtClassOrObject>>) {
+        containingDeclarations.mapNotNull { it.element }
+            .filterIsInstance<KtObjectDeclaration>().filter { it.isCompanion() }
+            .forEach { companionObject ->
+                if (companionObject.isEffectivelyEmpty() && !hasUsages(companionObject)) {
+                companionObject.deleteSingle()
+            }
+        }
     }
+
+    private fun hasUsages(companionObject: KtObjectDeclaration): Boolean =
+        ReferencesSearch.search(companionObject, companionObject.useScope).findFirst() != null
 
     private val conflicts: MultiMap<PsiElement, String> = MultiMap<PsiElement, String>()
 
@@ -208,7 +212,7 @@ open class K2MoveDeclarationsRefactoringProcessor(
         val movedElements: List<SmartPsiElementPointer<KtNamedDeclaration>> = allowAnalysisOnEdt {
             allowAnalysisFromWriteAction {
                 operationDescriptor.moveDescriptors.flatMap { moveDescriptor ->
-                    val companionObjectsToKeep = preprocessUsages(
+                    preprocessUsages(
                         moveDescriptor.project, moveDescriptor.source, moveDescriptor.target, usages.toList()
                     )
 
@@ -224,14 +228,17 @@ open class K2MoveDeclarationsRefactoringProcessor(
                     val elementsToMove = declarationsToMove.withContext()
                     val sourceFiles = elementsToMove.map { it.containingFile as KtFile }.distinct()
                     val oldToNewMap = moveDescriptor.target.addElementsToTarget(elementsToMove, operationDescriptor.dirStructureMatchesPkg)
-                    moveDescriptor.source.elements.forEach { deleteMovedElement(it, companionObjectsToKeep) }
+                    val containingDeclarations = collectContainingDeclarations(moveDescriptor)
+                    moveDescriptor.source.elements.forEach { it.deleteSingle() }
                     // Delete files if they are effectively empty after moving declarations out of them
                     sourceFiles.filter { it.isEffectivelyEmpty() }.forEach { it.delete() }
 
                     @Suppress("UNCHECKED_CAST")
                     retargetUsagesAfterMove(usages.toList(), oldToNewMap as Map<PsiElement, PsiElement>)
+                    // Reference search for finding and deleting unused companions should be done only after retargeting usages
+                    deleteUnusedCompanionObjects(containingDeclarations)
                     oldToNewMap.forEach { original, new ->
-                        postprocessDeclaration(moveDescriptor.target, original, new)
+                        postprocessDeclaration(moveDescriptor, original, new)
 
                         val originalDeclaration = original as? KtNamedDeclaration
                         val newDeclaration = new as? KtNamedDeclaration
@@ -359,9 +366,8 @@ open class K2MoveDeclarationsRefactoringProcessor(
         moveSource: K2MoveSourceDescriptor<*>,
         moveTarget: K2MoveTargetDescriptor,
         usages: List<UsageInfo>
-    ): Set<KtObjectDeclaration> {
+    ) {
         val psiFactory = KtPsiFactory(project)
-        val companionObjectsToKeep = mutableSetOf<KtObjectDeclaration>()
         for (declarationToMove in moveSource.elements) {
             if (declarationToMove !is KtNamedDeclaration) continue
             val companionObject = (declarationToMove.containingClassOrObject as? KtObjectDeclaration)
@@ -369,7 +375,6 @@ open class K2MoveDeclarationsRefactoringProcessor(
             if (companionObject != null) {
                 val companionUsages = usages.filterIsInstance<OuterInstanceReferenceUsageInfo>()
                     .filter { it.upToDateMember == declarationToMove }
-                if (companionUsages.isNotEmpty()) companionObjectsToKeep.add(companionObject)
                 val companionName = companionObject.fqName?.shortName()?.asString() ?: "Companion"
                 for (usage in companionUsages) {
                     when (usage) {
@@ -422,7 +427,6 @@ open class K2MoveDeclarationsRefactoringProcessor(
                 }
             }
         }
-        return companionObjectsToKeep
     }
 
     private fun quoteNameIfNeeded(name: String): String {
@@ -453,10 +457,7 @@ open class K2MoveDeclarationsRefactoringProcessor(
                         val containingClass = containingClassOrObject ?: return
                         analyze(originalDeclaration) {
                             // Use the fully qualified type because we have not moved it to the new location yet
-                            val type = containingClass.classSymbol?.defaultType?.render(
-                                renderer = KaTypeRendererForSource.WITH_QUALIFIED_NAMES,
-                                position = Variance.INVARIANT
-                            ) ?: return
+                            val type = KaRenderer.withQualifiedNames.renderToStringIfPresent(containingClass.classSymbol?.defaultType) ?: return
                             val possiblyQuotedName = quoteNameIfNeeded(outerInstanceParameterName)
                             val parameter = KtPsiFactory(project).createParameter("private val $possiblyQuotedName: $type")
                             val constructorParameterList = getOrCreatePrimaryConstructorParameterList()
@@ -469,7 +470,7 @@ open class K2MoveDeclarationsRefactoringProcessor(
                     if (outerInstanceParameterName != null) {
                         val outerInstanceType = analyze(originalDeclaration) {
                             val type = (containingClass?.symbol as? KaClassSymbol)?.defaultType ?: return@analyze null
-                            type.render(KaTypeRendererForSource.WITH_QUALIFIED_NAMES, Variance.INVARIANT)
+                            KaRenderer.withQualifiedNames.renderToString(type)
                         }
                         if (outerInstanceType == null) return
                         val possiblyQuotedName = quoteNameIfNeeded(outerInstanceParameterName)
@@ -492,14 +493,17 @@ open class K2MoveDeclarationsRefactoringProcessor(
     /**
      * This function is used to postprocess the [newDeclaration] after the move has happened.
      * For example, we can remove modifiers that should be removed after moving.
+     * The postprocessing is not done for secondary moved declarations, e.g. member functions in a moved class.
      */
     private fun postprocessDeclaration(
-        moveTarget: K2MoveTargetDescriptor,
+        moveDescriptor: K2MoveDescriptor.Declarations,
         originalDeclaration: PsiElement,
         newDeclaration: PsiElement
     ) {
+        if (originalDeclaration !in moveDescriptor.source.elements) return
         val outerInstanceParameterName = (originalDeclaration as? KtNamedDeclaration)?.computeOrGetOuterInstanceName()
-        val moveTargetType = (moveTarget as? Declaration<*>)?.getTargetType()
+        val moveTargetType = moveDescriptor.target.getTargetType()
+
         if (moveTargetType == DeclarationTargetType.COMPANION_BLOCK || moveTargetType == DeclarationTargetType.COMPANION_EXTENSION) {
             (newDeclaration as? KtDeclaration)?.let { declaration ->
                 declaration.removeJvmStaticAnnotation()
@@ -508,7 +512,8 @@ open class K2MoveDeclarationsRefactoringProcessor(
             }
         }
         if (moveTargetType == DeclarationTargetType.COMPANION_BLOCK) {
-            ((newDeclaration.parent as? KtClassBody)?.parent as? KtCompanionBlock)?.separateFromPrecedingClassIfNeeded()
+            val parentCompanionBlock = (newDeclaration.parent as? KtClassBody)?.parent as? KtCompanionBlock
+            parentCompanionBlock?.separateFromPrecedingClassIfNeeded()
         }
         if (moveTargetType == DeclarationTargetType.COMPANION_OBJECT && newDeclaration is KtCallableDeclaration) {
             newDeclaration.addJvmStaticIfProtected()

@@ -1500,6 +1500,8 @@
       <module fileurl="file://$PROJECT_DIR$/plugins/mcp-server/mcpserver.testFramework/intellij.mcpserver.testFramework.iml" filepath="$PROJECT_DIR$/plugins/mcp-server/mcpserver.testFramework/intellij.mcpserver.testFramework.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/mcp-server/tests/intellij.mcpserver.tests.iml" filepath="$PROJECT_DIR$/plugins/mcp-server/tests/intellij.mcpserver.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/mcp-server/mcpserver.toolsets/intellij.mcpserver.toolsets.iml" filepath="$PROJECT_DIR$/plugins/mcp-server/mcpserver.toolsets/intellij.mcpserver.toolsets.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/mcp-server/mcpserver.toolsets/skills/intellij.mcpserver.toolsets.skills.iml" filepath="$PROJECT_DIR$/plugins/mcp-server/mcpserver.toolsets/skills/intellij.mcpserver.toolsets.skills.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/mcp-server/mcpserver.toolsets/skills/intellij.mcpserver.toolsets.skills.tests.iml" filepath="$PROJECT_DIR$/plugins/mcp-server/mcpserver.toolsets/skills/intellij.mcpserver.toolsets.skills.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/mcp-server/mcpserver.vcs/intellij.mcpserver.vcs.iml" filepath="$PROJECT_DIR$/plugins/mcp-server/mcpserver.vcs/intellij.mcpserver.vcs.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/mermaid/intellij.mermaid.iml" filepath="$PROJECT_DIR$/plugins/mermaid/intellij.mermaid.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/mermaid/frontend/intellij.mermaid.frontend.iml" filepath="$PROJECT_DIR$/plugins/mermaid/frontend/intellij.mermaid.frontend.iml" />
@@ -2061,6 +2063,7 @@
       <module fileurl="file://$PROJECT_DIR$/platform/testFramework/selfContainedProjects/intellij.platform.testFramework.selfContainedProjects.tests.iml" filepath="$PROJECT_DIR$/platform/testFramework/selfContainedProjects/intellij.platform.testFramework.selfContainedProjects.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/testFramework/structureView/intellij.platform.testFramework.structureView.iml" filepath="$PROJECT_DIR$/platform/testFramework/structureView/intellij.platform.testFramework.structureView.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/testFramework/teamCity/intellij.platform.testFramework.teamCity.iml" filepath="$PROJECT_DIR$/platform/testFramework/teamCity/intellij.platform.testFramework.teamCity.iml" />
+      <module fileurl="file://$PROJECT_DIR$/platform/testFramework/teamCity/bazelReporter/intellij.platform.testFramework.teamCity.bazelReporter.iml" filepath="$PROJECT_DIR$/platform/testFramework/teamCity/bazelReporter/intellij.platform.testFramework.teamCity.bazelReporter.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/testFramework/intellij.platform.testFramework.tests.iml" filepath="$PROJECT_DIR$/platform/testFramework/intellij.platform.testFramework.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/testFramework/smoke/intellij.platform.testFramework.tests.smoke.iml" filepath="$PROJECT_DIR$/platform/testFramework/smoke/intellij.platform.testFramework.tests.smoke.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/testIntegration/intellij.platform.testIntegration.iml" filepath="$PROJECT_DIR$/platform/testIntegration/intellij.platform.testIntegration.iml" />

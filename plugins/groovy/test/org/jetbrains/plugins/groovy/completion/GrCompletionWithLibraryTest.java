@@ -4,54 +4,98 @@ package org.jetbrains.plugins.groovy.completion;
 import com.intellij.codeInsight.completion.CompletionType;
 import com.intellij.codeInsight.lookup.LookupElement;
 import com.intellij.psi.PsiClass;
-import com.intellij.testFramework.LightProjectDescriptor;
-import com.intellij.testFramework.UsefulTestCase;
-import junit.framework.TestCase;
-import org.jetbrains.annotations.NotNull;
+import com.intellij.testFramework.EdtTestUtil;
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightTestFixture;
+import com.intellij.testFramework.fixtures.LightJavaProject;
+import com.intellij.testFramework.junit5.TestApplication;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
+import java.util.List;
 import org.jetbrains.plugins.groovy.GroovyProjectDescriptors;
 import org.jetbrains.plugins.groovy.util.TestUtils;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
+import static com.intellij.testFramework.EdtTestUtil.runInEdtAndWait;
+import static com.intellij.testFramework.fixtures.LightJavaFixturesKt.lightJavaProjectFixture;
+import static org.jetbrains.plugins.groovy.completion.GroovyCompletionFixtureKt.groovyCompletionFixture;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
  * @author Maxim.Medvedev
  */
-public class GrCompletionWithLibraryTest extends GroovyCompletionTestBase {
-  public void testCategoryMethod() { doBasicTest(); }
+@TestApplication
+public class GrCompletionWithLibraryTest {
+  private static final TestFixture<LightJavaProject> project = lightJavaProjectFixture(GroovyProjectDescriptors.GROOVY_1_7);
+  private final TestFixture<GroovyCompletionFixture> completion = groovyCompletionFixture(project, TestUtils.getAbsoluteTestDataPath() + "groovy/completion/");
 
-  public void testCategoryProperty() { doCompletionTest(null, null, "\n", CompletionType.BASIC); }
+  @Test
+  public void testCategoryMethod() {
+    completion.get().doBasicTest();
+  }
 
-  public void testMultipleCategories() { doVariantableTest(null, "", CompletionType.BASIC, CompletionResult.contain, "getMd5", "getMd52"); }
+  @Test
+  public void testCategoryProperty() {
+    completion.get().doCompletionTest(null, null, "\n", CompletionType.BASIC);
+  }
 
+  @Test
+  public void testMultipleCategories() {
+    completion.get().doVariantableTest(null, "", CompletionType.BASIC, CompletionResult.contain, "getMd5", "getMd52");
+  }
+
+  @Test
   public void testMultipleCategories2() {
-    doVariantableTest(null, "", CompletionType.BASIC, CompletionResult.contain, "getMd5", "getMd52");
+    completion.get().doVariantableTest(null, "", CompletionType.BASIC, CompletionResult.contain, "getMd5", "getMd52");
   }
 
+  @Test
   public void testMultipleCategories3() {
-    doVariantableTest(null, "", CompletionType.BASIC, CompletionResult.contain, "getMd5", "getMd52");
+    completion.get().doVariantableTest(null, "", CompletionType.BASIC, CompletionResult.contain, "getMd5", "getMd52");
   }
 
-  public void testCategoryForArray() { doCompletionTest(null, null, "\n", CompletionType.BASIC); }
+  @Test
+  public void testCategoryForArray() {
+    completion.get().doCompletionTest(null, null, "\n", CompletionType.BASIC);
+  }
 
-  public void testArrayLikeAccessForList() { doBasicTest(); }
+  @Test
+  public void testArrayLikeAccessForList() {
+    completion.get().doBasicTest();
+  }
 
-  public void testArrayLikeAccessForMap() { doBasicTest(); }
+  @Test
+  public void testArrayLikeAccessForMap() {
+    completion.get().doBasicTest();
+  }
 
-  public void testPrintlnSpace() { checkCompletion("print<caret>", "l ", "println <caret>"); }
+  @Test
+  public void testPrintlnSpace() {
+    completion.get().checkCompletion("print<caret>", "l ", "println <caret>");
+  }
 
-  public void testHashCodeSpace() { checkCompletion("if (\"\".h<caret>", " ", "if (\"\".hashCode() <caret>"); }
+  @Test
+  public void testHashCodeSpace() {
+    completion.get().checkCompletion("if (\"\".h<caret>", " ", "if (\"\".hashCode() <caret>");
+  }
 
+  @Test
   public void testTwoMethodWithSameName() {
-    doVariantableTest("fooo", "fooo");
+    completion.get().doVariantableTest("fooo", "fooo");
   }
 
+  @Test
   public void testIteratorNext() {
-    doHasVariantsTest("next", "notify");
+    completion.get().doHasVariantsTest("next", "notify");
   }
 
+  @Test
   public void testGstringExtendsString() {
-    doBasicTest();
+    completion.get().doBasicTest();
   }
 
+  @Test
   public void testEllipsisTypeCompletion() {
+    LightJavaCodeInsightTestFixture myFixture = completion.get().getFixture();
     myFixture.configureByText("a.groovy", """
       
       def foo(def... args) {
@@ -65,7 +109,9 @@ public class GrCompletionWithLibraryTest extends GroovyCompletionTestBase {
                             }""");
   }
 
+  @Test
   public void testBoxForinParams() {
+    LightJavaCodeInsightTestFixture myFixture = completion.get().getFixture();
     myFixture.configureByText("A.groovy", """
       
       for (def ch: "abc".toCharArray()) {
@@ -79,15 +125,19 @@ public class GrCompletionWithLibraryTest extends GroovyCompletionTestBase {
                             }""");
   }
 
+  @Test
   public void testEachSpace() {
-    checkCompletion("[].ea<caret>", " ", "[].each <caret>");
+    completion.get().checkCompletion("[].ea<caret>", " ", "[].each <caret>");
   }
 
+  @Test
   public void testEachBrace() {
-    checkCompletion("[].ea<caret> {}", "\n", "[].each {<caret>}");
+    completion.get().checkCompletion("[].ea<caret> {}", "\n", "[].each {<caret>}");
   }
 
+  @Test
   public void testDeclaredMembersGoFirst() {
+    LightJavaCodeInsightTestFixture myFixture = completion.get().getFixture();
     myFixture.configureByText("a.groovy", """
       
             class Foo {
@@ -111,124 +161,132 @@ public class GrCompletionWithLibraryTest extends GroovyCompletionTestBase {
           \
       """);
     myFixture.completeBasic();
-    UsefulTestCase.assertOrderedEquals(myFixture.getLookupElementStrings(), """
-      fromThis
-      fromThis2
-      fromThis3
-      fromThis4
-      fromThis5
-      overridden
-      thisProp
-      fromSuper
-      fromSuper2
-      metaClass
-      metaPropertyValues
-      properties
-      superProp
-      getProperty
-      invokeMethod
-      setProperty
-      equals
-      hashCode
-      toString
-      class
-      identity
-      with
-      notify
-      notifyAll
-      wait
-      wait
-      wait
-      getThisProp
-      setThisProp
-      getSuperProp
-      setSuperProp
-      getMetaClass
-      setMetaClass
-      addShutdownHook
-      any
-      any
-      asBoolean
-      asType
-      collect
-      collect
-      dump
-      each
-      eachWithIndex
-      every
-      every
-      find
-      findAll
-      findIndexOf
-      findIndexOf
-      findIndexValues
-      findIndexValues
-      findLastIndexOf
-      findLastIndexOf
-      findResult
-      findResult
-      getAt
-      getMetaPropertyValues
-      getProperties
-      grep
-      hasProperty
-      inject
-      inspect
-      is
-      isCase
-      iterator
-      metaClass
-      print
-      print
-      printf
-      printf
-      println
-      println
-      println
-      putAt
-      respondsTo
-      respondsTo
-      split
-      sprintf
-      sprintf
-      use
-      use
-      use
-      getClass""".split("\n"));
+    runInEdtAndWait(() -> {
+      assertEquals(List.of("""
+        fromThis
+        fromThis2
+        fromThis3
+        fromThis4
+        fromThis5
+        overridden
+        thisProp
+        fromSuper
+        fromSuper2
+        metaClass
+        metaPropertyValues
+        properties
+        superProp
+        getProperty
+        invokeMethod
+        setProperty
+        equals
+        hashCode
+        toString
+        class
+        identity
+        with
+        notify
+        notifyAll
+        wait
+        wait
+        wait
+        getThisProp
+        setThisProp
+        getSuperProp
+        setSuperProp
+        getMetaClass
+        setMetaClass
+        addShutdownHook
+        any
+        any
+        asBoolean
+        asType
+        collect
+        collect
+        dump
+        each
+        eachWithIndex
+        every
+        every
+        find
+        findAll
+        findIndexOf
+        findIndexOf
+        findIndexValues
+        findIndexValues
+        findLastIndexOf
+        findLastIndexOf
+        findResult
+        findResult
+        getAt
+        getMetaPropertyValues
+        getProperties
+        grep
+        hasProperty
+        inject
+        inspect
+        is
+        isCase
+        iterator
+        metaClass
+        print
+        print
+        printf
+        printf
+        println
+        println
+        println
+        putAt
+        respondsTo
+        respondsTo
+        split
+        sprintf
+        sprintf
+        use
+        use
+        use
+        getClass""".split("\n")), myFixture.getLookupElementStrings());
+    });
   }
 
+  @Test
   public void testListCompletionVariantsFromDGM() {
-    doVariantableTest("drop", "dropWhile");
+    completion.get().doVariantableTest("drop", "dropWhile");
   }
 
+  @Test
   public void testGStringConcatenationCompletion() {
-    myFixture.testCompletionVariants(getTestName(false) + ".groovy", "substring", "substring", "subSequence");
+    completion.get().getFixture().testCompletionVariants(completion.get().getFixture().getTestName(false) + ".groovy", "substring", "substring", "subSequence");
   }
 
+  @Test
   public void testCompleteClassClashingWithGroovyUtilTuple() {
+    LightJavaCodeInsightTestFixture myFixture = completion.get().getFixture();
     myFixture.addClass("package p; public class Tuple {}");
 
     myFixture.configureByText("a.groovy", "print new Tupl<caret>");
-    LookupElement tuple = null;
-    LookupElement groovyUtilTuple = null;
-    StringBuilder msg = new StringBuilder();
-    for (LookupElement element : myFixture.completeBasic()) {
-      if (element.getPsiElement() instanceof PsiClass el) {
-        switch (el.getQualifiedName()) {
-          case "p.Tuple":
-            tuple = element;
-            break;
-          case "groovy.lang.Tuple":
-            groovyUtilTuple = element;
-            break;
+    runInEdtAndWait(() -> {
+      LookupElement tuple = null;
+      LookupElement groovyUtilTuple = null;
+      StringBuilder msg = new StringBuilder();
+      for (LookupElement element : myFixture.completeBasic()) {
+        if (element.getPsiElement() instanceof PsiClass el) {
+          switch (el.getQualifiedName()) {
+            case "p.Tuple":
+              tuple = element;
+              break;
+            case "groovy.lang.Tuple":
+              groovyUtilTuple = element;
+              break;
+          }
         }
+        if (!msg.isEmpty()) msg.append(", ");
+        msg.append(element.getLookupString());
       }
-      if (!msg.isEmpty()) msg.append(", ");
-      msg.append(element.getLookupString());
-    }
-    TestCase.assertNotNull(msg.toString(), tuple);
-    TestCase.assertNotNull(msg.toString(), groovyUtilTuple);
-    getLookup().finishLookup('\n', tuple);
+      Assertions.assertNotNull(tuple, msg.toString());
+      Assertions.assertNotNull(groovyUtilTuple, msg.toString());
+      completion.get().getLookup().finishLookup('\n', tuple);
+    });
 
     myFixture.checkResult("""
                             import p.Tuple
@@ -236,13 +294,4 @@ public class GrCompletionWithLibraryTest extends GroovyCompletionTestBase {
                             print new Tuple()""");
   }
 
-  @Override
-  public final @NotNull LightProjectDescriptor getProjectDescriptor() {
-    return GroovyProjectDescriptors.GROOVY_1_7;
-  }
-
-  @Override
-  public final @NotNull String getTestDataPath() {
-    return TestUtils.getAbsoluteTestDataPath() + "groovy/completion/";
-  }
 }

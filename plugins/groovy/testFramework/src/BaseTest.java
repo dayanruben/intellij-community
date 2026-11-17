@@ -1,6 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.groovy.testFramework;
 
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
@@ -13,8 +14,8 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrExpres
 import java.util.Objects;
 
 import static com.intellij.psi.util.PsiTreeUtil.getParentOfType;
-import static com.intellij.testFramework.UsefulTestCase.assertInstanceOf;
 import static com.intellij.util.ArrayUtil.getLastElement;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
 public interface BaseTest {
 
@@ -50,7 +51,8 @@ public interface BaseTest {
 
   @NotNull
   default <T extends PsiElement> T elementUnderCaret(@NotNull Class<T> clazz) {
-    T element = getParentOfType(getFixture().getFile().findElementAt(getFixture().getCaretOffset()), clazz);
+    T element = ReadAction.computeBlocking(
+      () -> getParentOfType(getFixture().getFile().findElementAt(getFixture().getCaretOffset()), clazz));
     return Objects.requireNonNull(element);
   }
 
@@ -67,7 +69,7 @@ public interface BaseTest {
 
   @NotNull
   default GrExpression lastExpression() {
-    final GrStatement lastStatement = getLastElement(getGroovyFile().getStatements());
-    return assertInstanceOf(lastStatement, GrExpression.class);
+    final GrStatement lastStatement = ReadAction.computeBlocking(() -> getLastElement(getGroovyFile().getStatements()));
+    return assertInstanceOf(GrExpression.class, lastStatement);
   }
 }

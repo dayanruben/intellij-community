@@ -2,36 +2,36 @@
 package org.jetbrains.plugins.groovy.completion;
 
 import com.intellij.codeInsight.CodeInsightSettings;
-import com.intellij.openapi.util.registry.Registry;
-import com.intellij.testFramework.LightProjectDescriptor;
-import org.jetbrains.annotations.NotNull;
+import com.intellij.testFramework.EdtTestUtil;
+import com.intellij.testFramework.fixtures.LightJavaProject;
+import com.intellij.testFramework.junit5.RegistryKey;
+import com.intellij.testFramework.junit5.TestApplication;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
 import org.jetbrains.plugins.groovy.GroovyProjectDescriptors;
 import org.jetbrains.plugins.groovy.intentions.style.inference.MethodParameterAugmenter;
+import org.jetbrains.plugins.groovy.util.TestUtils;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
 
-public class GroovyCompletion30Test extends GroovyCompletionTestBase {
-  @Override
-  protected void setUp() throws Exception {
-    Registry.get(MethodParameterAugmenter.GROOVY_COLLECT_METHOD_CALLS_FOR_INFERENCE).setValue(true);
-    super.setUp();
+import static com.intellij.testFramework.EdtTestUtil.runInEdtAndWait;
+import static com.intellij.testFramework.fixtures.LightJavaFixturesKt.lightJavaProjectFixture;
+import static org.jetbrains.plugins.groovy.completion.GroovyCompletionFixtureKt.groovyCompletionFixture;
+
+@TestApplication
+@RegistryKey(key = MethodParameterAugmenter.GROOVY_COLLECT_METHOD_CALLS_FOR_INFERENCE, value = "true")
+public class GroovyCompletion30Test {
+  private static final TestFixture<LightJavaProject> project = lightJavaProjectFixture(GroovyProjectDescriptors.GROOVY_3_0);
+  private final TestFixture<GroovyCompletionFixture> completion = groovyCompletionFixture(project, TestUtils.getAbsoluteTestDataPath());
+
+  @AfterEach
+  public void tearDown() {
+    CodeInsightSettings.getInstance().COMPLETION_CASE_SENSITIVE = CodeInsightSettings.FIRST_LETTER;
+    CodeInsightSettings.getInstance().AUTOCOMPLETE_ON_CODE_COMPLETION = true;
   }
 
-  @Override
-  protected void tearDown() throws Exception {
-    try {
-      CodeInsightSettings.getInstance().COMPLETION_CASE_SENSITIVE = CodeInsightSettings.FIRST_LETTER;
-      CodeInsightSettings.getInstance().AUTOCOMPLETE_ON_CODE_COMPLETION = true;
-      Registry.get(MethodParameterAugmenter.GROOVY_COLLECT_METHOD_CALLS_FOR_INFERENCE).resetToDefault();
-    }
-    catch (Throwable e) {
-      addSuppressedException(e);
-    }
-    finally {
-      super.tearDown();
-    }
-  }
-
+  @Test
   public void testInferArgumentTypeFromClosure() {
-    doBasicTest("""
+    completion.get().doBasicTest("""
                   def foo(a, closure) {
                     closure(a)
                   }
@@ -46,8 +46,9 @@ public class GroovyCompletion30Test extends GroovyCompletionTestBase {
                   """);
   }
 
+  @Test
   public void testInferArgumentTypeFromLambda() {
-    doBasicTest("""
+    completion.get().doBasicTest("""
                   def foo(a, closure) {
                     closure(a)
                   }
@@ -62,8 +63,9 @@ public class GroovyCompletion30Test extends GroovyCompletionTestBase {
                   """);
   }
 
+  @Test
   public void testInferArgumentTypeFromClosureInsideClass() {
-    doBasicTest("""
+    completion.get().doBasicTest("""
                   
                   class K {
                     def foo(a, closure) {
@@ -88,8 +90,9 @@ public class GroovyCompletion30Test extends GroovyCompletionTestBase {
                   """);
   }
 
+  @Test
   public void testInferArgumentTypeForClosure() {
-    doBasicTest("""
+    completion.get().doBasicTest("""
                   
                   def foo(a, b) { b(a) }
                   
@@ -104,8 +107,9 @@ public class GroovyCompletion30Test extends GroovyCompletionTestBase {
                   """);
   }
 
+  @Test
   public void testInferArgumentTypeFromMethod() {
-    doBasicTest("""
+    completion.get().doBasicTest("""
                   def foo(a) {
                     a.byt<caret>
                   }
@@ -120,8 +124,9 @@ public class GroovyCompletion30Test extends GroovyCompletionTestBase {
                   """);
   }
 
+  @Test
   public void testCompletionAfterComplexStatement() {
-    doBasicTest("""
+    completion.get().doBasicTest("""
                   
                   def x(List<Integer> l){}
                   
@@ -138,8 +143,9 @@ public class GroovyCompletion30Test extends GroovyCompletionTestBase {
                   }""");
   }
 
+  @Test
   public void testCompleteQuotedMethodName() {
-    doBasicTest("""
+    completion.get().doBasicTest("""
                   def 'good job'() {}
                   goo<caret>
                   """,
@@ -149,8 +155,4 @@ public class GroovyCompletion30Test extends GroovyCompletionTestBase {
                   """);
   }
 
-  @Override
-  public final @NotNull LightProjectDescriptor getProjectDescriptor() {
-    return GroovyProjectDescriptors.GROOVY_3_0;
-  }
 }

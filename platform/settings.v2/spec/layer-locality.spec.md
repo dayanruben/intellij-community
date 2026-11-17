@@ -6,6 +6,7 @@ targets:
   - ../src/com/intellij/platform/settings/v2/Locality.kt
   - ../shared/src/com/intellij/platform/settings/v2/impl/SettingsVaultImpl.kt
   - ../shared/src/com/intellij/platform/settings/v2/impl/providers/localityFiles.kt
+  - ../backend/baseline/src/com/intellij/platform/settings/v2/impl/TeamEditingModeOptions.kt
 ---
 
 # Layer Locality
@@ -87,6 +88,16 @@ A locality is defined by where its value travels.
   [@test] ../test/src/com/intellij/platform/settings/v2/SettingsTeamEditingModeTest.kt
 - `EDIT_TEAM_LAYER` must be environmental, and only a project context or a wider context may hold it.
   See [ADR 0076](../adr/0076-settings-have-three-localities-a-write-goes-to-local-by-default-and-team-editing-is-a-per-machine-mode.md).
+- Go to Action and Search Everywhere must offer two boolean options for `EDIT_TEAM_LAYER`. The option
+  "Settings: Team-Editing Mode for All Projects" reads and writes it at the application context. The option
+  "Settings: Team-Editing Mode for This Project" reads and writes it at the project context.
+  See [ADR 0173](../adr/0173-the-team-editing-mode-is-toggled-through-two-go-to-action-options-of-the-backend-baseline-module.md).
+  [@test] ../test/src/com/intellij/platform/settings/v2/SettingsTeamEditingModeOptionsTest.kt
+- The project option must show the value that the project context resolves, so it is on when only the application
+  mode is on. Turning it off must write an explicit `false` at the project and keep the application value.
+  [@test] ../test/src/com/intellij/platform/settings/v2/SettingsTeamEditingModeOptionsTest.kt
+- An option must report the requested state at once, before its write ends.
+  [@test] ../test/src/com/intellij/platform/settings/v2/SettingsTeamEditingModeOptionsTest.kt
 - A map key has no locality of its own. A slot operation ignores it.
   See [ADR 0077](../adr/0077-a-map-key-has-no-locality.md).
 

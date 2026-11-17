@@ -2,10 +2,29 @@
 package org.jetbrains.plugins.groovy.lang;
 
 import com.intellij.groovy.testFramework.BaseTest;
-import org.jetbrains.plugins.groovy.util.GroovyLatestTest;
-import org.junit.Test;
+import com.intellij.testFramework.EdtTestUtil;
+import com.intellij.testFramework.fixtures.JavaCodeInsightTestFixture;
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightTestFixture;
+import com.intellij.testFramework.fixtures.LightJavaProject;
+import com.intellij.testFramework.junit5.TestApplication;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.plugins.groovy.GroovyProjectDescriptors;
+import org.junit.jupiter.api.Test;
 
-public class GroovyBraceMatcherTest extends GroovyLatestTest implements BaseTest {
+import static com.intellij.testFramework.fixtures.LightJavaFixturesKt.lightJavaCodeInsightFixture;
+import static com.intellij.testFramework.fixtures.LightJavaFixturesKt.lightJavaProjectFixture;
+
+@TestApplication
+public class GroovyBraceMatcherTest implements BaseTest {
+  private static final TestFixture<LightJavaProject> project = lightJavaProjectFixture(GroovyProjectDescriptors.GROOVY_2_5);
+  private final TestFixture<LightJavaCodeInsightTestFixture> groovy = lightJavaCodeInsightFixture(project);
+
+  @Override
+  public @NotNull JavaCodeInsightTestFixture getFixture() {
+    return groovy.get();
+  }
+
   private void doTest(String before, String charsToType, String after) {
     configureByText(before);
     getFixture().type(charsToType);

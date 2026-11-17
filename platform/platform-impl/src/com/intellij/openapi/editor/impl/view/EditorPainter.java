@@ -18,6 +18,7 @@ import com.intellij.openapi.editor.SelectionModel;
 import com.intellij.openapi.editor.VisualPosition;
 import com.intellij.openapi.editor.colors.EditorColors;
 import com.intellij.openapi.editor.colors.EditorColorsManager;
+import com.intellij.openapi.editor.colors.EditorColorsScheme;
 import com.intellij.openapi.editor.colors.EditorFontType;
 import com.intellij.openapi.editor.colors.FontPreferences;
 import com.intellij.openapi.editor.ex.DocumentText;
@@ -147,7 +148,7 @@ public final class EditorPainter implements TextDrawingCallback {
   }
 
   @ApiStatus.Internal
-  public static void fillRectExact(final Graphics2D g, final Rectangle2D r, final Color color) {
+  public static void fillRectExact(Graphics2D g, Rectangle2D r, Color color) {
     var transform = g.getTransform();
     Point2D.Double topLeftPoint = new Point2D.Double(r.getX(), r.getY());
     Point2D.Double bottomRightPoint = new Point2D.Double(r.getX() + r.getWidth(), r.getY() + r.getHeight());
@@ -175,8 +176,8 @@ public final class EditorPainter implements TextDrawingCallback {
     }
   }
 
-  static float getBaseMarginWidth(@NotNull EditorView view, @NotNull SettingsSnapshot settings) {
-    return settings.getRightMargin() * view.getPlainSpaceWidth();
+  static float getBaseMarginWidth(@NotNull EditorViewSnapshot view, @NotNull SettingsSnapshot settings) {
+    return settings.getRightMargin() * view.plainSpaceWidth();
   }
 
   private final EditorView myView;
@@ -233,6 +234,7 @@ public final class EditorPainter implements TextDrawingCallback {
 
   private static final class Session {
     private final EditorView myView;
+    private final EditorViewSnapshot myViewSnapshot;
     private final EditorPainterCache myCache;
     private final EditorCaretPainter myCaretPainter ;
     private final EditorImpl myEditor;
@@ -260,22 +262,49 @@ public final class EditorPainter implements TextDrawingCallback {
     private final int mySeparatorHighlightersEndOffset;
     private final ClipDetector myClipDetector;
     private final CaretData myCaretData;
+    /**
+     * Gives the start and the end column of each caret selection that lies on one visual line, by that visual line.
+     * The map covers the visual lines of the clip, and with {@link #myDryRunRows} also the two dry-run rows.
+     */
     private final Int2ObjectMap<IntPair> myVirtualSelectionMap;
-    private final Int2ObjectMap<List<LineExtensionData>> myExtensionData = new Int2ObjectOpenHashMap<>(); // key is visual line
     private final Int2ObjectMap<TextAttributes> myBetweenLinesAttributes = new Int2ObjectOpenHashMap<>(); // key is bottom visual line
     private final int myLineHeight;
     private final int myAscent;
     private final int myDescent;
+    private final EditorColorsScheme myColorsScheme;
     private final Color myDefaultBackgroundColor;
     private final Color myBackgroundColor;
     private final int myMarginColumns;
     private final List<Consumer<Graphics2D>> myTextDrawingTasks = new ArrayList<>();
+    /**
+     * Paints the effects of the highlighters after the end of a line. The pass of the backgrounds adds them, and
+     * {@link #paint()} runs them after the text.
+     */
+    private final List<Runnable> myAfterLineEndEffects = new ArrayList<>();
     private final List<RangeHighlighter> myAfterBackgroundCustomHighlighters = new SmartList<>();
     private final List<RangeHighlighter> myForegroundCustomHighlighters = new SmartList<>();
     private final ScaleContext myScaleContext;
     private MarginPositions myMarginPositions;
     private final CaretDataInView myCaretDataInView;
-    private SelectionVisualModel mySelectionModelView = null;
+    private final boolean myRoundedHighlighting;
+    /**
+     * Says that the paint of the background also visits the visual line above the clip and the one below it.
+     * Such a dry-run row paints nothing. It gives the corners of the first and the last row of the clip.
+     * The rounded paint has dry-run rows, except on the sticky lines panel, which shows no neighbor line.
+     */
+    private final boolean myDryRunRows;
+    /**
+     * Gives how far the paint of the backgrounds visits a visual line past each side of the clip.
+     * While the editor rounds, it is twice the corner radius, rounded up. Otherwise, it is zero.
+     * A row of a rounded shape then never ends so near the clip that the clip shows a changed corner.
+     * A corner reaches one radius from its point, and the radius of a corner depends on the length of its two edges.
+     */
+    private final int myVisitMargin;
+    private final boolean myHuggingHighlighting;
+    private final int myFillStartX;
+    private final int myFillEndX;
+    private final float mySelectionExtensionWidth;
+    private final @Nullable HighlighterVisualModel myHighlighterVisualModel;
     private boolean myBrokenFragmentRangeReported;
 
     Session(EditorView view, EditorPainterCache cache, EditorCaretPainter caretPainter, Graphics2D g) {
@@ -283,6 +312,7 @@ public final class EditorPainter implements TextDrawingCallback {
       myCache = cache;
       myCaretPainter = caretPainter;
       myEditor = myView.getEditor();
+      myViewSnapshot = myView.getSnapshot();
       myRegistry = EditorRegistry.current();
       mySettings = myEditor.getSettingsSnapshot();
       myDocument = myView.getDocument().getDocumentText();
@@ -295,7 +325,7 @@ public final class EditorPainter implements TextDrawingCallback {
       mySoftWrapModel = view.getSoftWrapModel();
       myFocusModeModel = view.getFocusModel();
       myInsets = myView.getInsets();
-      myCorrector = XCorrector.create(myView, myInsets, mySettings, myRegistry);
+      myCorrector = XCorrector.create(myView, myViewSnapshot, myInsets, mySettings, myRegistry);
       myGraphics = g;
       myClip = myGraphics.getClipBounds();
       myYShift = -myClip.y;
@@ -306,16 +336,35 @@ public final class EditorPainter implements TextDrawingCallback {
       mySeparatorHighlightersStartOffset = DocumentTextUtil.getLineStartOffsetAt(myDocument, myView.visualLineToOffset(myStartVisualLine - 1));
       mySeparatorHighlightersEndOffset = DocumentTextUtil.getLineEndOffsetAt(myDocument, myView.visualLineToOffset(myEndVisualLine + 2));
       myClipDetector = new ClipDetector(myView, myDocument, myFoldingModel, myClip, ClipDetector.isDisabled(myEditor));
-      myCaretData = myEditor.isPaintSelection() ? CaretData.createCaretData(myView.getDocument(), myCaretModel) : null;
-      myVirtualSelectionMap = createVirtualSelectionMap(myCaretModel, myStartVisualLine, myEndVisualLine);
-      myLineHeight = myView.getLineHeight();
-      myAscent = myView.getAscent();
-      myDescent = myView.getDescent();
-      myDefaultBackgroundColor = myEditor.getColorsScheme().getDefaultBackground();
+      myCaretData = myEditor.isPaintSelection() ? CaretData.createCaretData(myDocument, myCaretModel) : null;
+      myLineHeight = myViewSnapshot.lineHeight();
+      myAscent = myViewSnapshot.ascent();
+      myDescent = myViewSnapshot.descent();
+      myColorsScheme = myEditor.getColorsScheme();
+      myDefaultBackgroundColor = myColorsScheme.getDefaultBackground();
       myBackgroundColor = myEditor.getBackgroundColor();
       myMarginColumns = mySettings.getRightMargin();
       myScaleContext = ScaleContext.create(myGraphics);
       myCaretDataInView = myEditor.isPaintSelection()? new CaretDataInView(myCaretModel, myStartOffset, myEndOffset) : null;
+      myRoundedHighlighting = myEditor.isRoundedHighlighting();
+      myDryRunRows = myRoundedHighlighting && !myEditor.isStickyLinePainting();
+      myVisitMargin = myRoundedHighlighting ? (int)Math.ceil(2 * HighlighterVisualModel.cornerRadius(myLineHeight)) : 0;
+      myVirtualSelectionMap = myDryRunRows
+                              ? createVirtualSelectionMap(myCaretModel, myStartVisualLine - 1, myEndVisualLine + 1)
+                              : createVirtualSelectionMap(myCaretModel, myStartVisualLine, myEndVisualLine);
+      myHuggingHighlighting = myEditor.isHuggingHighlighting(myRegistry);
+      myFillStartX = fillStartX();
+      myFillEndX = fillEndX();
+      mySelectionExtensionWidth = selectionExtensionWidth();
+      if (myRoundedHighlighting) {
+        myHighlighterVisualModel = new HighlighterVisualModel(
+          myEditor,
+          myYShift,
+          myHuggingHighlighting
+        );
+      } else {
+        myHighlighterVisualModel = null;
+      }
     }
 
     void paint() {
@@ -343,8 +392,7 @@ public final class EditorPainter implements TextDrawingCallback {
       paintLineMarkersSeparators(myDocMarkup);
       paintLineMarkersSeparators(myEditorMarkup);
       paintTextWithEffects();
-      paintHighlightersAfterEndOfLine(myDocMarkup);
-      paintHighlightersAfterEndOfLine(myEditorMarkup);
+      myAfterLineEndEffects.forEach(Runnable::run);
       paintBorderEffect(myView.getHighlighter());
       paintBorderEffect(myDocMarkup);
       paintBorderEffect(myEditorMarkup);
@@ -369,7 +417,7 @@ public final class EditorPainter implements TextDrawingCallback {
       }
 
       EditorFontType fontType = EditorFontType.PLAIN;
-      Color color = JBColor.namedColor("Component.infoForeground", myEditor.getColorsScheme().getDefaultForeground());
+      Color color = JBColor.namedColor("Component.infoForeground", myColorsScheme.getDefaultForeground());
       TextAttributes attributes = myEditor.getPlaceholderAttributes();
       if (attributes != null) {
         int type = attributes.getFontType();
@@ -391,7 +439,7 @@ public final class EditorPainter implements TextDrawingCallback {
       }
       myGraphics.setColor(color);
       String hintString = hintText.toString();
-      myGraphics.setFont(UIUtil.getFontWithFallbackIfNeeded(myEditor.getColorsScheme().getFont(fontType), hintString));
+      myGraphics.setFont(UIUtil.getFontWithFallbackIfNeeded(myColorsScheme.getFont(fontType), hintString));
       String toDisplay = SwingUtilities.layoutCompoundLabel(
         myGraphics.getFontMetrics(), hintString, null,
         0, 0, 0, 0,
@@ -408,7 +456,7 @@ public final class EditorPainter implements TextDrawingCallback {
         return;
       }
       if (mySettings.isRightMarginShown()) {
-        Color visualGuidesColor = myEditor.getColorsScheme().getColor(EditorColors.VISUAL_INDENT_GUIDE_COLOR);
+        Color visualGuidesColor = myColorsScheme.getColor(EditorColors.VISUAL_INDENT_GUIDE_COLOR);
         if (visualGuidesColor != null) {
           myGraphics.setColor(visualGuidesColor);
           for (Integer marginX : myCorrector.softMarginsX()) {
@@ -418,8 +466,8 @@ public final class EditorPainter implements TextDrawingCallback {
       }
 
       if (!isMarginShown()) return;
-      myGraphics.setColor(myEditor.getColorsScheme().getColor(EditorColors.RIGHT_MARGIN_COLOR));
-      float baseMarginWidth = getBaseMarginWidth(myView, mySettings);
+      myGraphics.setColor(myColorsScheme.getColor(EditorColors.RIGHT_MARGIN_COLOR));
+      float baseMarginWidth = getBaseMarginWidth(myViewSnapshot, mySettings);
       int baseMarginX = myCorrector.marginX(baseMarginWidth);
       if (myMarginPositions == null) {
         LinePainter2D.paint(myGraphics, baseMarginX, 0, baseMarginX, myClip.height);
@@ -490,21 +538,12 @@ public final class EditorPainter implements TextDrawingCallback {
       );
     }
 
-    private boolean shouldUseNewSelection() {
-      return myEditor.shouldUseNewSelection(myRegistry);
-    }
-
     private Color selectionBackgroundColor() {
       return myEditor.getSelectionModel().getTextAttributes().getBackgroundColor();
     }
 
     private void paintBackground() {
-      float selectionExtensionWidth = selectionExtensionWidth();
-
       SelectionInlayQueries selectionInlayQueries = new SelectionInlayQueries(myEditor);
-      mySelectionModelView = myView.getSelectionVisualModel();
-      mySelectionModelView.setYShift(myYShift);
-      mySelectionModelView.invalidateArea(new Rectangle2D.Double(myClip.x, myClip.y + myYShift, myClip.width, myClip.height));
 
       int lineCount = myView.getVisibleLineCount();
       boolean calculateMarginWidths = myRegistry.isRightMarginAdjusted() && isMarginShown() && myStartVisualLine < lineCount;
@@ -521,65 +560,79 @@ public final class EditorPainter implements TextDrawingCallback {
       LineLayout prefixLayout = myView.getPrefixLayout();
       if (myStartVisualLine == 0 && prefixLayout != null) {
         float width = prefixLayout.getWidth();
-        TextAttributes attributes = myView.getPrefixAttributes();
-        paintBackground(attributes, myCorrector.startX(myStartVisualLine), myYShift + myView.visualLineToY(0), width);
+        TextAttributes attributes = Objects.requireNonNull(myViewSnapshot.prefixAttributes());
+        float x = myCorrector.startX(myStartVisualLine);
+        int y = myYShift + myView.visualLineToY(0);
+        paintBackground(attributes, x, y, width, myLineHeight);
         myTextDrawingTasks.add(_ -> {
-          paintLineLayoutWithEffect(prefixLayout,
-                                    myCorrector.startX(myStartVisualLine), myAscent + myYShift + myView.visualLineToY(0),
-                                    attributes.getForegroundColor(), attributes.getEffectColor(), attributes.getEffectType());
+          paintLineLayoutWithEffect(
+            prefixLayout,
+            myCorrector.startX(myStartVisualLine),
+            myAscent + myYShift + myView.visualLineToY(0),
+            attributes.getForegroundColor(),
+            attributes.getEffectColor(),
+            attributes.getEffectType()
+          );
         });
       }
 
-      int startX = myInsets.left;
-      int endX = myClip.x + myClip.width;
+      int startX = myFillStartX;
+      int endX = myFillEndX;
       int prevY = Math.max(myInsets.top, myClip.y) + myYShift;
-      VisualLinesIterator visLinesIterator = new VisualLinesIterator(myView, myStartVisualLine);
+      int firstVisualLine = myDryRunRows ? Math.max(0, myStartVisualLine - 1) : myStartVisualLine;
+      VisualLinesIterator visLinesIterator = new VisualLinesIterator(myView, firstVisualLine);
       while (!visLinesIterator.atEnd()) {
         int visualLine = visLinesIterator.getVisualLine();
         if (visualLine > myEndVisualLine + 1) {
           break;
         }
+        boolean aboveClip = visualLine < myStartVisualLine;
         int y = visLinesIterator.getY() + myYShift;
-        if (calculateMarginWidths) myMarginPositions.y()[visualLine - myStartVisualLine] = y;
-        if (y > prevY) {
+        if (calculateMarginWidths && !aboveClip) myMarginPositions.y()[visualLine - myStartVisualLine] = y;
+        if (y > prevY && !aboveClip) {
           boolean selection = selectionInlayQueries.isAllBlockInlaysAboveSelected(visualLine);
-          TextAttributes attributes = getBetweenLinesAttributes(selection, visLinesIterator.getVisualLineStartOffset());
+          BackgroundLayer betweenLinesLayer = getBetweenLinesBackgroundLayer(selection, visLinesIterator.getVisualLineStartOffset());
+          TextAttributes attributes = new TextAttributes();
+          attributes.setBackgroundColor(betweenLinesLayer == null ? null : betweenLinesLayer.getColor());
           myBetweenLinesAttributes.put(visualLine, attributes);
-          if (selection && shouldUseNewSelection()) {
+          if (selection && myHuggingHighlighting) {
             for (Inlay<?> blockInlay : selectionInlayQueries.blockInlaysAbove(visualLine)) {
               Rectangle bounds = blockInlay.getBounds();
               if (bounds == null) continue;
-              float left = bounds.x - (myEditor.isRightAligned() ? selectionExtensionWidth : 0f);
-              float right = bounds.x + bounds.width + (myEditor.isRightAligned() ? 0f : selectionExtensionWidth);
-              mySelectionModelView.paintBlock(new Rectangle2D.Double(left, bounds.y + myYShift, right - left, bounds.height));
+              float left = bounds.x - (myEditor.isRightAligned() ? mySelectionExtensionWidth : 0f);
+              float right = bounds.x + bounds.width + (myEditor.isRightAligned() ? 0f : mySelectionExtensionWidth);
+              paintSelectionBlock(new Rectangle2D.Double(left, bounds.y + myYShift, right - left, bounds.height));
             }
           } else {
-            paintBackground(attributes, startX, prevY, endX - startX, y - prevY);
+            paintBackgroundLayer(betweenLinesLayer, startX, prevY, endX - startX, y - prevY);
           }
         }
-        boolean dryRun = visualLine > myEndVisualLine;
-        if (dryRun && !calculateMarginWidths) break;
+        boolean dryRun = aboveClip || visualLine > myEndVisualLine;
+        if (dryRun && !calculateMarginWidths && !myDryRunRows) break;
+        boolean collectBackgrounds = !dryRun || myDryRunRows;
         boolean paintSoftWraps = paintAllSoftWraps ||
                                  myCaretModel.getLogicalPosition().line == visLinesIterator.getDisplayedLogicalLine();
         int[] currentLogicalLine = new int[]{-1};
         paintLineFragments(visLinesIterator, y, new LineFragmentPainter() {
           @Override
-          public void paintBeforeLineStart(IterationState it, TextAttributes attributes, SoftWrapEx softWrap, int columnEnd, float xEnd, int y) {
-            if (dryRun) {
+          public void paintBeforeLineStart(IterationState it, List<BackgroundLayer> backgroundLayers, SoftWrapEx softWrap, int columnEnd,
+                                           float xEnd, int y) {
+            if (!collectBackgrounds) {
               return;
             }
             if (visualLine == 0) xEnd -= myView.getPrefixTextWidthInPixels();
-            paintBackground(attributes, startX, y, xEnd);
-            if (shouldUseNewSelection()
+            paintLayeredBackground(backgroundLayers, startX, y, xEnd - startX);
+            if (myHuggingHighlighting
                 && it.isInSelection(true)
                 && myEditor.isRightAligned()) {
-              mySelectionModelView.paintBlock(new Rectangle2D.Double(xEnd - selectionExtensionWidth, y, selectionExtensionWidth, myLineHeight));
+              Rectangle2D block = new Rectangle2D.Double(xEnd - mySelectionExtensionWidth, y, mySelectionExtensionWidth, myLineHeight);
+              paintSelectionBlock(block);
             }
             if (softWrap == null) {
               return;
             }
             paintSelectionOnSecondSoftWrapLineIfNecessary(visualLine, columnEnd, xEnd, y, Objects.requireNonNull(primarySelectionStart), primarySelectionEnd);
-            if (paintSoftWraps && softWrap.isPaintable()) {
+            if (!dryRun && paintSoftWraps && softWrap.isPaintable()) {
               int x = (int)xEnd;
               myTextDrawingTasks.add(g -> {
                 int symbolWidth = mySoftWrapModel.getMinDrawingWidthInPixels(SoftWrapDrawingType.AFTER_SOFT_WRAP);
@@ -590,19 +643,19 @@ public final class EditorPainter implements TextDrawingCallback {
 
           @Override
           public void paint(VisualLineFragmentsIterator.Fragment fragment, int start, int end,
-                            TextAttributes attributes, boolean isSelection, float xStart, float xEnd, int y) {
-            if (dryRun) {
+                            TextAttributes attributes, List<BackgroundLayer> backgroundLayers, float xStart, float xEnd, int y) {
+            if (!collectBackgrounds) {
               return;
             }
             FoldRegion foldRegion = fragment.getCurrentFoldRegion();
             TextAttributes foldRegionInnerAttributes =
               foldRegion == null || !myRegistry.isFoldingHighlighted() ? null : getInnerHighlighterAttributes(foldRegion);
             if (foldRegionInnerAttributes == null ||
-                !paintFoldingBackground(foldRegionInnerAttributes, xStart, y, xEnd - xStart, foldRegion)) {
-              paintBackground(attributes, xStart, y, xEnd - xStart);
-              if (isSelection && shouldUseNewSelection()) {
-                mySelectionModelView.paintBlock(new Rectangle2D.Double(xStart, y, xEnd - xStart, myLineHeight));
-              }
+                !paintFoldingBackground(foldRegionInnerAttributes, xStart, y, xEnd - xStart, foldRegion, dryRun)) {
+              paintLayeredBackground(backgroundLayers, xStart, y, xEnd - xStart);
+            }
+            if (dryRun) {
+              return;
             }
             Inlay<?> inlay = fragment.getCurrentInlay();
             if (inlay != null) {
@@ -648,21 +701,25 @@ public final class EditorPainter implements TextDrawingCallback {
 
           @Override
           public void paintAfterLineEnd(IterationState it, int columnStart, float x, int y) {
-            if (dryRun) {
+            if (!collectBackgrounds) {
               return;
             }
             TextAttributes backgroundAttributes = it.getPastLineEndBackgroundAttributes().clone();
+            List<BackgroundLayer> layers = it.getPastLineEndBackgroundLayers();
             CustomFoldRegion cfr = visLinesIterator.getCustomFoldRegion();
             if (cfr != null) {
               float paintWidth = endX - startX;
-              if (shouldUseNewSelection() && isSelected(cfr)) {
+              if (myHuggingHighlighting && isSelected(cfr)) {
                 paintWidth = cfr.getWidthInPixels();
                 backgroundAttributes.setBackgroundColor(selectionBackgroundColor());
-                float start = startX - (myEditor.isRightAligned() ? selectionExtensionWidth : 0.0f);
-                float end = start + paintWidth + (myEditor.isRightAligned() ? 0.0f : selectionExtensionWidth);
-                mySelectionModelView.paintBlock(new Rectangle2D.Double(start, y, end - start, cfr.getHeightInPixels()));
+                float start = startX - (myEditor.isRightAligned() ? mySelectionExtensionWidth : 0.0f);
+                float end = start + paintWidth + (myEditor.isRightAligned() ? 0.0f : mySelectionExtensionWidth);
+                paintSelectionBlock(new Rectangle2D.Double(start, y, end - start, cfr.getHeightInPixels()));
               } else {
-                paintBackground(backgroundAttributes, startX, y, paintWidth, cfr.getHeightInPixels());
+                paintLayeredBackground(layers, startX, y, paintWidth, cfr.getHeightInPixels());
+              }
+              if (dryRun) {
+                return;
               }
               myTextDrawingTasks.add(g -> {
                 cfr.getRenderer().paint(
@@ -671,62 +728,92 @@ public final class EditorPainter implements TextDrawingCallback {
               });
               return;
             }
-            paintBackground(backgroundAttributes.getBackgroundColor(), x, y, endX - x, myLineHeight);
-            if (it.hasPastLineEndExtension() && shouldUseNewSelection() && !myEditor.isRightAligned()) {
-              mySelectionModelView.paintBlock(new Rectangle2D.Double(x, y, selectionExtensionWidth, myLineHeight));
-            }
+            paintLayeredBackground(layers, x, y, endX - x);
             int offset = it.getEndOffset();
             SoftWrapEx softWrap = mySoftWrapModel.getSoftWrapEx(offset);
             if (softWrap == null) {
+              if (dryRun) {
+                paintHuggingBlockPastLineEnd(it, x, y);
+                paintVirtualSelectionIfNecessary(visualLine, columnStart, x, y);
+                return;
+              }
               int logicalLine = myDocument.lineNumber(offset);
               List<Inlay<?>> inlays = myInlayModel.getAfterLineEndElementsForLogicalLine(logicalLine);
-              float extensionsStartX = inlays.isEmpty()
-                                       ? x
-                                       : x + myView.getPlainSpaceWidth() + inlays.stream().mapToInt(Inlay::getWidthInPixels).sum();
-              collectExtensions(visualLine, offset);
-              paintLineExtensionsBackground(visualLine, extensionsStartX, y);
+              float extensionsStartX = getExtensionsStartX(x, inlays);
+              List<LineExtensionLayout> lineExtensions = myEditor.getLineExtensions().getLayout(logicalLine);
+              paintLineExtensionsBackground(lineExtensions, extensionsStartX, y);
+              paintHuggingBlockPastLineEnd(it, x, y);
               paintVirtualSelectionIfNecessary(visualLine, columnStart, x, y);
               myTextDrawingTasks.add(g -> {
-                if (!inlays.isEmpty()) {
-                  float curX = x + myView.getPlainSpaceWidth();
-                  for (Inlay<?> inlay : inlays) {
-                    int width = inlay.getWidthInPixels();
-                    inlay.getRenderer().paint(inlay, g, new Rectangle2D.Double(curX, y, width, myLineHeight), backgroundAttributes);
-                    curX += width;
-                  }
-                }
-                paintLineExtensions(visualLine, logicalLine, extensionsStartX, y + myAscent);
+                paintAfterLineEndInlays(x, y, g, inlays, backgroundAttributes);
+                paintLineExtensions(lineExtensions, visualLine, logicalLine, extensionsStartX, y + myAscent);
               });
             }
             else {
+              paintHuggingBlockPastLineEnd(it, x, y);
               paintSelectionOnFirstSoftWrapLineIfNecessary(visualLine, columnStart, x, y, primarySelectionStart, primarySelectionEnd);
-              if (paintSoftWraps && softWrap.isPaintable()) {
+              if (!dryRun && paintSoftWraps && softWrap.isPaintable()) {
                 myTextDrawingTasks.add(g -> {
                   mySoftWrapModel.doPaint(g, SoftWrapDrawingType.BEFORE_SOFT_WRAP_LINE_FEED, (int)x, y, myLineHeight);
                 });
               }
             }
           }
-        }, calculateMarginWidths && !visLinesIterator.endsWithSoftWrap() && !visLinesIterator.startsWithSoftWrap()
+        }, calculateMarginWidths && !aboveClip && !visLinesIterator.endsWithSoftWrap() && !visLinesIterator.startsWithSoftWrap()
            ? width -> myMarginPositions.x()[visualLine - myStartVisualLine] = width : null);
         prevY = y + visLinesIterator.getLineHeight();
         visLinesIterator.advance();
       }
-      mySelectionModelView.paint(myGraphics, new Rectangle2D.Double(myClip.x, myClip.y, myClip.width, myClip.height), myLineHeight);
+      addHighlightersAfterEndOfLine(myDocMarkup);
+      addHighlightersAfterEndOfLine(myEditorMarkup);
+      if (myHighlighterVisualModel != null) {
+        myHighlighterVisualModel.paint(myGraphics, myLineHeight);
+        myHighlighterVisualModel.paintAfterLineEndBoxes(myGraphics, myLineHeight);
+      }
       if (calculateMarginWidths && myEndVisualLine >= lineCount - 1) {
-        myMarginPositions.y()[myMarginPositions.y().length - 1] = myMarginPositions.y()[myMarginPositions.y().length - 2] + myLineHeight;
+        int length = myMarginPositions.y().length;
+        myMarginPositions.y()[length - 1] = myMarginPositions.y()[length - 2] + myLineHeight;
       }
     }
 
-    private boolean paintFoldingBackground(TextAttributes innerAttributes, float x, int y, float width, @NotNull FoldRegion foldRegion) {
-      if (innerAttributes.getBackgroundColor() != null && !isSelected(foldRegion)) {
-        paintBackground(innerAttributes, x, y, width);
-        Color borderColor = myEditor.getColorsScheme().getColor(EditorColors.FOLDED_TEXT_BORDER_COLOR);
+    private float getExtensionsStartX(float x, List<Inlay<?>> inlays) {
+      if (inlays.isEmpty()) {
+        return x;
+      }
+      return x + myViewSnapshot.plainSpaceWidth() + inlays.stream().mapToInt(Inlay::getWidthInPixels).sum();
+    }
+
+    private void paintAfterLineEndInlays(float x, int y, Graphics2D g, List<Inlay<?>> inlays, TextAttributes backgroundAttributes) {
+      if (!inlays.isEmpty()) {
+        float curX = x + myViewSnapshot.plainSpaceWidth();
+        for (Inlay<?> inlay : inlays) {
+          int width = inlay.getWidthInPixels();
+          inlay.getRenderer().paint(inlay, g, new Rectangle2D.Double(curX, y, width, myLineHeight), backgroundAttributes);
+          curX += width;
+        }
+      }
+    }
+
+    private boolean paintFoldingBackground(
+      TextAttributes innerAttributes,
+      float x,
+      int y,
+      float width,
+      @NotNull FoldRegion foldRegion,
+      boolean dryRun
+    ) {
+      Color background = innerAttributes.getBackgroundColor();
+      if (background != null && !isSelected(foldRegion)) {
+        BackgroundLayer layer = new BackgroundLayer(background, HighlighterLayer.GUARDED_BLOCKS, false, false, false, Integer.MAX_VALUE);
+        paintBackgroundLayer(layer, x, y, width, myLineHeight);
+        Color borderColor = dryRun ? null : myColorsScheme.getColor(EditorColors.FOLDED_TEXT_BORDER_COLOR);
         if (borderColor != null) {
           Shape border = getBorderShape(x, y, width, myLineHeight, 2, false);
           if (border != null) {
-            myGraphics.setColor(borderColor);
-            myGraphics.fill(border);
+            myTextDrawingTasks.add(g -> {
+              g.setColor(borderColor);
+              g.fill(border);
+            });
           }
         }
         return true;
@@ -734,6 +821,42 @@ public final class EditorPainter implements TextDrawingCallback {
       else {
         return false;
       }
+    }
+
+    /**
+     * Gives the x where a background that fills the line starts.
+     * While a right-aligned editor rounds, it is the left side of the visible area, or the left side of the clip when the
+     * clip starts further left. It is never left of the left inset.
+     * In every other case, and without a visible area, it is the left inset.
+     */
+    private int fillStartX() {
+      if (!myRoundedHighlighting || !myEditor.isRightAligned()) {
+        return myInsets.left;
+      }
+      Rectangle visibleArea = myEditor.getScrollingModel().getVisibleArea();
+      if (visibleArea.isEmpty()) {
+        return myInsets.left;
+      }
+      int startX = Math.min(visibleArea.x, myClip.x);
+      return Math.max(myInsets.left, startX);
+    }
+
+    /**
+     * Gives the x where a background that fills the line ends.
+     * While the editor rounds, it is the right side of the visible area, or the right side of the clip when the clip ends
+     * further right. Without a visible area, it is the width of the component.
+     * Without rounding, it is the right side of the clip.
+     */
+    private int fillEndX() {
+      int clipEndX = myClip.x + myClip.width;
+      if (!myRoundedHighlighting) {
+        return clipEndX;
+      }
+      Rectangle visibleArea = myEditor.getScrollingModel().getVisibleArea();
+      if (visibleArea.isEmpty()) {
+        return myEditor.getContentComponent().getWidth();
+      }
+      return Math.max(visibleArea.x + visibleArea.width, clipEndX);
     }
 
     private static @NotNull Int2ObjectMap<IntPair> createVirtualSelectionMap(CaretModel caretModel, int startVisualLine, int endVisualLine) {
@@ -753,6 +876,16 @@ public final class EditorPainter implements TextDrawingCallback {
       return map;
     }
 
+    /**
+     * Paints the hugging block past the line end, where the selection of a left-aligned editor continues past the line end.
+     * The caller paints it after the backgrounds of the line extensions, so the block covers them.
+     */
+    private void paintHuggingBlockPastLineEnd(IterationState it, float x, int y) {
+      if (it.hasPastLineEndExtension() && myHuggingHighlighting && !myEditor.isRightAligned()) {
+        paintSelectionBlock(new Rectangle2D.Double(x, y, mySelectionExtensionWidth, myLineHeight));
+      }
+    }
+
     private void paintVirtualSelectionIfNecessary(int visualLine, int columnStart, float xStart, int y) {
       IntPair selectionRange = myVirtualSelectionMap.get(visualLine);
       if (selectionRange == null || selectionRange.second <= columnStart) return;
@@ -760,16 +893,12 @@ public final class EditorPainter implements TextDrawingCallback {
                      ? xStart
                      : (float)myView.visualPositionToXY(new VisualPosition(visualLine, selectionRange.first)).getX();
 
-      float clipEndX = myClip.x + myClip.width;
-      if (shouldUseNewSelection()) {
-        clipEndX = Math.min(clipEndX, visualLineEnd(visualLine));
+      float fillEndX = myFillEndX;
+      if (myHuggingHighlighting) {
+        fillEndX = Math.min(fillEndX, visualLineEnd(visualLine));
       }
-      float endX = (float)Math.min(clipEndX, myView.visualPositionToXY(new VisualPosition(visualLine, selectionRange.second)).getX());
-      if (shouldUseNewSelection()) {
-        mySelectionModelView.paintBlock(new Rectangle2D.Double(startX, y, endX - startX, myLineHeight));
-      } else {
-        paintBackground(selectionBackgroundColor(), startX, y, endX - startX);
-      }
+      float endX = (float)Math.min(fillEndX, myView.visualPositionToXY(new VisualPosition(visualLine, selectionRange.second)).getX());
+      paintSelectionBlock(new Rectangle2D.Double(startX, y, endX - startX, myLineHeight));
     }
 
     private void paintSelectionOnSecondSoftWrapLineIfNecessary(int visualLine, int columnEnd, float xEnd, int y,
@@ -784,11 +913,7 @@ public final class EditorPainter implements TextDrawingCallback {
                      (float)myView.visualPositionToXY(selectionStartPosition).getX() : myCorrector.startX(visualLine);
       float endX = (selectionEndPosition.line == visualLine && selectionEndPosition.column < columnEnd) ?
                    (float)myView.visualPositionToXY(selectionEndPosition).getX() : xEnd;
-      if (shouldUseNewSelection()) {
-        mySelectionModelView.paintBlock(new Rectangle2D.Double(startX, y, endX - startX, myLineHeight));
-      } else {
-        paintBackground(selectionBackgroundColor(), startX, y, endX - startX);
-      }
+      paintSelectionBlock(new Rectangle2D.Double(startX, y, endX - startX, myLineHeight));
     }
 
     private void paintSelectionOnFirstSoftWrapLineIfNecessary(int visualLine,
@@ -806,38 +931,93 @@ public final class EditorPainter implements TextDrawingCallback {
       }
       float startX = selectionStartPosition.line == visualLine && selectionStartPosition.column > columnStart ?
                      (float)myView.visualPositionToXY(selectionStartPosition).getX() : xStart;
-      float clipEndX = myClip.x + myClip.width;
-      if (shouldUseNewSelection()) {
-        clipEndX = Math.min(clipEndX, visualLineEnd(visualLine));
+      float fillEndX = myFillEndX;
+      if (myHuggingHighlighting) {
+        fillEndX = Math.min(fillEndX, visualLineEnd(visualLine));
       }
       float endX = selectionEndPosition.line == visualLine
                    ?
                    (float)myView.visualPositionToXY(selectionEndPosition).getX()
-                   : clipEndX;
+                   : fillEndX;
 
-      if (shouldUseNewSelection()) {
-        mySelectionModelView.paintBlock(new Rectangle2D.Double(startX, y, endX - startX, myLineHeight));
+      paintSelectionBlock(new Rectangle2D.Double(startX, y, endX - startX, myLineHeight));
+    }
+
+    private boolean isDefaultBackground(Color color) {
+      return color.equals(myDefaultBackgroundColor) || color.equals(myBackgroundColor);
+    }
+
+    private void paintLayeredBackground(List<BackgroundLayer> layers, float x, int y, float width) {
+      paintLayeredBackground(layers, x, y, width, myLineHeight);
+    }
+
+    private void paintLayeredBackground(List<BackgroundLayer> layers, float x, int y, float width, int height) {
+      if (width <= 0) {
+        return;
+      }
+      int count = layers.size();
+      while (count > 0 && isDefaultBackground(layers.get(count - 1).getColor())) {
+        count--;
+      }
+      if (count == 0) {
+        return;
+      }
+      List<BackgroundLayer> visibleLayers = layers.subList(0, count);
+      if (myHighlighterVisualModel == null) {
+        BackgroundLayer top = topLayer(visibleLayers);
+        paintBackground(top.getColor(), x, y, width, height);
       } else {
-        paintBackground(selectionBackgroundColor(), startX, y, endX - startX);
+        myHighlighterVisualModel.paintLayeredBlock(new Rectangle2D.Float(x, y, width, height), visibleLayers);
       }
     }
 
-    private void paintBackground(TextAttributes attributes, float x, int y, float width) {
-      paintBackground(attributes, x, y, width, myLineHeight);
+    /**
+     * Gives the one layer that the user sees in a block of these layers.
+     * The list starts at the top layer. A layer that forces the background wins over every other layer.
+     */
+    private static @NotNull BackgroundLayer topLayer(@NotNull List<BackgroundLayer> layers) {
+      BackgroundLayer top = layers.getFirst();
+      for (BackgroundLayer layer : layers) {
+        if (layer.getForcesBackground() && layer.compareTo(top) > 0) {
+          top = layer;
+        }
+      }
+      return top;
     }
 
-    private void paintBackground(TextAttributes attributes, float x, int y, float width, int height) {
+    private void paintBackgroundLayer(@Nullable BackgroundLayer layer, float x, int y, float width, int height) {
+      if (layer == null || width <= 0 || isDefaultBackground(layer.getColor())) {
+        return;
+      }
+      if (myHighlighterVisualModel == null) {
+        paintBackground(layer.getColor(), x, y, width, height);
+      } else {
+        myHighlighterVisualModel.paintBackgroundBlock(new Rectangle2D.Float(x, y, width, height), layer);
+      }
+    }
+
+    private void paintSelectionBlock(Rectangle2D block) {
+      if (myHighlighterVisualModel == null) {
+        paintBackground(
+          selectionBackgroundColor(),
+          (float)block.getX(),
+          (int)block.getY(),
+          (float)block.getWidth(),
+          (int)block.getHeight()
+        );
+      } else {
+        myHighlighterVisualModel.paintSelectionBlock(block);
+      }
+    }
+
+    private void paintBackground(@Nullable TextAttributes attributes, float x, int y, float width, int height) {
       if (attributes != null) {
         paintBackground(attributes.getBackgroundColor(), x, y, width, height);
       }
     }
 
-    private void paintBackground(Color color, float x, int y, float width) {
-      paintBackground(color, x, y, width, myLineHeight);
-    }
-
     private void paintBackground(Color color, float x, int y, float width, int height) {
-      if (width <= 0 || color == null || color.equals(myDefaultBackgroundColor) || color.equals(myBackgroundColor)) {
+      if (width <= 0 || color == null || isDefaultBackground(color)) {
         return;
       }
       fillRectExact(
@@ -926,7 +1106,10 @@ public final class EditorPainter implements TextDrawingCallback {
     }
 
     private void paintTextWithEffects() {
-      myTextDrawingTasks.forEach(t -> t.accept(myGraphics));
+      List<Consumer<Graphics2D>> tasks = myTextDrawingTasks;
+      for (int i = 0, size = tasks.size(); i < size; i++) {
+        tasks.get(i).accept(myGraphics);
+      }
       ComplexTextFragment.flushDrawingCache(myGraphics);
     }
 
@@ -936,13 +1119,13 @@ public final class EditorPainter implements TextDrawingCallback {
       collectVisibleInnerHighlighters(region, myEditorMarkup, innerHighlighters);
       collectVisibleInnerHighlighters(region, myDocMarkup, innerHighlighters);
       if (innerHighlighters.isEmpty()) return null;
-      innerHighlighters.sort(IterationState.createByLayerThenByAttributesComparator(myEditor.getColorsScheme()));
+      innerHighlighters.sort(IterationState.createByLayerThenByAttributesComparator(myColorsScheme));
       Color fgColor = null;
       Color bgColor = null;
       Color effectColor = null;
       EffectType effectType = null;
       for (RangeHighlighter h : innerHighlighters) {
-        TextAttributes attrs = h.getTextAttributes(myEditor.getColorsScheme());
+        TextAttributes attrs = h.getTextAttributes(myColorsScheme);
         if (attrs == null) continue;
         if (fgColor == null && attrs.getForegroundColor() != null) fgColor = attrs.getForegroundColor();
         if (bgColor == null && attrs.getBackgroundColor() != null) bgColor = attrs.getBackgroundColor();
@@ -996,7 +1179,7 @@ public final class EditorPainter implements TextDrawingCallback {
       myGraphics.setColor(effectColor);
       int xStart = (int)xFrom;
       int xEnd = (int)xTo;
-      Font font = myEditor.getColorsScheme().getFont(EditorFontType.PLAIN);
+      Font font = myColorsScheme.getFont(EditorFontType.PLAIN);
       if (effectType == EffectType.LINE_UNDERSCORE) {
         EffectPainter.LINE_UNDERSCORE.paint(myGraphics, xStart, y, xEnd - xStart, myDescent, font);
       }
@@ -1004,7 +1187,7 @@ public final class EditorPainter implements TextDrawingCallback {
         EffectPainter.BOLD_LINE_UNDERSCORE.paint(myGraphics, xStart, y, xEnd - xStart, myDescent, font);
       }
       else if (effectType == EffectType.STRIKEOUT) {
-        EffectPainter.STRIKE_THROUGH.paint(myGraphics, xStart, y, xEnd - xStart, myView.getCharHeight(), font);
+        EffectPainter.STRIKE_THROUGH.paint(myGraphics, xStart, y, xEnd - xStart, myViewSnapshot.charHeight(), font);
       }
       else if (effectType == EffectType.WAVE_UNDERSCORE) {
         EffectPainter.WAVE_UNDERSCORE.paint(myGraphics, xStart, y, xEnd - xStart, myDescent, font);
@@ -1033,8 +1216,8 @@ public final class EditorPainter implements TextDrawingCallback {
 
       boolean restoreStroke = false;
       Stroke defaultStroke = myGraphics.getStroke();
-      Color whitespacesColor = myEditor.getColorsScheme().getColor(EditorColors.WHITESPACES_COLOR);
-      Color tabsColor = myEditor.getColorsScheme().getColor(EditorColors.TABS_COLOR);
+      Color whitespacesColor = myColorsScheme.getColor(EditorColors.WHITESPACES_COLOR);
+      Color tabsColor = myColorsScheme.getColor(EditorColors.TABS_COLOR);
 
       boolean isRtl = fragment.isRtl();
       int baseStartOffset = fragment.getStartOffset();
@@ -1066,8 +1249,8 @@ public final class EditorPainter implements TextDrawingCallback {
             double strokeWidth = Math.max(scale, PaintUtil.devPixel(myGraphics));
             switch (AdvancedSettings.getEnum(EDITOR_TAB_PAINTING, TabCharacterPaintMode.class)) {
               case LONG_ARROW -> {
-                int tabEndX = endX - (int)(myView.getPlainSpaceWidth() / 4);
-                int height = myView.getCharHeight();
+                int tabEndX = endX - (int)(myViewSnapshot.plainSpaceWidth() / 4);
+                int height = myViewSnapshot.charHeight();
                 Color tabColor = tabsColor == null ? null : ColorUtil.mix(myBackgroundColor, tabsColor, 0.7);
                 myTextDrawingTasks.add(g -> {
                   int halfHeight = height / 2;
@@ -1095,7 +1278,7 @@ public final class EditorPainter implements TextDrawingCallback {
                 restoreStroke = true;
               }
               default -> {
-                int yMid = yToUse - myView.getCharHeight() / 2;
+                int yMid = yToUse - myViewSnapshot.charHeight() / 2;
                 int tabEndX = Math.max(startX + 1, endX - getTabGap(scale));
                 myTextDrawingTasks.add(g -> {
                   g.setColor(tabsColor);
@@ -1105,7 +1288,7 @@ public final class EditorPainter implements TextDrawingCallback {
             }
           }
           else if (c == '\u3000') { // ideographic space
-            int charHeight = myView.getCharHeight();
+            int charHeight = myViewSnapshot.charHeight();
             int strokeWidth = Math.round(stroke.getLineWidth());
             myTextDrawingTasks.add(g -> {
               g.setColor(whitespacesColor);
@@ -1132,29 +1315,33 @@ public final class EditorPainter implements TextDrawingCallback {
       return ((float)editor.getColorsScheme().getEditorFontSize()) / FontPreferences.DEFAULT_FONT_SIZE;
     }
 
-    private void collectExtensions(int visualLine, int offset) {
-      myEditor.processLineExtensions(myDocument.lineNumber(offset), (info) -> {
-        List<LineExtensionData> list = myExtensionData.get(visualLine);
-        if (list == null) myExtensionData.put(visualLine, list = new ArrayList<>());
-        list.add(new LineExtensionData(info, LineLayout.createForStandaloneText(myView, info.getText(), info.getFontType())));
-        return true;
-      });
-    }
-
-    private void paintLineExtensionsBackground(int visualLine, float x, int y) {
-      List<LineExtensionData> data = myExtensionData.get(visualLine);
-      if (data == null) return;
-      for (LineExtensionData datum : data) {
+    /**
+     * Paints the backgrounds of the line extensions of this visual line.
+     * The order is the same in both modes. They cover the highlighter backgrounds and the filling selection at the line end.
+     * The virtual selection, the hugging block past the line end, the backgrounds after the end of a line and the right
+     * margin cover them.
+     */
+    private void paintLineExtensionsBackground(List<LineExtensionLayout> lineExtensions, float x, int y) {
+      for (LineExtensionLayout datum : lineExtensions) {
         float width = datum.layout().getWidth();
-        paintBackground(datum.info().getBgColor(), x, y, width);
+        paintLineExtensionBackground(datum.info().getBgColor(), x, y, width);
         x += width;
       }
     }
 
-    private void paintLineExtensions(int visualLine, int logicalLine, float x, int y) {
-      List<LineExtensionData> data = myExtensionData.get(visualLine);
-      if (data == null) return;
-      for (LineExtensionData datum : data) {
+    private void paintLineExtensionBackground(Color color, float x, int y, float width) {
+      if (myHighlighterVisualModel == null) {
+        paintBackground(color, x, y, width, myLineHeight);
+      } else if (width > 0 && color != null && !isDefaultBackground(color)) {
+        myHighlighterVisualModel.addLineExtensionBackground(new Rectangle2D.Float(x, y, width, myLineHeight), color);
+      }
+    }
+
+    private void paintLineExtensions(List<LineExtensionLayout> lineExtensions, int visualLine, int logicalLine, float x, int y) {
+      if (lineExtensions.isEmpty()) {
+        return;
+      }
+      for (LineExtensionLayout datum : lineExtensions) {
         x = paintLineLayoutWithEffect(datum.layout(), x, y, datum.info().getColor(), datum.info().getEffectColor(), datum.info().getEffectType());
       }
       int currentLineWidth = myCorrector.lineWidth(visualLine, x);
@@ -1165,30 +1352,63 @@ public final class EditorPainter implements TextDrawingCallback {
       }
     }
 
-    private void paintHighlightersAfterEndOfLine(MarkupModelEx markupModel) {
-      markupModel.processRangeHighlightersOverlappingWith(myStartOffset, myEndOffset, highlighter -> {
-        if (highlighter.getStartOffset() >= myStartOffset) {
-          paintHighlighterAfterEndOfLine(highlighter);
-        }
+    /**
+     * Adds the backgrounds and the effects after the end of a line, in one pass over the markup model.
+     * In both modes, the backgrounds cover all other backgrounds, also the selection and the backgrounds of the line extensions.
+     * Without rounding, it paints each background at once. While the editor rounds, the model fills each one as a box of
+     * its own. {@link #myAfterLineEndEffects} gets the effects of the highlighters that start in the clip.
+     * With {@link #myDryRunRows}, it also takes the backgrounds of the highlighters that start on the two dry-run rows.
+     */
+    private void addHighlightersAfterEndOfLine(MarkupModelEx markupModel) {
+      int startOffset = myDryRunRows ? myView.visualLineToOffset(myStartVisualLine - 1) : myStartOffset;
+      int endOffset = myDryRunRows ? myView.visualLineToOffset(myEndVisualLine + 2) : myEndOffset;
+      markupModel.processRangeHighlightersOverlappingWith(startOffset, endOffset, highlighter -> {
+        addHighlighterAfterEndOfLine(highlighter, startOffset);
         return true;
       });
     }
 
-    private void paintHighlighterAfterEndOfLine(RangeHighlighterEx highlighter) {
-      if (!highlighter.isAfterEndOfLine()) {
+    private void addHighlighterAfterEndOfLine(RangeHighlighterEx highlighter, int minStartOffset) {
+      Point2D position = getAfterEndOfLinePosition(highlighter, minStartOffset);
+      if (position == null) return;
+      TextAttributes attributes = highlighter.getTextAttributes(myColorsScheme);
+      if (attributes == null) return;
+      float x = (float)position.getX();
+      int y = (int)position.getY();
+      int startOffset = highlighter.getStartOffset();
+      if (attributes.hasEffects() && startOffset >= myStartOffset && startOffset <= myEndOffset) {
+        myAfterLineEndEffects.add(() -> paintEffectsAfterEndOfLine(attributes, x, y));
+      }
+      Color color = attributes.getBackgroundColor();
+      if (color == null || isDefaultBackground(color)) return;
+      float width = myViewSnapshot.plainSpaceWidth();
+      if (myHighlighterVisualModel == null) {
+        paintBackground(color, x, y, width, myLineHeight);
         return;
       }
-      int startOffset = highlighter.getStartOffset();
-      int lineEndOffset = myDocument.lineEndOffset(myDocument.lineNumber(startOffset));
-      if (myFoldingModel.isOffsetCollapsed(lineEndOffset)) return;
-      Point2D lineEnd = myView.offsetToXY(lineEndOffset, true, false);
-      float x = (float)lineEnd.getX();
-      int y = (int)lineEnd.getY() + myYShift;
-      TextAttributes attributes = highlighter.getTextAttributes(myEditor.getColorsScheme());
-      if (attributes == null) return;
-      paintBackground(attributes, x, y, myView.getPlainSpaceWidth());
+      boolean rounded = BackgroundLayer.isRounded(highlighter.getTargetArea(), myRoundedHighlighting);
+      int span = highlighter.getAffectedAreaEndOffset() - highlighter.getAffectedAreaStartOffset();
+      BackgroundLayer layer = new BackgroundLayer(color, highlighter.getLayer(), rounded, false, false, span);
+      myHighlighterVisualModel.addAfterLineEndBox(new Rectangle2D.Float(x, y, width, myLineHeight), layer);
+    }
+
+    private void paintEffectsAfterEndOfLine(TextAttributes attributes, float x, int y) {
+      float xTo = x + myViewSnapshot.plainSpaceWidth() - 1;
+      int y1 = y + myAscent;
       attributes.forEachEffect(
-        (type, color) -> paintTextEffect(x, x + myView.getPlainSpaceWidth() - 1, y + myAscent, color, type, false));
+        (type, color) -> paintTextEffect(x, xTo, y1, color, type, false)
+      );
+    }
+
+    private @Nullable Point2D getAfterEndOfLinePosition(RangeHighlighterEx highlighter, int minStartOffset) {
+      int startOffset = highlighter.getStartOffset();
+      if (startOffset < minStartOffset || !highlighter.isAfterEndOfLine()) {
+        return null;
+      }
+      int lineEndOffset = myDocument.lineEndOffset(myDocument.lineNumber(startOffset));
+      if (myFoldingModel.isOffsetCollapsed(lineEndOffset)) return null;
+      Point2D lineEnd = myView.offsetToXY(lineEndOffset, true, false);
+      return new Point2D.Double((float)lineEnd.getX(), (int)lineEnd.getY() + myYShift);
     }
 
     private void paintBorderEffect(EditorHighlighter highlighter) {
@@ -1205,7 +1425,7 @@ public final class EditorPainter implements TextDrawingCallback {
 
     private void paintBorderEffect(MarkupModelEx markupModel) {
       markupModel.processRangeHighlightersOverlappingWith(myStartOffset, myEndOffset, rangeHighlighter -> {
-        TextAttributes attributes = rangeHighlighter.getTextAttributes(myEditor.getColorsScheme());
+        TextAttributes attributes = rangeHighlighter.getTextAttributes(myColorsScheme);
         EffectDescriptor borderDescriptor = getBorderDescriptor(attributes);
         if (borderDescriptor != null) {
           paintBorderEffect(rangeHighlighter.getAffectedAreaStartOffset(), rangeHighlighter.getAffectedAreaEndOffset(), borderDescriptor);
@@ -1465,7 +1685,7 @@ public final class EditorPainter implements TextDrawingCallback {
         int y = (int)p1.getY() + myAscent + 1 + myYShift;
 
         myGraphics.setStroke(IME_COMPOSED_TEXT_UNDERLINE_STROKE);
-        myGraphics.setColor(myEditor.getColorsScheme().getDefaultForeground());
+        myGraphics.setColor(myColorsScheme.getDefaultForeground());
         LinePainter2D.paint(myGraphics, (int)p1.getX(), y, (int)p2.getX(), y);
       }
     }
@@ -1520,14 +1740,24 @@ public final class EditorPainter implements TextDrawingCallback {
       return new TextAttributes();
     }
 
-    private @NotNull TextAttributes getBetweenLinesAttributes(boolean selection, int bottomVisualLineStartOffset) {
+    /**
+     * Gives the background of the block inlay band above the bottom visual line, or null when the band has no background.
+     * The band takes the style of the top background that crosses it: of a highlighter, or of the selection.
+     * So while the editor rounds, the band joins the shape of the visual lines above and below it.
+     */
+    private @Nullable BackgroundLayer getBetweenLinesBackgroundLayer(boolean selection, int bottomVisualLineStartOffset) {
       final class MyProcessor implements Processor<RangeHighlighterEx> {
         private int layer;
+        private int span = Integer.MAX_VALUE;
         private Color backgroundColor;
+        private boolean rounded;
+        private boolean hugs;
 
         private MyProcessor(boolean selection) {
           backgroundColor = selection ? selectionBackgroundColor() : null;
           layer = backgroundColor == null ? Integer.MIN_VALUE : HighlighterLayer.SELECTION;
+          rounded = myRoundedHighlighting;
+          hugs = myHuggingHighlighting;
         }
 
         @Override
@@ -1537,11 +1767,14 @@ public final class EditorPainter implements TextDrawingCallback {
               highlighterEx.getAffectedAreaStartOffset() < bottomVisualLineStartOffset &&
               highlighterEx.getAffectedAreaEndOffset() > bottomVisualLineStartOffset -
                                                          (highlighterEx.getTargetArea() == HighlighterTargetArea.EXACT_RANGE ? 0 : 1)) {
-            TextAttributes attributes = highlighterEx.getTextAttributes(myEditor.getColorsScheme());
+            TextAttributes attributes = highlighterEx.getTextAttributes(myColorsScheme);
             Color backgroundColor = attributes == null ? null : attributes.getBackgroundColor();
             if (backgroundColor != null) {
               this.layer = layer;
+              this.span = highlighterEx.getAffectedAreaEndOffset() - highlighterEx.getAffectedAreaStartOffset();
               this.backgroundColor = backgroundColor;
+              this.rounded = BackgroundLayer.isRounded(highlighterEx.getTargetArea(), myRoundedHighlighting);
+              this.hugs = false;
             }
           }
           return true;
@@ -1550,9 +1783,17 @@ public final class EditorPainter implements TextDrawingCallback {
       MyProcessor processor = new MyProcessor(selection);
       myDocMarkup.processRangeHighlightersOverlappingWith(bottomVisualLineStartOffset, bottomVisualLineStartOffset, processor);
       myEditorMarkup.processRangeHighlightersOverlappingWith(bottomVisualLineStartOffset, bottomVisualLineStartOffset, processor);
-      TextAttributes attributes = new TextAttributes();
-      attributes.setBackgroundColor(processor.backgroundColor);
-      return attributes;
+      if (processor.backgroundColor == null) {
+        return null;
+      }
+      return new BackgroundLayer(
+        processor.backgroundColor,
+        processor.layer,
+        processor.rounded,
+        processor.hugs,
+        false,
+        processor.span
+      );
     }
 
     private interface MarginWidthConsumer {
@@ -1573,6 +1814,8 @@ public final class EditorPainter implements TextDrawingCallback {
       int maxColumn = 0;
       int endLogicalLine = visLineIterator.getEndLogicalLine();
       boolean marginReached = false;
+      double visitStartX = myClip.getMinX() - myVisitMargin;
+      double visitEndX = myClip.getMaxX() + myVisitMargin;
       for (var fragment : VisualLineFragmentsIterator.create(myView, myDocument, visLineIterator, null, true)) {
         int fragmentStartOffset = fragment.getStartOffset();
         int start = fragmentStartOffset;
@@ -1589,10 +1832,16 @@ public final class EditorPainter implements TextDrawingCallback {
             if (it.getEndOffset() <= offset) {
               it.advance();
             }
-            if (x >= myClip.getMinX()) {
-              TextAttributes attributes = it.getStartOffset() == offset ? it.getBeforeLineStartBackgroundAttributes() :
-                                          it.getMergedAttributes();
-              painter.paintBeforeLineStart(it, attributes, softWrap, fragment.getStartVisualColumn(), x, y);
+            if (x >= visitStartX) {
+              List<BackgroundLayer> layers;
+              if (it.getStartOffset() == offset) {
+                layers = it.getBeforeLineStartBackgroundLayers();
+              } else if (softWrap == null || myEditor.isRightAligned()) {
+                layers = IterationState.getFillingLayers(it.getBackgroundLayers());
+              } else {
+                layers = it.getBackgroundLayers();
+              }
+              painter.paintBeforeLineStart(it, layers, softWrap, fragment.getStartVisualColumn(), x, y);
             }
           }
         }
@@ -1608,11 +1857,12 @@ public final class EditorPainter implements TextDrawingCallback {
             if (start == it.getEndOffset() && !it.atEnd()) {
               it.advance();
             }
-            TextAttributes attributes = it.getStartOffset() == start ? it.getBreakAttributes() : it.getMergedAttributes();
-            boolean isSelection = it.isInSelection(it.getStartOffset() == start);
+            boolean atBreak = it.getStartOffset() == start;
+            List<BackgroundLayer> layers = atBreak ? it.getBreakBackgroundLayers(false) : it.getBackgroundLayers();
+            TextAttributes attributes = atBreak ? it.getBreakAttributes() : it.getMergedAttributes();
             float xNew = fragment.getEndX();
-            if (xNew >= myClip.getMinX()) {
-              painter.paint(fragment, 0, 0, attributes, isSelection, x, xNew, y);
+            if (xNew >= visitStartX) {
+              painter.paint(fragment, 0, 0, attributes, layers, x, xNew, y);
             }
             x = xNew;
           }
@@ -1627,18 +1877,18 @@ public final class EditorPainter implements TextDrawingCallback {
                 it.advance();
               }
               TextAttributes attributes = it.getMergedAttributes();
-              boolean isSelection = it.isInSelection(false);
+              List<BackgroundLayer> layers = it.getBackgroundLayers();
               int curEnd = fragment.isRtl() ? Math.max(it.getEndOffset(), end) : Math.min(it.getEndOffset(), end);
               if (fragment.isRtl() ? curEnd >= start : curEnd <= start) {
                 reportBrokenFragmentRange(fragment, it, fragmentStartOffset, start, curEnd, end, visualLineEndOffset);
                 break;
               }
               float xNew = fragment.offsetToX(x, start, curEnd);
-              if (xNew >= myClip.getMinX()) {
+              if (xNew >= visitStartX) {
                 painter.paint(fragment,
                               fragment.isRtl() ? fragmentStartOffset - start : start - fragmentStartOffset,
                               fragment.isRtl() ? fragmentStartOffset - curEnd : curEnd - fragmentStartOffset,
-                              attributes, isSelection, x, xNew, y);
+                              attributes, layers, x, xNew, y);
               }
               x = xNew;
               start = curEnd;
@@ -1655,14 +1905,16 @@ public final class EditorPainter implements TextDrawingCallback {
         }
         else {
           float xNew = fragment.getEndX();
-          if (xNew >= myClip.getMinX()) {
-            painter.paint(fragment, 0, fragment.getVisualLength(), getFoldRegionAttributes(foldRegion), isSelected(foldRegion), x, xNew, y);
+          if (xNew >= visitStartX) {
+            TextAttributes attributes = getFoldRegionAttributes(foldRegion);
+            List<BackgroundLayer> layers = getFoldRegionBackgroundLayers(foldRegion);
+            painter.paint(fragment, 0, fragment.getVisualLength(), attributes, layers, x, xNew, y);
           }
           x = xNew;
           prevEndOffset = -1;
           it = null;
         }
-        if (x > myClip.getMaxX()) return;
+        if (x > visitEndX) return;
         maxColumn = fragment.getEndVisualColumn();
       }
       if (firstFragment && myEditor.isRightAligned()) {
@@ -1670,7 +1922,7 @@ public final class EditorPainter implements TextDrawingCallback {
         if (it.getEndOffset() <= offset) {
           it.advance();
         }
-        painter.paintBeforeLineStart(it, it.getBeforeLineStartBackgroundAttributes(), null, maxColumn, x, y);
+        painter.paintBeforeLineStart(it, it.getBeforeLineStartBackgroundLayers(), null, maxColumn, x, y);
       }
       if (it == null || it.getEndOffset() != visualLineEndOffset) {
         it = new IterationState(
@@ -1692,10 +1944,10 @@ public final class EditorPainter implements TextDrawingCallback {
       assert it.atEnd();
       painter.paintAfterLineEnd(it, maxColumn, x, y);
       if (marginWidthConsumer != null && !marginReached &&
-          (visualLine == myCaretModel.getVisualPosition().line || x > myMarginColumns * myView.getPlainSpaceWidth())) {
+          (visualLine == myCaretModel.getVisualPosition().line || x > myMarginColumns * myViewSnapshot.plainSpaceWidth())) {
         int endLogicalColumn = myView.offsetToLogicalPosition(visualLineEndOffset).column;
         if (endLogicalColumn <= myMarginColumns) {
-          marginWidthConsumer.process(x + (myMarginColumns - endLogicalColumn) * myView.getPlainSpaceWidth());
+          marginWidthConsumer.process(x + (myMarginColumns - endLogicalColumn) * myViewSnapshot.plainSpaceWidth());
         }
       }
     }
@@ -1765,6 +2017,46 @@ public final class EditorPainter implements TextDrawingCallback {
       return result;
     }
 
+    private @NotNull List<BackgroundLayer> getFoldRegionBackgroundLayers(FoldRegion foldRegion) {
+      boolean rounded = myRoundedHighlighting;
+      if (myFocusModeModel.isInFocusMode(foldRegion)) {
+        TextAttributes focusModeAttributes = myEditor.getUserData(FocusModeModel.FOCUS_MODE_ATTRIBUTES);
+        Color color = focusModeAttributes == null ? null : focusModeAttributes.getBackgroundColor();
+        if (color == null) return List.of();
+        BackgroundLayer layer = new BackgroundLayer(color, HighlighterLayer.SYNTAX, rounded, false, false, Integer.MAX_VALUE);
+        return List.of(layer);
+      }
+      List<BackgroundLayer> layers = new ArrayList<>(2);
+      boolean selected = isSelected(foldRegion);
+      if (selected) {
+        Color selectionColor = selectionBackgroundColor();
+        if (selectionColor != null) {
+          BackgroundLayer layer = new BackgroundLayer(
+            selectionColor,
+            HighlighterLayer.SELECTION,
+            rounded,
+            myHuggingHighlighting,
+            false,
+            Integer.MAX_VALUE
+          );
+          layers.add(layer);
+        }
+      }
+      Color placeholderColor;
+      if (!selected && FoldingKeys.HIDE_PLACEHOLDER_BACKGROUND.isIn(foldRegion)) {
+        placeholderColor = getFoldedTextBackground(foldRegion);
+      }
+      else {
+        TextAttributes placeholderAttributes = myFoldingModel.getPlaceholderAttributes();
+        placeholderColor = placeholderAttributes == null ? null : placeholderAttributes.getBackgroundColor();
+      }
+      if (placeholderColor != null) {
+        BackgroundLayer layer = new BackgroundLayer(placeholderColor, HighlighterLayer.GUARDED_BLOCKS, rounded, false, false, Integer.MAX_VALUE);
+        layers.add(layer);
+      }
+      return layers;
+    }
+
     private @Nullable Color getFoldedTextBackground(FoldRegion foldRegion) {
       IterationState state = new IterationState(
         myEditor, foldRegion.getStartOffset(), foldRegion.getEndOffset(), myCaretData,
@@ -1775,7 +2067,7 @@ public final class EditorPainter implements TextDrawingCallback {
 
     @SuppressWarnings("UseJBColor")
     private TextAttributes getDefaultAttributes() {
-      TextAttributes attributes = myEditor.getColorsScheme().getAttributes(HighlighterColors.TEXT);
+      TextAttributes attributes = myColorsScheme.getAttributes(HighlighterColors.TEXT);
       if (attributes.getForegroundColor() == null) attributes.setForegroundColor(Color.black);
       if (attributes.getBackgroundColor() == null) attributes.setBackgroundColor(Color.white);
       return attributes;

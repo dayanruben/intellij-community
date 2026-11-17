@@ -14,8 +14,6 @@ import com.intellij.ide.PasteProvider;
 import com.intellij.ide.actions.DistractionFreeModeController;
 import com.intellij.ide.dnd.DnDManager;
 import com.intellij.ide.dnd.DnDManagerImpl;
-import com.intellij.ide.lightEdit.LightEdit;
-import com.intellij.ide.lightEdit.LightEditCompatible;
 import com.intellij.ide.plugins.DynamicPluginListener;
 import com.intellij.ide.plugins.IdeaPluginDescriptor;
 import com.intellij.ide.ui.UISettings;
@@ -57,7 +55,6 @@ import com.intellij.openapi.editor.EditorBundle;
 import com.intellij.openapi.editor.EditorDropHandler;
 import com.intellij.openapi.editor.EditorGutter;
 import com.intellij.openapi.editor.EditorKind;
-import com.intellij.openapi.editor.EditorLinePainter;
 import com.intellij.openapi.editor.EditorModificationUtil;
 import com.intellij.openapi.editor.EditorModificationUtilEx;
 import com.intellij.openapi.editor.EditorSettings;
@@ -129,6 +126,7 @@ import com.intellij.openapi.editor.impl.stickyLines.ui.StickyLineShadowPainter;
 import com.intellij.openapi.editor.impl.stickyLines.ui.StickyLinesPanel;
 import com.intellij.openapi.editor.impl.view.CharacterGrid;
 import com.intellij.openapi.editor.impl.view.CharacterGridImpl;
+import com.intellij.openapi.editor.impl.view.EditorLineExtensions;
 import com.intellij.openapi.editor.impl.view.EditorPainter;
 import com.intellij.openapi.editor.impl.view.EditorView;
 import com.intellij.openapi.editor.impl.view.animation.EditorPainterCache;
@@ -199,7 +197,6 @@ import com.intellij.util.ObjectUtils;
 import com.intellij.util.Processor;
 import com.intellij.util.SingleEdtTaskScheduler;
 import com.intellij.util.SlowOperations;
-import com.intellij.util.SmartList;
 import com.intellij.util.concurrency.ThreadingAssertions;
 import com.intellij.util.concurrency.annotations.RequiresEdt;
 import com.intellij.util.containers.ContainerUtil;
@@ -547,8 +544,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
 
   private final ImmediatePainter myImmediatePainter;
 
-  /// @noinspection TypeParameterExtendsFinalClass -- leaked to public api
-  private final List<IntFunction<? extends @NotNull Collection<? extends LineExtensionInfo>>> myLineExtensionPainters = new SmartList<>();
+  private final EditorLineExtensions myLineExtensions;
 
   private volatile int myExpectedCaretOffset = -1;
 
@@ -685,6 +681,8 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     myGutterComponent.updateSize();
     myEditorComponent.setSize(getPreferredSize());
 
+    myLineExtensions = new EditorLineExtensions(myView, myProject, myVirtualFile);
+
     updateCaretCursor();
 
     if (!ApplicationManager.getApplication().isHeadlessEnvironment() && SystemInfoRt.isMac && SystemInfo.isJetBrainsJvm) {
@@ -783,6 +781,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     }, myCaretModel);
 
     myScrollingModel.addVisibleAreaListener(this::moveCaretIntoViewIfCoveredByToolWindowBelow);
+    myScrollingModel.addVisibleAreaListener(this::repaintVisibleAreaOnHorizontalScroll);
     myScrollingModel.addVisibleAreaListener(myMarkupModel);
 
     PropertyChangeListener propertyChangeListener = e -> {
@@ -1084,6 +1083,18 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   }
 
   /**
+   * Repaints the whole visible area when its x changes while the editor rounds.
+   * So a background that fills the line keeps its rounded corner only at the side of the visible area.
+   */
+  private void repaintVisibleAreaOnHorizontalScroll(@NotNull VisibleAreaEvent e) {
+    Rectangle oldRectangle = e.getOldRectangle();
+    Rectangle newRectangle = e.getNewRectangle();
+    if (oldRectangle != null && oldRectangle.x != newRectangle.x && isRoundedHighlighting()) {
+      myEditorComponent.repaintEditorComponent(newRectangle.x, newRectangle.y, newRectangle.width, newRectangle.height);
+    }
+  }
+
+  /**
    * This method is intended to control a blit-accelerated scrolling, because transparent scrollbars suppress it.
    * Blit-acceleration copies as much of the rendered area as possible and then repaints only the newly exposed region.
    * It is possible to disable blit-acceleration using by the registry key {@code editor.transparent.scrollbar=true}.
@@ -1150,34 +1161,16 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
 
   @Override
   public void registerLineExtensionPainter(@NotNull IntFunction<? extends @NotNull Collection<? extends LineExtensionInfo>> lineExtensionPainter) {
-    myLineExtensionPainters.add(lineExtensionPainter);
+    myLineExtensions.registerLineExtensionPainter(lineExtensionPainter);
   }
 
   public boolean processLineExtensions(int line, @NotNull Processor<? super LineExtensionInfo> processor) {
-    for (IntFunction<? extends @NotNull Collection<? extends LineExtensionInfo>> painter : myLineExtensionPainters) {
-      for (LineExtensionInfo extension : painter.apply(line)) {
-        if (!processor.process(extension)) {
-          return false;
-        }
-      }
-    }
-    if (myProject != null && myVirtualFile != null) {
-      for (EditorLinePainter painter : EditorLinePainter.EP_NAME.getExtensionList()) {
-        if (LightEdit.owns(myProject) && !(painter instanceof LightEditCompatible)) {
-          continue;
-        }
+    return myLineExtensions.processLineExtensions(line, processor);
+  }
 
-        Collection<LineExtensionInfo> extensions = painter.getLineExtensions(myProject, myVirtualFile, line);
-        if (extensions != null) {
-          for (LineExtensionInfo extension : extensions) {
-            if (!processor.process(extension)) {
-              return false;
-            }
-          }
-        }
-      }
-    }
-    return true;
+  @ApiStatus.Internal
+  public @NotNull EditorLineExtensions getLineExtensions() {
+    return myLineExtensions;
   }
 
   @Override
@@ -1276,6 +1269,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     //noinspection UseVirtualFileEquals
     if (vFile != myVirtualFile) {
       myVirtualFile = vFile;
+      myLineExtensions.setVirtualFile(vFile);
       reinitSettings();
     }
   }
@@ -5509,13 +5503,31 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     }
   }
 
+  /**
+   * Says that the editor rounds the corners of the highlighting and of the selection. Without a choice of the user, the
+   * current theme decides, also after a theme switch.
+   */
   @ApiStatus.Internal
-  public boolean shouldUseNewSelection() {
-    return shouldUseNewSelection(EditorRegistry.current());
+  public boolean isRoundedHighlighting() {
+    Boolean option = getSettingsSnapshot().getRoundedHighlightingOption();
+    return option != null ? option : IslandsState.Companion.isEnabled();
   }
 
+  /**
+   * Gives {@link #isHuggingHighlighting(EditorRegistry)} for the current registry.
+   */
   @ApiStatus.Internal
-  public boolean shouldUseNewSelection(@NotNull EditorRegistry registry) {
+  public boolean isHuggingHighlighting() {
+    return isHuggingHighlighting(EditorRegistry.current());
+  }
+
+  /**
+   * Says that the selection stops at the text, and that it does not fill the line. This is true when the Islands theme
+   * is on, the editor is not in column mode, and the registry key {@code editor.old.full.horizontal.selection.enabled}
+   * of {@code registry} is off.
+   */
+  @ApiStatus.Internal
+  public boolean isHuggingHighlighting(@NotNull EditorRegistry registry) {
     return !registry.isOldFullHorizontalSelectionEnabled()
            && !isColumnMode()
            && IslandsState.Companion.isEnabled();

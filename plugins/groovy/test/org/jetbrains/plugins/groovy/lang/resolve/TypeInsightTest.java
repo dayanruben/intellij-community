@@ -2,15 +2,33 @@
 package org.jetbrains.plugins.groovy.lang.resolve;
 
 import com.intellij.groovy.testFramework.TypingTest;
+import com.intellij.testFramework.EdtTestUtil;
+import com.intellij.testFramework.fixtures.JavaCodeInsightTestFixture;
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightTestFixture;
+import com.intellij.testFramework.fixtures.LightJavaProject;
+import com.intellij.testFramework.junit5.TestApplication;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.plugins.groovy.GroovyProjectDescriptors;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrMethodCall;
-import org.jetbrains.plugins.groovy.util.GroovyLatestTest;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import static com.intellij.psi.CommonClassNames.JAVA_LANG_DOUBLE;
 import static com.intellij.psi.CommonClassNames.JAVA_LANG_INTEGER;
 import static com.intellij.psi.CommonClassNames.JAVA_LANG_LONG;
+import static com.intellij.testFramework.EdtTestUtil.runInEdtAndWait;
+import static com.intellij.testFramework.fixtures.LightJavaFixturesKt.lightJavaCodeInsightFixture;
+import static com.intellij.testFramework.fixtures.LightJavaFixturesKt.lightJavaProjectFixture;
 
-public class TypeInsightTest extends GroovyLatestTest implements TypingTest {
+@TestApplication
+public class TypeInsightTest implements TypingTest {
+  private static final TestFixture<LightJavaProject> project = lightJavaProjectFixture(GroovyProjectDescriptors.GROOVY_2_5);
+  private final TestFixture<LightJavaCodeInsightTestFixture> groovy = lightJavaCodeInsightFixture(project);
+
+  @Override
+  public @NotNull JavaCodeInsightTestFixture getFixture() {
+    return groovy.get();
+  }
 
   @Test
   public void mapIterator() {

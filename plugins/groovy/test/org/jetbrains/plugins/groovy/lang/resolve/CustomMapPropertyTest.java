@@ -2,19 +2,37 @@
 package org.jetbrains.plugins.groovy.lang.resolve;
 
 import com.intellij.groovy.testFramework.ExpressionTest;
+import com.intellij.testFramework.EdtTestUtil;
+import com.intellij.testFramework.fixtures.JavaCodeInsightTestFixture;
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightTestFixture;
+import com.intellij.testFramework.fixtures.LightJavaProject;
+import com.intellij.testFramework.junit5.TestApplication;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.plugins.groovy.GroovyProjectDescriptors;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrField;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.GrClassDefinition;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrAccessorMethod;
 import org.jetbrains.plugins.groovy.lang.resolve.api.GroovyMapProperty;
-import org.jetbrains.plugins.groovy.util.GroovyLatestTest;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import static com.intellij.psi.CommonClassNames.JAVA_LANG_INTEGER;
+import static com.intellij.testFramework.EdtTestUtil.runInEdtAndWait;
+import static com.intellij.testFramework.fixtures.LightJavaFixturesKt.lightJavaCodeInsightFixture;
+import static com.intellij.testFramework.fixtures.LightJavaFixturesKt.lightJavaProjectFixture;
 
-public class CustomMapPropertyTest extends GroovyLatestTest implements ExpressionTest {
+@TestApplication
+public class CustomMapPropertyTest implements ExpressionTest {
+  private static final TestFixture<LightJavaProject> project = lightJavaProjectFixture(GroovyProjectDescriptors.GROOVY_2_5);
+  private final TestFixture<LightJavaCodeInsightTestFixture> groovy = lightJavaCodeInsightFixture(project);
 
-  @Before
+  @Override
+  public @NotNull JavaCodeInsightTestFixture getFixture() {
+    return groovy.get();
+  }
+
+  @BeforeEach
   public void addClasses() {
     getFixture().addFileToProject("classes.groovy", """
       class Pojo { def pojoProperty }

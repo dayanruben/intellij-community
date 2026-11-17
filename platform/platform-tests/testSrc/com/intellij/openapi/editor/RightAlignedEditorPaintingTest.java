@@ -17,41 +17,33 @@ package com.intellij.openapi.editor;
 
 import com.intellij.openapi.editor.colors.EditorColors;
 import com.intellij.openapi.editor.ex.EditorEx;
+import com.intellij.openapi.editor.ex.util.EditorUtil;
 import com.intellij.openapi.editor.impl.EditorImpl;
 import com.intellij.openapi.editor.markup.EffectType;
 import com.intellij.openapi.editor.markup.HighlighterLayer;
 import com.intellij.openapi.editor.markup.TextAttributes;
-import com.intellij.openapi.util.registry.Registry;
+import com.intellij.testFramework.EditorTestUtil;
 import com.intellij.testFramework.TestDataPath;
 import com.intellij.testFramework.junit5.TestApplication;
-import com.intellij.ui.IslandsState;
 import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.api.Test;
 
 import java.awt.Color;
 import java.awt.Font;
+import java.awt.Point;
+import java.awt.Rectangle;
+import java.awt.image.BufferedImage;
+import java.io.IOException;
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 
 @TestDataPath("$PROJECT_ROOT/community/platform/platform-tests/testData/editor/painting/right")
 @TestApplication
 public class RightAlignedEditorPaintingTest extends EditorPaintingTestCase {
-  private record SelectionState(boolean enabled, boolean islands) {}
-
-  private static SelectionState setNewSelectionEnabled(boolean enabled) {
-    var value = Registry.get("editor.old.full.horizontal.selection.enabled");
-    var islands = IslandsState.Companion.isEnabled();
-
-    var state = new SelectionState(enabled, islands);
-    value.setValue(!enabled);
-    IslandsState.Companion.setEnabled(enabled, false);
-    return state;
-  }
-
-  private static void restoreSelectionState(SelectionState state) {
-    Registry.get("editor.old.full.horizontal.selection.enabled").setValue(!state.enabled());
-    IslandsState.Companion.setEnabled(state.islands(), false);
-  }
-
   private void initText(@NotNull String fileText) {
     myFixture.initText(fileText);
     ((EditorImpl)myFixture.getEditor()).setHorizontalTextAlignment(EditorImpl.TEXT_ALIGNMENT_RIGHT);
@@ -208,6 +200,102 @@ public class RightAlignedEditorPaintingTest extends EditorPaintingTestCase {
   }
 
   @Test
+  public void testHuggingSelectionAtLineStartStep() {
+    myFixture.runTest(() -> {
+      var state = setNewSelectionEnabled(true);
+      try {
+        initText("first longer line\nsecond line\n  third");
+        myFixture.getEditor().getSelectionModel().setSelection(13, 35);
+        checkResult();
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
+  public void testHuggingSelectionAcrossSoftWrap() {
+    myFixture.runTest(() -> {
+      var state = setNewSelectionEnabled(true);
+      try {
+        initText("abcdefgh ij");
+        configureSoftWraps(8);
+        myFixture.getEditor().getSelectionModel().setSelection(6, 10);
+        assertOnlySmallBlockBeforeSoftWrappedLine();
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
+  public void testHuggingSelectionAcrossSoftWrapInsideWord() {
+    myFixture.runTest(() -> {
+      var state = setNewSelectionEnabled(true);
+      try {
+        initText("abcdefghijk\n<caret>l");
+        configureSoftWraps(8);
+        myFixture.getEditor().getSelectionModel().setSelection(6, 10);
+        assertOnlySmallBlockBeforeSoftWrappedLine();
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
+  public void testMultiLineHighlighterRounded() {
+    myFixture.runTest(() -> {
+      var state = setNewSelectionEnabled(true);
+      try {
+        initText("ab\ncdef\nghijklmnop");
+        addRangeHighlighter(1, 5, HighlighterLayer.WARNING, null, Color.red);
+        checkResult();
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
+  public void testNarrowRepaintOfFilledLineRightAligned() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(true, false);
+      try {
+        initText("ab\n<selection>cd\nef<caret></selection>\nghijklmnop");
+        int[] yRange = myFixture.getEditor().visualLineToYRange(2);
+        int width = myFixture.getEditor().getContentComponent().getPreferredSize().width;
+        checkPartialRepaint(new Rectangle(width / 2, yRange[0], width - width / 2, yRange[1] - yRange[0]));
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
+  public void testFillReachesClipWiderThanViewportRightAligned() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(true, true);
+      try {
+        initText("ab\ncdef\nghijklmnop");
+        Editor editor = myFixture.getEditor();
+        int width = editor.getContentComponent().getPreferredSize().width;
+        EditorTestUtil.setEditorVisibleSizeInPixels(editor, width / 2, 1000);
+        ((EditorEx)editor).getScrollPane().getViewport().setViewPosition(new Point(width / 4, 0));
+        addRangeHighlighter(1, 5, HighlighterLayer.WARNING, null, Color.red);
+        BufferedImage image = paintEditor(false, null, null);
+        int[] yRange = editor.visualLineToYRange(1);
+        int edgeX = editor.getContentComponent().getInsets().left;
+        assertTrue(edgeX < editor.getScrollingModel().getVisibleArea().x, "the clip does not start left of the viewport");
+        assertEquals(Color.red.getRGB(), image.getRGB(edgeX, (yRange[0] + yRange[1]) / 2), "the fill starts at the viewport edge");
+        assertNotEquals(Color.red.getRGB(), image.getRGB(edgeX, yRange[0]), "the fill has no rounded corner at the clip edge");
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
   public void testCaretAfterEmptyLine() {
     myFixture.runTest(() -> {
       initText("\nsecond line<caret>");
@@ -221,6 +309,30 @@ public class RightAlignedEditorPaintingTest extends EditorPaintingTestCase {
       initText("<caret>\n    second line");
       checkResult();
     });
+  }
+
+  /**
+   * Asserts that the hugging selection on visual line 1 covers only the small block before the text.
+   * Visual line 1 starts at the one soft wrap of the first line, inside the selection.
+   * The empty left side of visual line 1 keeps the editor background.
+   */
+  private void assertOnlySmallBlockBeforeSoftWrappedLine() throws IOException {
+    Editor editor = myFixture.getEditor();
+    List<? extends SoftWrap> softWraps = editor.getSoftWrapModel().getSoftWrapsForLine(0);
+    assertEquals(1, softWraps.size(), "the first line has no single soft wrap");
+    int wrapOffset = softWraps.getFirst().getStart();
+    SelectionModel selectionModel = editor.getSelectionModel();
+    assertTrue(selectionModel.getSelectionStart() < wrapOffset && wrapOffset < selectionModel.getSelectionEnd(),
+               "the selection does not cross the soft wrap at " + wrapOffset);
+    BufferedImage image = paintEditor(false, null, null);
+    Color selection = selectionModel.getTextAttributes().getBackgroundColor();
+    int[] yRange = editor.visualLineToYRange(1);
+    int middleY = (yRange[0] + yRange[1]) / 2;
+    int textX = editor.visualPositionToXY(editor.offsetToVisualPosition(wrapOffset, false, false)).x;
+    int leftX = editor.getContentComponent().getInsets().left;
+    assertTrue(textX - leftX > 2 * EditorUtil.getPlainSpaceWidth(editor), "the left side of visual line 1 is too narrow");
+    assertNotEquals(selection.getRGB(), image.getRGB(leftX, middleY), "the selection fills the left side of visual line 1");
+    assertEquals(selection.getRGB(), image.getRGB(textX - 1, middleY), "the small block before the text is absent");
   }
 
   @NotNull

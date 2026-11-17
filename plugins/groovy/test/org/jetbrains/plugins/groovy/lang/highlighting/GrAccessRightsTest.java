@@ -2,18 +2,40 @@
 package org.jetbrains.plugins.groovy.lang.highlighting;
 
 import com.intellij.codeInspection.LocalInspectionTool;
+import com.intellij.testFramework.EdtTestUtil;
+import com.intellij.testFramework.fixtures.JavaCodeInsightTestFixture;
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightTestFixture;
+import com.intellij.testFramework.fixtures.LightJavaProject;
+import com.intellij.testFramework.junit5.TestApplication;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.plugins.groovy.GroovyProjectDescriptors;
 import org.jetbrains.plugins.groovy.codeInspection.bugs.GroovyAccessibilityInspection;
-import org.jetbrains.plugins.groovy.util.GroovyLatestTest;
 import org.jetbrains.plugins.groovy.util.HighlightingTest;
-import org.junit.Test;
+import org.jetbrains.plugins.groovy.util.TestUtils;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.Collection;
 
-public class GrAccessRightsTest extends GroovyLatestTest implements HighlightingTest {
-  public GrAccessRightsTest() {
-    super("highlighting");
+import static com.intellij.testFramework.EdtTestUtil.runInEdtAndWait;
+import static com.intellij.testFramework.fixtures.LightJavaFixturesKt.lightJavaCodeInsightFixture;
+import static com.intellij.testFramework.fixtures.LightJavaFixturesKt.lightJavaProjectFixture;
+
+@TestApplication
+public class GrAccessRightsTest implements HighlightingTest {
+  private static final TestFixture<LightJavaProject> project = lightJavaProjectFixture(GroovyProjectDescriptors.GROOVY_2_5);
+  private final TestFixture<LightJavaCodeInsightTestFixture> groovy = lightJavaCodeInsightFixture(project);
+
+  @BeforeEach
+  void setUpTestDataPath() {
+    groovy.get().setTestDataPath(TestUtils.getAbsoluteTestDataPath() + "highlighting");
+  }
+
+  @Override
+  public @NotNull JavaCodeInsightTestFixture getFixture() {
+    return groovy.get();
   }
 
   @Override

@@ -4,11 +4,18 @@ package org.jetbrains.plugins.groovy.lang.resolve;
 import com.intellij.groovy.testFramework.GroovyAssertions;
 import com.intellij.groovy.testFramework.ResolveTest;
 import com.intellij.groovy.testFramework.TypingTest;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.util.RecursionManager;
 import com.intellij.psi.PsiSubstitutor;
 import com.intellij.psi.PsiTypeParameter;
 import com.intellij.psi.PsiTypeParameterListOwner;
-import com.intellij.testFramework.LightProjectDescriptor;
+import com.intellij.testFramework.EdtTestUtil;
+import com.intellij.testFramework.fixtures.JavaCodeInsightTestFixture;
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightTestFixture;
+import com.intellij.testFramework.fixtures.LightJavaProject;
+import com.intellij.testFramework.junit5.TestApplication;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.groovy.GroovyProjectDescriptors;
 import org.jetbrains.plugins.groovy.lang.psi.api.GroovyResolveResult;
 import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.GrListOrMap;
@@ -19,30 +26,32 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrRefere
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrSafeCastExpression;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.path.GrIndexProperty;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrMethod;
-import org.jetbrains.plugins.groovy.util.LightProjectTest;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Ignore;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Test;
 
 import static com.intellij.psi.CommonClassNames.JAVA_LANG_INTEGER;
 import static com.intellij.psi.CommonClassNames.JAVA_LANG_NUMBER;
 import static com.intellij.psi.CommonClassNames.JAVA_LANG_OBJECT;
 import static com.intellij.psi.CommonClassNames.JAVA_LANG_STRING;
+import static com.intellij.testFramework.EdtTestUtil.runInEdtAndWait;
+import static com.intellij.testFramework.fixtures.LightJavaFixturesKt.lightJavaCodeInsightFixture;
+import static com.intellij.testFramework.fixtures.LightJavaFixturesKt.lightJavaProjectFixture;
 
-public class SubstitutorInferenceTest extends LightProjectTest implements TypingTest, ResolveTest {
+@TestApplication
+public class SubstitutorInferenceTest implements TypingTest, ResolveTest {
+  private static final TestFixture<LightJavaProject> project = lightJavaProjectFixture(GroovyProjectDescriptors.GROOVY_LATEST_REAL_JDK);
+  private final TestFixture<LightJavaCodeInsightTestFixture> groovy = lightJavaCodeInsightFixture(project);
+
   @Override
-  public LightProjectDescriptor getProjectDescriptor() {
-    return GroovyProjectDescriptors.GROOVY_LATEST_REAL_JDK;
+  public @NotNull JavaCodeInsightTestFixture getFixture() {
+    return groovy.get();
   }
 
-  @Before
-  public void disableRecursion() {
-    RecursionManager.assertOnRecursionPrevention(getFixture().getTestRootDisposable());
-  }
-
-  @Before
-  public void addClasses() {
+  @BeforeEach
+  public void setUp() {
+    runInEdtAndWait(() -> RecursionManager.assertOnRecursionPrevention(getFixture().getTestRootDisposable()));
     getFixture().addFileToProject("classes.groovy",
                                   """
                                     interface I<T> {}
@@ -83,10 +92,12 @@ public class SubstitutorInferenceTest extends LightProjectTest implements Typing
   @Test
   public void diamondInVariableInitializer() {
     GrNewExpression expression = elementUnderCaret("I<PG> l = <caret>new C<>()", GrNewExpression.class);
-    GroovyAssertions.assertType("C<PG>", expression.getType());
-    MethodResolveResult resolved = (MethodResolveResult)expression.advancedResolve();
-    PsiTypeParameter typeParameter = resolved.getElement().getContainingClass().getTypeParameters()[0];
-    GroovyAssertions.assertType("PG", resolved.getSubstitutor().substitute(typeParameter));
+    ReadAction.run(() -> {
+      GroovyAssertions.assertType("C<PG>", expression.getType());
+      MethodResolveResult resolved = (MethodResolveResult)expression.advancedResolve();
+      PsiTypeParameter typeParameter = resolved.getElement().getContainingClass().getTypeParameters()[0];
+      GroovyAssertions.assertType("PG", resolved.getSubstitutor().substitute(typeParameter));
+    });
   }
 
   @Test
@@ -187,7 +198,7 @@ public class SubstitutorInferenceTest extends LightProjectTest implements Typing
   @Test
   public void nonClosureSafeCast() {
     GrSafeCastExpression expression = elementUnderCaret("\"hi\" <caret>as Number", GrSafeCastExpression.class);
-    assertSubstitutor(expression.getReference().advancedResolve(), JAVA_LANG_NUMBER);
+    ReadAction.run(() -> assertSubstitutor(expression.getReference().advancedResolve(), JAVA_LANG_NUMBER));
   }
 
   @Test
@@ -216,7 +227,7 @@ public class SubstitutorInferenceTest extends LightProjectTest implements Typing
     expressionTypeTest("static <T> List<T> foo(T... t) {}; foo(\"\".split(\"\"))", "java.util.List<java.lang.String>");
   }
 
-  @Ignore("Requires list literal inference from both arguments and context type")
+  @Disabled("Requires list literal inference from both arguments and context type")
   @Test
   public void diamondFromOuterListLiteral() {
     typingTest("List<List<String>> l = [new <caret>ArrayList<>()]", GrNewExpression.class, "java.util.ArrayList<java.lang.String>");
@@ -242,58 +253,62 @@ public class SubstitutorInferenceTest extends LightProjectTest implements Typing
   public void genericGetterFromLeftType() {
     GrReferenceExpression ref =
       elementUnderCaret("I<PG> lp = new GenericPropertyContainer().<caret>genericProperty", GrReferenceExpression.class);
-    assertSubstitutor(ref.advancedResolve(), "PG");
+    ReadAction.run(() -> assertSubstitutor(ref.advancedResolve(), "PG"));
   }
 
   @Test
   public void genericSetterFromArgument() {
     GrReferenceExpression ref =
       elementUnderCaret("new GenericPropertyContainer().<caret>genericProperty = new C<String>()", GrReferenceExpression.class);
-    assertSubstitutor(ref.advancedResolve(), "java.lang.String");
+    ReadAction.run(() -> assertSubstitutor(ref.advancedResolve(), "java.lang.String"));
   }
 
   @Test
   public void plusAssignment() {
     GrAssignmentExpression op = elementUnderCaret("new Files().files <caret>+= new File(\".\")", GrAssignmentExpression.class);
-    assertSubstitutor(op.getReference().advancedResolve(), "java.io.File");
+    ReadAction.run(() -> assertSubstitutor(op.getReference().advancedResolve(), "java.io.File"));
   }
 
   @Test
   public void plusAssignmentGenericPropertyRValue() {
-    //RecursionManager.disableAssertOnRecursionPrevention(fixture.testRootDisposable)
-    //RecursionManager.disableMissedCacheAssertions(fixture.testRootDisposable)
-    GrReferenceExpression ref =
-      elementUnderCaret("new GenericPropertyContainer().<caret>genericList += new ArrayList<String>()", GrReferenceExpression.class);
-    assertSubstitutor(ref.getRValueReference().advancedResolve(), JAVA_LANG_STRING);
+    runInEdtAndWait(() -> {
+      //RecursionManager.disableAssertOnRecursionPrevention(fixture.testRootDisposable)
+      //RecursionManager.disableMissedCacheAssertions(fixture.testRootDisposable)
+      GrReferenceExpression ref =
+        elementUnderCaret("new GenericPropertyContainer().<caret>genericList += new ArrayList<String>()", GrReferenceExpression.class);
+      assertSubstitutor(ref.getRValueReference().advancedResolve(), JAVA_LANG_STRING);
+    });
   }
 
   @Test
   public void plusAssignmentGenericProperty() {
-    RecursionManager.disableAssertOnRecursionPrevention(getFixture().getTestRootDisposable());
-    RecursionManager.disableMissedCacheAssertions(getFixture().getTestRootDisposable());
+    runInEdtAndWait(() -> {
+      RecursionManager.disableAssertOnRecursionPrevention(getFixture().getTestRootDisposable());
+      RecursionManager.disableMissedCacheAssertions(getFixture().getTestRootDisposable());
+    });
     GrAssignmentExpression op =
       elementUnderCaret("new GenericPropertyContainer().genericList <caret>+= new ArrayList<String>()", GrAssignmentExpression.class);
-    assertSubstitutor(op.getReference().advancedResolve(), JAVA_LANG_STRING);
+    ReadAction.run(() -> assertSubstitutor(op.getReference().advancedResolve(), JAVA_LANG_STRING));
   }
 
-  @Ignore("we don't yet infer l-value substitutors")
+  @Disabled("we don't yet infer l-value substitutors")
   @Test
   public void plusAssignmentGenericPropertyLValue() {
     GrReferenceExpression ref =
       elementUnderCaret("new GenericPropertyContainer().<caret>genericList += new ArrayList<String>()", GrReferenceExpression.class);
-    assertSubstitutor(ref.getLValueReference().advancedResolve(), JAVA_LANG_STRING);
+    ReadAction.run(() -> assertSubstitutor(ref.getLValueReference().advancedResolve(), JAVA_LANG_STRING));
   }
 
   @Test
   public void plusAssignmentWithIndexRValue() {
     GrIndexProperty op = elementUnderCaret("Map<Number, String> mns; mns<caret>[42] += \"foo\"", GrIndexProperty.class);
-    assertSubstitutor(op.getRValueReference().advancedResolve(), JAVA_LANG_NUMBER, JAVA_LANG_STRING);
+    ReadAction.run(() -> assertSubstitutor(op.getRValueReference().advancedResolve(), JAVA_LANG_NUMBER, JAVA_LANG_STRING));
   }
 
   @Test
   public void plusAssignmentWithIndexLValue() {
     GrIndexProperty op = elementUnderCaret("Map<Number, String> mns; mns<caret>[42] += \"foo\"", GrIndexProperty.class);
-    assertSubstitutor(op.getLValueReference().advancedResolve(), JAVA_LANG_NUMBER, JAVA_LANG_STRING);
+    ReadAction.run(() -> assertSubstitutor(op.getLValueReference().advancedResolve(), JAVA_LANG_NUMBER, JAVA_LANG_STRING));
   }
 
   @Test
@@ -302,7 +317,7 @@ public class SubstitutorInferenceTest extends LightProjectTest implements Typing
                                             static <T> T run(Closure<T> c) {}
                                             <caret>run(run { return { 42 } })
                                             """, GrMethodCall.class);
-    assertSubstitutor(call.advancedResolve(), JAVA_LANG_INTEGER);
+    ReadAction.run(() -> assertSubstitutor(call.advancedResolve(), JAVA_LANG_INTEGER));
   }
 
   @Test
@@ -320,28 +335,30 @@ public class SubstitutorInferenceTest extends LightProjectTest implements Typing
                                               ss.collect(java.util.stream.Collectors.<caret>toList())
                                             }
                                             """, GrMethodCall.class);
-    assertSubstitutor(call.advancedResolve(), JAVA_LANG_INTEGER);
+    ReadAction.run(() -> assertSubstitutor(call.advancedResolve(), JAVA_LANG_INTEGER));
   }
 
   @Test
   public void staticCallWithRawArgumentWithLeftType() {
     GrMethodCall call = elementUnderCaret("static <T> T lll(List<T> l) {}; List l; Date d = <caret>lll(l)", GrMethodCall.class);
-    assertSubstitutor(call.advancedResolve(), JAVA_LANG_OBJECT);
+    ReadAction.run(() -> assertSubstitutor(call.advancedResolve(), JAVA_LANG_OBJECT));
   }
 
   @Test
   public void dgmCallOnRawReceiverWithLeftType() {
     GrMethodCall call = elementUnderCaret("List l; Date d = l.<caret>getAt(0)", GrMethodCall.class);
-    assertSubstitutor(call.advancedResolve(), JAVA_LANG_OBJECT);
+    ReadAction.run(() -> assertSubstitutor(call.advancedResolve(), JAVA_LANG_OBJECT));
   }
 
   private static void assertSubstitutor(GroovyResolveResult result, String... expectedTypes) {
-    PsiTypeParameterListOwner element = (PsiTypeParameterListOwner)result.getElement();
-    PsiTypeParameter[] typeParameters = element.getTypeParameters();
-    Assert.assertEquals(typeParameters.length, expectedTypes.length);
-    PsiSubstitutor substitutor = result.getSubstitutor();
-    for (int i = 0; i < expectedTypes.length; i++) {
-      GroovyAssertions.assertType(expectedTypes[i], substitutor.substitute(typeParameters[i]));
-    }
+    ReadAction.run(() -> {
+      PsiTypeParameterListOwner element = (PsiTypeParameterListOwner)result.getElement();
+      PsiTypeParameter[] typeParameters = element.getTypeParameters();
+      Assertions.assertEquals(typeParameters.length, expectedTypes.length);
+      PsiSubstitutor substitutor = result.getSubstitutor();
+      for (int i = 0; i < expectedTypes.length; i++) {
+        GroovyAssertions.assertType(expectedTypes[i], substitutor.substitute(typeParameters[i]));
+      }
+    });
   }
 }

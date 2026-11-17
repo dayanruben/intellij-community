@@ -2,17 +2,42 @@
 package org.jetbrains.plugins.groovy.ext.spock;
 
 import com.intellij.groovy.testFramework.TypingTest;
+import com.intellij.testFramework.EdtTestUtil;
+import com.intellij.testFramework.fixtures.JavaCodeInsightTestFixture;
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightTestFixture;
+import com.intellij.testFramework.fixtures.LightJavaProject;
+import com.intellij.testFramework.junit5.TestApplication;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.groovy.codeInspection.declaration.GrMethodMayBeStaticInspection;
 import org.jetbrains.plugins.groovy.util.HighlightingTest;
-import org.junit.Ignore;
-import org.junit.Test;
+import org.jetbrains.plugins.groovy.util.TestUtils;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
 import static com.intellij.psi.CommonClassNames.JAVA_LANG_STRING;
-import static junit.framework.TestCase.assertTrue;
+import static com.intellij.testFramework.EdtTestUtil.runInEdtAndWait;
+import static com.intellij.testFramework.fixtures.LightJavaFixturesKt.lightJavaCodeInsightFixture;
+import static com.intellij.testFramework.fixtures.LightJavaFixturesKt.lightJavaProjectFixture;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
-public class SpockTest extends SpockTestBase implements TypingTest, HighlightingTest {
+@TestApplication
+public class SpockTest implements TypingTest, HighlightingTest {
+  private static final TestFixture<LightJavaProject> project = lightJavaProjectFixture(SpockTestUtil.SPOCK_PROJECT);
+  private final TestFixture<LightJavaCodeInsightTestFixture> groovy = lightJavaCodeInsightFixture(project);
+
+  @BeforeEach
+  void setUpTestDataPath() {
+    groovy.get().setTestDataPath(TestUtils.getAbsoluteTestDataPath());
+  }
+
+  @Override
+  public @NotNull JavaCodeInsightTestFixture getFixture() {
+    return groovy.get();
+  }
 
   @Test
   public void testCompletion() {
@@ -33,11 +58,13 @@ public class SpockTest extends SpockTestBase implements TypingTest, Highlighting
           }
         }
         """);
-    getFixture().completeBasic();
-    getFixture().assertPreferredCompletionItems(
-      0,
-      "varAssigment", "varShl", "varShl1", "varShl2", "varShl3", "varTable1", "varTable2", "varTable3", "varTable4"
-    );
+    runInEdtAndWait(() -> {
+      getFixture().completeBasic();
+      getFixture().assertPreferredCompletionItems(
+        0,
+        "varAssigment", "varShl", "varShl1", "varShl2", "varShl3", "varTable1", "varTable2", "varTable3", "varTable4"
+      );
+    });
   }
 
   @Test
@@ -144,7 +171,7 @@ public class SpockTest extends SpockTestBase implements TypingTest, Highlighting
                                    }
                                    """);
 
-    getFixture().renameElementAtCaret("n");
+    runInEdtAndWait(() -> getFixture().renameElementAtCaret("n"));
 
     getFixture().checkResult(
       """
@@ -160,7 +187,7 @@ public class SpockTest extends SpockTestBase implements TypingTest, Highlighting
         }
         """);
 
-    getFixture().renameElementAtCaret("z1234567890");
+    runInEdtAndWait(() -> getFixture().renameElementAtCaret("z1234567890"));
 
     getFixture().checkResult(
       """
@@ -188,12 +215,14 @@ public class SpockTest extends SpockTestBase implements TypingTest, Highlighting
                                      }
                                    }
                                    """);
-    getFixture().completeBasic();
-    List<String> elements = getFixture().getLookupElementStrings();
+    List<String> elements = EdtTestUtil.runInEdtAndGet(() -> {
+      getFixture().completeBasic();
+      return getFixture().getLookupElementStrings();
+    });
     assertTrue(elements.contains("_"));
   }
 
-  @Ignore("see com.intellij.execution.junit2.inspection.JUnitCantBeStaticExtension")
+  @Disabled("see com.intellij.execution.junit2.inspection.JUnitCantBeStaticExtension")
   @Test
   public void testMethodMayBeStatic() {
     GrMethodMayBeStaticInspection inspection = new GrMethodMayBeStaticInspection();

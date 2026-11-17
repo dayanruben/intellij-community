@@ -2,18 +2,41 @@
 package org.jetbrains.plugins.groovy.lang.resolve;
 
 import com.intellij.groovy.testFramework.ResolveTest;
+import com.intellij.openapi.application.ReadAction;
+import com.intellij.testFramework.EdtTestUtil;
+import com.intellij.testFramework.fixtures.JavaCodeInsightTestFixture;
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightTestFixture;
+import com.intellij.testFramework.fixtures.LightJavaProject;
+import com.intellij.testFramework.junit5.TestApplication;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.plugins.groovy.GroovyProjectDescriptors;
 import org.jetbrains.plugins.groovy.lang.psi.api.GroovyMethodResult;
 import org.jetbrains.plugins.groovy.lang.psi.api.GroovyResolveResult;
 import org.jetbrains.plugins.groovy.lang.resolve.api.Applicability;
-import org.jetbrains.plugins.groovy.util.GroovyLatestTest;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
-public class ResolveMethod2Test extends GroovyLatestTest implements ResolveTest {
+import static com.intellij.testFramework.EdtTestUtil.runInEdtAndWait;
+import static com.intellij.testFramework.fixtures.LightJavaFixturesKt.lightJavaCodeInsightFixture;
+import static com.intellij.testFramework.fixtures.LightJavaFixturesKt.lightJavaProjectFixture;
+
+@TestApplication
+public class ResolveMethod2Test implements ResolveTest {
+  private static final TestFixture<LightJavaProject> project = lightJavaProjectFixture(GroovyProjectDescriptors.GROOVY_2_5);
+  private final TestFixture<LightJavaCodeInsightTestFixture> groovy = lightJavaCodeInsightFixture(project);
+
+  @Override
+  public @NotNull JavaCodeInsightTestFixture getFixture() {
+    return groovy.get();
+  }
+
   @Test
   public void voidArgument() {
     GroovyResolveResult result = advancedResolveByText("def foo(p); void bar(); <caret>foo(bar())");
-    Assert.assertTrue(result instanceof GroovyMethodResult);
-    Assert.assertEquals(Applicability.applicable, ((GroovyMethodResult)result).getApplicability());
+    ReadAction.run(() -> {
+      Assertions.assertTrue(result instanceof GroovyMethodResult);
+      Assertions.assertEquals(Applicability.applicable, ((GroovyMethodResult)result).getApplicability());
+    });
   }
 }

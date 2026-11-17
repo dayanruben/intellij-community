@@ -31,6 +31,8 @@ import com.intellij.ide.ui.laf.LookAndFeelThemeAdapterKt;
 import com.intellij.idea.AppMode;
 import com.intellij.openapi.application.ex.ApplicationManagerEx;
 import com.intellij.openapi.application.impl.ApplicationInfoImpl;
+import com.intellij.openapi.application.productMigration.MigrationRedirectContentKt;
+import com.intellij.openapi.application.productMigration.MigrationStateKt;
 import com.intellij.openapi.components.StoragePathMacros;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.extensions.PluginId;
@@ -1721,6 +1723,8 @@ public final class ConfigImportHelper {
       fileName.equals(BUNDLED_PLUGINS_FILENAME) ||
       fileName.equals(StoragePathMacros.APP_INTERNAL_STATE_DB) ||
       fileName.equals(ExpiredPluginsState.EXPIRED_PLUGINS_FILENAME) ||
+      fileName.equals(MigrationStateKt.MIGRATION_STATE_FILE_NAME) ||
+      fileName.equals(MigrationRedirectContentKt.MIGRATION_REDIRECT_CONTENT_FILE_NAME) ||
       fileName.startsWith(SpecialConfigFiles.CHROME_USER_DATA) ||
       fileName.endsWith(".jdk") && fileName.startsWith(String.valueOf(ApplicationNamesInfo.getInstance().getScriptName())) ||
       (settings != null && settings.shouldSkipPath(path))

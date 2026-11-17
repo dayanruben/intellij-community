@@ -2,53 +2,83 @@
 package org.jetbrains.plugins.groovy.completion
 
 import com.intellij.codeInsight.completion.CompletionType
+import com.intellij.testFramework.fixtures.lightJavaProjectFixture
+import com.intellij.testFramework.junit5.TestApplication
 import org.jetbrains.plugins.groovy.util.TestUtils
+import org.junit.jupiter.api.Test
 
-class GroovyInstanceofCompletionTest : GroovyCompletionTestBase() {
-  override fun getTestDataPath(): String = TestUtils.getAbsoluteTestDataPath() + "groovy/completion/instanceof"
+@TestApplication
+class GroovyInstanceofCompletionTest {
+  companion object {
+    private val project = lightJavaProjectFixture()
+  }
 
-  fun testInsideLogicalBinaryExpression() = doCompletionTest(CompletionType.BASIC)
+  private val completion by groovyCompletionFixture(project, TestUtils.getAbsoluteTestDataPath() + "groovy/completion/instanceof")
 
-  fun testIfStatementBody() = doCompletionTest(CompletionType.BASIC)
+  @Test
+  fun testInsideLogicalBinaryExpression() { completion.doCompletionTest(CompletionType.BASIC) }
 
-  fun testIfStatementBodyNegation() = doCompletionTest(CompletionType.BASIC)
+  @Test
+  fun testIfStatementBody() { completion.doCompletionTest(CompletionType.BASIC) }
 
-  fun testConditionalExpressionBody() = doCompletionTest(CompletionType.BASIC)
+  @Test
+  fun testIfStatementBodyNegation() { completion.doCompletionTest(CompletionType.BASIC) }
 
-  fun testConditionalExpressionElseBody() = doCompletionTest(CompletionType.BASIC)
+  @Test
+  fun testConditionalExpressionBody() { completion.doCompletionTest(CompletionType.BASIC) }
 
-  fun testConditionalExpressionBodyNegation() = doCompletionTest(CompletionType.BASIC)
+  @Test
+  fun testConditionalExpressionElseBody() { completion.doCompletionTest(CompletionType.BASIC) }
 
-  fun testIfStatementElseBody() = doVariantableTest()
+  @Test
+  fun testConditionalExpressionBodyNegation() { completion.doCompletionTest(CompletionType.BASIC) }
 
-  fun testWhileStatementBody() = doCompletionTest(CompletionType.BASIC)
+  @Test
+  fun testIfStatementElseBody() { completion.doVariantableTest() }
 
-  fun testForStatementBody() = doCompletionTest(CompletionType.BASIC)
+  @Test
+  fun testWhileStatementBody() { completion.doCompletionTest(CompletionType.BASIC) }
 
-  fun testForStatementUpdate() = doCompletionTest(CompletionType.BASIC)
+  @Test
+  fun testForStatementBody() { completion.doCompletionTest(CompletionType.BASIC) }
 
-  fun testIfStatementOuterScopeIsNotSupported() = doVariantableTest()
+  @Test
+  fun testForStatementUpdate() { completion.doCompletionTest(CompletionType.BASIC) }
 
-  fun testNoCompletionAfterInstanceofDeclaration() = doVariantableTest()
+  @Test
+  fun testIfStatementOuterScopeIsNotSupported() { completion.doVariantableTest() }
 
-  fun testNoCompletionAfterInstanceofAssertion() = doVariantableTest()
+  @Test
+  fun testNoCompletionAfterInstanceofDeclaration() { completion.doVariantableTest() }
 
-  fun testNoCompletionAfterInstanceofAssignment() = doVariantableTest()
+  @Test
+  fun testNoCompletionAfterInstanceofAssertion() { completion.doVariantableTest() }
 
-  fun testSwitchStatement() = doCompletionTest(CompletionType.BASIC)
+  @Test
+  fun testNoCompletionAfterInstanceofAssignment() { completion.doVariantableTest() }
 
-  fun testSwitchExpression() = doCompletionTest(CompletionType.BASIC)
+  @Test
+  fun testSwitchStatement() { completion.doCompletionTest(CompletionType.BASIC) }
 
-  fun testNoCompletionAfterSwitchExpression() = doVariantableTest()
+  @Test
+  fun testSwitchExpression() { completion.doCompletionTest(CompletionType.BASIC) }
 
-  fun testNoCompletionAfterSwitchStatement() = doVariantableTest()
+  @Test
+  fun testNoCompletionAfterSwitchExpression() { completion.doVariantableTest() }
 
-  fun testAfterOrExpression() = doCompletionTest(CompletionType.BASIC)
+  @Test
+  fun testNoCompletionAfterSwitchStatement() { completion.doVariantableTest() }
 
-  fun testAfterAndExpressionWithNegation() = doCompletionTest(CompletionType.BASIC)
+  @Test
+  fun testAfterOrExpression() { completion.doCompletionTest(CompletionType.BASIC) }
 
-  fun testNoCompletionBeforeDefinitionSameNegation() = doVariantableTest()
+  @Test
+  fun testAfterAndExpressionWithNegation() { completion.doCompletionTest(CompletionType.BASIC) }
 
-  fun testNoCompletionBeforeDefinitionDifferentNegation() = doVariantableTest()
+  @Test
+  fun testNoCompletionBeforeDefinitionSameNegation() { completion.doVariantableTest() }
+
+  @Test
+  fun testNoCompletionBeforeDefinitionDifferentNegation() { completion.doVariantableTest() }
 }
 

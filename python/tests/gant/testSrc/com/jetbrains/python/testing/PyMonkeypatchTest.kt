@@ -5,6 +5,7 @@ import com.jetbrains.python.allure.Subsystems
 import com.jetbrains.python.allure.Layers
 import com.jetbrains.python.allure.Components
 import com.intellij.idea.TestFor
+import com.intellij.testFramework.fixtures.impl.CodeInsightTestFixtureImpl
 import com.jetbrains.python.fixtures.PyTestCase
 import com.jetbrains.python.inspections.unresolvedReference.PyUnresolvedReferencesInspection
 import com.jetbrains.python.psi.PyCallExpression
@@ -285,6 +286,112 @@ class PyMonkeypatchTest : PyTestCase() {
     """.trimIndent())
     myFixture.enableInspections(PyUnresolvedReferencesInspection::class.java)
     myFixture.checkHighlighting(true, false, false)
+  }
+
+  // --- Targets whose type the code analysis context cannot infer ---
+
+  @TestFor(issues = ["PY-91081"])
+  fun `test attribute of an instance attribute inferred in another file is not reported`() {
+    addClientModule()
+    myFixture.configureByText("test_client.py", """
+      from bla._client import Client, Reqs
+
+      def test_foo(monkeypatch):
+          client = Client()
+          monkeypatch.setattr(client.reqs, "not_exists", lambda: None)
+          monkeypatch.setattr(Reqs(), "<error descr="Unresolved reference 'does_not_exist'">does_not_exist</error>", lambda: None)
+    """.trimIndent())
+    myFixture.enableInspections(PyUnresolvedReferencesInspection::class.java)
+    // The highlighting must not read the source of the other module
+    (myFixture as CodeInsightTestFixtureImpl).setVirtualFileFilter { it.name == "_client.py" }
+    myFixture.checkHighlighting(true, false, false)
+  }
+
+  @TestFor(issues = ["PY-91081"])
+  fun `test completion lists the attributes of an instance attribute inferred in another file`() {
+    addClientModule()
+    myFixture.configureByText("test_client.py", """
+      from bla._client import Client
+
+      def test_foo(monkeypatch):
+          client = Client()
+          monkeypatch.setattr(client.reqs, "<caret>", lambda: None)
+    """.trimIndent())
+    myFixture.completeBasic()
+    assertContainsElements(myFixture.lookupElementStrings.orEmpty(), "not_exists", "other")
+  }
+
+  @TestFor(issues = ["PY-91081"])
+  fun `test attribute of an instance attribute inferred in another file resolves`() {
+    addClientModule()
+    myFixture.configureByText("test_client.py", """
+      from bla._client import Client
+
+      def test_foo(monkeypatch):
+          client = Client()
+          monkeypatch.setattr(client.reqs, "not_exists", lambda: None)
+    """.trimIndent())
+    val func = (myFixture.file as PyFile).findTopLevelFunction("test_foo")!!
+    val call = func.statementList.statements.last() as PyExpressionStatement
+    val strArg = (call.expression as PyCallExpression).arguments[1] as PyStringLiteralExpression
+    val resolved = strArg.references.last().resolve()
+    assertInstanceOf(resolved, PyFunction::class.java)
+    assertEquals("Reqs", (resolved as PyFunction).containingClass?.name)
+  }
+
+  @TestFor(issues = ["PY-90524"])
+  fun `test only a target that can stand for any class skips the check of the attribute`() {
+    myFixture.configureByText("test_any.py", """
+      from typing import Any
+
+      def test_any(monkeypatch, a: Any):
+          monkeypatch.setattr(a, "abc", None)
+
+      def test_object(monkeypatch, o: object):
+          monkeypatch.setattr(o, "abc", None)
+
+      def test_class_of_any(monkeypatch, c: type[Any], t: type):
+          monkeypatch.setattr(c, "abc", None)
+          monkeypatch.setattr(t, "abc", None)
+
+      def test_no_annotation(monkeypatch, p):
+          monkeypatch.setattr(p, "abc", None)
+
+      def test_class_of_int(monkeypatch, c: type[int]):
+          monkeypatch.setattr(c, "<error descr="Unresolved reference 'abc'">abc</error>", None)
+
+      def test_object_class(monkeypatch):
+          monkeypatch.setattr(object, "<error descr="Unresolved reference 'abc'">abc</error>", None)
+    """.trimIndent())
+    myFixture.enableInspections(PyUnresolvedReferencesInspection::class.java)
+    myFixture.checkHighlighting(true, false, false)
+  }
+
+  @TestFor(issues = ["PY-90524"])
+  fun `test attribute of an instance of object resolves`() {
+    myFixture.configureByText("test_object.py", """
+      def test_object(monkeypatch, o: object):
+          monkeypatch.setattr(o, "__repr__", None)
+    """.trimIndent())
+    val func = (myFixture.file as PyFile).findTopLevelFunction("test_object")!!
+    val strArg = findSecondStringArg(func)!!
+    val resolved = strArg.references.last().resolve()
+    assertInstanceOf(resolved, PyFunction::class.java)
+    assertEquals("object", (resolved as PyFunction).containingClass?.name)
+  }
+
+  private fun addClientModule() {
+    myFixture.addFileToProject("bla/__init__.py", "")
+    myFixture.addFileToProject("bla/_client.py", """
+      class Client:
+          def __init__(self):
+              self.reqs = Reqs()
+
+
+      class Reqs:
+          def not_exists(self): ...
+          def other(self): ...
+    """.trimIndent())
   }
 
   // --- Helpers ---

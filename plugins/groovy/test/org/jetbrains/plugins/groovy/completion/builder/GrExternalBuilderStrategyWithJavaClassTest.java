@@ -1,13 +1,29 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.groovy.completion.builder;
 
+import com.intellij.testFramework.EdtTestUtil;
+import com.intellij.testFramework.fixtures.LightJavaProject;
+import com.intellij.testFramework.junit5.TestApplication;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
+import org.jetbrains.plugins.groovy.GroovyProjectDescriptors;
 import org.jetbrains.plugins.groovy.completion.CompletionResult;
+import org.jetbrains.plugins.groovy.completion.GroovyCompletionFixture;
+import org.jetbrains.plugins.groovy.util.TestUtils;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
-public class GrExternalBuilderStrategyWithJavaClassTest extends GrBuilderTransformationCompletionTestBase {
-  @Override
-  protected void setUp() throws Exception {
-    super.setUp();
-    myFixture.addClass("""
+import static com.intellij.testFramework.EdtTestUtil.runInEdtAndWait;
+import static com.intellij.testFramework.fixtures.LightJavaFixturesKt.lightJavaProjectFixture;
+import static org.jetbrains.plugins.groovy.completion.GroovyCompletionFixtureKt.groovyCompletionFixture;
+
+@TestApplication
+public class GrExternalBuilderStrategyWithJavaClassTest {
+  private static final TestFixture<LightJavaProject> project = lightJavaProjectFixture(GroovyProjectDescriptors.GROOVY_LATEST);
+  private final TestFixture<GroovyCompletionFixture> completion = groovyCompletionFixture(project, TestUtils.getAbsoluteTestDataPath());
+
+  @BeforeEach
+  public void setUp() {
+    completion.get().getFixture().addClass("""
                          public class Pojo {
                              String name;
                              Object dynamic;
@@ -24,8 +40,9 @@ public class GrExternalBuilderStrategyWithJavaClassTest extends GrBuilderTransfo
                          """);
   }
 
+  @Test
   public void test_no_prefix() {
-    doCompletionTest("""
+    completion.get().doCompletionTest("""
                        import groovy.transform.builder.Builder
                        import groovy.transform.builder.ExternalStrategy
                        
@@ -36,8 +53,9 @@ public class GrExternalBuilderStrategyWithJavaClassTest extends GrBuilderTransfo
                        """, "build", "name", "dynamic", "counter", "withoutField");
   }
 
+  @Test
   public void test_empty_prefix() {
-    doCompletionTest("""
+    completion.get().doCompletionTest("""
                        import groovy.transform.builder.Builder
                        import groovy.transform.builder.ExternalStrategy
                        
@@ -48,8 +66,9 @@ public class GrExternalBuilderStrategyWithJavaClassTest extends GrBuilderTransfo
                        """, "build", "name", "dynamic", "counter", "withoutField");
   }
 
+  @Test
   public void test_custom_prefix() {
-    doCompletionTest("""
+    completion.get().doCompletionTest("""
                        import groovy.transform.builder.Builder
                        import groovy.transform.builder.ExternalStrategy
                        
@@ -60,8 +79,9 @@ public class GrExternalBuilderStrategyWithJavaClassTest extends GrBuilderTransfo
                        """, "build", "customPrefixName", "customPrefixDynamic", "customPrefixCounter", "customPrefixWithoutField");
   }
 
+  @Test
   public void test_spaces_prefix() {
-    doCompletionTest("""
+    completion.get().doCompletionTest("""
                        import groovy.transform.builder.Builder
                        import groovy.transform.builder.ExternalStrategy
                        
@@ -72,8 +92,9 @@ public class GrExternalBuilderStrategyWithJavaClassTest extends GrBuilderTransfo
                        """, "build", "   Name", "   Dynamic", "   Counter", "   WithoutField");
   }
 
+  @Test
   public void test_null_prefix() {
-    doCompletionTest("""
+    completion.get().doCompletionTest("""
                        import groovy.transform.builder.Builder
                        import groovy.transform.builder.ExternalStrategy
                        
@@ -84,8 +105,9 @@ public class GrExternalBuilderStrategyWithJavaClassTest extends GrBuilderTransfo
                        """, "build", "name", "dynamic", "counter", "withoutField");
   }
 
+  @Test
   public void test_custom_build_method() {
-    doCompletionTest("""
+    completion.get().doCompletionTest("""
                        import groovy.transform.builder.Builder
                        import groovy.transform.builder.ExternalStrategy
                        
@@ -96,8 +118,9 @@ public class GrExternalBuilderStrategyWithJavaClassTest extends GrBuilderTransfo
                        """, "customBuild", "name", "dynamic", "counter", "withoutField");
   }
 
+  @Test
   public void test_null_build_method() {
-    doCompletionTest("""
+    completion.get().doCompletionTest("""
                        import groovy.transform.builder.Builder
                        import groovy.transform.builder.ExternalStrategy
                        
@@ -108,8 +131,9 @@ public class GrExternalBuilderStrategyWithJavaClassTest extends GrBuilderTransfo
                        """, "build", "name", "dynamic", "counter", "withoutField");
   }
 
+  @Test
   public void test_empty_build_method() {
-    doCompletionTest("""
+    completion.get().doCompletionTest("""
                        import groovy.transform.builder.Builder
                        import groovy.transform.builder.ExternalStrategy
                        
@@ -120,8 +144,9 @@ public class GrExternalBuilderStrategyWithJavaClassTest extends GrBuilderTransfo
                        """, "build", "name", "dynamic", "counter", "withoutField");
   }
 
+  @Test
   public void test_spaces_build_method() {
-    doCompletionTest("""
+    completion.get().doCompletionTest("""
                        import groovy.transform.builder.Builder
                        import groovy.transform.builder.ExternalStrategy
                        
@@ -132,8 +157,9 @@ public class GrExternalBuilderStrategyWithJavaClassTest extends GrBuilderTransfo
                        """, "    ", "name", "dynamic", "counter", "withoutField");
   }
 
+  @Test
   public void test_next_setter() {
-    doCompletionTest("""
+    completion.get().doCompletionTest("""
                        import groovy.transform.builder.Builder
                        import groovy.transform.builder.ExternalStrategy
                        
@@ -144,8 +170,9 @@ public class GrExternalBuilderStrategyWithJavaClassTest extends GrBuilderTransfo
                        """, "build", "name", "dynamic", "counter", "withoutField");
   }
 
+  @Test
   public void test_one_more_setter_further() {
-    doCompletionTest("""
+    completion.get().doCompletionTest("""
                        import groovy.transform.builder.Builder
                        import groovy.transform.builder.ExternalStrategy
                        
@@ -156,8 +183,9 @@ public class GrExternalBuilderStrategyWithJavaClassTest extends GrBuilderTransfo
                        """, "build", "name", "dynamic", "counter", "withoutField");
   }
 
+  @Test
   public void test_only_java_bean_properties() {
-    doCompletionTest("""
+    completion.get().doCompletionTest("""
                        import groovy.transform.builder.Builder
                        import groovy.transform.builder.ExternalStrategy
                        
@@ -168,8 +196,9 @@ public class GrExternalBuilderStrategyWithJavaClassTest extends GrBuilderTransfo
                        """, CompletionResult.notContain, "private", "packageLocal", "someFieldWithoutSetter");
   }
 
+  @Test
   public void test_not_include_super_properties() {
-    myFixture.addClass("""
+    completion.get().getFixture().addClass("""
                          class Child extends Pojo {
                            String secondName;
                            public void setSecondName(String secondName) {}
@@ -185,19 +214,20 @@ public class GrExternalBuilderStrategyWithJavaClassTest extends GrBuilderTransfo
       
       new PojoBuilder().<caret>
       """;
-    doCompletionTest(code, CompletionResult.contain, "secondName");
-    doCompletionTest(code, CompletionResult.notContain, "name", "dynamic", "counter", "withoutField");
+    completion.get().doCompletionTest(code, CompletionResult.contain, "secondName");
+    completion.get().doCompletionTest(code, CompletionResult.notContain, "name", "dynamic", "counter", "withoutField");
   }
 
+  @Test
   public void test_include_super_properties() {
-    myFixture.addClass("""
+    completion.get().getFixture().addClass("""
                          class Child extends Pojo {
                            String secondName;
                            public void setSecondName(String secondName) {}
                          }
                          """);
 
-    doCompletionTest("""
+    completion.get().doCompletionTest("""
                        import groovy.transform.builder.Builder
                        import groovy.transform.builder.ExternalStrategy
                        

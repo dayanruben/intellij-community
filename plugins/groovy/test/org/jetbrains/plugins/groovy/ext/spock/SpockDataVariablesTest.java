@@ -2,18 +2,37 @@
 package org.jetbrains.plugins.groovy.ext.spock;
 
 import com.intellij.groovy.testFramework.BaseTest;
+import com.intellij.openapi.application.ReadAction;
+import com.intellij.testFramework.EdtTestUtil;
+import com.intellij.testFramework.fixtures.JavaCodeInsightTestFixture;
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightTestFixture;
+import com.intellij.testFramework.fixtures.LightJavaProject;
+import com.intellij.testFramework.junit5.TestApplication;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
 import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrMethod;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.util.Map;
 
+import static com.intellij.groovy.testFramework.GroovyAssertions.assertContainsElements;
+import static com.intellij.groovy.testFramework.GroovyAssertions.assertSize;
 import static com.intellij.psi.CommonClassNames.JAVA_LANG_INTEGER;
-import static com.intellij.testFramework.UsefulTestCase.assertContainsElements;
-import static com.intellij.testFramework.UsefulTestCase.assertSize;
-import static junit.framework.TestCase.assertEquals;
+import static com.intellij.testFramework.EdtTestUtil.runInEdtAndWait;
+import static com.intellij.testFramework.fixtures.LightJavaFixturesKt.lightJavaCodeInsightFixture;
+import static com.intellij.testFramework.fixtures.LightJavaFixturesKt.lightJavaProjectFixture;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
-public class SpockDataVariablesTest extends SpockTestBase implements BaseTest {
+@TestApplication
+public class SpockDataVariablesTest implements BaseTest {
+  private static final TestFixture<LightJavaProject> project = lightJavaProjectFixture(SpockTestUtil.SPOCK_PROJECT);
+  private final TestFixture<LightJavaCodeInsightTestFixture> groovy = lightJavaCodeInsightFixture(project);
+
+  @Override
+  public @NotNull JavaCodeInsightTestFixture getFixture() {
+    return groovy.get();
+  }
 
   private Map<String, SpockVariableDescriptor> variableMap(String text) {
     String fileText = """
@@ -24,15 +43,19 @@ public class SpockDataVariablesTest extends SpockTestBase implements BaseTest {
                 }
                 """;
     var file = configureByText(fileText);
-    var spec = file.getTypeDefinitions()[0];
-    var feature = (GrMethod) spec.findMethodsByName("feature")[0];
-    return SpockUtils.getVariableMap(feature);
+    return ReadAction.computeBlocking(() -> {
+      var spec = file.getTypeDefinitions()[0];
+      var feature = (GrMethod) spec.findMethodsByName("feature")[0];
+      return SpockUtils.getVariableMap(feature);
+    });
   }
 
   private void testVariableNames(String text, String... names) {
     Map<String, SpockVariableDescriptor> variables = variableMap(text);
-    assertSize(names.length, variables.entrySet());
-    assertContainsElements(ContainerUtil.map(variables.values(), SpockVariableDescriptor::getName), names);
+    ReadAction.run(() -> {
+      assertSize(names.length, variables.entrySet());
+      assertContainsElements(ContainerUtil.map(variables.values(), SpockVariableDescriptor::getName), names);
+    });
   }
 
   @Test
@@ -94,7 +117,9 @@ public class SpockDataVariablesTest extends SpockTestBase implements BaseTest {
                 and:
                 1   | _
                 """);
-    assertEquals(1, variables.size());
-    assertEquals(JAVA_LANG_INTEGER, variables.values().iterator().next().getType().getCanonicalText());
+    ReadAction.run(() -> {
+      assertEquals(1, variables.size());
+      assertEquals(JAVA_LANG_INTEGER, variables.values().iterator().next().getType().getCanonicalText());
+    });
   }
 }

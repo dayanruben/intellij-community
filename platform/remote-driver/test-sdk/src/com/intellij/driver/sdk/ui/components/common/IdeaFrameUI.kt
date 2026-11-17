@@ -8,6 +8,7 @@ import com.intellij.driver.model.RemoteMouseButton
 import com.intellij.driver.sdk.ManualWaitForIndicators
 import com.intellij.driver.sdk.getOpenProjects
 import com.intellij.driver.sdk.Project
+import com.intellij.driver.sdk.Registry
 import com.intellij.driver.sdk.isProjectOpened
 import com.intellij.driver.sdk.invokeAction
 import com.intellij.driver.sdk.step
@@ -27,6 +28,7 @@ import com.intellij.driver.sdk.ui.components.common.toolwindows.ToolWindowRightT
 import com.intellij.driver.sdk.ui.components.elements.WindowUiComponent
 import com.intellij.driver.sdk.ui.remote.Component
 import com.intellij.driver.sdk.ui.remote.Window
+import com.intellij.driver.sdk.ui.settings.getCurrentUiSettings
 import com.intellij.driver.sdk.ui.isIdeFocused
 import com.intellij.driver.sdk.ui.ui
 import com.intellij.driver.sdk.waitForIndicators
@@ -40,7 +42,9 @@ import javax.swing.JFrame
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 
-fun Finder.ideFrame(): IdeaFrameUI = x(IdeaFrameUI::class.java) { byClass("IdeFrameImpl") }
+private const val DISTRACTION_FREE_MODE_KEY = "editor.distraction.free.mode"
+
+fun Finder.ideFrame(): IdeaFrameUI = x(IdeaFrameUI::class.java) { byJavaClass("com.intellij.openapi.wm.impl.IdeFrameImpl") }
 
 fun Finder.currentIdeFrame(): IdeaFrameUI = ideFrames().list().let { frames ->
   when (frames.size) {
@@ -50,7 +54,7 @@ fun Finder.currentIdeFrame(): IdeaFrameUI = ideFrames().list().let { frames ->
   }
 }
 
-fun Finder.ideFrames(): UIComponentsList<IdeaFrameUI> = xx(IdeaFrameUI::class.java) { byClass("IdeFrameImpl") }
+fun Finder.ideFrames(): UIComponentsList<IdeaFrameUI> = xx(IdeaFrameUI::class.java) { byJavaClass("com.intellij.openapi.wm.impl.IdeFrameImpl") }
 
 /** Waits until the frame is found and ready, and then runs [action] on it. */
 fun Finder.ideFrame(action: IdeaFrameUI.() -> Unit) {
@@ -145,7 +149,7 @@ fun Driver.waitForIdeFrameReady(timeout: Duration = DEFAULT_FIND_TIMEOUT) {
 }
 
 fun Finder.projectIdeFrame(projectName: String, action: IdeaFrameUI.() -> Unit) {
-  x("//div[@class='IdeFrameImpl' and contains(@accessiblename, '${projectName}')]", IdeaFrameUI::class.java).action()
+  x(IdeaFrameUI::class.java) { and(byJavaClass("com.intellij.openapi.wm.impl.IdeFrameImpl"), contains(byAccessibleName(projectName))) }.action()
 }
 
 fun Driver.projectIdeFrame(projectName: String, action: IdeaFrameUI.() -> Unit) {
@@ -167,10 +171,10 @@ open class IdeaFrameUI(data: ComponentData) : WindowUiComponent(data) {
     get() = ideaFrameComponent.getExtendedState().and(JFrame.MAXIMIZED_BOTH) != 0
 
   val leftToolWindowToolbar: ToolWindowLeftToolbarUi =
-    x(ToolWindowLeftToolbarUi::class.java) { byClass("ToolWindowLeftToolbar") }
+    x(ToolWindowLeftToolbarUi::class.java) { byJavaClass("com.intellij.toolWindow.ToolWindowLeftToolbar") }
 
   val rightToolWindowToolbar: ToolWindowRightToolbarUi =
-    x(ToolWindowRightToolbarUi::class.java) { byClass("ToolWindowRightToolbar") }
+    x(ToolWindowRightToolbarUi::class.java) { byJavaClass("com.intellij.toolWindow.ToolWindowRightToolbar") }
 
   override fun waitReady(timeout: Duration) {
     val readinessTimeout = maxOf(timeout, 1.minutes)
@@ -182,41 +186,19 @@ open class IdeaFrameUI(data: ComponentData) : WindowUiComponent(data) {
       logger<Driver>().info("The IDE frame shows the Welcome screen, skipping the project readiness checks")
       return
     }
-    // Every other IdeFrameImpl belongs to a project window. In a monolith the Welcome screen is a separate
-    // FlatWelcomeFrame. A null project therefore means that the project is still opening, so wait for it.
-    val currentProject = waitNotNull(
-      message = "The project of the IDE frame is available",
-      timeout = readinessTimeout,
-      getter = { runCatching { project }.getOrNull() },
-    )
-    waitFor("Project is opened", readinessTimeout) {
-      driver.isProjectOpened(currentProject)
-    }
+    val currentProject = waitForOpenProject(readinessTimeout)
     if (isWelcomeScreenProject(currentProject)) {
       logger<Driver>().info("The IDE frame shows the welcome-screen project, skipping the project frame checks")
       return
     }
-
-    // The list holds only the frame chrome that every product shows. A tool-window stripe and a stripe button are
-    // layout state, not frame readiness: `hideToolStripes` removes the stripe, and a stripe button needs a product
-    // that registers that tool window. A test that needs one waits for it itself.
-    // A required element is a group of alternatives, and the frame is ready when each group has a member present.
-    // The toolbar needs a group: a custom header holds it, a frame that keeps the native window title holds it
-    // directly, and a compact header hides it but keeps the header itself.
-    val requiredComponents = listOf(
-      listOf(mainToolbar, toolbarHeader),
-      listOf(abstractToolbarCombo {
-        and(byType("com.intellij.openapi.wm.impl.AbstractToolbarCombo"), contains(byAccessibleName(currentProject.getName())))
-      }),
-      listOf(ideStatusBar()),
-    )
+    val requiredParts = requiredFrameParts(currentProject)
     fun List<List<UiComponent>>.describe(): String = joinToString { group -> group.joinToString(" or ") }
     waitFor(
       message = "IDE frame elements are rendered",
       timeout = readinessTimeout,
       errorMessage = { notRendered: List<List<UiComponent>> -> "IDE frame elements were not rendered: ${notRendered.describe()}" },
       getter = {
-        requiredComponents.filterNot { group ->
+        requiredParts.filterNot { group ->
           group.any { component -> runCatching { component.present() }.getOrDefault(false) }
         }.also { notRendered ->
           if (notRendered.isNotEmpty()) {
@@ -228,15 +210,58 @@ open class IdeaFrameUI(data: ComponentData) : WindowUiComponent(data) {
     )
   }
 
+  private fun waitForOpenProject(timeout: Duration): Project {
+    val currentProject = waitNotNull(
+      message = "The project of the IDE frame is available",
+      timeout = timeout,
+      getter = { runCatching { project }.getOrNull() },
+    )
+    waitFor("Project is opened", timeout) {
+      driver.isProjectOpened(currentProject)
+    }
+    return currentProject
+  }
+
+  /** Distraction-free mode and Zen mode hide the toolbar. The status bar follows its UI setting. */
+  private fun requiredFrameParts(project: Project): List<List<UiComponent>> {
+    val toolbarShown = !readOrDefault("The distraction-free mode state", false) {
+      driver.utility(Registry::class).`is`(DISTRACTION_FREE_MODE_KEY)
+    }
+    val statusBarShown = readOrDefault("The status bar setting", true) {
+      driver.getCurrentUiSettings().showStatusBar
+    }
+    val skipped = listOfNotNull(
+      "toolbar (distraction-free mode)".takeUnless { toolbarShown },
+      "status bar (UI settings)".takeUnless { statusBarShown },
+    )
+    if (skipped.isNotEmpty()) {
+      logger<Driver>().info("Skipping the frame parts: ${skipped.joinToString()}")
+    }
+    return buildList {
+      if (toolbarShown) {
+        add(listOf(mainToolbar, toolbarHeader))
+        add(listOf(abstractToolbarCombo {
+          and(byType("com.intellij.openapi.wm.impl.AbstractToolbarCombo"), contains(byAccessibleName(project.getName())))
+        }))
+      }
+      if (statusBarShown) {
+        add(listOf(ideStatusBar()))
+      }
+    }
+  }
+
   /**
    * Returns true when [project] is the welcome-screen project.
    */
   internal fun isWelcomeScreenProject(project: Project): Boolean =
-    runCatching {
+    readOrDefault("The welcome-screen project check", false) {
       driver.utility(WelcomeUtils::class).isWelcomeProject(project)
-    }.onFailure {
-      logger<Driver>().info("The frame capabilities of the project are not available: ${it.message}")
-    }.getOrDefault(false)
+    }
+
+  private fun readOrDefault(what: String, default: Boolean, read: () -> Boolean): Boolean =
+    runCatching(read)
+      .onFailure { logger<Driver>().info("$what is not available: ${it.message}") }
+      .getOrDefault(default)
 
   @ManualWaitForIndicators
   fun waitForIndicators(timeout: Duration = 5.minutes) {

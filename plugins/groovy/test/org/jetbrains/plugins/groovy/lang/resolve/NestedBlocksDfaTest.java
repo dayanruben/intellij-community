@@ -3,18 +3,37 @@ package org.jetbrains.plugins.groovy.lang.resolve;
 
 import com.intellij.groovy.testFramework.TypingTest;
 import com.intellij.openapi.util.RecursionManager;
-import org.jetbrains.plugins.groovy.util.Groovy30Test;
+import com.intellij.testFramework.EdtTestUtil;
+import com.intellij.testFramework.fixtures.JavaCodeInsightTestFixture;
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightTestFixture;
+import com.intellij.testFramework.fixtures.LightJavaProject;
+import com.intellij.testFramework.junit5.TestApplication;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.plugins.groovy.GroovyProjectDescriptors;
 import org.jetbrains.plugins.groovy.util.HighlightingTest;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import static com.intellij.psi.CommonClassNames.JAVA_LANG_INTEGER;
 import static com.intellij.psi.CommonClassNames.JAVA_LANG_STRING;
+import static com.intellij.testFramework.EdtTestUtil.runInEdtAndWait;
+import static com.intellij.testFramework.fixtures.LightJavaFixturesKt.lightJavaCodeInsightFixture;
+import static com.intellij.testFramework.fixtures.LightJavaFixturesKt.lightJavaProjectFixture;
 
-public class NestedBlocksDfaTest extends Groovy30Test implements TypingTest, HighlightingTest {
-  @Before
+@TestApplication
+public class NestedBlocksDfaTest implements TypingTest, HighlightingTest {
+  private static final TestFixture<LightJavaProject> project = lightJavaProjectFixture(GroovyProjectDescriptors.GROOVY_3_0);
+  private final TestFixture<LightJavaCodeInsightTestFixture> groovy = lightJavaCodeInsightFixture(project);
+
+  @Override
+  public @NotNull JavaCodeInsightTestFixture getFixture() {
+    return groovy.get();
+  }
+
+  @BeforeEach
   public void disableRecursion() {
-    RecursionManager.assertOnRecursionPrevention(getFixture().getTestRootDisposable());
+    runInEdtAndWait(() -> RecursionManager.assertOnRecursionPrevention(getFixture().getTestRootDisposable()));
   }
 
   @Test

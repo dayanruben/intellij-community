@@ -1,28 +1,35 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.groovy.completion
 
-import com.intellij.testFramework.LightProjectDescriptor
+import com.intellij.testFramework.fixtures.lightJavaProjectFixture
+import com.intellij.testFramework.junit5.TestApplication
 import org.jetbrains.plugins.groovy.GroovyProjectDescriptors
 import org.jetbrains.plugins.groovy.util.TestUtils
+import org.junit.jupiter.api.Test
 
-class GroovyForeachCompletionTest : GroovyCompletionTestBase() {
-  override fun getProjectDescriptor(): LightProjectDescriptor {
-    return GroovyProjectDescriptors.GROOVY_5_0
+@TestApplication
+class GroovyForeachCompletionTest {
+  companion object {
+    private val project = lightJavaProjectFixture(GroovyProjectDescriptors.GROOVY_5_0)
   }
 
-  override fun getTestDataPath(): String {
-    return TestUtils.getAbsoluteTestDataPath() + "groovy/completion/foreach"
-  }
+  private val completion by groovyCompletionFixture(project, TestUtils.getAbsoluteTestDataPath() + "groovy/completion/foreach")
 
-  fun testValueVariableType() = doHasVariantsTest("int", "final")
+  @Test
+  fun testValueVariableType() { completion.doHasVariantsTest("int", "final") }
 
-  fun testValueVariableTypeWithIndexVariable() = doVariantableTest("int", "final")
+  @Test
+  fun testValueVariableTypeWithIndexVariable() { completion.doVariantableTest("int", "final") }
 
-  fun testIndexVariableType() = doVariantableTest("int", "final")
+  @Test
+  fun testIndexVariableType() { completion.doVariantableTest("int", "final") }
 
-  fun testIndexVariableAccess() = doVariantableTest("idx", "identity", "void")
+  @Test
+  fun testIndexVariableAccess() { completion.doVariantableTest("idx", "identity", "void") }
 
-  fun testValueVariableAccess() = doVariantableTest("value", "var", "metaPropertyValues", "findIndexValues", "findIndexValues", "getMetaPropertyValues")
+  @Test
+  fun testValueVariableAccess() { completion.doVariantableTest("value", "var", "metaPropertyValues", "findIndexValues", "findIndexValues", "getMetaPropertyValues") }
 
-  fun testValueVariableAccessWithIndexVariable() = doVariantableTest("value", "var", "metaPropertyValues", "findIndexValues", "findIndexValues", "getMetaPropertyValues")
+  @Test
+  fun testValueVariableAccessWithIndexVariable() { completion.doVariantableTest("value", "var", "metaPropertyValues", "findIndexValues", "findIndexValues", "getMetaPropertyValues") }
 }

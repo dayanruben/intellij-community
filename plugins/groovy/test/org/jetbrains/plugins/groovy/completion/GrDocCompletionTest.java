@@ -2,22 +2,35 @@
 package org.jetbrains.plugins.groovy.completion;
 
 import com.intellij.application.options.CodeStyle;
+import com.intellij.openapi.application.ReadAction;
+import com.intellij.testFramework.EdtTestUtil;
+import com.intellij.testFramework.fixtures.LightJavaProject;
+import com.intellij.testFramework.junit5.TestApplication;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
 import org.jetbrains.plugins.groovy.codeStyle.GroovyCodeStyleSettings;
 import org.jetbrains.plugins.groovy.util.TestUtils;
+import org.junit.jupiter.api.Test;
+
+import static com.intellij.testFramework.EdtTestUtil.runInEdtAndWait;
+import static com.intellij.testFramework.fixtures.LightJavaFixturesKt.lightJavaProjectFixture;
+import static org.jetbrains.plugins.groovy.completion.GroovyCompletionFixtureKt.groovyCompletionFixture;
 
 /**
  * @author Max Medvedev
  */
-public class GrDocCompletionTest extends GroovyCompletionTestBase {
-  @Override
-  protected String getTestDataPath() {
-    return TestUtils.getAbsoluteTestDataPath() + "groovy/completion/gdoc";
+@TestApplication
+public class GrDocCompletionTest {
+  private static final TestFixture<LightJavaProject> project = lightJavaProjectFixture();
+  private final TestFixture<GroovyCompletionFixture> completion = groovyCompletionFixture(project, TestUtils.getAbsoluteTestDataPath() + "groovy/completion/gdoc");
+
+  @Test
+  public void testLinkCompletion() {
+    completion.get().doBasicTest();
   }
 
-  public void testLinkCompletion() { doBasicTest(); }
-
+  @Test
   public void testLinkCompletion1() {
-    CodeStyle.getSettings(getProject()).getCustomSettings(GroovyCodeStyleSettings.class).USE_FQ_CLASS_NAMES_IN_JAVADOC = false;
-    doBasicTest();
+    ReadAction.run(() -> CodeStyle.getSettings(completion.get().getFixture().getProject()).getCustomSettings(GroovyCodeStyleSettings.class).USE_FQ_CLASS_NAMES_IN_JAVADOC = false);
+    completion.get().doBasicTest();
   }
 }

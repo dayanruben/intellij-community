@@ -3,17 +3,43 @@ package org.jetbrains.plugins.groovy.codeInsight.editorActions;
 
 import com.intellij.groovy.testFramework.ResolveTest;
 import com.intellij.openapi.actionSystem.IdeActions;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.application.impl.NonBlockingReadActionImpl;
+import com.intellij.testFramework.EdtTestUtil;
 import com.intellij.testFramework.PlatformTestUtil;
 import com.intellij.testFramework.fixtures.EditorHintFixture;
-import org.jetbrains.plugins.groovy.util.GroovyLatestTest;
+import com.intellij.testFramework.fixtures.JavaCodeInsightTestFixture;
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightTestFixture;
+import com.intellij.testFramework.fixtures.LightJavaProject;
+import com.intellij.testFramework.junit5.TestApplication;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.plugins.groovy.GroovyProjectDescriptors;
 import org.jetbrains.plugins.groovy.util.TestUtils;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
+import static com.intellij.testFramework.EdtTestUtil.runInEdtAndWait;
+import static com.intellij.testFramework.fixtures.LightJavaFixturesKt.lightJavaCodeInsightFixture;
+import static com.intellij.testFramework.fixtures.LightJavaFixturesKt.lightJavaProjectFixture;
 
-public class GroovyParameterInfoHandlerTest extends GroovyLatestTest implements ResolveTest {
-  public GroovyParameterInfoHandlerTest() {
-    super("parameterInfo/");
+@TestApplication
+public class GroovyParameterInfoHandlerTest implements ResolveTest {
+  private static final TestFixture<LightJavaProject> project = lightJavaProjectFixture(GroovyProjectDescriptors.GROOVY_2_5);
+  private final TestFixture<LightJavaCodeInsightTestFixture> groovy = lightJavaCodeInsightFixture(project);
+
+  @BeforeEach
+  void setUpTestDataPath() {
+    groovy.get().setTestDataPath(TestUtils.getAbsoluteTestDataPath() + "parameterInfo/");
+  }
+
+  @Override
+  public @NotNull JavaCodeInsightTestFixture getFixture() {
+    return groovy.get();
+  }
+
+  public String getTestName() {
+    return groovy.get().getTestName(false);
   }
 
   @Test
@@ -59,9 +85,11 @@ public class GroovyParameterInfoHandlerTest extends GroovyLatestTest implements 
   private void testParameterHint() {
     String name = getTestName() + ".test";
 
-    String input = TestUtils.readInput(getFixture().getTestDataPath() + name).get(0);
-    String hint = getParameterHint(input);
-    configureByText(input + "\n-----\n" + hint);
+    runInEdtAndWait(() -> {
+      String input = TestUtils.readInput(getFixture().getTestDataPath() + name).get(0);
+      String hint = getParameterHint(input);
+      configureByText(input + "\n-----\n" + hint);
+    });
     getFixture().checkResultByFile(name);
   }
 
@@ -69,9 +97,9 @@ public class GroovyParameterInfoHandlerTest extends GroovyLatestTest implements 
     configureByText(text);
     EditorHintFixture myHintFixture = new EditorHintFixture(getFixture().getTestRootDisposable());
     getFixture().performEditorAction(IdeActions.ACTION_EDITOR_SHOW_PARAMETER_INFO);
-    PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue();
+    runInEdtAndWait(() -> PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue());
     waitForParameterInfo();
-    return myHintFixture.getCurrentHintText();
+    return ReadAction.computeBlocking(() -> myHintFixture.getCurrentHintText());
   }
 
   public static void waitForParameterInfo() {

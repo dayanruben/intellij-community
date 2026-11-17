@@ -4,54 +4,90 @@ package org.jetbrains.plugins.groovy.completion;
 import com.intellij.codeInsight.completion.CompletionType;
 import com.intellij.codeInsight.completion.StaticallyImportable;
 import com.intellij.codeInsight.lookup.LookupElement;
-import com.intellij.testFramework.UsefulTestCase;
-import junit.framework.TestCase;
-import org.jetbrains.plugins.groovy.util.TestUtils;
+import com.intellij.testFramework.EdtTestUtil;
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightTestFixture;
+import com.intellij.testFramework.fixtures.LightJavaProject;
+import com.intellij.testFramework.junit5.TestApplication;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
 
 import java.util.List;
+import org.jetbrains.plugins.groovy.util.TestUtils;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
-public class GroovySmartCompletionTest extends GroovyCompletionTestBase {
-  @Override
-  protected String getTestDataPath() {
-    return TestUtils.getAbsoluteTestDataPath() + "groovy/completion/smart";
-  }
+import static com.intellij.testFramework.EdtTestUtil.runInEdtAndWait;
+import static com.intellij.testFramework.fixtures.LightJavaFixturesKt.lightJavaProjectFixture;
+import static org.jetbrains.plugins.groovy.completion.GroovyCompletionFixtureKt.groovyCompletionFixture;
+import static org.jetbrains.plugins.groovy.LightGroovyFixtures.addCompileStatic;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+@TestApplication
+public class GroovySmartCompletionTest {
+  private static final TestFixture<LightJavaProject> project = lightJavaProjectFixture();
+  private final TestFixture<GroovyCompletionFixture> completion = groovyCompletionFixture(project, TestUtils.getAbsoluteTestDataPath() + "groovy/completion/smart");
+
+  @Test
   public void testSmartCompletionAfterNewInDeclaration() {
-    myFixture.configureByFile(getTestName(false) + ".groovy");
+    LightJavaCodeInsightTestFixture myFixture = completion.get().getFixture();
+    myFixture.configureByFile(myFixture.getTestName(false) + ".groovy");
     myFixture.complete(CompletionType.SMART);
-    UsefulTestCase.assertOrderedEquals(myFixture.getLookupElementStrings(), "Bar", "Foo");
+    runInEdtAndWait(() -> assertEquals(List.of("Bar", "Foo"), myFixture.getLookupElementStrings()));
   }
 
-  public void testCaretAfterSmartCompletionAfterNewInDeclaration() { doSmartTest(); }
+  @Test
+  public void testCaretAfterSmartCompletionAfterNewInDeclaration() {
+    completion.get().doSmartTest();
+  }
 
-  public void testSmartCompletionAfterNewInDeclarationWithArray() { doSmartTest(); }
+  @Test
+  public void testSmartCompletionAfterNewInDeclarationWithArray() {
+    completion.get().doSmartTest();
+  }
 
-  public void testSmartCompletionAfterNewInDeclarationWithIntArray() { doSmartTest(); }
+  @Test
+  public void testSmartCompletionAfterNewInDeclarationWithIntArray() {
+    completion.get().doSmartTest();
+  }
 
-  public void testShortenNamesInSmartCompletionAfterNewInDeclaration() { doSmartTest(); }
+  @Test
+  public void testShortenNamesInSmartCompletionAfterNewInDeclaration() {
+    completion.get().doSmartTest();
+  }
 
-  public void testSmartAfterNewInCall() { doSmartTest(); }
+  @Test
+  public void testSmartAfterNewInCall() {
+    completion.get().doSmartTest();
+  }
 
+  @Test
   public void testInnerClassInStaticMethodCompletion() {
-    doVariantableTest(null, "", CompletionType.SMART, CompletionResult.notContain, "Inner");
+    completion.get().doVariantableTest(null, "", CompletionType.SMART, CompletionResult.notContain, "Inner");
   }
 
-  public void testSmartCompletionInAssignmentExpression() { doSmartTest(); }
+  @Test
+  public void testSmartCompletionInAssignmentExpression() {
+    completion.get().doSmartTest();
+  }
 
+  @Test
   public void testSimpleMethodParameter() {
-    doSmartCompletion("d1", "d2");
+    completion.get().doSmartCompletion("d1", "d2");
   }
 
+  @Test
   public void testReturnStatement() {
-    doSmartCompletion("b", "b1", "b2", "foo");
+    completion.get().doSmartCompletion("b", "b1", "b2", "foo");
   }
 
+  @Test
   public void testIncSmartCompletion() {
-    doSmartCompletion("a", "b");
+    completion.get().doSmartCompletion("a", "b");
   }
 
+  @Test
   public void testInheritConstructorsAnnotation() {
-    myFixture.addFileToProject("groovy/transform/InheritConstructors.java", """
+    completion.get().getFixture().addFileToProject("groovy/transform/InheritConstructors.java", """
       package groovy.transform;
       
       import java.lang.annotation.ElementType;
@@ -61,36 +97,60 @@ public class GroovySmartCompletionTest extends GroovyCompletionTestBase {
       @Target({ElementType.TYPE})
       public @interface InheritConstructors {
       }""");
-    doSmartTest();
+    completion.get().doSmartTest();
   }
 
-  public void testSmartCastCompletion() { doSmartTest(); }
+  @Test
+  public void testSmartCastCompletion() {
+    completion.get().doSmartTest();
+  }
 
-  public void testSmartCastCompletionWithoutRParenth() { doSmartTest(); }
+  @Test
+  public void testSmartCastCompletionWithoutRParenth() {
+    completion.get().doSmartTest();
+  }
 
-  public void testSmartCastCompletionWithRParenth() { doSmartTest(); }
+  @Test
+  public void testSmartCastCompletionWithRParenth() {
+    completion.get().doSmartTest();
+  }
 
-  public void testDontCompletePrivateMembers() { doSmartCompletion("foo1", "foo2", "getFoo1", "getFoo2"); }
+  @Test
+  public void testDontCompletePrivateMembers() {
+    completion.get().doSmartCompletion("foo1", "foo2", "getFoo1", "getFoo2");
+  }
 
-  public void testEnumMembersInAssignment() { doSmartCompletion("IN_STOCK", "NOWHERE", "ORDERED", "valueOf"); }
+  @Test
+  public void testEnumMembersInAssignment() {
+    completion.get().doSmartCompletion("IN_STOCK", "NOWHERE", "ORDERED", "valueOf");
+  }
 
+  @Test
   public void testEnumMembersInAssignmentInsideEnum() {
-    doSmartCompletion("IN_STOCK", "NOWHERE", "ORDERED", "next", "previous", "valueOf");
+    completion.get().doSmartCompletion("IN_STOCK", "NOWHERE", "ORDERED", "next", "previous", "valueOf");
   }
 
-  public void testEnumMembersInComparison() { doSmartCompletion("status", "IN_STOCK", "NOWHERE", "ORDERED", "valueOf"); }
+  @Test
+  public void testEnumMembersInComparison() {
+    completion.get().doSmartCompletion("status", "IN_STOCK", "NOWHERE", "ORDERED", "valueOf");
+  }
 
+  @Test
   public void testPreferVarargElement() {
-    doCompletionTest(null, null, "\n", CompletionType.SMART);
+    completion.get().doCompletionTest(null, null, "\n", CompletionType.SMART);
   }
 
+  @Test
   public void testGlobalStaticMembers() {
-    myFixture.configureByFile(getTestName(false) + ".groovy");
+    LightJavaCodeInsightTestFixture myFixture = completion.get().getFixture();
+    myFixture.configureByFile(myFixture.getTestName(false) + ".groovy");
     myFixture.complete(CompletionType.SMART, 2);
-    UsefulTestCase.assertOrderedEquals(myFixture.getLookupElementStrings(), "SUBSTRING", "createExpected", "createSubGeneric", "SUB_RAW");
+    runInEdtAndWait(() -> assertEquals(List.of("SUBSTRING", "createExpected", "createSubGeneric", "SUB_RAW"), myFixture.getLookupElementStrings()));
   }
 
+  @Test
   public void testGlobalStaticMembersForString() {
+    LightJavaCodeInsightTestFixture myFixture = completion.get().getFixture();
     myFixture.configureByText("a.groovy", """
       'class Foo {
         public static String string(){}
@@ -102,18 +162,25 @@ public class GroovySmartCompletionTest extends GroovyCompletionTestBase {
       """);
 
     myFixture.complete(CompletionType.SMART, 2);
-    UsefulTestCase.assertOrderedEquals(myFixture.getLookupElementStrings(), "foo", "string");
+    runInEdtAndWait(() -> assertEquals(List.of("foo", "string"), myFixture.getLookupElementStrings()));
   }
 
+  @Test
   public void testGlobalListCreators() {
-    myFixture.configureByFile(getTestName(false) + ".groovy");
+    LightJavaCodeInsightTestFixture myFixture = completion.get().getFixture();
+    myFixture.configureByFile(myFixture.getTestName(false) + ".groovy");
     myFixture.complete(CompletionType.SMART, 2);
-    UsefulTestCase.assertOrderedEquals(myFixture.getLookupElementStrings(), "createGenericList", "createStringList");
+    runInEdtAndWait(() -> assertEquals(List.of("createGenericList", "createStringList"), myFixture.getLookupElementStrings()));
   }
 
-  public void testNativeList() { doSmartCompletion("a1", "a2"); }
+  @Test
+  public void testNativeList() {
+    completion.get().doSmartCompletion("a1", "a2");
+  }
 
+  @Test
   public void testMembersImportStatically() {
+    LightJavaCodeInsightTestFixture myFixture = completion.get().getFixture();
     myFixture.addClass("""
                          class Expected {
                            public static final Expected fooField;
@@ -122,10 +189,12 @@ public class GroovySmartCompletionTest extends GroovyCompletionTestBase {
                          """);
     myFixture.configureByText("a.groovy", "Expected exp = fo<caret>");
     LookupElement[] items = myFixture.complete(CompletionType.SMART);
-    assertEquals(List.of("fooField", "fooMethod"), myFixture.getLookupElementStrings());
-    assertTrue(items[0].as(StaticallyImportable.CLASS_CONDITION_KEY).canBeImported());
-    assertTrue(items[1].as(StaticallyImportable.CLASS_CONDITION_KEY).canBeImported());
-    items[0].as(StaticallyImportable.CLASS_CONDITION_KEY).setShouldBeImported(true);
+    runInEdtAndWait(() -> {
+      assertEquals(List.of("fooField", "fooMethod"), myFixture.getLookupElementStrings());
+      assertTrue(items[0].as(StaticallyImportable.CLASS_CONDITION_KEY).canBeImported());
+      assertTrue(items[1].as(StaticallyImportable.CLASS_CONDITION_KEY).canBeImported());
+      items[0].as(StaticallyImportable.CLASS_CONDITION_KEY).setShouldBeImported(true);
+    });
     myFixture.type("\n");
     myFixture.checkResult("""
                             import static Expected.fooField
@@ -133,7 +202,9 @@ public class GroovySmartCompletionTest extends GroovyCompletionTestBase {
                             Expected exp = fooField""");
   }
 
+  @Test
   public void testThrow() {
+    LightJavaCodeInsightTestFixture myFixture = completion.get().getFixture();
     myFixture.configureByText("_a.groovy", """
       throw new RunEx<caret>
       """);
@@ -143,12 +214,14 @@ public class GroovySmartCompletionTest extends GroovyCompletionTestBase {
                             """);
   }
 
+  @Test
   public void testInnerClassReferenceWithoutQualifier() {
-    doSmartTest();
+    completion.get().doSmartTest();
   }
 
+  @Test
   public void testAnonymousClassCompletion() {
-    doSmartTest("""
+    completion.get().doSmartTest("""
                   Runnable r = new Run<caret>
                   """, """
                   Runnable r = new Runnable() {
@@ -160,8 +233,9 @@ public class GroovySmartCompletionTest extends GroovyCompletionTestBase {
                   """);
   }
 
+  @Test
   public void testReassignedVar() {
-    doSmartTest("""
+    completion.get().doSmartTest("""
                   def foo(int x){}
                   def aaaa = '123'
                   aaaa = 123
@@ -176,9 +250,10 @@ public class GroovySmartCompletionTest extends GroovyCompletionTestBase {
                   """);
   }
 
+  @Test
   public void testFieldWithInstanceof() {
-    addCompileStatic();
-    doSmartTest("""
+    addCompileStatic(completion.get().getFixture());
+    completion.get().doSmartTest("""
                   @CompileStatic
                   class A {
                     def field
@@ -203,8 +278,10 @@ public class GroovySmartCompletionTest extends GroovyCompletionTestBase {
                   """);
   }
 
+  @Test
   public void testFieldWithAssignment() {
-    addCompileStatic();
+    LightJavaCodeInsightTestFixture myFixture = completion.get().getFixture();
+    addCompileStatic(myFixture);
     myFixture.configureByText("a.groovy", """
       import groovy.transform.CompileStatic
       @CompileStatic
@@ -220,15 +297,16 @@ public class GroovySmartCompletionTest extends GroovyCompletionTestBase {
       """);
 
     myFixture.complete(CompletionType.SMART);
-    TestCase.assertEquals(List.of(), myFixture.getLookupElementStrings());
+    runInEdtAndWait(() -> Assertions.assertEquals(List.of(), myFixture.getLookupElementStrings()));
   }
 
+  @Test
   public void testQualifiedNameAfterNew() {
-    myFixture.addClass("""
+    completion.get().getFixture().addClass("""
                          package foo;
                          public class User<T> {}
                          """);
-    doSmartTest(""" 
+    completion.get().doSmartTest(""" 
                   class User {
                   }
                   def a(foo.User<String> f){}
@@ -243,8 +321,9 @@ public class GroovySmartCompletionTest extends GroovyCompletionTestBase {
                   """);
   }
 
+  @Test
   public void testBinaryExpr() {
-    doSmartTest("""
+    completion.get().doSmartTest("""
                   class A {
                     def plus(String s) {}
                   }

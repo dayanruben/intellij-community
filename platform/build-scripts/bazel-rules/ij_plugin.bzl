@@ -13,9 +13,10 @@ load(":content_module_jar.bzl", _module_output_jar = "module_output_jar")
 
 def _ij_plugin_impl(ctx):
     plugin_descriptor_module_info = _plugin_module_info(ctx.attr.descriptor_module)
-    dir_name = _module_name_to_directory_name(plugin_descriptor_module_info.module_name)
-    output_dir = ctx.actions.declare_directory(dir_name)
-    packed_modules_file = ctx.actions.declare_file("packed-modules.yaml")
+    dir_name = _computeDirectoryName(ctx.attr.directory_name, plugin_descriptor_module_info.module_name)
+    dist_dir_name = ctx.label.name + _DIST_DIRECTORY_SUFFIX
+    output_dir = ctx.actions.declare_directory(dist_dir_name + "/" + dir_name)
+    packed_modules_file = ctx.actions.declare_file(dist_dir_name + "/packed-modules.yaml")
 
     ide_build_number = ctx.attr._ide_build_number[_IdeBuildNumberProvider].build_number
     explicit_plugin_version = ctx.attr._plugin_version[_PluginVersionProvider].plugin_version
@@ -131,6 +132,11 @@ def _add_non_classpath_data(args, inputs, module_info, root_output_directory = "
         args.add_all([data.file], expand_directories = False, format_each = relative_path + ":%s")
         inputs.append(data.file)
 
+# The suffix that the rule adds to the target name to get the name of the dist directory.
+# The dist directory is in the package of the target, and holds the plugin directory and `packed-modules.yaml`.
+# `BazelBuildFileGenerator` uses the same suffix in `bazel-targets.json`.
+_DIST_DIRECTORY_SUFFIX = "_dist"
+
 _build_number_from_file = "$build_number_from_file"
 
 def _computePluginVersion(explicit_plugin_version, ide_build_number):
@@ -162,6 +168,13 @@ def _computeUntilBuild(until_build, since_build, ide_build_number, ide_stability
         return components[0] + ".*"
     return ".".join(components[:-1]) + ".*"
 
+def _computeDirectoryName(directory_name, descriptor_module_name):
+    if directory_name == "$auto":
+        return _module_name_to_directory_name(descriptor_module_name)
+    if not directory_name or "/" in directory_name or "\\" in directory_name or directory_name in [".", ".."]:
+        fail("`directory_name` must be `$auto` or a valid directory name, but it is '%s'" % directory_name)
+    return directory_name
+
 def _module_name_to_directory_name(module_name):
     if module_name.startswith("intellij."):
         module_name = module_name[len("intellij."):]
@@ -173,8 +186,9 @@ ij_plugin = rule(
     doc = """\
 Builds a directory containing a plugin distribution for IntelliJ-based IDEs.
 
-The rule also writes `packed-modules.yaml` beside that directory. The file names each jar in the distribution, and under
-each jar the modules the packager put into it.
+The rule writes its output to the `<name>_dist` directory in the package of the target, where `<name>` is the target name.
+That directory holds only the plugin directory and `packed-modules.yaml`.
+The `packed-modules.yaml` file names each jar in the distribution, and under each jar the modules the packager put into it.
 
 This rule is experimental, and its API may change. Do not migrate plugins to it yet.
 """,
@@ -235,6 +249,18 @@ For a module with the `optional` or `on-demand` loading rule, the result depends
   The ultimate modules of a community plugin are not available there.
 """,
             providers = [[_PluginModuleInfo], [_KtJvmInfo]],
+        ),
+        "directory_name": attr.string(
+            doc = """\
+The name of the plugin directory in the distribution.
+
+The default value, `$auto`, takes the name from the name of the descriptor module.
+The rule removes the `intellij.` prefix and the `.plugin` suffix, and replaces each `.` with `-`.
+For example, `intellij.foo.bar.plugin` gives `foo-bar`.
+
+`jps-to-bazel` keeps a manually written value of this attribute in `BUILD.bazel`.
+""",
+            default = "$auto",
         ),
         "since_build": attr.string(
             doc = """\

@@ -2173,7 +2173,6 @@ a:com.intellij.openapi.application.ClipboardAnalyzeListener
 - applicationDeactivated(com.intellij.openapi.wm.IdeFrame):V
 a:com.intellij.openapi.application.JBProtocolCommand
 - <init>(java.lang.String):V
-- p:runsWhereClicked(java.lang.String,java.util.Map):Z
 f:com.intellij.openapi.application.PermanentInstallationID
 - <init>():V
 - s:get():java.lang.String
@@ -3408,12 +3407,8 @@ com.intellij.openapi.keymap.impl.ui.KeymapListener
 - a:processCurrentKeymapChanged(com.intellij.openapi.actionSystem.ex.QuickList[]):V
 - a:quickListRenamed(com.intellij.openapi.actionSystem.ex.QuickList,com.intellij.openapi.actionSystem.ex.QuickList):V
 f:com.intellij.openapi.keymap.impl.ui.KeymapPanel
-- com.intellij.openapi.Disposable
-- com.intellij.openapi.keymap.impl.SystemShortcutsListener
-- com.intellij.openapi.keymap.impl.ui.KeymapListener
 - com.intellij.openapi.options.Configurable$NoScroll
 - com.intellij.openapi.options.SearchableConfigurable
-- javax.swing.JPanel
 - <init>():V
 - apply():V
 - createComponent():javax.swing.JComponent
@@ -3421,7 +3416,6 @@ f:com.intellij.openapi.keymap.impl.ui.KeymapPanel
 - enableSearch(java.lang.String):java.lang.Runnable
 - getHelpTopic():java.lang.String
 - isModified():Z
-- processSystemShortcutsChanged():V
 - reset():V
 - selectAction(java.lang.String):V
 - showOption(java.lang.String):V

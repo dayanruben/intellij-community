@@ -14,7 +14,6 @@ import com.intellij.openapi.editor.colors.EditorColors;
 import com.intellij.openapi.editor.colors.EditorColorsScheme;
 import com.intellij.openapi.editor.ex.DocumentEx;
 import com.intellij.openapi.editor.ex.DocumentText;
-import com.intellij.openapi.editor.ex.DocumentTextUtil;
 import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.editor.ex.FoldingModelEx;
 import com.intellij.openapi.editor.ex.MarkupModelEx;
@@ -44,6 +43,7 @@ import java.awt.Color;
 import java.awt.Font;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 
@@ -108,24 +108,44 @@ public final class IterationState {
   private final Color myDefaultForeground;
   private final Color myReadOnlyColor;
   private final DocumentText myDocument;
+  private final CharSequence myChars;
   private final CaretData myCaretData;
   private final boolean myUseOnlyFullLineHighlighters;
   private final boolean myUseOnlyFontOrForegroundAffectingHighlighters;
   private final boolean myStickyLinesPainting;
   private final boolean myEditorRightAligned;
+  private final boolean myRoundedHighlighting;
+  private final boolean myHuggingHighlighting;
   private final boolean myReverseIteration;
   private final List<RangeHighlighterEx> myCurrentHighlighters = new ArrayList<>();
   private final List<TextAttributes> myCachedAttributesList = new ArrayList<>(5);
+  private final List<BackgroundLayer> myStepLayers = new ArrayList<>(5);
+  private final List<BackgroundLayer> myStepLayersView = Collections.unmodifiableList(myStepLayers);
+  private final List<BackgroundLayer> myBreakLayers = new ArrayList<>(5);
+  private final List<BackgroundLayer> myBreakLayersView = Collections.unmodifiableList(myBreakLayers);
+  private final TextAttributes myBreakAttributes = new TextAttributes();
   private final GuardedBlocksIndex myGuardedBlocks;
 
   private int myStartOffset;
   private int myEndOffset;
   private int myCurrentSelectionIndex;
-  private Color myCurrentBackgroundColor;
-  private Color myLastBackgroundColor;
+  private List<BackgroundLayer> myBackgroundLayers;
+  private List<BackgroundLayer> myLastBackgroundLayers;
+  private BackgroundLayer mySelectionLayer;
+  private BackgroundLayer myFoldLayer;
+  private BackgroundLayer myGuardLayer;
+  private BackgroundLayer myCaretRowLayer;
+  private BackgroundLayer mySyntaxLayer;
+  private TextAttributes myGuardAttributes;
+  private TextAttributes mySyntaxAttributes;
   private FoldRegion myCurrentFold;
   private boolean myNextIsFoldRegion;
-  private final boolean myShouldUseNewSelection;
+  /**
+   * Says that {@link #myBreakAttributes} and {@link #myBreakLayers} hold the values at a line break of the current step,
+   * for the argument {@link #myBreakComputedBeforeBreak}. {@link #advance()} clears it.
+   */
+  private boolean myBreakComputed;
+  private boolean myBreakComputedBeforeBreak;
 
   @ApiStatus.Internal
   public IterationState(
@@ -145,8 +165,9 @@ public final class IterationState {
 
     DocumentEx document = getDocument(editor);
     myDocument = document.getDocumentText();
-    assert !DocumentTextUtil.isInsideSurrogatePair(myDocument, start);
-    assert !DocumentTextUtil.isInsideSurrogatePair(myDocument, end);
+    myChars = myDocument.luckyChars();
+    assert !isInsideSurrogatePair(start);
+    assert !isInsideSurrogatePair(end);
 
     myColorsScheme = editor.getColorsScheme();
     myInitialStartOffset = start;
@@ -156,6 +177,8 @@ public final class IterationState {
     myUseOnlyFontOrForegroundAffectingHighlighters = useOnlyFontOrForegroundAffectingHighlighters;
     myStickyLinesPainting = editor instanceof EditorImpl impl && impl.isStickyLinePainting();
     myEditorRightAligned = editor instanceof EditorImpl impl && impl.isRightAligned();
+    myRoundedHighlighting = editor instanceof EditorImpl impl && impl.isRoundedHighlighting();
+    myHuggingHighlighting = editor instanceof EditorImpl impl && impl.isHuggingHighlighting();
     myReverseIteration = iterateBackwards;
     myHighlighterIterator = useOnlyFullLineHighlighters ? null : getHighlighter(editor).createIterator(start);
     myCaretData = ObjectUtils.notNull(caretData, CaretData.getNullCaret());
@@ -171,9 +194,8 @@ public final class IterationState {
     myDefaultFontType = defaultAttributes == null ? Font.PLAIN : defaultAttributes.getFontType();
     myEditorHighlighters = createSweep(getEditorMarkupModel(editor));
     myDocumentHighlighters = createSweep(getDocumentMarkupModel(editor));
-    myGuardedBlocks =  useOnlyFullLineHighlighters ? null : buildGuardedBlocks(document.getGuardedBlocks(), start, end);
+    myGuardedBlocks = useOnlyFullLineHighlighters ? null : buildGuardedBlocks(document.getGuardedBlocks(), start, end);
     myEndOffset = myStartOffset;
-    myShouldUseNewSelection = editor instanceof EditorImpl impl && impl.shouldUseNewSelection();
     advance();
   }
 
@@ -183,7 +205,7 @@ public final class IterationState {
            myCaretData == CaretData.getNullCaret() &&
            offset >= myInitialStartOffset &&
            offset <= myStartOffset &&
-           !DocumentTextUtil.isInsideSurrogatePair(myDocument, offset);
+           !isInsideSurrogatePair(offset);
     if (offset == myStartOffset) return;
     if (myHighlighterIterator != null) {
       while (myHighlighterIterator.getStart() > offset) {
@@ -207,7 +229,7 @@ public final class IterationState {
            myCaretData == CaretData.getNullCaret() &&
            offset >= myStartOffset &&
            offset <= myEnd &&
-           !DocumentTextUtil.isInsideSurrogatePair(myDocument, offset);
+           !isInsideSurrogatePair(offset);
     if (offset == myStartOffset) return;
     myEndOffset = offset;
     advance();
@@ -216,6 +238,7 @@ public final class IterationState {
   @ApiStatus.Internal
   public void advance() {
     myNextIsFoldRegion = false;
+    myBreakComputed = false;
     myStartOffset = myEndOffset;
     advanceSegmentHighlighters();
     advanceCurrentSelectionIndex();
@@ -227,7 +250,7 @@ public final class IterationState {
     }
     if (myCurrentFold != null) {
       myEndOffset = myReverseIteration ? myCurrentFold.getStartOffset() : myCurrentFold.getEndOffset();
-      assert !DocumentTextUtil.isInsideSurrogatePair(myDocument, myEndOffset);
+      assert !isInsideSurrogatePair(myEndOffset);
     }
     else {
       int highlighterEnd = getHighlighterEnd(myStartOffset);
@@ -246,13 +269,13 @@ public final class IterationState {
 
       myNextIsFoldRegion = myEndOffset == foldRangesEnd && myEndOffset < myEnd;
 
-      assert !DocumentTextUtil.isInsideSurrogatePair(myDocument, myEndOffset) :
-        "caret: " + DocumentTextUtil.isInsideSurrogatePair(myDocument, caretEnd) +
-        ", selection: " + DocumentTextUtil.isInsideSurrogatePair(myDocument, selectionEnd) +
-        ", guarded block: " + DocumentTextUtil.isInsideSurrogatePair(myDocument, guardedBlockEnd) +
-        ", folding: " + DocumentTextUtil.isInsideSurrogatePair(myDocument, foldRangesEnd) +
-        ", lexer: " + DocumentTextUtil.isInsideSurrogatePair(myDocument, highlighterEnd) +
-        ", highlighters: " + DocumentTextUtil.isInsideSurrogatePair(myDocument, minSegmentHighlightersEnd);
+      assert !isInsideSurrogatePair(myEndOffset) :
+        "caret: " + isInsideSurrogatePair(caretEnd) +
+        ", selection: " + isInsideSurrogatePair(selectionEnd) +
+        ", guarded block: " + isInsideSurrogatePair(guardedBlockEnd) +
+        ", folding: " + isInsideSurrogatePair(foldRangesEnd) +
+        ", lexer: " + isInsideSurrogatePair(highlighterEnd) +
+        ", highlighters: " + isInsideSurrogatePair(minSegmentHighlightersEnd);
     }
 
     reinit();
@@ -263,16 +286,52 @@ public final class IterationState {
     return getBreakAttributes(false);
   }
 
+  /**
+   * Gives the attributes at a line break.
+   * The attributes are read-only, and they are valid as long as the list of {@link #getBreakBackgroundLayers(boolean)}.
+   */
   @ApiStatus.Internal
   public @NotNull TextAttributes getBreakAttributes(boolean beforeBreak) {
-    TextAttributes attributes = new TextAttributes();
-    setAttributes(attributes, true, beforeBreak);
-    return attributes;
+    computeAtBreak(beforeBreak);
+    return myBreakAttributes;
   }
 
   @ApiStatus.Internal
   public @NotNull TextAttributes getMergedAttributes() {
     return myMergedAttributes;
+  }
+
+  /**
+   * Gives the background layers of the current step, from the top layer down.
+   * The list is read-only, and it is valid until the next {@link #advance()}. A caller that keeps it longer must copy it.
+   */
+  @ApiStatus.Internal
+  public @NotNull List<BackgroundLayer> getBackgroundLayers() {
+    return myBackgroundLayers;
+  }
+
+  /**
+   * Gives the background layers at a line break, from the top layer down.
+   * The list is read-only. It is valid until the next {@link #advance()}, or until a call of this method or of
+   * {@link #getBreakAttributes(boolean)} with the other argument.
+   */
+  @ApiStatus.Internal
+  public @NotNull List<BackgroundLayer> getBreakBackgroundLayers(boolean beforeBreak) {
+    computeAtBreak(beforeBreak);
+    return myBreakLayers.isEmpty() ? Collections.emptyList() : myBreakLayersView;
+  }
+
+  /**
+   * Computes the attributes and the layers at a line break, once for each step and argument.
+   * Only the result of the last argument stays.
+   */
+  private void computeAtBreak(boolean beforeBreak) {
+    if (myBreakComputed && myBreakComputedBeforeBreak == beforeBreak) {
+      return;
+    }
+    setAttributes(myBreakAttributes, true, beforeBreak);
+    myBreakComputed = true;
+    myBreakComputedBeforeBreak = beforeBreak;
   }
 
   @ApiStatus.Internal
@@ -302,14 +361,31 @@ public final class IterationState {
 
   @ApiStatus.Internal
   public @NotNull TextAttributes getPastLineEndBackgroundAttributes() {
-    myMergedAttributes.setBackgroundColor(
-      hasSoftWrap()
-      ? getBreakBackgroundColor(true)
-      : myEditorRightAligned && myLastBackgroundColor != null
-        ? myLastBackgroundColor
-        : myCurrentBackgroundColor
-    );
+    List<BackgroundLayer> layers = getPastLineEndBackgroundLayers();
+    BackgroundLayer layer = ContainerUtil.find(layers, BackgroundLayer::getForcesBackground);
+    if (layer == null) {
+      layer = ContainerUtil.getFirstItem(layers);
+    }
+    myMergedAttributes.setBackgroundColor(layer == null ? myDefaultBackground : layer.getColor());
     return myMergedAttributes;
+  }
+
+  /**
+   * Gives the layers that fill the editor after the line end. A hugging layer is absent, because it stops at the text.
+   */
+  @ApiStatus.Internal
+  public @NotNull List<BackgroundLayer> getPastLineEndBackgroundLayers() {
+    List<BackgroundLayer> layers;
+    if (hasSoftWrap()) {
+      layers = getBreakBackgroundLayers(true);
+    }
+    else if (myEditorRightAligned && myLastBackgroundLayers != null) {
+      layers = myLastBackgroundLayers;
+    }
+    else {
+      layers = myBackgroundLayers;
+    }
+    return getFillingLayers(layers);
   }
 
   @ApiStatus.Internal
@@ -317,11 +393,30 @@ public final class IterationState {
     return isInSelection(hasSoftWrap());
   }
 
+  /**
+   * Gives the layers that fill the editor before the line start.
+   * In a right-aligned editor, this area is the empty left side of the line, also at a soft wrap. A hugging layer is
+   * absent there. In a left-aligned editor, this area is the indent after a soft wrap. A hugging layer stays there,
+   * because the hugging selection covers that indent.
+   */
   @ApiStatus.Internal
-  public @NotNull TextAttributes getBeforeLineStartBackgroundAttributes() {
-    return myEditorRightAligned && !hasSoftWrap()
-           ? getBreakAttributes()
-           : new TextAttributes(null, getBreakBackgroundColor(false), null, null, Font.PLAIN);
+  public @NotNull List<BackgroundLayer> getBeforeLineStartBackgroundLayers() {
+    List<BackgroundLayer> layers = getBreakBackgroundLayers(false);
+    return myEditorRightAligned ? getFillingLayers(layers) : layers;
+  }
+
+  /**
+   * Gives the layers without the hugging ones, in the same order.
+   * A hugging layer stops at the text, so it never fills the editor.
+   * When no layer hugs, the result is the given list, and it is valid as long as the given list.
+   */
+  static @NotNull List<BackgroundLayer> getFillingLayers(@NotNull List<BackgroundLayer> layers) {
+    for (int i = 0; i < layers.size(); i++) {
+      if (layers.get(i).getHugs()) {
+        return ContainerUtil.filter(layers, layer -> !layer.getHugs());
+      }
+    }
+    return layers;
   }
 
   private @NotNull HighlighterSweep createSweep(MarkupModelEx markupModel) {
@@ -385,11 +480,19 @@ public final class IterationState {
     return myEnd;
   }
 
+  private boolean isInsideSurrogatePair(int offset) {
+    CharSequence chars = myChars;
+    return 0 < offset &&
+           offset < chars.length() &&
+           Character.isHighSurrogate(chars.charAt(offset - 1)) &&
+           Character.isLowSurrogate(chars.charAt(offset));
+  }
+
   private int getGuardedBlockEnd(int start) {
     int end = myEnd;
     assert myReverseIteration && start >= end || !myReverseIteration && start <= end;
 
-    if (myUseOnlyFullLineHighlighters) {
+    if (myGuardedBlocks == null) {
       return end;
     }
 
@@ -428,7 +531,10 @@ public final class IterationState {
                                : lessThan(myCaretData.selectionStart(myCurrentSelectionIndex, false), myStartOffset, !atBreak));
   }
 
-  private @NotNull GuardedBlocksIndex buildGuardedBlocks(@NotNull List<RangeMarker> guardedBlocks, int start, int end) {
+  private @Nullable GuardedBlocksIndex buildGuardedBlocks(@NotNull List<RangeMarker> guardedBlocks, int start, int end) {
+    if (guardedBlocks.isEmpty()) {
+      return null;
+    }
     var guardedBlocksIndex = new GuardedBlocksIndex.DocumentBuilder(myDocument, guardedBlocks);
     return myReverseIteration
            ? guardedBlocksIndex.build(end, start)
@@ -436,7 +542,7 @@ public final class IterationState {
   }
 
   private boolean isInDocumentGuardedBlock(boolean atBreak, boolean beforeBreak) {
-    if (myUseOnlyFullLineHighlighters || (atBreak && beforeBreak)) {
+    if (myGuardedBlocks == null || (atBreak && beforeBreak)) {
       return false;
     }
     if (myReverseIteration) {
@@ -534,12 +640,147 @@ public final class IterationState {
   }
 
   private void reinit() {
-    setAttributes(myMergedAttributes, false, false);
-    myLastBackgroundColor = myCurrentBackgroundColor;
-    myCurrentBackgroundColor = myMergedAttributes.getBackgroundColor();
+    if (myEditorRightAligned && myBackgroundLayers != null) {
+      // a right-aligned editor fills after the line end with the layers of the previous step
+      myLastBackgroundLayers = List.copyOf(myBackgroundLayers);
+    }
+    myBackgroundLayers = setAttributes(myMergedAttributes, false, false);
   }
 
-  private void setAttributes(@NotNull TextAttributes attributes, boolean atBreak, boolean beforeBreak) {
+  private void addAttributes(
+    @NotNull List<BackgroundLayer> layers,
+    @NotNull TextAttributes attributes,
+    @Nullable BackgroundLayer layer
+  ) {
+    myCachedAttributesList.add(attributes);
+    if (layer != null) {
+      layers.add(layer);
+    }
+  }
+
+  /**
+   * Gives a background layer of this color, or null when the color is absent or the iteration reads no background.
+   */
+  private @Nullable BackgroundLayer createLayer(
+    @Nullable Color color,
+    int layer,
+    boolean rounded,
+    boolean hugs,
+    boolean forcesBackground,
+    int span
+  ) {
+    if (color == null || myUseOnlyFontOrForegroundAffectingHighlighters) {
+      return null;
+    }
+    return new BackgroundLayer(color, layer, rounded, hugs, forcesBackground, span);
+  }
+
+  /**
+   * Gives the layer of the selection, or null when the selection sets no background.
+   */
+  private @Nullable BackgroundLayer selectionLayer(@NotNull TextAttributes selection) {
+    if (mySelectionLayer == null) {
+      mySelectionLayer = createLayer(
+        selection.getBackgroundColor(),
+        HighlighterLayer.SELECTION,
+        myRoundedHighlighting,
+        myHuggingHighlighting,
+        false,
+        Integer.MAX_VALUE
+      );
+    }
+    return mySelectionLayer;
+  }
+
+  /**
+   * Gives the layer of the fold placeholder, or null when the placeholder sets no background.
+   */
+  private @Nullable BackgroundLayer foldLayer(@NotNull TextAttributes fold) {
+    if (myFoldLayer == null) {
+      myFoldLayer = createLayer(
+        fold.getBackgroundColor(),
+        HighlighterLayer.GUARDED_BLOCKS,
+        myRoundedHighlighting,
+        false,
+        false,
+        Integer.MAX_VALUE
+      );
+    }
+    return myFoldLayer;
+  }
+
+  /**
+   * Gives the layer of a guarded block, or null when the scheme sets no read-only color.
+   */
+  private @Nullable BackgroundLayer guardLayer() {
+    if (myGuardLayer == null) {
+      myGuardLayer = createLayer(
+        myReadOnlyColor,
+        HighlighterLayer.GUARDED_BLOCKS,
+        myRoundedHighlighting,
+        false,
+        true,
+        Integer.MAX_VALUE
+      );
+    }
+    return myGuardLayer;
+  }
+
+  /**
+   * Gives the layer of the caret row, or null when the caret row sets no background.
+   */
+  private @Nullable BackgroundLayer caretRowLayer(@NotNull TextAttributes caret) {
+    if (myCaretRowLayer == null) {
+      myCaretRowLayer = createLayer(
+        caret.getBackgroundColor(),
+        HighlighterLayer.CARET_ROW,
+        false,
+        false,
+        false,
+        Integer.MAX_VALUE
+      );
+    }
+    return myCaretRowLayer;
+  }
+
+  /**
+   * Gives the layer of these syntax attributes, or null when they set no background.
+   */
+  private @Nullable BackgroundLayer syntaxLayer(@NotNull TextAttributes syntax) {
+    if (mySyntaxAttributes != syntax) {
+      mySyntaxAttributes = syntax;
+      mySyntaxLayer = createLayer(
+        syntax.getBackgroundColor(),
+        HighlighterLayer.SYNTAX,
+        false,
+        false,
+        false,
+        Integer.MAX_VALUE
+      );
+    }
+    return mySyntaxLayer;
+  }
+
+  /**
+   * Gives the attributes of a guarded block of this iteration.
+   */
+  private @NotNull TextAttributes guardAttributes() {
+    if (myGuardAttributes == null) {
+      myGuardAttributes = new TextAttributes(null, myReadOnlyColor, null, EffectType.BOXED, Font.PLAIN);
+    }
+    return myGuardAttributes;
+  }
+
+  private @NotNull List<BackgroundLayer> setAttributes(@NotNull TextAttributes attributes, boolean atBreak, boolean beforeBreak) {
+    List<BackgroundLayer> layers;
+    List<BackgroundLayer> layersView;
+    if (atBreak) {
+      layers = myBreakLayers;
+      layersView = myBreakLayersView;
+    } else {
+      layers = myStepLayers;
+      layersView = myStepLayersView;
+    }
     boolean isInSelection = isInSelection(atBreak);
     boolean isInCaretRow = isInCaretRow(
       !myReverseIteration && (!atBreak || !beforeBreak),
@@ -553,15 +794,9 @@ public final class IterationState {
                               ? null
                               : myHighlighterIterator.getTextAttributes();
     TextAttributes selection = getSelectionAttributes(isInSelection);
-    if (myShouldUseNewSelection && selection != null) {
-      selection = selection.clone();
-      selection.setBackgroundColor(null);
-    }
     TextAttributes caret = getCaretRowAttributes(isInCaretRow);
     TextAttributes fold = myCurrentFold != null ? myFoldTextAttributes : null;
-    TextAttributes guard = isInGuardedBlock
-                           ? new TextAttributes(null, myReadOnlyColor, null, EffectType.BOXED, Font.PLAIN)
-                           : null;
+    TextAttributes guard = isInGuardedBlock ? guardAttributes() : null;
 
     int size = myCurrentHighlighters.size();
     if (size > 1) {
@@ -577,6 +812,7 @@ public final class IterationState {
 
     List<TextAttributes> cachedAttributes = myCachedAttributesList;
     if (!cachedAttributes.isEmpty()) cachedAttributes.clear();
+    if (!layers.isEmpty()) layers.clear();
 
     for (int i = 0; i < size; i++) {
       RangeHighlighterEx highlighter = myCurrentHighlighters.get(i);
@@ -587,42 +823,50 @@ public final class IterationState {
       }
       if (highlighter.getLayer() < HighlighterLayer.SELECTION) {
         if (selection != null) {
-          cachedAttributes.add(selection);
+          addAttributes(layers, selection, selectionLayer(selection));
           selection = null;
         }
       }
 
       if (fold != null && highlighter.getLayer() < HighlighterLayer.GUARDED_BLOCKS) {
-        cachedAttributes.add(fold);
+        addAttributes(layers, fold, foldLayer(fold));
         fold = null;
       }
 
       if (guard != null && highlighter.getLayer() < HighlighterLayer.GUARDED_BLOCKS) {
-        cachedAttributes.add(guard);
+        addAttributes(layers, guard, guardLayer());
         guard = null;
       }
 
       if (caret != null && highlighter.getLayer() < HighlighterLayer.CARET_ROW) {
-        cachedAttributes.add(caret);
+        addAttributes(layers, caret, caretRowLayer(caret));
         caret = null;
       }
 
       if (syntax != null && highlighter.getLayer() < HighlighterLayer.SYNTAX) {
-        cachedAttributes.add(syntax);
+        addAttributes(layers, syntax, syntaxLayer(syntax));
         syntax = null;
       }
 
       TextAttributes textAttributes = highlighter.getTextAttributes(myColorsScheme);
       if (textAttributes != null && textAttributes != TextAttributes.ERASE_MARKER) {
-        cachedAttributes.add(textAttributes);
+        BackgroundLayer layer = createLayer(
+          textAttributes.getBackgroundColor(),
+          highlighter.getLayer(),
+          BackgroundLayer.isRounded(highlighter.getTargetArea(), myRoundedHighlighting),
+          false,
+          false,
+          highlighter.getAffectedAreaEndOffset() - highlighter.getAffectedAreaStartOffset()
+        );
+        addAttributes(layers, textAttributes, layer);
       }
     }
 
-    if (selection != null) cachedAttributes.add(selection);
-    if (fold != null) cachedAttributes.add(fold);
-    if (guard != null) cachedAttributes.add(guard);
-    if (caret != null) cachedAttributes.add(caret);
-    if (syntax != null) cachedAttributes.add(syntax);
+    if (selection != null) addAttributes(layers, selection, selectionLayer(selection));
+    if (fold != null) addAttributes(layers, fold, foldLayer(fold));
+    if (guard != null) addAttributes(layers, guard, guardLayer());
+    if (caret != null) addAttributes(layers, caret, caretRowLayer(caret));
+    if (syntax != null) addAttributes(layers, syntax, syntaxLayer(syntax));
 
     Color fore = null;
     Color back = isInGuardedBlock ? myReadOnlyColor : null;
@@ -665,6 +909,7 @@ public final class IterationState {
     if (effectsBuilder != null) {
       effectsBuilder.applyTo(attributes);
     }
+    return layers.isEmpty() ? Collections.emptyList() : layersView;
   }
 
   private boolean isInCaretRow(boolean includeLineStart, boolean includeLineEnd) {
@@ -685,16 +930,12 @@ public final class IterationState {
     return isInCaretRow ? myCaretRowAttributes : null;
   }
 
-  private Color getBreakBackgroundColor(boolean lineEnd) {
-    return getBreakAttributes(lineEnd).getBackgroundColor();
-  }
-
   private boolean hasSoftWrap() {
     return mySoftWrapModel.getSoftWrap(myStartOffset) != null;
   }
 
   private int alignOffset(int offset) {
-    return DocumentTextUtil.alignToCodePointBoundary(myDocument, offset);
+    return isInsideSurrogatePair(offset) ? offset - 1 : offset;
   }
 
   private int getAlignedStartOffset(@NotNull RangeHighlighterEx highlighter) {

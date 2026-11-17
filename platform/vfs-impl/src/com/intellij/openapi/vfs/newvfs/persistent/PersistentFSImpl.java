@@ -23,7 +23,6 @@ import com.intellij.openapi.progress.util.PingProgress;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectLocator;
 import com.intellij.openapi.util.Comparing;
-import com.intellij.openapi.util.EmptyRunnable;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.ShutDownTracker;
@@ -1464,56 +1463,11 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
     return Cancellation.withNonCancelableSection();
   }
 
-  private static void runSuppressing(@NotNull Runnable r1,
-                              @NotNull Runnable r2,
-                              @NotNull Runnable r3) {
-    runSuppressing(r1, r2, r3, EmptyRunnable.INSTANCE, EmptyRunnable.INSTANCE, EmptyRunnable.INSTANCE);
-  }
-
-  private static void runSuppressing(@NotNull Runnable r1,
-                                     @NotNull Runnable r2,
-                                     @NotNull Runnable r3,
-                                     @NotNull Runnable r4,
-                                     @NotNull Runnable r5,
-                                     @NotNull Runnable r6) {
+  private static void runSuppressing(@NotNull Runnable @NotNull ... runnables) {
     Throwable t = null;
-    try {
-      r1.run();
-    }
-    catch (Throwable e) {
-      t = Suppressions.addSuppressed(t, e);
-    }
-    try {
-      r2.run();
-    }
-    catch (Throwable e) {
-      t = Suppressions.addSuppressed(t, e);
-    }
-    try {
-      r3.run();
-    }
-    catch (Throwable e) {
-      t = Suppressions.addSuppressed(t, e);
-    }
-    if (r4 != EmptyRunnable.INSTANCE) {
+    for (Runnable runnable : runnables) {
       try {
-        r4.run();
-      }
-      catch (Throwable e) {
-        t = Suppressions.addSuppressed(t, e);
-      }
-    }
-    if (r5 != EmptyRunnable.INSTANCE) {
-      try {
-        r5.run();
-      }
-      catch (Throwable e) {
-        t = Suppressions.addSuppressed(t, e);
-      }
-    }
-    if (r6 != EmptyRunnable.INSTANCE) {
-      try {
-        r6.run();
+        runnable.run();
       }
       catch (Throwable e) {
         t = Suppressions.addSuppressed(t, e);
@@ -1979,31 +1933,55 @@ public final class PersistentFSImpl extends PersistentFS implements Disposable {
                                             @NotNull Collection<VFileCreateEvent> createEvents) {
     int parentId = fileId(parent);
     NewVirtualFile vf = findFileById(parentId);
-    if (!(vf instanceof VirtualDirectoryImpl)) {
+    if (!(vf instanceof VirtualDirectoryImpl parentDir)) {
       return;
     }
-    parent = (VirtualDirectoryImpl)vf;
-    NewVirtualFileSystem fs = fileSystemOf(parent);
+    NewVirtualFileSystem fs = fileSystemOf(parentDir);
+    boolean caseSensitive = parentDir.isCaseSensitive();
 
-    List<ChildInfo> childrenAdded = new ArrayList<>(createEvents.size());
+    // Collect child attributes outside the vfsPeer.update()'s lock:
+    record PreparedCreation(VFileCreateEvent event, Pair<@NotNull FileAttributes, String> childData) { }
+    Map<String, PreparedCreation> preparedCreations = createFilePathMap(createEvents.size(), caseSensitive);
     for (VFileCreateEvent createEvent : createEvents) {
       createEvent.resetCache();
       String name = createEvent.getChildName();
       Pair<@NotNull FileAttributes, String> childData =
         getChildData(fs, createEvent.getParent(), name, createEvent.getAttributes(), createEvent.getSymlinkTarget());
       if (childData != null) {
-        ChildInfo child = makeChildRecord(parent, parentId, name, childData, fs, createEvent.getChildren(), createEvent.isAllChildren());
-        childrenAdded.add(child);
+        preparedCreations.putIfAbsent(name, new PreparedCreation(createEvent, childData));
       }
     }
-    childrenAdded.sort(ChildInfo.BY_ID);
-    boolean caseSensitive = parent.isCaseSensitive();
+    var childrenToInitialize = new ArrayList<ChildInfo>(preparedCreations.size());
+    vfsPeer.update(parentDir, parentId, oldChildren -> {
+      // Child name uniqueness is already checked in dir.validateChildrenToCreate(createEvents) before events are processed,
+      // but children could change a) in 'before' listeners, after validation b) by parallel dir.findChild(name) lookup without
+      // RA around (aka 'local refresh'). So we _must_ re-check it again, under exclusive lock:
+      Map<String, ChildInfo> existingChildren = createFilePathMap(oldChildren.children.size(), caseSensitive);
+      for (ChildInfo child : oldChildren.children) {
+        existingChildren.put(child.getName().toString(), child);
+      }
+      for (PreparedCreation prepared : preparedCreations.values()) {
+        VFileCreateEvent event = prepared.event();
+        String name = event.getChildName();
+        ChildInfo existing = existingChildren.get(name);
+        if (existing == null) {
+          childrenToInitialize.add(makeChildRecord(parentDir, parentId, name, prepared.childData(), fs, event.getChildren(), event.isAllChildren()));
+        }
+        else {
+          FileAttributes fileAttributes = prepared.childData().first;
+          String symLinkTarget = prepared.childData().second;
+          childrenToInitialize.add(new ChildInfoImpl(existing.getId(), existing.getNameId(), fileAttributes,
+                                                     event.getChildren(), symLinkTarget, event.isAllChildren()));
+        }
+      }
+      childrenToInitialize.sort(ChildInfo.BY_ID);
+      return oldChildren.merge(vfsPeer, childrenToInitialize, caseSensitive);
+    }, /*setAllChildrenCached: */ false);
     //@formatter:off
-    vfsPeer.update(parent, parentId, oldChildren -> oldChildren.merge(vfsPeer, childrenAdded, caseSensitive), /*setAllChildrenCached: */ false);
-    parent.initializeAndAddChildren(childrenAdded, /*allChildrenLoaded: */ false, (__, ___) -> { });
+    parentDir.initializeAndAddChildren(childrenToInitialize, /*allChildrenLoaded: */ false, (__, ___) -> { });
     //@formatter:on
 
-    saveScannedChildrenRecursively(createEvents, fs, parent.isCaseSensitive());
+    saveScannedChildrenRecursively(createEvents, fs, caseSensitive);
   }
 
   private void saveScannedChildrenRecursively(@NotNull Collection<VFileCreateEvent> createEvents,

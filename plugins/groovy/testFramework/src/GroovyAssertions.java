@@ -3,18 +3,53 @@ package com.intellij.groovy.testFramework;
 
 import com.intellij.psi.PsiIntersectionType;
 import com.intellij.psi.PsiType;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import static com.intellij.testFramework.UsefulTestCase.assertEquals;
-import static com.intellij.testFramework.UsefulTestCase.assertNotNull;
-import static com.intellij.testFramework.UsefulTestCase.assertNull;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 public final class GroovyAssertions {
 
   private GroovyAssertions() { }
+
+  public static <T> T assertOneElement(@NotNull Collection<? extends T> collection) {
+    assertEquals(1, collection.size(), collection::toString);
+    return collection.iterator().next();
+  }
+
+  public static <T> T assertOneElement(T @NotNull [] array) {
+    assertEquals(1, array.length, () -> Arrays.toString(array));
+    return array[0];
+  }
+
+  public static void assertSize(int expectedSize, @NotNull Collection<?> collection) {
+    assertEquals(expectedSize, collection.size(), collection::toString);
+  }
+
+  public static void assertSize(int expectedSize, Object @NotNull [] array) {
+    assertEquals(expectedSize, array.length, () -> Arrays.toString(array));
+  }
+
+  /**
+   * Checks that [collection] contains each of [expected], as {@code UsefulTestCase.assertContainsElements} does.
+   * Like the original, it compares sets, so an element that [collection] contains more than once passes.
+   */
+  @SafeVarargs
+  public static <T> void assertContainsElements(@NotNull Collection<? extends T> collection, T @NotNull ... expected) {
+    List<T> found = new ArrayList<>(collection);
+    found.retainAll(Arrays.asList(expected));
+    assertEquals(new HashSet<>(Arrays.asList(expected)), new HashSet<>(found), collection::toString);
+  }
 
   public static void assertType(@Nullable String expected, @Nullable PsiType actual) {
     if (expected == null) {

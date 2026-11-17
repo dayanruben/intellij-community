@@ -2,13 +2,26 @@
 package org.jetbrains.plugins.groovy.completion;
 
 import com.intellij.codeInsight.completion.CompletionType;
-import com.intellij.testFramework.LightProjectDescriptor;
-import org.jetbrains.annotations.NotNull;
+import com.intellij.testFramework.EdtTestUtil;
+import com.intellij.testFramework.fixtures.LightJavaProject;
+import com.intellij.testFramework.junit5.TestApplication;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
 import org.jetbrains.plugins.groovy.GroovyProjectDescriptors;
+import org.jetbrains.plugins.groovy.util.TestUtils;
+import org.junit.jupiter.api.Test;
 
-public class NamedParamsCompletionTest extends GroovyCompletionTestBase {
+import static com.intellij.testFramework.EdtTestUtil.runInEdtAndWait;
+import static com.intellij.testFramework.fixtures.LightJavaFixturesKt.lightJavaProjectFixture;
+import static org.jetbrains.plugins.groovy.completion.GroovyCompletionFixtureKt.groovyCompletionFixture;
+
+@TestApplication
+public class NamedParamsCompletionTest {
+  private static final TestFixture<LightJavaProject> project = lightJavaProjectFixture(GroovyProjectDescriptors.GROOVY_2_5);
+  private final TestFixture<GroovyCompletionFixture> completion = groovyCompletionFixture(project, TestUtils.getAbsoluteTestDataPath());
+
+  @Test
   public void testWithSetter() {
-    doCompletionTest("""
+    completion.get().doCompletionTest("""
                        import groovy.transform.NamedDelegate
                        import groovy.transform.NamedVariant
                        
@@ -41,14 +54,15 @@ public class NamedParamsCompletionTest extends GroovyCompletionTestBase {
                        """, CompletionType.BASIC);
   }
 
+  @Test
   public void testWithJava() {
-    myFixture.configureByText("A.java", """
+    completion.get().getFixture().configureByText("A.java", """
       
       class A {
         public void setParam(int tt){}
       }
       """);
-    doCompletionTest("""
+    completion.get().doCompletionTest("""
                        import groovy.transform.NamedDelegate
                        import groovy.transform.NamedVariant
                        
@@ -71,8 +85,9 @@ public class NamedParamsCompletionTest extends GroovyCompletionTestBase {
                        """, CompletionType.BASIC);
   }
 
+  @Test
   public void testWithSeveralVariants() {
-    doVariantableTest("""
+    completion.get().doVariantableTest("""
                         import groovy.transform.NamedDelegate
                         import groovy.transform.NamedVariant
                         
@@ -90,12 +105,13 @@ public class NamedParamsCompletionTest extends GroovyCompletionTestBase {
                         """, CompletionType.BASIC, "param1", "param2");
   }
 
+  @Test
   public void testWithNamedParams() {
-    myFixture.addClass("""
+    completion.get().getFixture().addClass("""
                          package com.foo;
                          public class MyCoolClass {}
                          """);
-    doVariantableTest("""
+    completion.get().doVariantableTest("""
                         import groovy.transform.NamedParam
                         import groovy.transform.NamedVariant
                         import com.foo.MyCoolClass
@@ -109,12 +125,13 @@ public class NamedParamsCompletionTest extends GroovyCompletionTestBase {
                         """, CompletionType.BASIC, "param1", "param2");
   }
 
+  @Test
   public void testNamedParamsWithValue() {
-    myFixture.addClass("""
+    completion.get().getFixture().addClass("""
                          package com.foo;
                          public class MyCoolClass {}
                          """);
-    doCompletionTest("""
+    completion.get().doCompletionTest("""
                        import groovy.transform.NamedParam
                        import groovy.transform.NamedVariant
                        import com.foo.MyCoolClass
@@ -139,8 +156,4 @@ public class NamedParamsCompletionTest extends GroovyCompletionTestBase {
                        """, CompletionType.BASIC);
   }
 
-  @Override
-  public final @NotNull LightProjectDescriptor getProjectDescriptor() {
-    return GroovyProjectDescriptors.GROOVY_2_5;
-  }
 }

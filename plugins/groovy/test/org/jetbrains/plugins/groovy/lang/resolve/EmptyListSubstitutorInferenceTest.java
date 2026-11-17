@@ -4,19 +4,38 @@ package org.jetbrains.plugins.groovy.lang.resolve;
 import com.intellij.groovy.testFramework.ResolveTest;
 import com.intellij.groovy.testFramework.TypingTest;
 import com.intellij.openapi.util.RecursionManager;
+import com.intellij.testFramework.EdtTestUtil;
+import com.intellij.testFramework.fixtures.JavaCodeInsightTestFixture;
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightTestFixture;
+import com.intellij.testFramework.fixtures.LightJavaProject;
+import com.intellij.testFramework.junit5.TestApplication;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.plugins.groovy.GroovyProjectDescriptors;
 import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.GrListOrMap;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrMethodCall;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrReferenceExpression;
-import org.jetbrains.plugins.groovy.util.GroovyLatestTest;
-import org.junit.Before;
-import org.junit.Ignore;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Test;
 
-public class EmptyListSubstitutorInferenceTest extends GroovyLatestTest implements TypingTest, ResolveTest {
+import static com.intellij.testFramework.EdtTestUtil.runInEdtAndWait;
+import static com.intellij.testFramework.fixtures.LightJavaFixturesKt.lightJavaCodeInsightFixture;
+import static com.intellij.testFramework.fixtures.LightJavaFixturesKt.lightJavaProjectFixture;
 
-  @Before
+@TestApplication
+public class EmptyListSubstitutorInferenceTest implements TypingTest, ResolveTest {
+  private static final TestFixture<LightJavaProject> project = lightJavaProjectFixture(GroovyProjectDescriptors.GROOVY_2_5);
+  private final TestFixture<LightJavaCodeInsightTestFixture> groovy = lightJavaCodeInsightFixture(project);
+
+  @Override
+  public @NotNull JavaCodeInsightTestFixture getFixture() {
+    return groovy.get();
+  }
+
+  @BeforeEach
   public void disableRecursion() {
-    RecursionManager.assertOnRecursionPrevention(getFixture().getTestRootDisposable());
+    runInEdtAndWait(() -> RecursionManager.assertOnRecursionPrevention(getFixture().getTestRootDisposable()));
   }
 
   @Test
@@ -95,7 +114,7 @@ public class EmptyListSubstitutorInferenceTest extends GroovyLatestTest implemen
     typingTest("def <T> List<T> add(List<T> l, T v) {}; <caret>add([], 1)", GrMethodCall.class, "java.util.List<java.lang.Integer>");
   }
 
-  @Ignore("Requires list literal inference from both arguments and context type")
+  @Disabled("Requires list literal inference from both arguments and context type")
   @Test
   public void emptyListLiteralFromOuterListLiteral() {
     typingTest("List<List<Integer>> l = [[<caret>]]", GrListOrMap.class, "java.util.List<java.lang.Integer>");

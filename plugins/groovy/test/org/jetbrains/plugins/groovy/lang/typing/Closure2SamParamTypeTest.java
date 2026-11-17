@@ -2,21 +2,33 @@
 package org.jetbrains.plugins.groovy.lang.typing;
 
 import com.intellij.groovy.testFramework.TypingTest;
-import com.intellij.testFramework.LightProjectDescriptor;
+import com.intellij.testFramework.EdtTestUtil;
+import com.intellij.testFramework.fixtures.JavaCodeInsightTestFixture;
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightTestFixture;
+import com.intellij.testFramework.fixtures.LightJavaProject;
+import com.intellij.testFramework.junit5.TestApplication;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.groovy.GroovyProjectDescriptors;
-import org.jetbrains.plugins.groovy.util.LightProjectTest;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import static com.intellij.psi.CommonClassNames.JAVA_LANG_STRING;
+import static com.intellij.testFramework.EdtTestUtil.runInEdtAndWait;
+import static com.intellij.testFramework.fixtures.LightJavaFixturesKt.lightJavaCodeInsightFixture;
+import static com.intellij.testFramework.fixtures.LightJavaFixturesKt.lightJavaProjectFixture;
 
-public class Closure2SamParamTypeTest extends LightProjectTest implements TypingTest {
+@TestApplication
+public class Closure2SamParamTypeTest implements TypingTest {
+  private static final TestFixture<LightJavaProject> project = lightJavaProjectFixture(GroovyProjectDescriptors.GROOVY_LATEST);
+  private final TestFixture<LightJavaCodeInsightTestFixture> groovy = lightJavaCodeInsightFixture(project);
+
   @Override
-  public LightProjectDescriptor getProjectDescriptor() {
-    return GroovyProjectDescriptors.GROOVY_LATEST;
+  public @NotNull JavaCodeInsightTestFixture getFixture() {
+    return groovy.get();
   }
 
-  @Before
+  @BeforeEach
   public void addClasses() {
     getFixture().addFileToProject("classes.groovy", """
       interface I { def foo(String s) }

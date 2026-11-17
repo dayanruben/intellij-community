@@ -3,34 +3,57 @@ package org.jetbrains.plugins.groovy.completion;
 
 import com.intellij.codeInsight.completion.CompletionType;
 import com.intellij.codeInsight.lookup.LookupElement;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.psi.PsiMethod;
+import com.intellij.testFramework.EdtTestUtil;
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightTestFixture;
+import com.intellij.testFramework.fixtures.LightJavaProject;
+import com.intellij.testFramework.junit5.TestApplication;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
 import com.intellij.util.containers.ContainerUtil;
+import org.junit.jupiter.api.Test;
 
-public class JavaWithGroovyCompletionTest extends GroovyCompletionTestBase {
+import static com.intellij.testFramework.EdtTestUtil.runInEdtAndWait;
+import static com.intellij.testFramework.fixtures.LightJavaFixturesKt.lightJavaCodeInsightFixture;
+import static com.intellij.testFramework.fixtures.LightJavaFixturesKt.lightJavaProjectFixture;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+@TestApplication
+public class JavaWithGroovyCompletionTest {
+  private static final TestFixture<LightJavaProject> project = lightJavaProjectFixture();
+  private final TestFixture<LightJavaCodeInsightTestFixture> groovy = lightJavaCodeInsightFixture(project);
+
+  @Test
   public void test_using_java_keywords_in_member_names() {
-    myFixture.addFileToProject("a.groovy", """
+    groovy.get().addFileToProject("a.groovy", """
       class Foo {
         static void "const"() {}
         static final int "continue" = 2;
       }
       """);
-    myFixture.configureByText("a.java", "class Bar {{ con<caret> }}");
-    myFixture.complete(CompletionType.BASIC, 2);
-    assertDoesntContain(myFixture.getLookupElementStrings(), "const");
-    assertDoesntContain(myFixture.getLookupElementStrings(), "continue");
+    groovy.get().configureByText("a.java", "class Bar {{ con<caret> }}");
+    groovy.get().complete(CompletionType.BASIC, 2);
+    runInEdtAndWait(() -> {
+      assertFalse(groovy.get().getLookupElementStrings().contains("const"));
+      assertFalse(groovy.get().getLookupElementStrings().contains("continue"));
+    });
   }
 
+  @Test
   public void test_using_java_expression_keywords_in_member_names() {
-    myFixture.addFileToProject("a.groovy", """
+    groovy.get().addFileToProject("a.groovy", """
       class Foo {
         static void "this"() {}
       }
       """);
-    myFixture.configureByText("a.java", "class Bar {{ this<caret> }}");
-    myFixture.complete(CompletionType.BASIC, 2);
-    LookupElement[] elements = myFixture.getLookupElements();
-    assertTrue(elements == null || ContainerUtil.find(elements,
-                                                      element -> element.getLookupString().equals("this") &&
-                                                                 element.getObject() instanceof PsiMethod) == null);
+    groovy.get().configureByText("a.java", "class Bar {{ this<caret> }}");
+    groovy.get().complete(CompletionType.BASIC, 2);
+    LookupElement[] elements = groovy.get().getLookupElements();
+    ReadAction.run(() -> {
+      assertTrue(elements == null || ContainerUtil.find(elements,
+                                                        element -> element.getLookupString().equals("this") &&
+                                                                   element.getObject() instanceof PsiMethod) == null);
+    });
   }
 }

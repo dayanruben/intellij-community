@@ -3,18 +3,37 @@ package org.jetbrains.plugins.groovy.lang.highlighting;
 
 import com.intellij.analysis.AnalysisBundle;
 import com.intellij.grazie.spellcheck.GrazieSpellCheckingInspection;
+import com.intellij.testFramework.EdtTestUtil;
 import com.intellij.testFramework.fixtures.JavaCodeInsightTestFixture;
-import org.jetbrains.plugins.groovy.util.GroovyLatestTest;
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightTestFixture;
+import com.intellij.testFramework.fixtures.LightJavaProject;
+import com.intellij.testFramework.junit5.TestApplication;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.plugins.groovy.GroovyProjectDescriptors;
 import org.jetbrains.plugins.groovy.util.HighlightingTest;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-public class GrSuppressionTest extends GroovyLatestTest implements HighlightingTest {
+import static com.intellij.testFramework.EdtTestUtil.runInEdtAndWait;
+import static com.intellij.testFramework.fixtures.LightJavaFixturesKt.lightJavaCodeInsightFixture;
+import static com.intellij.testFramework.fixtures.LightJavaFixturesKt.lightJavaProjectFixture;
+
+@TestApplication
+public class GrSuppressionTest implements HighlightingTest {
+  private static final TestFixture<LightJavaProject> project = lightJavaProjectFixture(GroovyProjectDescriptors.GROOVY_2_5);
+  private final TestFixture<LightJavaCodeInsightTestFixture> groovy = lightJavaCodeInsightFixture(project);
+
+  @Override
+  public @NotNull JavaCodeInsightTestFixture getFixture() {
+    return groovy.get();
+  }
+
   private void doTest(String before, String after) {
     JavaCodeInsightTestFixture fixture = getFixture();
     fixture.enableInspections(GrazieSpellCheckingInspection.class);
     configureByText(before);
     fixture.checkHighlighting();
-    fixture.launchAction(fixture.getAvailableIntention(AnalysisBundle.message("suppress.inspection.file")));
+    runInEdtAndWait(() -> fixture.launchAction(fixture.getAvailableIntention(AnalysisBundle.message("suppress.inspection.file"))));
     fixture.checkResult(after);
   }
 

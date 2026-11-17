@@ -1,11 +1,28 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.groovy.completion.builder;
 
+import com.intellij.testFramework.EdtTestUtil;
+import com.intellij.testFramework.fixtures.LightJavaProject;
+import com.intellij.testFramework.junit5.TestApplication;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
+import org.jetbrains.plugins.groovy.GroovyProjectDescriptors;
 import org.jetbrains.plugins.groovy.completion.CompletionResult;
+import org.jetbrains.plugins.groovy.completion.GroovyCompletionFixture;
+import org.jetbrains.plugins.groovy.util.TestUtils;
+import org.junit.jupiter.api.Test;
 
-public class GrSimpleBuilderStrategyTest extends GrBuilderTransformationCompletionTestBase {
+import static com.intellij.testFramework.EdtTestUtil.runInEdtAndWait;
+import static com.intellij.testFramework.fixtures.LightJavaFixturesKt.lightJavaProjectFixture;
+import static org.jetbrains.plugins.groovy.completion.GroovyCompletionFixtureKt.groovyCompletionFixture;
+
+@TestApplication
+public class GrSimpleBuilderStrategyTest {
+  private static final TestFixture<LightJavaProject> project = lightJavaProjectFixture(GroovyProjectDescriptors.GROOVY_LATEST);
+  private final TestFixture<GroovyCompletionFixture> completion = groovyCompletionFixture(project, TestUtils.getAbsoluteTestDataPath());
+
+  @Test
   public void test_no_prefix() {
-    doCompletionTest("""
+    completion.get().doCompletionTest("""
                        import groovy.transform.builder.Builder
                        import groovy.transform.builder.SimpleStrategy
                        
@@ -21,7 +38,7 @@ public class GrSimpleBuilderStrategyTest extends GrBuilderTransformationCompleti
                        new Pojo().<caret>
                        """, "setName", "setDynamic", "setCounter", "method");
 
-    doCompletionTest("""
+    completion.get().doCompletionTest("""
                        import groovy.transform.builder.Builder
                        import groovy.transform.builder.SimpleStrategy
                        
@@ -38,8 +55,9 @@ public class GrSimpleBuilderStrategyTest extends GrBuilderTransformationCompleti
                        """, CompletionResult.notContain, "build");
   }
 
+  @Test
   public void test_empty_prefix() {
-    doCompletionTest("""
+    completion.get().doCompletionTest("""
                        import groovy.transform.builder.Builder
                        import groovy.transform.builder.SimpleStrategy
                        
@@ -56,8 +74,9 @@ public class GrSimpleBuilderStrategyTest extends GrBuilderTransformationCompleti
                        """, "name", "dynamic", "counter", "method");
   }
 
+  @Test
   public void test_custom_prefix() {
-    doCompletionTest("""
+    completion.get().doCompletionTest("""
                        import groovy.transform.builder.Builder
                        import groovy.transform.builder.SimpleStrategy
                        
@@ -74,8 +93,9 @@ public class GrSimpleBuilderStrategyTest extends GrBuilderTransformationCompleti
                        """, "customName", "customDynamic", "customCounter", "method");
   }
 
+  @Test
   public void test_null_prefix() {
-    doCompletionTest("""
+    completion.get().doCompletionTest("""
                        import groovy.transform.builder.Builder
                        import groovy.transform.builder.SimpleStrategy
                        
@@ -92,8 +112,9 @@ public class GrSimpleBuilderStrategyTest extends GrBuilderTransformationCompleti
                        """, "setName", "setDynamic", "setCounter", "method");
   }
 
+  @Test
   public void test_spaces_prefix() {
-    doCompletionTest("""
+    completion.get().doCompletionTest("""
                        import groovy.transform.builder.Builder
                        import groovy.transform.builder.SimpleStrategy
                        
@@ -110,8 +131,9 @@ public class GrSimpleBuilderStrategyTest extends GrBuilderTransformationCompleti
                        """, "   Name", "   Dynamic", "   Counter", "method");
   }
 
+  @Test
   public void test_next_setter() {
-    doCompletionTest("""
+    completion.get().doCompletionTest("""
                        import groovy.transform.builder.Builder
                        import groovy.transform.builder.SimpleStrategy
                        
@@ -128,8 +150,9 @@ public class GrSimpleBuilderStrategyTest extends GrBuilderTransformationCompleti
                        """, "setName", "setDynamic", "setCounter", "method");
   }
 
+  @Test
   public void test_one_more_setter_further() {
-    doCompletionTest("""
+    completion.get().doCompletionTest("""
                        import groovy.transform.builder.Builder
                        import groovy.transform.builder.SimpleStrategy
                        
@@ -146,8 +169,9 @@ public class GrSimpleBuilderStrategyTest extends GrBuilderTransformationCompleti
                        """, "setName", "setDynamic", "setCounter", "method");
   }
 
+  @Test
   public void test_next_setter_with_prefix() {
-    doCompletionTest("""
+    completion.get().doCompletionTest("""
                        import groovy.transform.builder.Builder
                        import groovy.transform.builder.SimpleStrategy
                        
@@ -164,8 +188,9 @@ public class GrSimpleBuilderStrategyTest extends GrBuilderTransformationCompleti
                        """, "lolName", "lolDynamic", "lolCounter", "method");
   }
 
+  @Test
   public void test_one_more_setter_further_with_prefix() {
-    doCompletionTest("""
+    completion.get().doCompletionTest("""
                        import groovy.transform.builder.Builder
                        import groovy.transform.builder.SimpleStrategy
                        
@@ -182,8 +207,9 @@ public class GrSimpleBuilderStrategyTest extends GrBuilderTransformationCompleti
                        """, "lolName", "lolDynamic", "lolCounter", "method");
   }
 
+  @Test
   public void test_return_type_with_include_super() {
-    doCompletionTest("""
+    completion.get().doCompletionTest("""
                        import groovy.transform.builder.Builder
                        import groovy.transform.builder.SimpleStrategy
                        

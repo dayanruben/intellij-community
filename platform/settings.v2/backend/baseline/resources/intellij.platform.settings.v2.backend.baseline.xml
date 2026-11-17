@@ -5,6 +5,7 @@
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.editor.ui"/>
     <module name="intellij.platform.ide.core"/>
+    <module name="intellij.platform.ide.impl"/>
     <module name="intellij.platform.ide.progress"/>
     <module name="intellij.platform.projectModel"/>
     <module name="intellij.platform.settings.v2"/>
@@ -15,6 +16,8 @@
     <postStartupActivity implementation="com.intellij.platform.settings.v2.impl.ProjectSettingsLoadActivity"/>
     <applicationService serviceInterface="com.intellij.platform.settings.v2.ContextFactory"
                         serviceImplementation="com.intellij.platform.settings.v2.impl.BackendSettingsContextFactory"/>
+    <search.topHitProvider implementation="com.intellij.platform.settings.v2.impl.ApplicationTeamEditingModeOptionProvider"/>
+    <search.projectOptionsTopHitProvider implementation="com.intellij.platform.settings.v2.impl.ProjectTeamEditingModeOptionProvider"/>
   </extensions>
   <applicationListeners>
     <listener class="com.intellij.platform.settings.v2.impl.SettingsProjectListener"

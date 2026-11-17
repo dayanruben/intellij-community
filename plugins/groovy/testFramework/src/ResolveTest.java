@@ -1,6 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.groovy.testFramework;
 
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiMethod;
@@ -15,14 +16,14 @@ import org.jetbrains.plugins.groovy.lang.resolve.delegatesTo.DelegatesToInfo;
 
 import java.util.Collection;
 
+import static com.intellij.groovy.testFramework.GroovyAssertions.assertOneElement;
 import static com.intellij.groovy.testFramework.GroovyAssertions.assertType;
-import static com.intellij.testFramework.UsefulTestCase.assertEmpty;
-import static com.intellij.testFramework.UsefulTestCase.assertEquals;
-import static com.intellij.testFramework.UsefulTestCase.assertInstanceOf;
-import static com.intellij.testFramework.UsefulTestCase.assertNotNull;
-import static com.intellij.testFramework.UsefulTestCase.assertNull;
-import static com.intellij.testFramework.UsefulTestCase.assertOneElement;
 import static org.jetbrains.plugins.groovy.lang.resolve.delegatesTo.GrDelegatesToUtilKt.getDelegatesToInfo;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public interface ResolveTest extends BaseTest {
 
@@ -34,8 +35,8 @@ public interface ResolveTest extends BaseTest {
 
   @NotNull
   default <T extends PsiReference> T referenceUnderCaret(@NotNull Class<T> refType) {
-    PsiReference ref = getPsiFile().findReferenceAt(getFixture().getCaretOffset());
-    return assertInstanceOf(ref, refType);
+    PsiReference ref = ReadAction.computeBlocking(() -> getPsiFile().findReferenceAt(getFixture().getCaretOffset()));
+    return assertInstanceOf(refType, ref);
   }
 
   @NotNull
@@ -45,12 +46,14 @@ public interface ResolveTest extends BaseTest {
 
   @NotNull
   default GroovyResolveResult advancedResolveByText(@NotNull String text) {
-    return referenceByText(text).advancedResolve();
+    GroovyReference reference = referenceByText(text);
+    return ReadAction.computeBlocking(() -> reference.advancedResolve());
   }
 
   @NotNull
   default Collection<? extends GroovyResolveResult> multiResolveByText(@NotNull String text) {
-    return referenceByText(text).resolve(false);
+    GroovyReference reference = referenceByText(text);
+    return ReadAction.computeBlocking(() -> reference.resolve(false));
   }
 
   default <T extends PsiElement> T resolveTest(@NotNull String text, @Nullable Class<T> clazz) {
@@ -62,42 +65,47 @@ public interface ResolveTest extends BaseTest {
   }
 
   default <T extends PsiElement> T resolveTest(@NotNull GroovyReference reference, @Nullable Class<T> clazz) {
-    Collection<? extends GroovyResolveResult> results = reference.resolve(false);
+    Collection<? extends GroovyResolveResult> results = ReadAction.computeBlocking(() -> reference.resolve(false));
     if (clazz == null) {
-      assertEmpty(results);
+      assertTrue(results.isEmpty(), results::toString);
       return null;
     }
     else {
       PsiElement resolved = assertOneElement(results).getElement();
-      return assertInstanceOf(resolved, clazz);
+      return assertInstanceOf(clazz, resolved);
     }
   }
 
   default void closureDelegateTest(@NotNull String fqn, int strategy) {
     GrClosableBlock closure = elementUnderCaret(GrClosableBlock.class);
-    DelegatesToInfo delegatesToInfo = getDelegatesToInfo(closure);
-    assertNotNull(delegatesToInfo);
-    assertType(fqn, delegatesToInfo.getTypeToDelegate());
-    assertEquals(strategy, delegatesToInfo.getStrategy());
+    ReadAction.run(() -> {
+      DelegatesToInfo delegatesToInfo = getDelegatesToInfo(closure);
+      assertNotNull(delegatesToInfo);
+      assertType(fqn, delegatesToInfo.getTypeToDelegate());
+      assertEquals(strategy, delegatesToInfo.getStrategy());
+    });
   }
 
   default void methodTest(@NotNull PsiMethod method, String name, String fqn) {
-    assertEquals(name, method.getName());
-    PsiClass containingClass = method.getContainingClass();
-    if (fqn == null) {
-      assertNull(containingClass);
-    }
-    else {
-      assertNotNull(containingClass);
-      assertEquals(fqn, containingClass.getQualifiedName());
-    }
+    ReadAction.run(() -> {
+      assertEquals(name, method.getName());
+      PsiClass containingClass = method.getContainingClass();
+      if (fqn == null) {
+        assertNull(containingClass);
+      }
+      else {
+        assertNotNull(containingClass);
+        assertEquals(fqn, containingClass.getQualifiedName());
+      }
+    });
   }
 
   default void setterMethodTest(String name, String originalName, String containingClass) {
-    var result = elementUnderCaret(GrMethodCall.class).advancedResolve();
-    var method = assertInstanceOf(result.getElement(), PsiMethod.class);
+    GrMethodCall call = elementUnderCaret(GrMethodCall.class);
+    var result = ReadAction.computeBlocking(() -> call.advancedResolve());
+    var method = assertInstanceOf(PsiMethod.class, result.getElement());
     methodTest(method, name, containingClass);
-    var original = assertInstanceOf(method.getNavigationElement(), PsiMethod.class);
+    var original = assertInstanceOf(PsiMethod.class, ReadAction.computeBlocking(() -> method.getNavigationElement()));
     methodTest(original, originalName, containingClass);
   }
 }

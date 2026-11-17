@@ -1092,6 +1092,99 @@ class PyOverloadTypeTest : PyCodeInsightTestCase() {
       """.trimIndent())
 
     @Test
+    @TestFor(issues = ["PY-94134"])
+    fun `an unknown attribute of an overloaded function with an untyped implementation decorator is not reported`() = test("""
+      from typing import overload
+
+      def register(func):
+          func.registered = True
+          return func
+
+      @overload
+      def f(x: int) -> int: ...
+      @overload
+      def f(x: str) -> str: ...
+      @register
+      def f(x): return x
+
+      f.registered
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-94134"])
+    fun `an unknown attribute of an overloaded method with an untyped implementation decorator is not reported`() = test("""
+      from typing import overload
+
+      def register(func):
+          func.registered = True
+          return func
+
+      class A:
+          @overload
+          def m(self, x: int) -> int: ...
+          @overload
+          def m(self, x: str) -> str: ...
+          @register
+          def m(self, x): return x
+
+      A.m.registered
+      A().m.registered
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-94134"])
+    fun `an untyped decorator on an overload item does not hide an unknown attribute of the implementation`() = test("""
+      from typing import overload
+
+      def register(func):
+          func.registered = True
+          return func
+
+      @overload
+      @register
+      def f(x: int) -> int: ...
+      @overload
+      def f(x: str) -> str: ...
+      def f(x): return x
+
+      f.registered
+      # ^^^^^^^^^^ WARNING Cannot find reference 'registered' in 'FunctionType'
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-94134"])
+    fun `an unknown attribute of an overloaded function with no untyped decorator is reported`() = test("""
+      from typing import overload
+
+      @overload
+      def f(x: int) -> int: ...
+      @overload
+      def f(x: str) -> str: ...
+      def f(x): return x
+
+      f.registered
+      # ^^^^^^^^^^ WARNING Cannot find reference 'registered' in 'FunctionType'
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-94134"])
+    fun `an unknown attribute of an overloaded method names the runtime class`() = test("""
+      from typing import overload
+
+      class A:
+          @overload
+          def m(self, x: int) -> int: ...
+          @overload
+          def m(self, x: str) -> str: ...
+          def m(self, x): return x
+
+      A.m.registered
+      #   ^^^^^^^^^^ WARNING Cannot find reference 'registered' in 'FunctionType'
+      A().m.registered
+      #     ^^^^^^^^^^ WARNING Cannot find reference 'registered' in '(x: Unknown) -> Unknown' FIXME Cannot find reference 'registered' in 'MethodType'
+      """.trimIndent())
+
+    @Test
     fun `completion of an overloaded function lists the attributes of the function class`() {
       assertContainsFunctionAttributes(complete(module = null, text = """
         from typing import overload

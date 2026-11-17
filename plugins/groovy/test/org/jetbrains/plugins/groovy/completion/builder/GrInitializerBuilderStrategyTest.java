@@ -1,11 +1,28 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.groovy.completion.builder;
 
+import com.intellij.testFramework.EdtTestUtil;
+import com.intellij.testFramework.fixtures.LightJavaProject;
+import com.intellij.testFramework.junit5.TestApplication;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
+import org.jetbrains.plugins.groovy.GroovyProjectDescriptors;
 import org.jetbrains.plugins.groovy.completion.CompletionResult;
+import org.jetbrains.plugins.groovy.completion.GroovyCompletionFixture;
+import org.jetbrains.plugins.groovy.util.TestUtils;
+import org.junit.jupiter.api.Test;
 
-public class GrInitializerBuilderStrategyTest extends GrBuilderTransformationCompletionTestBase {
+import static com.intellij.testFramework.EdtTestUtil.runInEdtAndWait;
+import static com.intellij.testFramework.fixtures.LightJavaFixturesKt.lightJavaProjectFixture;
+import static org.jetbrains.plugins.groovy.completion.GroovyCompletionFixtureKt.groovyCompletionFixture;
+
+@TestApplication
+public class GrInitializerBuilderStrategyTest {
+  private static final TestFixture<LightJavaProject> project = lightJavaProjectFixture(GroovyProjectDescriptors.GROOVY_LATEST);
+  private final TestFixture<GroovyCompletionFixture> completion = groovyCompletionFixture(project, TestUtils.getAbsoluteTestDataPath());
+
+  @Test
   public void test_no_builder_method() {
-    doCompletionTest("""
+    completion.get().doCompletionTest("""
                        import groovy.transform.builder.Builder
                        import groovy.transform.builder.InitializerStrategy
                        
@@ -22,8 +39,9 @@ public class GrInitializerBuilderStrategyTest extends GrBuilderTransformationCom
                        """, "createInitializer");
   }
 
+  @Test
   public void test_custom_builder_method() {
-    doCompletionTest("""
+    completion.get().doCompletionTest("""
                        import groovy.transform.builder.Builder
                        import groovy.transform.builder.InitializerStrategy
                        
@@ -40,8 +58,9 @@ public class GrInitializerBuilderStrategyTest extends GrBuilderTransformationCom
                        """, "customBuilderMethod");
   }
 
+  @Test
   public void test_null_builder_method() {
-    doCompletionTest("""
+    completion.get().doCompletionTest("""
                        import groovy.transform.builder.Builder
                        import groovy.transform.builder.InitializerStrategy
                        
@@ -58,8 +77,9 @@ public class GrInitializerBuilderStrategyTest extends GrBuilderTransformationCom
                        """, "createInitializer");
   }
 
+  @Test
   public void test_empty_builder_method() {
-    doCompletionTest("""
+    completion.get().doCompletionTest("""
                        import groovy.transform.builder.Builder
                        import groovy.transform.builder.InitializerStrategy
                        
@@ -76,8 +96,9 @@ public class GrInitializerBuilderStrategyTest extends GrBuilderTransformationCom
                        """, "createInitializer");
   }
 
+  @Test
   public void test_spaces_builder_method() {
-    doCompletionTest("""
+    completion.get().doCompletionTest("""
                        import groovy.transform.builder.Builder
                        import groovy.transform.builder.InitializerStrategy
                        
@@ -94,8 +115,9 @@ public class GrInitializerBuilderStrategyTest extends GrBuilderTransformationCom
                        """, "   ");
   }
 
+  @Test
   public void test_empty_prefix() {
-    doCompletionTest("""
+    completion.get().doCompletionTest("""
                        import groovy.transform.builder.Builder
                        import groovy.transform.builder.InitializerStrategy
                        
@@ -112,8 +134,9 @@ public class GrInitializerBuilderStrategyTest extends GrBuilderTransformationCom
                        """, "name", "dynamic", "counter");
   }
 
+  @Test
   public void test_custom_prefix() {
-    doCompletionTest("""
+    completion.get().doCompletionTest("""
                        import groovy.transform.builder.Builder
                        import groovy.transform.builder.InitializerStrategy
                        
@@ -130,8 +153,9 @@ public class GrInitializerBuilderStrategyTest extends GrBuilderTransformationCom
                        """, "customPrefixName", "customPrefixDynamic", "customPrefixCounter");
   }
 
+  @Test
   public void test_spaces_prefix() {
-    doCompletionTest("""
+    completion.get().doCompletionTest("""
                        import groovy.transform.builder.Builder
                        import groovy.transform.builder.InitializerStrategy
                        
@@ -148,8 +172,9 @@ public class GrInitializerBuilderStrategyTest extends GrBuilderTransformationCom
                        """, "   Name", "   Dynamic", "   Counter");
   }
 
+  @Test
   public void test_null_prefix() {
-    doCompletionTest("""
+    completion.get().doCompletionTest("""
                        import groovy.transform.builder.Builder
                        import groovy.transform.builder.InitializerStrategy
                        
@@ -166,8 +191,9 @@ public class GrInitializerBuilderStrategyTest extends GrBuilderTransformationCom
                        """, "name", "dynamic", "counter");
   }
 
+  @Test
   public void test_next_setter() {
-    doCompletionTest("""
+    completion.get().doCompletionTest("""
                        import groovy.transform.builder.Builder
                        import groovy.transform.builder.InitializerStrategy
                        
@@ -184,8 +210,9 @@ public class GrInitializerBuilderStrategyTest extends GrBuilderTransformationCom
                        """, "name", "dynamic", "counter");
   }
 
+  @Test
   public void test_one_more_setter_further() {
-    doCompletionTest("""
+    completion.get().doCompletionTest("""
                        import groovy.transform.builder.Builder
                        import groovy.transform.builder.InitializerStrategy
                        
@@ -202,8 +229,9 @@ public class GrInitializerBuilderStrategyTest extends GrBuilderTransformationCom
                        """, "name", "dynamic", "counter");
   }
 
+  @Test
   public void test_include_super_properties() {
-    doCompletionTest("""
+    completion.get().doCompletionTest("""
                        import groovy.transform.builder.Builder
                        import groovy.transform.builder.InitializerStrategy
                        
@@ -221,6 +249,7 @@ public class GrInitializerBuilderStrategyTest extends GrBuilderTransformationCom
                        """, "legs", "color", "name");
   }
 
+  @Test
   public void test_not_include_super_properties() {
     String code = """
       import groovy.transform.builder.Builder
@@ -238,7 +267,7 @@ public class GrInitializerBuilderStrategyTest extends GrBuilderTransformationCom
       
       Pet.createInitializer().<caret>
       """;
-    doCompletionTest(code, CompletionResult.contain, "name");
-    doCompletionTest(code, CompletionResult.notContain, "color", "legs");
+    completion.get().doCompletionTest(code, CompletionResult.contain, "name");
+    completion.get().doCompletionTest(code, CompletionResult.notContain, "color", "legs");
   }
 }

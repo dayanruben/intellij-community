@@ -7,20 +7,19 @@ import com.intellij.psi.PsiType;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrExpression;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.params.GrParameter;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrMethod;
-import org.junit.Assert;
 
 import java.util.List;
+import org.junit.jupiter.api.Assertions;
 
 /**
  * @author Max Medvedev
  */
-public class SimpleParameterGen implements ChangeSignatureTestCase.GenParams {
+public class SimpleParameterGen {
   public SimpleParameterGen(List<SimpleInfo> infos, Project project) {
     myInfos = infos;
     myProject = project;
   }
 
-  @Override
   public GrParameterInfo[] genParams(GrMethod method) {
     GrParameter[] params = method.getParameterList().getParameters();
     int size = myInfos.size();
@@ -59,8 +58,8 @@ public class SimpleParameterGen implements ChangeSignatureTestCase.GenParams {
         defValue = sim.myDefaultValue;
       }
 
-      Assert.assertTrue(oldIndex >= 0 || defValue != null || defInitializer != null);
-      Assert.assertNotNull(name);
+      Assertions.assertTrue(oldIndex >= 0 || defValue != null || defInitializer != null);
+      Assertions.assertNotNull(name);
       info = new GrParameterInfo(name, defValue, defInitializer, type, oldIndex, sim.myFeelLucky);
       result[i] = info;
     }

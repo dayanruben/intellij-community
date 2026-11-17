@@ -1,12 +1,31 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.groovy.lang.resolve;
 
+import com.intellij.testFramework.EdtTestUtil;
+import com.intellij.testFramework.fixtures.JavaCodeInsightTestFixture;
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightTestFixture;
+import com.intellij.testFramework.fixtures.LightJavaProject;
+import com.intellij.testFramework.junit5.TestApplication;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.plugins.groovy.GroovyProjectDescriptors;
 import org.jetbrains.plugins.groovy.codeInspection.bugs.GroovyConstructorNamedArgumentsInspection;
-import org.jetbrains.plugins.groovy.util.GroovyLatestTest;
 import org.jetbrains.plugins.groovy.util.HighlightingTest;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-public class MapConstructorTest extends GroovyLatestTest implements HighlightingTest {
+import static com.intellij.testFramework.fixtures.LightJavaFixturesKt.lightJavaCodeInsightFixture;
+import static com.intellij.testFramework.fixtures.LightJavaFixturesKt.lightJavaProjectFixture;
+
+@TestApplication
+public class MapConstructorTest implements HighlightingTest {
+  private static final TestFixture<LightJavaProject> project = lightJavaProjectFixture(GroovyProjectDescriptors.GROOVY_2_5);
+  private final TestFixture<LightJavaCodeInsightTestFixture> groovy = lightJavaCodeInsightFixture(project);
+
+  @Override
+  public @NotNull JavaCodeInsightTestFixture getFixture() {
+    return groovy.get();
+  }
+
   private void doTest(String text) {
     String newText = text;
     if (text.contains("MapConstructor")) {
@@ -17,7 +36,8 @@ public class MapConstructorTest extends GroovyLatestTest implements Highlighting
       newText = "import groovy.transform.CompileStatic\n" + newText;
     }
 
-    highlightingTest(newText, GroovyConstructorNamedArgumentsInspection.class);
+    String finalText = newText;
+    EdtTestUtil.runInEdtAndWait(() -> highlightingTest(finalText, GroovyConstructorNamedArgumentsInspection.class));
   }
 
   @Test

@@ -14,14 +14,19 @@ import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.application.ApplicationInfo;
 import com.intellij.openapi.application.ApplicationNamesInfo;
+import com.intellij.openapi.application.productMigration.MigrationState;
+import com.intellij.openapi.application.productMigration.MigrationStatus;
 import com.intellij.openapi.extensions.PluginId;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.updateSettings.impl.productMigration.MigrationLaunchKt;
+import com.intellij.openapi.updateSettings.impl.productMigration.MigrationOfferKt;
+import com.intellij.openapi.updateSettings.impl.productMigration.MigrationStateKt;
+import com.intellij.openapi.updateSettings.impl.productMigration.PlatformUpdateDecision;
 import com.intellij.openapi.util.BuildNumber;
-import com.intellij.openapi.util.Pair;
 import com.intellij.platform.ide.productMode.IdeProductMode;
 import com.intellij.util.containers.ContainerUtil;
 import kotlin.Unit;
@@ -62,6 +67,7 @@ final class UpdateSettingsEntryPointActionProvider implements ActionProvider {
   static final class LifecycleListener implements AppLifecycleListener {
     @Override
     public void appStarted() {
+      MigrationOfferKt.restoreMigrationRestartState();
       preparePrevPlatformUpdate();
       initPluginsListeners();
     }
@@ -286,19 +292,23 @@ final class UpdateSettingsEntryPointActionProvider implements ActionProvider {
     }
   }
 
+  private record ReloadResult(@NotNull PlatformUpdates updates,
+                              @NotNull PlatformUpdateDecision decision,
+                              @Nullable PluginUpdatesModel pluginUpdates) { }
+
   static @Nullable PlatformUpdates.Loaded reloadPlatformUpdateInfo(@Nullable Project project) {
-    Pair<PlatformUpdates, PluginUpdatesModel> result = ProgressManager.getInstance()
+    ReloadResult result = ProgressManager.getInstance()
       .run(new Task.WithResult<>(project,
                                  IdeBundle.message("find.ide.update.title"),
                                  true) {
 
         @Override
-        protected @NotNull Pair<@NotNull PlatformUpdates, @Nullable PluginUpdatesModel> compute(@NotNull ProgressIndicator indicator) {
+        protected @NotNull ReloadResult compute(@NotNull ProgressIndicator indicator) {
           PlatformUpdates platformUpdates = UpdateChecker.getPlatformUpdates(UpdateSettings.getInstance(), indicator);
-          PluginUpdatesModel pluginResults = platformUpdates instanceof PlatformUpdates.Loaded ?
-                                                getInternalPluginUpdates((PlatformUpdates.Loaded)platformUpdates, indicator) :
-                                                null;
-          return Pair.create(platformUpdates, pluginResults);
+          PlatformUpdateDecision decision = MigrationOfferKt.decidePlatformUpdate(platformUpdates, true, false, getMigrationStatus());
+          PlatformUpdates.Loaded announced = decision.getAnnounced();
+          PluginUpdatesModel pluginResults = announced != null ? getInternalPluginUpdates(announced, indicator) : null;
+          return new ReloadResult(platformUpdates, decision, pluginResults);
         }
 
         private static PluginUpdatesModel getInternalPluginUpdates(@NotNull PlatformUpdates.Loaded loadedResult,
@@ -308,8 +318,14 @@ final class UpdateSettingsEntryPointActionProvider implements ActionProvider {
         }
       });
 
-    PlatformUpdates platformUpdateInfo = result.getFirst();
-    PluginUpdatesModel pluginUpdatesModel = result.getSecond();
+    PlatformUpdates platformUpdateInfo = result.updates();
+    PluginUpdatesModel pluginUpdatesModel = result.pluginUpdates();
+    if (result.decision().getMigration() != null) {
+      // the migration is not a usual update: the update check offers it in its own dialog
+      clearUpdatesInfo();
+      UpdateChecker.updateAndShowResult(project);
+      return null;
+    }
     if (platformUpdateInfo instanceof PlatformUpdates.Loaded loadedUpdate && pluginUpdatesModel != null) {
       setPlatformUpdateInfo(loadedUpdate);
       IdeUpdateWidgetState.getInstance().onUpdateFound(isReleaseChannel(loadedUpdate));
@@ -338,6 +354,10 @@ final class UpdateSettingsEntryPointActionProvider implements ActionProvider {
   @Override
   public @NotNull Collection<UpdateAction> getUpdateActions(@NotNull DataContext context) {
     Collection<UpdateAction> actions = new ArrayList<>();
+
+    if (MigrationOfferKt.isMigrationRestartInMenu()) {
+      actions.add(new MigrationRestartAction());
+    }
 
     // when the update is announced by IdeUpdateToolbarWidget, only plugin updates are left for the Settings menu
     boolean ideUpdateInToolbar = IdeUpdateWidgetState.isUpdateAvailable();
@@ -404,6 +424,33 @@ final class UpdateSettingsEntryPointActionProvider implements ActionProvider {
     }
 
     return actions;
+  }
+
+  private static @Nullable MigrationStatus getMigrationStatus() {
+    MigrationState state = MigrationStateKt.migrationStateStore().get();
+    return state != null ? state.getStatus() : null;
+  }
+
+  /** "Restart to Update" for the installed migration distribution, while the widget is not shown. */
+  private static final class MigrationRestartAction extends UpdateAction {
+    private MigrationRestartAction() {
+      super(IdeBundle.message("update.toolbar.widget.restart.text"));
+    }
+
+    @Override
+    public boolean isIdeUpdate() {
+      return true;
+    }
+
+    @Override
+    public boolean isRestartRequired() {
+      return true;
+    }
+
+    @Override
+    public void actionPerformed(@NotNull AnActionEvent e) {
+      MigrationLaunchKt.restartToMigration();
+    }
   }
 
   private static class IdeUpdateAction extends UpdateAction {

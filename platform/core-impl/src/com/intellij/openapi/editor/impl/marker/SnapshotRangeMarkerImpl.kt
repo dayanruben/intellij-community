@@ -23,7 +23,7 @@ open class SnapshotRangeMarkerImpl private constructor(
   internal val rootStorage: MarkerRootUpdater,
   /** Controls the marker boundaries. See [MarkerSpec]. */
   @Volatile
-  private var spec: Byte,
+  private var specMask: Byte,
   initialRange: Long,
   retainStrong: Boolean,
 ) : UserDataHolderBase(), RangeMarkerEx {
@@ -40,20 +40,20 @@ open class SnapshotRangeMarkerImpl private constructor(
   internal constructor(
     document: DocumentImpl,
     fileRoot: VirtualFileMarkerRoot?,
-    initialSpec: Byte,
+    initialSpecMask: Byte,
     initialRange: Long,
     retainStrong: Boolean = false,
   ) : this(
     fileRoot?.file ?: document, fileRoot ?: document.rangeMarkers.rootStore(),
-    initialSpec, initialRange, retainStrong,
+    initialSpecMask, initialRange, retainStrong,
   )
 
   /** Creates a marker in [fileRoot] before the document is available. */
   internal constructor(
     fileRoot: VirtualFileMarkerRoot,
-    initialSpec: Byte,
+    initialSpecMask: Byte,
     initialRange: Long,
-  ) : this(fileRoot.file, fileRoot, initialSpec, initialRange, false)
+  ) : this(fileRoot.file, fileRoot, initialSpecMask, initialRange, false)
 
   /**
    * Creates a marker in the supplied [rootStore]. Use this constructor for markers that an editor or a markup model owns.
@@ -61,12 +61,12 @@ open class SnapshotRangeMarkerImpl private constructor(
   protected constructor(
     document: Document,
     rootStore: SnapshotMarkerRootStore<*>,
-    initialSpec: Byte,
+    initialSpecMask: Byte,
     initialRange: Long,
   ) : this(
     documentOrFile = document,
     rootStorage = rootStore,
-    spec = initialSpec,
+    specMask = initialSpecMask,
     initialRange = initialRange,
     retainStrong = false,
   )
@@ -123,11 +123,17 @@ open class SnapshotRangeMarkerImpl private constructor(
            (documentOrFile is Document || (documentOrFile as VirtualFile).isValid)
   }
 
-  protected open fun isValidInRoot(root: PMarkerRoot): Boolean = root.isValid(markerHandle)
+  protected open fun isValidInRoot(root: PMarkerRoot): Boolean {
+    val cached = cachedResolution
+    if (cached != null && cached.identity === root.resolutionCacheIdentity) {
+      return PMarkerResolution.isValid(cached.resolution)
+    }
+    return root.isValid(markerHandle)
+  }
 
-  override fun isGreedyToLeft(): Boolean = MarkerSpec.isGreedyToLeft(spec)
+  override fun isGreedyToLeft(): Boolean = MarkerSpec.isGreedyToLeft(specMask)
 
-  override fun isGreedyToRight(): Boolean = MarkerSpec.isGreedyToRight(spec)
+  override fun isGreedyToRight(): Boolean = MarkerSpec.isGreedyToRight(specMask)
 
   override fun setGreedyToLeft(greedy: Boolean) {
     updateSpec { MarkerSpec.withGreedyToLeft(it, greedy) }
@@ -141,7 +147,7 @@ open class SnapshotRangeMarkerImpl private constructor(
     updateSpec { MarkerSpec.withStickyToRight(it, value) }
   }
 
-  fun isStickingToRight(): Boolean = MarkerSpec.isStickingToRight(spec)
+  fun isStickingToRight(): Boolean = MarkerSpec.isStickingToRight(specMask)
 
   override fun dispose() {
     if (DISPOSAL_STATE_UPDATER.compareAndSet(this, ACTIVE, DISPOSING)) {
@@ -192,12 +198,12 @@ open class SnapshotRangeMarkerImpl private constructor(
     synchronized(this) {
       if (isDisposed()) return
 
-      val oldSpec = spec
-      val newSpec = transform(oldSpec)
-      if (newSpec == oldSpec) return
+      val oldSpec = specMask
+      val newSpecMask = transform(oldSpec)
+      if (newSpecMask == oldSpec) return
 
-      if (!updateCurrentRoot { root -> if (isDisposed()) root else root.updateSpec(markerHandle, newSpec) }) return
-      spec = newSpec
+      if (!updateCurrentRoot { root -> if (isDisposed()) root else root.updateSpec(markerHandle, newSpecMask) }) return
+      specMask = newSpecMask
     }
   }
 
@@ -270,7 +276,7 @@ open class SnapshotRangeMarkerImpl private constructor(
      *
      * The offsets must satisfy `0 <= startOffset <= endOffset <= document.textLength`.
      *
-     * @param spec the boundary flags from [MarkerSpec]
+     * @param specMask the boundary flags from [MarkerSpec]
      * @param retainStrong true when the root must retain the marker
      * @param policy defines how document edits transform the marker
      */
@@ -279,13 +285,13 @@ open class SnapshotRangeMarkerImpl private constructor(
       document: Document,
       startOffset: Int,
       endOffset: Int,
-      spec: Byte,
+      specMask: Byte,
       retainStrong: Boolean = false,
       policy: MarkerPolicy = DefaultMarkerPolicy,
     ): SnapshotRangeMarkerImpl {
-      return createRangeMarker(document, startOffset, endOffset, spec, policy) { fileRoot ->
+      return createRangeMarker(document, startOffset, endOffset, specMask, policy) { fileRoot ->
         val initialRange = TextRangeScalarUtil.toScalarRange(startOffset, endOffset)
-        SnapshotRangeMarkerImpl(document as DocumentImpl, fileRoot, spec, initialRange, retainStrong)
+        SnapshotRangeMarkerImpl(document as DocumentImpl, fileRoot, specMask, initialRange, retainStrong)
       }
     }
 
@@ -299,7 +305,7 @@ open class SnapshotRangeMarkerImpl private constructor(
       document: Document,
       startOffset: Int,
       endOffset: Int,
-      spec: Byte,
+      specMask: Byte,
       policy: MarkerPolicy,
       markerFactory: (VirtualFileMarkerRoot?) -> T,
     ): T {
@@ -314,7 +320,7 @@ open class SnapshotRangeMarkerImpl private constructor(
       val marker = markerFactory(fileRoot)
       val insertedRoot = checkNotNull(rootStore.updateCurrentRoot { currentSnapshot, root ->
         require(endOffset <= currentSnapshot.text().length()) { "Marker range exceeds snapshot length" }
-        root.insert(marker.markerHandle, startOffset, endOffset, spec, marker.flavorFlags, policy = policy)
+        root.insert(marker.markerHandle, startOffset, endOffset, specMask, marker.flavorFlags, policy = policy)
       })
       marker.cacheResolution(insertedRoot, TextRangeScalarUtil.toScalarRange(startOffset, endOffset))
       return marker
@@ -335,7 +341,7 @@ open class SnapshotRangeMarkerImpl private constructor(
 
       val cachedDocument = FileDocumentManager.getInstance().getCachedDocument(file) as? DocumentImpl
       val fileRoot = VirtualFileMarkerRoot.getOrCreate(file)
-      val spec = MarkerSpec.create(
+      val specMask = MarkerSpec.create(
         isGreedyToLeft = false,
         isGreedyToRight = false,
       )
@@ -348,9 +354,9 @@ open class SnapshotRangeMarkerImpl private constructor(
         null
       }
       val initialRange = TextRangeScalarUtil.toScalarRange(startOffset, startOffset)
-      val marker = SnapshotLazyRangeMarker(fileRoot, spec, initialRange, initialLineColumns)
+      val marker = SnapshotLazyRangeMarker(fileRoot, specMask, initialRange, initialLineColumns)
       val insertedRoot = checkNotNull(fileRoot.updateCurrentRoot { it: PMarkerRoot ->
-        it.insert(marker.markerHandle, startOffset, startOffset, spec, marker.flavorFlags, policy = policy)
+        it.insert(marker.markerHandle, startOffset, startOffset, specMask, marker.flavorFlags, policy = policy)
       })
       marker.cacheResolution(insertedRoot, initialRange)
       return marker

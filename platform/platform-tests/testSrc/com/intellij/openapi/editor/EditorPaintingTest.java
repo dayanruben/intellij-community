@@ -1,8 +1,12 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.editor;
 
+import com.intellij.codeInsight.daemon.impl.BackgroundUpdateHighlightersUtil;
+import com.intellij.codeInsight.daemon.impl.HighlightInfo;
+import com.intellij.codeInsight.daemon.impl.HighlightInfoType;
 import com.intellij.codeInsight.daemon.impl.indentGuide.IndentGuidePass;
 import com.intellij.codeInsight.daemon.impl.indentGuide.IndentGuideRenderer;
+import com.intellij.lang.annotation.HighlightSeverity;
 import com.intellij.openapi.actionSystem.IdeActions;
 import com.intellij.openapi.actionSystem.ex.ActionUtil;
 import com.intellij.openapi.application.ReadAction;
@@ -12,6 +16,9 @@ import com.intellij.openapi.editor.event.DocumentEvent;
 import com.intellij.openapi.editor.event.DocumentListener;
 import com.intellij.openapi.editor.ex.DocumentEx;
 import com.intellij.openapi.editor.ex.EditorEx;
+import com.intellij.openapi.editor.ex.RangeHighlighterEx;
+import com.intellij.openapi.editor.ex.util.EditorUtil;
+import com.intellij.openapi.editor.impl.EditorImpl;
 import com.intellij.openapi.editor.impl.FoldingKeys;
 import com.intellij.openapi.editor.markup.EffectType;
 import com.intellij.openapi.editor.markup.GutterIconRenderer;
@@ -20,11 +27,10 @@ import com.intellij.openapi.editor.markup.RangeHighlighter;
 import com.intellij.openapi.editor.markup.SeparatorPlacement;
 import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.progress.EmptyProgressIndicator;
-import com.intellij.openapi.util.registry.Registry;
 import com.intellij.testFramework.EdtTestUtil;
+import com.intellij.testFramework.EditorTestUtil;
 import com.intellij.testFramework.TestDataPath;
 import com.intellij.testFramework.junit5.TestApplication;
-import com.intellij.ui.IslandsState;
 import com.intellij.ui.JBColor;
 import com.intellij.util.ui.ColorIcon;
 import org.jetbrains.annotations.NotNull;
@@ -35,6 +41,7 @@ import java.awt.Color;
 import java.awt.Font;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
@@ -46,29 +53,13 @@ import java.util.List;
 import static com.intellij.openapi.editor.impl.EditorModelFixture.TEST_LINE_HEIGHT;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @TestDataPath("$PROJECT_ROOT/community/platform/platform-tests/testData/editor/painting")
 @TestApplication
 public class EditorPaintingTest extends EditorPaintingTestCase {
-  private record SelectionState(boolean enabled, boolean islands) {}
-
-  private static SelectionState setNewSelectionEnabled(boolean enabled) {
-    var value = Registry.get("editor.old.full.horizontal.selection.enabled");
-    var islands = IslandsState.Companion.isEnabled();
-
-    var state = new SelectionState(enabled, islands);
-    value.setValue(!enabled);
-    IslandsState.Companion.setEnabled(enabled, false);
-    return state;
-  }
-
-  private static void restoreSelectionState(SelectionState state) {
-    Registry.get("editor.old.full.horizontal.selection.enabled").setValue(!state.enabled());
-    IslandsState.Companion.setEnabled(state.islands(), false);
-  }
-
   @Test
   public void testWholeLineHighlighterAtDocumentEnd() {
     myFixture.runTest(() -> {
@@ -454,6 +445,448 @@ public class EditorPaintingTest extends EditorPaintingTestCase {
     });
   }
 
+  private void runTestSelectionOverLineBreak() throws Exception {
+    myFixture.initText("<selection>ab\ncd<caret></selection>ef\nghijklmnop");
+    checkResult();
+  }
+
+  @Test
+  public void testSelectionRoundedHugging() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(true, true);
+      try {
+        runTestSelectionOverLineBreak();
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
+  public void testSelectionRoundedFilling() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(true, false);
+      try {
+        runTestSelectionOverLineBreak();
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
+  public void testSelectionStraightHugging() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(false, true);
+      try {
+        runTestSelectionOverLineBreak();
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
+  public void testSelectionStraightFilling() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(false, false);
+      try {
+        runTestSelectionOverLineBreak();
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
+  public void testColumnModeSelectionOnShortLine() {
+    myFixture.runTest(() -> {
+      var state = setNewSelectionEnabled(true);
+      try {
+        myFixture.initText("ab\ncdefghij");
+        EditorEx editor = (EditorEx)myFixture.getEditor();
+        editor.setColumnMode(true);
+        editor.getSelectionModel().setBlockSelection(new LogicalPosition(0, 1), new LogicalPosition(1, 5));
+        checkResult();
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
+  public void testMultiLineHighlighterRounded() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(true, true);
+      try {
+        myFixture.initText("ab\ncdef\nghijklmnop");
+        addRangeHighlighter(1, 5, HighlighterLayer.WARNING, null, Color.red);
+        checkResult();
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
+  public void testPartialRepaintOfRoundedSelection() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(true, true);
+      try {
+        myFixture.initText("ab\n<selection>cd\nef<caret></selection>\nghijklmnop");
+        checkPartialRepaint(1);
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
+  public void testNarrowRepaintOfFilledLine() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(true, false);
+      try {
+        myFixture.initText("ab\n<selection>cd\nef<caret></selection>\nghijklmnop");
+        int[] yRange = myFixture.getEditor().visualLineToYRange(1);
+        int width = myFixture.getEditor().getContentComponent().getPreferredSize().width;
+        checkPartialRepaint(new Rectangle(0, yRange[0], width / 2, yRange[1] - yRange[0]));
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
+  public void testNarrowRepaintRightOfLineEnd() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(true, false);
+      try {
+        myFixture.initText("ab\n<selection>cdef\ngh<caret></selection>\nijklmnopqr");
+        Editor editor = myFixture.getEditor();
+        int lineEndX = editor.visualPositionToXY(new VisualPosition(1, 4)).x;
+        int[] yRange = editor.visualLineToYRange(1);
+        int width = editor.getContentComponent().getPreferredSize().width;
+        checkPartialRepaint(new Rectangle(lineEndX + 1, yRange[0], width - lineEndX - 1, yRange[1] - yRange[0]));
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
+  public void testNarrowRepaintLeftOfLineEnd() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(true, false);
+      try {
+        myFixture.initText("ab\n<selection>cdef\ngh<caret></selection>\nijklmnopqr");
+        Editor editor = myFixture.getEditor();
+        int lineEndX = editor.visualPositionToXY(new VisualPosition(1, 4)).x;
+        int[] yRange = editor.visualLineToYRange(1);
+        checkPartialRepaint(new Rectangle(0, yRange[0], lineEndX - 1, yRange[1] - yRange[0]));
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
+  public void testFillReachesClipWiderThanViewport() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(true, true);
+      try {
+        myFixture.initText("ab\ncd\nefghijklmnop");
+        Editor editor = myFixture.getEditor();
+        int viewportWidth = editor.visualPositionToXY(new VisualPosition(0, 6)).x;
+        EditorTestUtil.setEditorVisibleSizeInPixels(editor, viewportWidth, 1000);
+        addRangeHighlighter(1, 4, HighlighterLayer.WARNING, null, Color.red);
+        BufferedImage image = paintEditor(false, null, null);
+        int[] yRange = editor.visualLineToYRange(0);
+        int edgeX = image.getWidth() - 1;
+        assertTrue(edgeX > viewportWidth, "the clip is not wider than the viewport");
+        assertEquals(Color.red.getRGB(), image.getRGB(edgeX, (yRange[0] + yRange[1]) / 2), "the fill stops at the viewport edge");
+        assertNotEquals(Color.red.getRGB(), image.getRGB(edgeX, yRange[0]), "the fill has no rounded corner at the clip edge");
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
+  public void testPartialRepaintOfRoundedHighlighter() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(true, true);
+      try {
+        myFixture.initText("ab\ncd\nef\nghijklmnop");
+        addRangeHighlighter(3, 8, HighlighterLayer.WARNING, null, Color.red);
+        checkPartialRepaint(1);
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
+  public void testPartialRepaintOfRoundedHighlighterAfterLineEnd() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(true, true);
+      try {
+        myFixture.initText("ab\ncde\nfg\nhijklmnop");
+        ((RangeHighlighterEx)addRangeHighlighter(2, 2, HighlighterLayer.WARNING, null, Color.red)).setAfterEndOfLine(true);
+        addRangeHighlighter(5, 6, HighlighterLayer.WARNING, null, Color.red);
+        checkPartialRepaint(1);
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
+  public void testPartialRepaintOfRoundedVirtualSelection() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(true, false);
+      try {
+        myFixture.initText("ab\ncd\nef\nghijklmnop");
+        Editor editor = myFixture.getEditor();
+        editor.getSettings().setVirtualSpace(true);
+        myFixture.addInlay(5);
+        myFixture.addInlay(8);
+        editor.getCaretModel().setCaretsAndSelections(List.of(
+          new CaretState(new LogicalPosition(1, 5), new LogicalPosition(1, 1), new LogicalPosition(1, 5)),
+          new CaretState(new LogicalPosition(2, 5), new LogicalPosition(2, 1), new LogicalPosition(2, 5))
+        ));
+        for (Caret caret : editor.getCaretModel().getAllCarets()) {
+          assertEquals(6, caret.getSelectionEndPosition().column, "the selection does not end past the line end");
+        }
+        checkPartialRepaint(1);
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
+  public void testRoundedPillOfOneCharacter() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(true, true);
+      try {
+        myFixture.initText("abcd\n<caret>efghijklmn");
+        addRangeHighlighter(0, 1, HighlighterLayer.WARNING, null, Color.red);
+        checkResult();
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
+  public void testRoundedPillNextToSelection() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(true, true);
+      try {
+        myFixture.initText("ab<selection>cd<caret></selection>ef\nghijklmnop");
+        addRangeHighlighter(0, 2, HighlighterLayer.WARNING, null, Color.red);
+        checkResult();
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
+  public void testOverlappingRoundedHighlighters() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(true, true);
+      try {
+        myFixture.initText("abcdefghij\n<caret>klm");
+        addRangeHighlighter(0, 6, HighlighterLayer.WARNING, null, Color.red);
+        addRangeHighlighter(3, 9, HighlighterLayer.ERROR, null, Color.green);
+        checkResult();
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
+  public void testAdjacentRoundedHighlightersGiveOneShape() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(true, true);
+      try {
+        myFixture.initText("abcdef\nghijkl\n<caret>mnopqrst");
+        addRangeHighlighter(0, 4, HighlighterLayer.WARNING, null, Color.red);
+        addRangeHighlighter(9, 13, HighlighterLayer.WARNING, null, Color.red);
+        checkResult();
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
+  public void testRoundedHighlighterAcrossSoftWrap() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(true, true);
+      try {
+        myFixture.initText("abcdefgh");
+        configureSoftWraps(4);
+        addRangeHighlighter(2, 6, HighlighterLayer.WARNING, null, Color.red);
+        checkResult();
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
+  public void testRoundedHighlighterOnCaretLine() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(true, true);
+      try {
+        myFixture.initText("abcd<caret>efghij");
+        addRangeHighlighter(2, 6, HighlighterLayer.WARNING, null, Color.red);
+        checkResult();
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
+  public void testRoundedHighlighterWithHole() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(true, true);
+      try {
+        myFixture.initText("abcdef\nghijkl\nmnopqr\n<caret>s");
+        addRangeHighlighter(0, 9, HighlighterLayer.WARNING, null, Color.red);
+        addRangeHighlighter(11, 20, HighlighterLayer.WARNING, null, Color.red);
+        checkResult();
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
+  public void testShorterHighlighterOfOneLayerPaintsOnTop() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(true, true);
+      try {
+        myFixture.initText("abcdefghij\n<caret>klm");
+        RangeHighlighter wide = addRangeHighlighter(0, 8, HighlighterLayer.WARNING, null, Color.red);
+        RangeHighlighter narrow = addRangeHighlighter(2, 6, HighlighterLayer.WARNING, null, Color.green);
+        assertTopBackground(narrow, wide);
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
+  public void testShorterHighlighterOfOneLayerPaintsOnTopWithThirdHighlighter() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(true, true);
+      try {
+        myFixture.initText("abcdefghijklmnopqrstuvwxyz\nabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\n<caret>klm");
+        RangeHighlighter wide = addRangeHighlighter(0, 20, HighlighterLayer.WARNING, null, Color.red);
+        RangeHighlighter narrow = addRangeHighlighter(8, 12, HighlighterLayer.WARNING, null, Color.green);
+        addRangeHighlighter(27, 67, HighlighterLayer.WARNING, null, Color.green);
+        assertTopBackground(narrow, wide);
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
+  public void testHighlighterWithForegroundOfOneLayerPaintsOnTop() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(true, true);
+      try {
+        myFixture.initText("abcdefghij\n<caret>klm");
+        RangeHighlighter withForeground = addRangeHighlighter(2, 6, HighlighterLayer.WARNING, Color.black, Color.green);
+        RangeHighlighter withoutForeground = addRangeHighlighter(2, 6, HighlighterLayer.WARNING, null, Color.red);
+        assertTopBackground(withForeground, withoutForeground);
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
+  public void testHigherSeverityHighlighterOfOneLayerPaintsOnTop() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(true, true);
+      try {
+        myFixture.initText("abcdefghij\n<caret>klm");
+        RangeHighlighter error = addRangeHighlighter(2, 6, HighlighterLayer.WARNING, null, Color.green);
+        RangeHighlighter warning = addRangeHighlighter(2, 6, HighlighterLayer.WARNING, null, Color.red);
+        setSeverity(error, HighlightSeverity.ERROR);
+        setSeverity(warning, HighlightSeverity.WARNING);
+        assertTopBackground(error, warning);
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
+  public void testRoundedHighlighterAcrossBlockInlay() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(true, true);
+      try {
+        myFixture.initText("abcd\nefgh\n<caret>ijklmnopqrst");
+        myFixture.addBlockInlay(myFixture.getEditor().getDocument().getLineStartOffset(1), true);
+        addRangeHighlighter(2, 7, HighlighterLayer.WARNING, null, Color.red);
+        assertOneShapeAcrossBand(Color.red);
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
+  public void testRoundedFillingSelectionAcrossBlockInlay() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(true, false);
+      try {
+        myFixture.initText("ab<selection>cd\nef<caret></selection>gh\nijklmnopqrst");
+        myFixture.addBlockInlay(myFixture.getEditor().getDocument().getLineStartOffset(1), true);
+        Color selection = myFixture.getEditor().getSelectionModel().getTextAttributes().getBackgroundColor();
+        assertOneShapeAcrossBand(selection);
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
+  public void testRoundedHighlighterOnStickyLine() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(true, true);
+      try {
+        myFixture.initText("abcd\nefgh\n<caret>ijklmnopqrst");
+        addRangeHighlighter(1, 8, HighlighterLayer.WARNING, null, Color.red);
+        EditorImpl editor = (EditorImpl)myFixture.getEditor();
+        int[] yRange = editor.visualLineToYRange(0);
+        int cornerX = editor.offsetToXY(1).x;
+        int cornerY = yRange[1] - 1;
+        BufferedImage fullImage = paintEditor(false, null, null);
+        assertEquals(Color.red.getRGB(), fullImage.getRGB(cornerX, cornerY), "the full paint rounds line 0 at its bottom");
+        int width = editor.getContentComponent().getPreferredSize().width;
+        BufferedImage stickyImage;
+        editor.setStickyLinePainting(true);
+        try {
+          stickyImage = paintEditor(false, null, new Rectangle(0, yRange[0], width, yRange[1] - yRange[0]));
+        } finally {
+          editor.setStickyLinePainting(false);
+        }
+        assertNotEquals(Color.red.getRGB(), stickyImage.getRGB(cornerX, cornerY), "the sticky row does not round at its bottom");
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
   @Test
   public void testIndentGuideOverBlockInlayWithSoftWraps_Async() {
     EdtTestUtil.runInEdtAndWait(() -> {
@@ -579,6 +1012,260 @@ public class EditorPaintingTest extends EditorPaintingTestCase {
   }
 
   @Test
+  public void testMarginIsShownOverLineExtensionBackground() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(false, false);
+      try {
+        runTestMarginIsShownOverLineExtensionBackground();
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
+  public void testMarginIsShownOverLineExtensionBackgroundRounded() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(true, true);
+      try {
+        runTestMarginIsShownOverLineExtensionBackground();
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  /**
+   * Asserts that the right margin crosses the background of a line extension, as it crosses the other backgrounds.
+   */
+  private void runTestMarginIsShownOverLineExtensionBackground() throws IOException {
+    myFixture.initText("ab\ncd");
+    EditorEx editor = (EditorEx)myFixture.getEditor();
+    editor.getSettings().setRightMargin(4);
+    TextAttributes extensionAttributes = new TextAttributes(null, Color.green, null, null, Font.PLAIN);
+    editor.registerLineExtensionPainter(
+      line -> line == 0 ? Collections.singleton(new LineExtensionInfo("      ", extensionAttributes)) : Collections.emptyList()
+    );
+    paintEditor(false, null, null); // first paint triggers size update due to line extensions
+    BufferedImage image = paintEditor(false, null, null);
+    int marginRgb = editor.getColorsScheme().getColor(EditorColors.RIGHT_MARGIN_COLOR).getRGB();
+    int middle = editor.getLineHeight() / 2;
+    int extensionY = editor.visualLineToY(0) + middle;
+    int plainY = editor.visualLineToY(1) + middle;
+    int marginX = -1;
+    for (int x = 0; x < image.getWidth(); x++) {
+      if (image.getRGB(x, plainY) == marginRgb) {
+        marginX = x;
+        break;
+      }
+    }
+    assertTrue(marginX >= 0, "the right margin is absent on the line without an extension");
+    assertEquals(Color.green.getRGB(), image.getRGB(marginX - 1, extensionY), "the line extension does not reach the margin");
+    assertEquals(marginRgb, image.getRGB(marginX, extensionY), "the line extension background covers the right margin");
+  }
+
+  @Test
+  public void testVirtualSelectionOverLineExtensionBackground() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(false, false);
+      try {
+        runTestVirtualSelectionOverLineExtensionBackground();
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
+  public void testVirtualSelectionOverLineExtensionBackgroundRounded() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(true, false);
+      try {
+        runTestVirtualSelectionOverLineExtensionBackground();
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  /**
+   * Asserts that the selection past the end of line 0 covers the background of a line extension.
+   * An inline inlay at the line end keeps the selection end past the line end.
+   */
+  private void runTestVirtualSelectionOverLineExtensionBackground() throws IOException {
+    myFixture.initText("ab\ncdefghijklmnopqrst");
+    EditorEx editor = (EditorEx)myFixture.getEditor();
+    editor.getSettings().setVirtualSpace(true);
+    myFixture.addInlay(2);
+    TextAttributes extensionAttributes = new TextAttributes(null, Color.green, null, null, Font.PLAIN);
+    editor.registerLineExtensionPainter(
+      line -> line == 0 ? Collections.singleton(new LineExtensionInfo("      ", extensionAttributes)) : Collections.emptyList()
+    );
+    editor.getCaretModel().setCaretsAndSelections(List.of(
+      new CaretState(new LogicalPosition(0, 5), new LogicalPosition(0, 1), new LogicalPosition(0, 5))
+    ));
+    VisualPosition selectionEnd = editor.getSelectionModel().getSelectionEndPosition();
+    assertNotNull(selectionEnd);
+    assertEquals(6, selectionEnd.column, "the selection does not end past the line end");
+    paintEditor(false, null, null); // first paint triggers size update due to line extensions
+    BufferedImage image = paintEditor(false, null, null);
+    int spaceWidth = EditorUtil.getPlainSpaceWidth(editor);
+    int endX = editor.visualPositionToXY(selectionEnd).x;
+    int y = editor.visualLineToY(0) + editor.getLineHeight() / 2;
+    int selectionRgb = editor.getSelectionModel().getTextAttributes().getBackgroundColor().getRGB();
+    assertEquals(Color.green.getRGB(), image.getRGB(endX + spaceWidth / 2, y), "the line extension is absent after the selection");
+    assertEquals(selectionRgb, image.getRGB(endX - spaceWidth / 2, y), "the line extension covers the selection past the line end");
+  }
+
+  @Test
+  public void testHuggingBlockOverLineExtensionBackground() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(true, true);
+      try {
+        runTestHuggingBlockOverLineExtensionBackground();
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
+  public void testHuggingBlockOverLineExtensionBackgroundStraight() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(false, true);
+      try {
+        runTestHuggingBlockOverLineExtensionBackground();
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  /**
+   * Asserts that the hugging block past the end of line 0 covers the background of a line extension.
+   */
+  private void runTestHuggingBlockOverLineExtensionBackground() throws IOException {
+    myFixture.initText("ab\ncdefghijklmnopqrst");
+    EditorEx editor = (EditorEx)myFixture.getEditor();
+    TextAttributes extensionAttributes = new TextAttributes(null, Color.green, null, null, Font.PLAIN);
+    editor.registerLineExtensionPainter(
+      line -> line == 0 ? Collections.singleton(new LineExtensionInfo("      ", extensionAttributes)) : Collections.emptyList()
+    );
+    editor.getSelectionModel().setSelection(1, 4);
+    paintEditor(false, null, null); // first paint triggers size update due to line extensions
+    BufferedImage image = paintEditor(false, null, null);
+    int spaceWidth = EditorUtil.getPlainSpaceWidth(editor);
+    int lineEndX = editor.offsetToXY(2).x;
+    int y = editor.visualLineToY(0) + editor.getLineHeight() / 2;
+    int selectionRgb = editor.getSelectionModel().getTextAttributes().getBackgroundColor().getRGB();
+    assertEquals(Color.green.getRGB(), image.getRGB(lineEndX + 4 * spaceWidth, y), "the line extension is absent after the block");
+    assertEquals(selectionRgb, image.getRGB(lineEndX + spaceWidth / 2, y), "the line extension covers the hugging block");
+  }
+
+  @Test
+  public void testAfterLineEndBackgroundOverSelection() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(false, false);
+      try {
+        runTestAfterLineEndBackgroundOverSelection();
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
+  public void testAfterLineEndBackgroundOverSelectionRounded() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(true, false);
+      try {
+        runTestAfterLineEndBackgroundOverSelection();
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  /**
+   * Asserts that a background after the end of a line covers the selection on line 0.
+   * On line 1, it covers the background of a line extension.
+   */
+  private void runTestAfterLineEndBackgroundOverSelection() throws IOException {
+    myFixture.initText("ab\ncd\nefghijklmnop");
+    EditorEx editor = (EditorEx)myFixture.getEditor();
+    TextAttributes extensionAttributes = new TextAttributes(null, Color.green, null, null, Font.PLAIN);
+    editor.registerLineExtensionPainter(
+      line -> line == 1 ? Collections.singleton(new LineExtensionInfo("    ", extensionAttributes)) : Collections.emptyList()
+    );
+    ((RangeHighlighterEx)addRangeHighlighter(2, 2, HighlighterLayer.WARNING, null, Color.red)).setAfterEndOfLine(true);
+    ((RangeHighlighterEx)addRangeHighlighter(5, 5, HighlighterLayer.WARNING, null, Color.red)).setAfterEndOfLine(true);
+    editor.getSelectionModel().setSelection(0, 3);
+    paintEditor(false, null, null); // first paint triggers size update due to line extensions
+    BufferedImage image = paintEditor(false, null, null);
+    int spaceWidth = EditorUtil.getPlainSpaceWidth(editor);
+    int boxX = editor.offsetToXY(2).x + spaceWidth / 2;
+    int middle = editor.getLineHeight() / 2;
+    int selectionY = editor.visualLineToY(0) + middle;
+    int extensionY = editor.visualLineToY(1) + middle;
+    int selectionRgb = editor.getSelectionModel().getTextAttributes().getBackgroundColor().getRGB();
+    assertEquals(selectionRgb, image.getRGB(boxX + 2 * spaceWidth, selectionY), "the selection does not fill line 0 after its end");
+    assertEquals(Color.green.getRGB(), image.getRGB(boxX + 2 * spaceWidth, extensionY), "the line extension is absent on line 1");
+    assertEquals(Color.red.getRGB(), image.getRGB(boxX, selectionY), "the selection covers the background after the end of line 0");
+    assertEquals(Color.red.getRGB(), image.getRGB(boxX, extensionY), "the line extension covers the background after the end of line 1");
+  }
+
+  @Test
+  public void testAfterLineEndEffectOverBackground() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(false, false);
+      try {
+        runTestAfterLineEndEffectOverBackground();
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
+  public void testAfterLineEndEffectOverBackgroundRounded() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(true, false);
+      try {
+        runTestAfterLineEndEffectOverBackground();
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  /**
+   * Asserts that the effect of a highlighter after the end of line 1 paints over the background of the same highlighter.
+   */
+  private void runTestAfterLineEndEffectOverBackground() throws IOException {
+    myFixture.initText("ab\ncd\nef");
+    EditorEx editor = (EditorEx)myFixture.getEditor();
+    TextAttributes attributes = new TextAttributes(null, Color.red, Color.blue, EffectType.STRIKEOUT, Font.PLAIN);
+    ((RangeHighlighterEx)addRangeHighlighter(5, 5, HighlighterLayer.WARNING, attributes)).setAfterEndOfLine(true);
+    BufferedImage image = paintEditor(false, null, null);
+    int boxX = editor.offsetToXY(5).x;
+    int boxY = editor.visualLineToY(1);
+    int redCount = 0;
+    int blueCount = 0;
+    for (int x = boxX; x < boxX + EditorUtil.getPlainSpaceWidth(editor) - 1; x++) {
+      for (int y = boxY; y < boxY + editor.getLineHeight(); y++) {
+        int rgb = image.getRGB(x, y);
+        if (rgb == Color.red.getRGB()) {
+          redCount++;
+        } else if (rgb == Color.blue.getRGB()) {
+          blueCount++;
+        }
+      }
+    }
+    assertTrue(redCount > 0, "the background after the end of line 1 is absent");
+    assertTrue(blueCount > 0, "the effect after the end of line 1 is absent or under the background");
+  }
+
+  @Test
   public void testEmptyBorderAtInlay1() {
     myFixture.runTest(() -> {
       myFixture.initText("ab");
@@ -689,6 +1376,50 @@ public class EditorPaintingTest extends EditorPaintingTestCase {
       }
     }
     return false;
+  }
+
+  private static void setSeverity(RangeHighlighter highlighter, HighlightSeverity severity) {
+    HighlightInfo info = HighlightInfo.newHighlightInfo(HighlightInfoType.INFORMATION)
+      .severity(severity)
+      .range(highlighter.getStartOffset(), highlighter.getEndOffset())
+      .createUnconditionally();
+    BackgroundUpdateHighlightersUtil.associateInfoAndHighlighter(info, (RangeHighlighterEx)highlighter);
+  }
+
+  /**
+   * Asserts the paint order of two backgrounds of one layer.
+   * The background of {@code top} covers the middle of its own range, and the background of {@code bottom} is absent there.
+   */
+  private void assertTopBackground(RangeHighlighter top, RangeHighlighter bottom) throws IOException {
+    Color expected = top.getTextAttributes(null).getBackgroundColor();
+    Color rejected = bottom.getTextAttributes(null).getBackgroundColor();
+    BufferedImage image = paintEditor(false, null, null);
+    Editor editor = myFixture.getEditor();
+    Point start = editor.offsetToXY(top.getStartOffset());
+    int middleX = (start.x + editor.offsetToXY(top.getEndOffset()).x) / 2;
+    int lineHeight = editor.getLineHeight();
+    boolean expectedFound = false;
+    for (int y = start.y + 1; y < start.y + lineHeight - 1; y++) {
+      int rgb = image.getRGB(middleX, y);
+      assertNotEquals(rejected.getRGB(), rgb, "the lower background paints over the upper one at y = " + y);
+      expectedFound |= rgb == expected.getRGB();
+    }
+    assertTrue(expectedFound, "the upper background is absent");
+  }
+
+  /**
+   * Asserts that the background of {@code color} gives one shape across the block inlay band above visual line 1.
+   * The line above keeps a straight right edge at the band, and visual line 1 keeps a straight left edge at the band.
+   */
+  private void assertOneShapeAcrossBand(Color color) throws IOException {
+    BufferedImage image = paintEditor(false, null, null);
+    Editor editor = myFixture.getEditor();
+    int bandTop = editor.visualLineToYRange(0)[1];
+    int bandBottom = editor.visualLineToY(1);
+    int leftX = editor.visualPositionToXY(new VisualPosition(1, 0)).x;
+    assertTrue(bandBottom > bandTop, "the block inlay band is absent");
+    assertEquals(color.getRGB(), image.getRGB(image.getWidth() - 1, bandTop - 1), "the line above rounds at the band");
+    assertEquals(color.getRGB(), image.getRGB(leftX, bandBottom), "the line below rounds at the band");
   }
 
   private void assertFoldBackground(BufferedImage image, int offset, Color color) {

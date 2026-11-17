@@ -161,6 +161,7 @@ public class SearchResults implements DocumentListener, CaretListener {
   }
 
   public boolean isExcluded(FindResult occurrence) {
+    if (myExcluded.isEmpty()) return false;
     for (RangeMarker rangeMarker : myExcluded) {
       if (TextRange.areSegmentsEqual(rangeMarker, occurrence)) {
         return true;
@@ -199,7 +200,7 @@ public class SearchResults implements DocumentListener, CaretListener {
      * results become visible before the search is over. A listener that can render the new occurrences on their own
      * should do so here instead of rescanning the ones it has already seen; the default refreshes everything.
      */
-    default void searchResultsAppended(@NotNull SearchResults sr, @NotNull List<FindResult> added) {
+    default void searchResultsAppended(@NotNull SearchResults sr, @NotNull List<? extends FindResult> added) {
       searchResultsUpdated(sr);
     }
 
@@ -401,12 +402,12 @@ public class SearchResults implements DocumentListener, CaretListener {
       myCallback = callback;
     }
 
-    void publish(@NotNull List<FindResult> chunk, boolean first, boolean last, long documentTimeStamp) {
+    void publish(@NotNull List<? extends FindResult> chunk, boolean first, boolean last, long documentTimeStamp) {
       UIUtil.invokeLaterIfNeeded(() -> WriteIntentReadAction.run(() -> apply(chunk, first, last, documentTimeStamp)));
     }
 
     @RequiresEdt
-    private void apply(@NotNull List<FindResult> chunk, boolean first, boolean last, long documentTimeStamp) {
+    private void apply(@NotNull List<? extends FindResult> chunk, boolean first, boolean last, long documentTimeStamp) {
       if (myStamp < myLastUpdatedStamp) {
         return;
       }
@@ -568,14 +569,14 @@ public class SearchResults implements DocumentListener, CaretListener {
     return searchArea;
   }
 
-  private static class EditorSelectionSearchAreaProvider implements EditorSearchAreaProvider {
+  static final class EditorSelectionSearchAreaProvider implements EditorSearchAreaProvider {
     @Override
     public boolean isEnabled(@NotNull Editor editor, @NotNull FindModel findModel) {
       return !findModel.isGlobal();
     }
 
     @Override
-    public @Nullable SearchArea getSearchArea(@NotNull Editor editor, @NotNull FindModel findModel) {
+    public @NotNull SearchArea getSearchArea(@NotNull Editor editor, @NotNull FindModel findModel) {
       SelectionModel selection = editor.getSelectionModel();
       return SearchArea.create(selection.getBlockSelectionStarts(), selection.getBlockSelectionEnds());
     }
@@ -730,7 +731,7 @@ public class SearchResults implements DocumentListener, CaretListener {
    * worth ~20% of that benchmark.
    */
   @RequiresEdt
-  private void searchAdvanced(@NotNull List<FindResult> chunk, boolean first, boolean last) {
+  private void searchAdvanced(@NotNull List<? extends FindResult> chunk, boolean first, boolean last) {
     myOccurrences.addAll(chunk);
     if (last) {
       return;
@@ -873,7 +874,7 @@ public class SearchResults implements DocumentListener, CaretListener {
     }
   }
 
-  private void notifyAppended(@NotNull List<FindResult> added) {
+  private void notifyAppended(@NotNull List<? extends FindResult> added) {
     for (SearchResultsListener listener : myListeners) {
       listener.searchResultsAppended(this, added);
     }

@@ -4,26 +4,47 @@ package org.jetbrains.plugins.groovy.transformations;
 import com.intellij.groovy.testFramework.ResolveTest;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.util.InheritanceUtil;
+import com.intellij.testFramework.EdtTestUtil;
+import com.intellij.testFramework.fixtures.JavaCodeInsightTestFixture;
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightTestFixture;
+import com.intellij.testFramework.fixtures.LightJavaProject;
+import com.intellij.testFramework.junit5.TestApplication;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.plugins.groovy.GroovyProjectDescriptors;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrMethod;
 import org.jetbrains.plugins.groovy.lang.psi.impl.GroovyFileImpl;
 import org.jetbrains.plugins.groovy.lang.psi.impl.synthetic.GroovyScriptClass;
-import org.jetbrains.plugins.groovy.util.GroovyLatestTest;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
+import static com.intellij.testFramework.EdtTestUtil.runInEdtAndWait;
+import static com.intellij.testFramework.fixtures.LightJavaFixturesKt.lightJavaCodeInsightFixture;
+import static com.intellij.testFramework.fixtures.LightJavaFixturesKt.lightJavaProjectFixture;
 
-public class BaseScriptTransformationSupportTest extends GroovyLatestTest implements ResolveTest {
+@TestApplication
+public class BaseScriptTransformationSupportTest implements ResolveTest {
+  private static final TestFixture<LightJavaProject> project = lightJavaProjectFixture(GroovyProjectDescriptors.GROOVY_2_5);
+  private final TestFixture<LightJavaCodeInsightTestFixture> groovy = lightJavaCodeInsightFixture(project);
+
+  @Override
+  public @NotNull JavaCodeInsightTestFixture getFixture() {
+    return groovy.get();
+  }
+
   private void doStubTest(String text, String packageName) {
     getFixture().addFileToProject("script/base.groovy", "package script; abstract class MyBaseScript extends Script {}");
     GroovyFileImpl file = (GroovyFileImpl)getFixture().addFileToProject("Zzz.groovy", text);
-    Assert.assertFalse(file.isContentsLoaded());
+    runInEdtAndWait(() -> {
+      Assertions.assertFalse(file.isContentsLoaded());
 
-    PsiClass clazz = getFixture().findClass(packageName == null ? "Zzz" : packageName + ".Zzz");
-    Assert.assertTrue(clazz instanceof GroovyScriptClass);
-    Assert.assertFalse(file.isContentsLoaded());
+      PsiClass clazz = getFixture().findClass(packageName == null ? "Zzz" : packageName + ".Zzz");
+      Assertions.assertTrue(clazz instanceof GroovyScriptClass);
+      Assertions.assertFalse(file.isContentsLoaded());
 
-    Assert.assertTrue(InheritanceUtil.isInheritor(clazz, "script.MyBaseScript"));
-    Assert.assertFalse(file.isContentsLoaded());
+      Assertions.assertTrue(InheritanceUtil.isInheritor(clazz, "script.MyBaseScript"));
+      Assertions.assertFalse(file.isContentsLoaded());
+    });
   }
 
   private void doStubTest(String text) {

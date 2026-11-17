@@ -2,17 +2,37 @@
 package org.jetbrains.plugins.groovy.lang.resolve;
 
 import com.intellij.groovy.testFramework.ExpressionTest;
+import com.intellij.openapi.application.ReadAction;
+import com.intellij.testFramework.EdtTestUtil;
+import com.intellij.testFramework.fixtures.JavaCodeInsightTestFixture;
+import com.intellij.testFramework.fixtures.LightJavaCodeInsightTestFixture;
+import com.intellij.testFramework.fixtures.LightJavaProject;
+import com.intellij.testFramework.junit5.TestApplication;
+import com.intellij.testFramework.junit5.fixture.TestFixture;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.plugins.groovy.GroovyProjectDescriptors;
 import org.jetbrains.plugins.groovy.lang.psi.api.GroovyResolveResult;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrField;
-import org.jetbrains.plugins.groovy.util.GroovyLatestTest;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
-import static junit.framework.TestCase.assertFalse;
-import static junit.framework.TestCase.assertTrue;
+import static com.intellij.testFramework.EdtTestUtil.runInEdtAndWait;
+import static com.intellij.testFramework.fixtures.LightJavaFixturesKt.lightJavaCodeInsightFixture;
+import static com.intellij.testFramework.fixtures.LightJavaFixturesKt.lightJavaProjectFixture;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
-public class ResolveAttributeTest extends GroovyLatestTest implements ExpressionTest {
-  @Before
+@TestApplication
+public class ResolveAttributeTest implements ExpressionTest {
+  private static final TestFixture<LightJavaProject> project = lightJavaProjectFixture(GroovyProjectDescriptors.GROOVY_2_5);
+  private final TestFixture<LightJavaCodeInsightTestFixture> groovy = lightJavaCodeInsightFixture(project);
+
+  @Override
+  public @NotNull JavaCodeInsightTestFixture getFixture() {
+    return groovy.get();
+  }
+
+  @BeforeEach
   public void addClasses() {
     getFixture().addFileToProject("A.groovy", """
       class A {
@@ -35,9 +55,11 @@ public class ResolveAttributeTest extends GroovyLatestTest implements Expression
   @Test
   public void instance_property_in_instance_context() {
     GroovyResolveResult result = advancedResolveByText("new A().@<caret>instanceProp");
-    assertTrue(result.getElement() instanceof GrField);
-    assertFalse(result.isAccessible());
-    assertFalse(result.isValidResult());
+    ReadAction.run(() -> {
+      assertTrue(result.getElement() instanceof GrField);
+      assertFalse(result.isAccessible());
+      assertFalse(result.isValidResult());
+    });
   }
 
   @Test
@@ -65,9 +87,11 @@ public class ResolveAttributeTest extends GroovyLatestTest implements Expression
   @Test
   public void instance_property_in_static_context() {
     GroovyResolveResult result = advancedResolveByText("A.@<caret>instanceProp");
-    assertTrue(result.getElement() instanceof GrField);
-    assertFalse(result.isStaticsOK());
-    assertFalse(result.isValidResult());
+    ReadAction.run(() -> {
+      assertTrue(result.getElement() instanceof GrField);
+      assertFalse(result.isStaticsOK());
+      assertFalse(result.isValidResult());
+    });
   }
 
   @Test

@@ -5,6 +5,7 @@ package org.jetbrains.plugins.groovy.util;
 import com.intellij.codeInsight.lookup.LookupElement;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.PluginPathManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.fileTypes.FileTypeManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Ref;
@@ -38,7 +39,6 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.groovy.extensions.NamedArgumentDescriptor;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrExpression;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrReferenceExpression;
-import org.junit.Assert;
 
 import java.io.File;
 import java.io.IOException;
@@ -48,6 +48,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.junit.jupiter.api.Assertions;
 
 /**
  * Utility class, that contains various methods for testing
@@ -71,12 +72,14 @@ public abstract class TestUtils {
   }
 
   public static PsiFile createPseudoPhysicalFile(final Project project, final String fileName, final String text) throws IncorrectOperationException {
-    return PsiFileFactory.getInstance(project).createFileFromText(
-        fileName,
-        FileTypeManager.getInstance().getFileTypeByFileName(fileName),
-        text,
-        LocalTimeCounter.currentTime(),
-        true);
+    return ReadAction.computeBlocking(() -> {
+      return PsiFileFactory.getInstance(project).createFileFromText(
+          fileName,
+          FileTypeManager.getInstance().getFileTypeByFileName(fileName),
+          text,
+          LocalTimeCounter.currentTime(),
+          true);
+    });
   }
 
   public static String getAbsoluteTestDataPath() {
@@ -115,7 +118,7 @@ public abstract class TestUtils {
     catch (IOException e) {
       throw new RuntimeException(e);
     }
-    Assert.assertNotNull(content);
+    Assertions.assertNotNull(content);
 
     List<String> input = new ArrayList<>();
 
@@ -135,8 +138,8 @@ public abstract class TestUtils {
     }
     input.add(content);
 
-    Assert.assertTrue("No data found in source file", input.size() > 0);
-    Assert.assertTrue("Test output points to null", input.size() > 1);
+    Assertions.assertTrue(input.size() > 0, "No data found in source file");
+    Assertions.assertTrue(input.size() > 1, "Test output points to null");
 
     return input;
   }
@@ -149,7 +152,7 @@ public abstract class TestUtils {
   public static void checkCompletionContains(JavaCodeInsightTestFixture fixture, String ... expectedVariants) {
     LookupElement[] lookupElements = fixture.completeBasic();
 
-    Assert.assertNotNull(lookupElements);
+    Assertions.assertNotNull(lookupElements);
 
     Set<String> missedVariants = ContainerUtil.newHashSet(expectedVariants);
 
@@ -174,7 +177,7 @@ public abstract class TestUtils {
     }
 
     if (missedVariants.size() > 0) {
-      Assert.fail("Some completion variants are missed " + missedVariants);
+      Assertions.fail("Some completion variants are missed " + missedVariants);
     }
   }
 
@@ -197,70 +200,72 @@ public abstract class TestUtils {
     }
 
     if (type == null) {
-      Assert.fail("No field or method called '" + lookupString + "' found in completion lookup elements");
+      Assertions.fail("No field or method called '" + lookupString + "' found in completion lookup elements");
     }
 
-    Assert.assertEquals(expectedTypeCanonicalText, type.getCanonicalText());
+    Assertions.assertEquals(expectedTypeCanonicalText, type.getCanonicalText());
   }
 
   public static void checkResolve(PsiFile file, final String ... expectedUnresolved) {
-    final List<String> actualUnresolved = new ArrayList<>();
+    ReadAction.run(() -> {
+      final List<String> actualUnresolved = new ArrayList<>();
 
-    final StringBuilder sb = new StringBuilder();
-    final String text = file.getText();
-    final Ref<Integer> lastUnresolvedRef = Ref.create(0);
+      final StringBuilder sb = new StringBuilder();
+      final String text = file.getText();
+      final Ref<Integer> lastUnresolvedRef = Ref.create(0);
 
-    file.acceptChildren(new PsiRecursiveElementVisitor() {
-      @Override
-      public void visitElement(@NotNull PsiElement element) {
-        if (element instanceof GrReferenceExpression psiReference) {
+      file.acceptChildren(new PsiRecursiveElementVisitor() {
+        @Override
+        public void visitElement(@NotNull PsiElement element) {
+          if (element instanceof GrReferenceExpression psiReference) {
 
-          GrExpression qualifier = psiReference.getQualifierExpression();
-          if (qualifier instanceof GrReferenceExpression) {
-            if (((GrReferenceExpression)qualifier).resolve() == null) {
-              super.visitElement(element);
-              return;
+            GrExpression qualifier = psiReference.getQualifierExpression();
+            if (qualifier instanceof GrReferenceExpression) {
+              if (((GrReferenceExpression)qualifier).resolve() == null) {
+                super.visitElement(element);
+                return;
+              }
+            }
+
+            if (psiReference.resolve() == null) {
+              CollectConsumer<PomTarget> consumer = new CollectConsumer<>();
+
+              for (PomDeclarationSearcher searcher : PomDeclarationSearcher.EP_NAME.getExtensions()) {
+                searcher.findDeclarationsAt(psiReference, 0, consumer);
+                if (consumer.getResult().size() > 0) break;
+              }
+
+              if (consumer.getResult().isEmpty()) {
+                PsiElement nameElement = psiReference.getReferenceNameElement();
+                Assertions.assertNotNull(nameElement);
+
+                String name = nameElement.getText();
+
+                Assertions.assertEquals(name, psiReference.getReferenceName());
+
+                int last = lastUnresolvedRef.get();
+                sb.append(text, last, nameElement.getTextOffset());
+                sb.append('!').append(name).append('!');
+                lastUnresolvedRef.set(nameElement.getTextOffset() + nameElement.getTextLength());
+
+                actualUnresolved.add(name);
+                return;
+              }
             }
           }
 
-          if (psiReference.resolve() == null) {
-            CollectConsumer<PomTarget> consumer = new CollectConsumer<>();
-
-            for (PomDeclarationSearcher searcher : PomDeclarationSearcher.EP_NAME.getExtensions()) {
-              searcher.findDeclarationsAt(psiReference, 0, consumer);
-              if (consumer.getResult().size() > 0) break;
-            }
-
-            if (consumer.getResult().isEmpty()) {
-              PsiElement nameElement = psiReference.getReferenceNameElement();
-              Assert.assertNotNull(nameElement);
-
-              String name = nameElement.getText();
-
-              Assert.assertEquals(name, psiReference.getReferenceName());
-
-              int last = lastUnresolvedRef.get();
-              sb.append(text, last, nameElement.getTextOffset());
-              sb.append('!').append(name).append('!');
-              lastUnresolvedRef.set(nameElement.getTextOffset() + nameElement.getTextLength());
-
-              actualUnresolved.add(name);
-              return;
-            }
-          }
+          super.visitElement(element);
         }
 
-        super.visitElement(element);
-      }
+        @Override
+        public void visitFile(@NotNull PsiFile psiFile) {
+        }
+      });
 
-      @Override
-      public void visitFile(@NotNull PsiFile psiFile) {
-      }
+      sb.append("\n\n");
+
+      Assertions.assertEquals(Arrays.asList(expectedUnresolved), actualUnresolved, sb.toString());
     });
-
-    sb.append("\n\n");
-
-    Assert.assertEquals(sb.toString(), Arrays.asList(expectedUnresolved), actualUnresolved);
   }
 
   public static PsiMethod[] getMethods(PsiClass aClass) {

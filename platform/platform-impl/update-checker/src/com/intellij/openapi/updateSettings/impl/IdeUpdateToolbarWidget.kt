@@ -31,6 +31,7 @@ import com.intellij.openapi.ui.popup.AlignedPopup
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.ui.popup.ListPopupStep
 import com.intellij.openapi.ui.popup.util.PopupUtil
+import com.intellij.openapi.updateSettings.impl.productMigration.MIGRATION_RESTART_ACTION
 import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.wm.impl.headertoolbar.isDarkHeader
 import com.intellij.ui.JBColor
@@ -90,10 +91,12 @@ internal class IdeUpdateToolbarWidget :
     when (status) {
       IdeUpdateWidgetState.Status.AVAILABLE -> showUpdatePopup(e)
       IdeUpdateWidgetState.Status.RESTART -> {
-        // restartCommand is available only when ApplicationManager.getApplication().isRestartCapable()
-        IdeUpdateWidgetState.getInstance().restartCommand?.let { command ->
-          IdeUpdateUsageTriggerCollector.UPDATE_WIDGET_RESTART_CLICKED.log(e.project)
-          PlatformUpdateDialog.restartLaterAndRunCommand(command)
+        // a patch has restartAction only when ApplicationManager.getApplication().isRestartCapable()
+        IdeUpdateWidgetState.getInstance().restartAction?.let { action ->
+          if (action !== MIGRATION_RESTART_ACTION) {
+            IdeUpdateUsageTriggerCollector.UPDATE_WIDGET_RESTART_CLICKED.log(e.project)
+          }
+          action.run()
         }
       }
       else -> return
