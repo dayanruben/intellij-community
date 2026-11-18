@@ -126,6 +126,7 @@ import com.intellij.openapi.editor.impl.stickyLines.ui.StickyLineShadowPainter;
 import com.intellij.openapi.editor.impl.stickyLines.ui.StickyLinesPanel;
 import com.intellij.openapi.editor.impl.view.CharacterGrid;
 import com.intellij.openapi.editor.impl.view.CharacterGridImpl;
+import com.intellij.openapi.editor.impl.view.CharacterGridSpec;
 import com.intellij.openapi.editor.impl.view.EditorLineExtensions;
 import com.intellij.openapi.editor.impl.view.EditorPainter;
 import com.intellij.openapi.editor.impl.view.EditorView;
@@ -526,7 +527,8 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
 
   private final TextDrawingCallback myTextDrawingCallback;
 
-  private @Nullable CharacterGridImpl myCharacterGrid;
+  private volatile @Nullable CharacterGridSpec myCharacterGridSpec;
+  private volatile @Nullable CharacterGridImpl myCharacterGrid;
 
   private boolean myCharKeyPressed;
   private boolean myNeedToSelectPreviousChar;
@@ -1400,8 +1402,9 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   }
 
   /**
-   * @param highlightingChanged true when the editor highlighter, the colors scheme or the font families registry key changed.
-   *                            The text can then get other fonts, so all soft wraps are recalculated.
+   * @param highlightingChanged true when the editor highlighter, the colors scheme, the font families registry key or
+   *                            the character grid spec changed. The text can then get other widths, so all soft wraps
+   *                            are recalculated.
    */
   @RequiresEdt
   private void reinitSettings(boolean updateGutterSize, boolean reinitSettings, boolean highlightingChanged) {
@@ -1465,8 +1468,8 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     myTraceableDisposable.throwDisposalError(msg);
   }
 
-  @ApiStatus.Internal
-  public String getDisposalStackTrace() {
+  @NotNull
+  String getDisposalStackTrace() {
     return myTraceableDisposable.getStackTrace();
   }
 
@@ -3900,25 +3903,48 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   }
 
   /**
-   * Returns the instance of the character grid corresponding to this editor
+   * Returns the instance of the character grid corresponding to this editor.
    * <p>
-   *   A non-{@code null} value is only returned when the character grid mode is enabled,
-   *   see {@link EditorSettings#setCharacterGridWidthMultiplier(Float)}.
+   *   The value is non-{@code null} exactly when {@link #setCharacterGridSpec(CharacterGridSpec)} has a spec.
+   *   The read has no side effect, and it gives the same instance for as long as the grid mode stays on.
    * </p>
    * @return the current character grid instance or {@code null} if the editor is not in the grid mode
    */
   @ApiStatus.Internal
   public @Nullable CharacterGrid getCharacterGrid() {
-    if (getSettings().getCharacterGridWidthMultiplier() == null) {
+    return myCharacterGrid;
+  }
+
+  /**
+   * Returns the setup of the character grid mode, or {@code null} when the editor lays out its text without a grid.
+   */
+  @ApiStatus.Internal
+  public @Nullable CharacterGridSpec getCharacterGridSpec() {
+    return myCharacterGridSpec;
+  }
+
+  /**
+   * Turns the character grid mode on with {@code spec}, or off with {@code null}.
+   * <p>
+   *   A spec that differs from the current one reloads the line layouts and the soft wraps, in that order.
+   *   An equal spec changes nothing.
+   * </p>
+   */
+  @ApiStatus.Internal
+  @RequiresEdt
+  public void setCharacterGridSpec(@Nullable CharacterGridSpec spec) {
+    assertIsDispatchThread();
+    if (Objects.equals(spec, myCharacterGridSpec)) {
+      return;
+    }
+    myCharacterGridSpec = spec;
+    if (spec == null) {
       myCharacterGrid = null;
-      return null;
     }
-    else {
-      if (myCharacterGrid == null) {
-        myCharacterGrid = new CharacterGridImpl(this);
-      }
-      return myCharacterGrid;
+    else if (myCharacterGrid == null) {
+      myCharacterGrid = new CharacterGridImpl(this);
     }
+    reinitSettings(true, false, true);
   }
 
   /**

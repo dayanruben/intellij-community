@@ -5,6 +5,7 @@ import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.platform.core.nio.fs.BasicFileAttributesHolder2.FetchAttributesFilter
 import com.intellij.platform.eel.EelOsFamily
 import com.intellij.platform.eel.directorySeparators
+import com.intellij.platform.eel.fs.EelCopyMoveImpl
 import com.intellij.platform.eel.fs.EelFileInfo.Type.Directory
 import com.intellij.platform.eel.fs.EelFileInfo.Type.Other
 import com.intellij.platform.eel.fs.EelFileInfo.Type.Regular
@@ -29,6 +30,7 @@ import com.intellij.platform.eel.impl.base.fs.EelFsResultImpl
 import com.intellij.platform.eel.provider.utils.EelPathUtils
 import com.intellij.platform.eel.provider.utils.getOrThrowFileSystemException
 import com.intellij.platform.eel.provider.utils.throwFileSystemException
+import com.intellij.platform.ijent.community.impl.CriticalSection
 import com.intellij.platform.ijent.fs.IjentFileSystemApi
 import com.intellij.platform.ijent.fs.IjentFileSystemPosixApi
 import com.intellij.platform.ijent.fs.IjentFileSystemWindowsApi
@@ -104,14 +106,6 @@ class IjentNioFileSystemProvider : FileSystemProvider() {
 
     private const val SCHEME = "ijent"
     private const val KEY_IJENT_FS = "ijentFs"
-  }
-
-  @JvmInline
-  internal value class CriticalSection<D : Any>(val hidden: D) {
-    inline operator fun <T> invoke(body: D.() -> T): T =
-      synchronized(hidden) {
-        hidden.body()
-      }
   }
 
   private val criticalSection = CriticalSection(object {
@@ -321,6 +315,10 @@ class IjentNioFileSystemProvider : FileSystemProvider() {
     }
     ensureAbsoluteIjentNioPath(source)
     ensureAbsoluteIjentNioPath(target)
+    if (source.nioFs != target.nioFs || EelCopyMoveImpl.hasEelCopyOption(options)) {
+      EelCopyMoveImpl.copy(source, target, *options)
+      return
+    }
     val sourcePath = source.eelPath
     val targetPath = target.eelPath
 
@@ -347,6 +345,10 @@ class IjentNioFileSystemProvider : FileSystemProvider() {
   override fun move(source: Path, target: Path, vararg options: CopyOption?) {
     ensureAbsoluteIjentNioPath(source)
     ensureAbsoluteIjentNioPath(target)
+    if (source.nioFs != target.nioFs || EelCopyMoveImpl.hasEelCopyOption(options)) {
+      EelCopyMoveImpl.move(source, target, *options.filterNotNull().toTypedArray())
+      return
+    }
     val sourcePath = source.eelPath
     val targetPath = target.eelPath
     return source.nioFs.ijentFs.move(sourcePath, targetPath)

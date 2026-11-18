@@ -22,6 +22,7 @@ import com.intellij.openapi.ui.MasterDetailsComponent
 import com.intellij.openapi.util.Condition
 import com.intellij.platform.ide.progress.ModalTaskOwner
 import com.intellij.platform.ide.progress.runWithModalProgressBlocking
+import com.intellij.python.sdk.backend.PythonInterpreter
 import com.intellij.python.sdk.backend.PythonInterpreterRegistry
 import com.intellij.python.sdk.backend.PythonInterpreterUpdateRequest
 import com.intellij.python.sdk.backend.PythonInterpreterUpdater
@@ -128,6 +129,12 @@ internal class PythonInterpreterMasterDetails(private val moduleOrProject: Modul
       if (isInterpreterLibraryFlowEnabled()) PythonSdkTable.allSdks(project) else projectSdksModel.sdks.toList()
     )
 
+  /** The SDKs that the tree lists: [allPythonSdksInEdit], without the environments of other projects when they are hidden. */
+  private fun visiblePythonSdks(): List<Sdk> = when {
+    hideOtherProjectVirtualenvs -> allPythonSdksInEdit.filter { !it.isAssociatedWithAnotherModule(module) }
+    else -> allPythonSdksInEdit
+  }
+
   override fun reset() {
     pythonPathsModified = false
 
@@ -137,10 +144,7 @@ internal class PythonInterpreterMasterDetails(private val moduleOrProject: Modul
 
     myRoot.removeAllChildren()
 
-    val visiblePythonSdks = when {
-      hideOtherProjectVirtualenvs -> allPythonSdksInEdit.filter { !it.isAssociatedWithAnotherModule(module) }
-      else -> allPythonSdksInEdit
-    }
+    val visiblePythonSdks = visiblePythonSdks()
     // One progress for the whole list, because a row states whether its interpreter is usable and only the interpreter
     // can answer that. Before PY-91967 every row probed the file system while it was being painted, under a modal
     // progress of its own.
@@ -163,9 +167,21 @@ internal class PythonInterpreterMasterDetails(private val moduleOrProject: Modul
     addNode(MyNode(PythonInterpreterDetailsConfigurable(project, sdk, item, parentConfigurable)), myRoot)
   }
 
-  private fun addSdkNodeAndSelect(sdk: Sdk) {
-    addSdkNode(sdk, interpreterItems(listOf(sdk)).single())
-    selectNodeInTree(sdk)
+  /**
+   * Lists [interpreter], which the dialog of an add action has set on the module, and selects it. Only the new SDKs get
+   * a node, so an edit of another interpreter that is not applied yet stays. The legacy flow lists the SDKs of the
+   * editable model, which gets a new SDK only with a reset, so there the tree is rebuilt, as the remove action does.
+   */
+  private fun showAddedInterpreter(interpreter: PythonInterpreter) {
+    val shown = (0 until myRoot.childCount).mapNotNull { myRoot.getChildAt(it).sdk }
+    val added = visiblePythonSdks().filter { sdk -> shown.none { it === sdk } }
+    added.zip(interpreterItems(added)).forEach { (sdk, item) -> addSdkNode(sdk, item) }
+    val isAdded = Condition<DefaultMutableTreeNode> { it.item?.ref == interpreter.ref }
+    val node = TreeUtil.findNode(myRoot, isAdded) ?: run {
+      reset()
+      TreeUtil.findNode(myRoot, isAdded)
+    } ?: return
+    selectNodeInTree(node)
   }
 
   override fun apply() {
@@ -186,8 +202,7 @@ internal class PythonInterpreterMasterDetails(private val moduleOrProject: Modul
       listOf(RemoveAction(), ShowPathsAction())
     }
     else {
-      // it would be nicer to insert the sdk at the proper place instead of adding it to the bottom
-      val addActions = collectAddInterpreterActions(moduleOrProject, ::addSdkNodeAndSelect)
+      val addActions = collectAddInterpreterActions(moduleOrProject, ::showAddedInterpreter)
       // Without a module there is nothing to add an interpreter to, so there is no Add button.
       val addInterpreterActionGroup = addActions.takeIf { it.isNotEmpty() }?.let { PopupActionGroup(it) }?.apply {
         templatePresentation.icon = AllIcons.General.Add
@@ -322,9 +337,12 @@ internal class PythonInterpreterMasterDetails(private val moduleOrProject: Modul
       get() = (lastPathComponent as MyNode).configurable.editableObject as Sdk
 
     private val TreeNode.sdk: Sdk?
-      get() {
-        val configurable = (this as? DefaultMutableTreeNode)?.userObject as? PythonInterpreterDetailsConfigurable
-        return configurable?.sdk
-      }
+      get() = configurable?.sdk
+
+    private val TreeNode.item: PyInterpreterItem?
+      get() = configurable?.item
+
+    private val TreeNode.configurable: PythonInterpreterDetailsConfigurable?
+      get() = (this as? DefaultMutableTreeNode)?.userObject as? PythonInterpreterDetailsConfigurable
   }
 }

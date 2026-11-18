@@ -14,10 +14,8 @@ import java.awt.Graphics2D;
 import java.awt.Shape;
 import java.awt.font.GlyphVector;
 import java.awt.font.TextAttribute;
-import java.awt.geom.Point2D;
 import java.awt.geom.Rectangle2D;
 import java.util.Arrays;
-import java.util.Objects;
 import java.util.function.Consumer;
 
 /**
@@ -30,38 +28,21 @@ public final class ComplexTextFragment extends TextFragment {
 
   private final @NotNull GlyphVector myGlyphVector;
 
-  // Start offset of each Unicode code point in the fragment
-  // (null if each code point takes one char).
-  // We expect no more than 1025 chars in a fragment, so 'short' should be enough.
-  private final short @Nullable [] myCodePoint2Offset;
-
   @VisibleForTesting
   public ComplexTextFragment(
     char @NotNull [] lineChars,
     int start,
     int end,
     boolean isRtl,
-    @NotNull FontInfo fontInfo,
-    @Nullable EditorView view
+    @NotNull FontInfo fontInfo
   ) {
     this(
       lineChars,
       start,
       end,
       isRtl,
-      FontLayoutService.getInstance().layoutGlyphVector(
-        fontInfo.getFont(),
-        Objects.requireNonNull(
-          fontInfo.getFontRenderContext(),
-          "FontFallbackIterator.getFontInfo() always gives a FontRenderContext"
-        ),
-        lineChars,
-        start,
-        end,
-        isRtl
-      ),
-      fontInfo,
-      view
+      layoutGlyphVector(lineChars, start, end, isRtl, fontInfo),
+      fontInfo
     );
     assert start >= 0              : assertMessage(lineChars, start, end, isRtl, fontInfo);
     assert end <= lineChars.length : assertMessage(lineChars, start, end, isRtl, fontInfo);
@@ -74,51 +55,17 @@ public final class ComplexTextFragment extends TextFragment {
     int end,
     boolean isRtl,
     @NotNull GlyphVector glyphVector,
-    @NotNull FontInfo fontInfo,
-    @Nullable EditorView view
+    @NotNull FontInfo fontInfo
   ) {
     // RTL-ness is derived from the glyph vector, not from the isRtl parameter: FLAG_RUN_RTL reflects
     // the actual glyph order, which may differ from the requested direction (e.g., for single-glyph runs)
-    super(end - start, BitUtil.isSet(glyphVector.getLayoutFlags(), GlyphVector.FLAG_RUN_RTL), view);
+    super(
+      end - start,
+      BitUtil.isSet(glyphVector.getLayoutFlags(), GlyphVector.FLAG_RUN_RTL),
+      codePointOffsets(lineChars, start, end)
+    );
     myGlyphVector = glyphVector;
-    float[] alignments = null;
-    if (isGridCellAlignmentEnabled()) {
-      // This thing assumes that one glyph = one character.
-      // This seems to work "well enough" for the terminal
-      // (the only place where it's used at the moment of writing),
-      // but may need to be updated as unusual edge cases are discovered.
-      // PASS 1: store the original widths.
-      float[] originalWidths = new float[myGlyphVector.getNumGlyphs()];
-      alignments = new float[myGlyphVector.getNumGlyphs()];
-      for (int i = 0; i < myGlyphVector.getNumGlyphs(); i++) {
-        originalWidths[i] = (float)(myGlyphVector.getGlyphPosition(i + 1).getX() - myGlyphVector.getGlyphPosition(i).getX());
-      }
-      // PASS 2: use the original widths to calculate the new widths, update the positions to match the new widths.
-      double x = myGlyphVector.getGlyphPosition(0).getX();
-      for (int i = 0; i < myGlyphVector.getNumGlyphs(); i++) {
-        float originalWidth = originalWidths[i];
-        int charIndex = myGlyphVector.getGlyphCharIndex(i);
-        int codePoint = Character.codePointAt(lineChars, start + charIndex);
-        float adjustedWidth = adjustedWidth(codePoint);
-        x += isTooClose(adjustedWidth, originalWidth) ? originalWidth : adjustedWidth;
-        Point2D nextPos = myGlyphVector.getGlyphPosition(i + 1);
-        nextPos.setLocation(x, nextPos.getY());
-        myGlyphVector.setGlyphPosition(i + 1, nextPos);
-      }
-      // PASS 3: use the differences between the original and the new widths to center the characters.
-      for (int i = 0; i < myGlyphVector.getNumGlyphs(); i++) {
-        float originalWidth = originalWidths[i];
-        Point2D prevPos = myGlyphVector.getGlyphPosition(i);
-        Point2D nextPos = myGlyphVector.getGlyphPosition(i + 1);
-        double newWidth = nextPos.getX() - prevPos.getX();
-        if (newWidth < originalWidth + 0.001) continue;
-        double alignment = (newWidth - originalWidth) / 2;
-        alignments[i] = (float)alignment;
-        prevPos.setLocation(prevPos.getX() + alignment, prevPos.getY());
-        myGlyphVector.setGlyphPosition(i, prevPos);
-      }
-    }
-    GlyphCells cells = alignments == null ? addLetterSpacing(lineChars, start, end, isRtl, fontInfo) : null;
+    GlyphCells cells = addLetterSpacing(lineChars, start, end, isRtl, fontInfo);
     int numChars = end - start;
     int numGlyphs = myGlyphVector.getNumGlyphs();
     float totalWidth = (float)myGlyphVector.getGlyphPosition(numGlyphs).getX();
@@ -165,11 +112,7 @@ public final class ComplexTextFragment extends TextFragment {
           setCharPosition(j, prevX + (lastX - prevX) * (j - lastCharIndex + 1) / (charIndex - lastCharIndex), isRtl, numChars);
         }
       }
-      float newX = isRtl ? Math.min(lastX, minX) : Math.max(lastX, maxX);
-      if (alignments != null) {
-        newX = isRtl ? newX - alignments[visualGlyphIndex] : newX + alignments[visualGlyphIndex];
-      }
-      newX = Math.clamp(newX, 0, totalWidth);
+      float newX = Math.clamp(isRtl ? Math.min(lastX, minX) : Math.max(lastX, maxX), 0, totalWidth);
       setCharPosition(charIndex, newX, isRtl, numChars);
       prevX = lastX;
       lastX = newX;
@@ -178,22 +121,6 @@ public final class ComplexTextFragment extends TextFragment {
     if (lastCharIndex < numChars - 1) {
       for (int j = Math.max(0, lastCharIndex); j < numChars - 1; j++) {
         setCharPosition(j, prevX + (lastX - prevX) * (j - lastCharIndex + 1) / (numChars - lastCharIndex), isRtl, numChars);
-      }
-    }
-    int codePointCount = Character.codePointCount(lineChars, start, end - start);
-    if (codePointCount == numChars) {
-      myCodePoint2Offset = null;
-    }
-    else {
-      myCodePoint2Offset = new short[codePointCount];
-      int offset = 0;
-      for (int i = 0; i < codePointCount; i++) {
-        myCodePoint2Offset[i] = (short)(offset++);
-        if (offset < numChars &&
-            Character.isHighSurrogate(lineChars[start + offset - 1]) &&
-            Character.isLowSurrogate(lineChars[start + offset])) {
-          offset++;
-        }
       }
     }
   }
@@ -304,9 +231,9 @@ public final class ComplexTextFragment extends TextFragment {
         left[i] = left[base];
         right[i] = right[base];
       }
-      moveGlyph(i, newX[i]);
+      moveGlyph(myGlyphVector, i, newX[i]);
     }
-    moveGlyph(numGlyphs, originalX[numGlyphs] + shift);
+    moveGlyph(myGlyphVector, numGlyphs, originalX[numGlyphs] + shift);
     return new GlyphCells(left, right, emptyBounds);
   }
 
@@ -359,56 +286,6 @@ public final class ComplexTextFragment extends TextFragment {
    * {@code emptyBounds} tells for each glyph if its logical bounds are empty. A move of the glyph keeps this value.
    */
   private record GlyphCells(float @NotNull [] left, float @NotNull [] right, boolean @NotNull [] emptyBounds) {
-  }
-
-  private void moveGlyph(int glyphIndex, double x) {
-    double y = myGlyphVector.getGlyphPosition(glyphIndex).getY();
-    myGlyphVector.setGlyphPosition(glyphIndex, new Point2D.Double(x, y));
-  }
-
-  @Override
-  protected int offsetToLogicalColumn(int offset) {
-    if (myCodePoint2Offset == null) return offset;
-    if (offset == getLength()) return myCodePoint2Offset.length;
-    int i = Arrays.binarySearch(myCodePoint2Offset, (short)offset);
-    assert i >= 0;
-    return i;
-  }
-
-  @Override
-  public int getLogicalColumnCount(int startColumn) {
-    return getCodePointCount();
-  }
-
-  @Override
-  public int getVisualColumnCount(float startX) {
-    return getCodePointCount();
-  }
-
-  @Override
-  public int visualColumnToOffset(float startX, int column) {
-    return visualColumnToVisualOffset(column);
-  }
-
-  @Override
-  public float visualColumnToX(float startX, int column) {
-    return startX + getX(visualColumnToVisualOffset(column));
-  }
-
-  @Override
-  public @NotNull VisualColumn xToVisualColumn(float startX, float x) {
-    float relX = x - startX;
-    float prevPos = 0;
-    int columnCount = getCodePointCount();
-    for (int i = 0; i < columnCount; i++) {
-      int visualOffset = visualColumnToVisualOffset(i);
-      float newPos = myCharPositions[visualOffset];
-      if (relX < (newPos + prevPos) / 2) {
-        return new VisualColumn(i, relX > prevPos);
-      }
-      prevPos = newPos;
-    }
-    return new VisualColumn(columnCount, relX > myCharPositions[myCharPositions.length - 1]);
   }
 
   // Drawing a portion of glyph vector using clipping might be not very effective
@@ -481,29 +358,6 @@ public final class ComplexTextFragment extends TextFragment {
       //noinspection GraphicsSetClipInspection
       g.setClip(savedClip);
     }
-  }
-
-  private int getCodePointCount() {
-    if (myCodePoint2Offset != null) {
-      return myCodePoint2Offset.length;
-    }
-    return myCharPositions.length;
-  }
-
-  private int visualColumnToVisualOffset(int column) {
-    if (myCodePoint2Offset == null) {
-      return column;
-    }
-    if (column <= 0) {
-      return 0;
-    }
-    if (column >= myCodePoint2Offset.length) {
-      return getLength();
-    }
-    if (isRtl()) {
-      return getLength() - myCodePoint2Offset[myCodePoint2Offset.length - column];
-    }
-    return myCodePoint2Offset[column];
   }
 
   private void setCharPosition(int logicalCharIndex, float x, boolean isRtl, int numChars) {

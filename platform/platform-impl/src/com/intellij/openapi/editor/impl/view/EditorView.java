@@ -47,7 +47,6 @@ import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.DocumentInternalUtil;
 import com.intellij.util.concurrency.annotations.RequiresEdt;
-import com.intellij.util.ui.JdkConstants;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -139,13 +138,15 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
   @RequiresEdt
   public int visualLineToY(int line) {
     assertNotInBulkMode();
-    return myMapper.visualLineToY(line);
+    DocumentText document = myDocument.getDocumentText();
+    return myMapper.visualLineToY(document, line);
   }
 
   @RequiresEdt
   public int @NotNull [] visualLineToYRange(int line) {
     assertNotInBulkMode();
-    return myMapper.visualLineToYRange(line);
+    DocumentText document = myDocument.getDocumentText();
+    return myMapper.visualLineToYRange(document, line);
   }
 
   public @NotNull LogicalPosition offsetToLogicalPosition(int offset) {
@@ -164,63 +165,72 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
   public @NotNull VisualPosition logicalToVisualPosition(@NotNull LogicalPosition pos, boolean beforeSoftWrap) {
     assertNotInBulkMode();
     getSoftWrapModel().prepareToMapping();
-    return myMapper.logicalToVisualPosition(pos, beforeSoftWrap);
+    DocumentText document = myDocument.getDocumentText();
+    return myMapper.logicalToVisualPosition(document, pos, beforeSoftWrap);
   }
 
   @RequiresEdt
   public @NotNull LogicalPosition visualToLogicalPosition(@NotNull VisualPosition pos) {
     assertNotInBulkMode();
     getSoftWrapModel().prepareToMapping();
-    return myMapper.visualToLogicalPosition(pos);
+    DocumentText document = myDocument.getDocumentText();
+    return myMapper.visualToLogicalPosition(document, pos);
   }
 
   @RequiresEdt
   public @NotNull VisualPosition offsetToVisualPosition(int offset, boolean leanTowardsLargerOffsets, boolean beforeSoftWrap) {
     assertNotInBulkMode();
     getSoftWrapModel().prepareToMapping();
-    return myMapper.offsetToVisualPosition(offset, leanTowardsLargerOffsets, beforeSoftWrap);
+    DocumentText document = myDocument.getDocumentText();
+    return myMapper.offsetToVisualPosition(document, offset, leanTowardsLargerOffsets, beforeSoftWrap);
   }
 
   @RequiresEdt
   public int visualPositionToOffset(VisualPosition visualPosition) {
     assertNotInBulkMode();
     getSoftWrapModel().prepareToMapping();
-    return myMapper.visualPositionToOffset(visualPosition);
+    DocumentText document = myDocument.getDocumentText();
+    return myMapper.visualPositionToOffset(document, visualPosition);
   }
 
   @RequiresEdt
   public int offsetToVisualLine(int offset, boolean beforeSoftWrap) {
     assertNotInBulkMode();
     getSoftWrapModel().prepareToMapping();
-    return myMapper.offsetToVisualLine(offset, beforeSoftWrap);
+    DocumentText document = myDocument.getDocumentText();
+    return myMapper.offsetToVisualLine(document, offset, beforeSoftWrap);
   }
 
   @RequiresEdt
   public int visualLineToOffset(int visualLine) {
     assertNotInBulkMode();
     getSoftWrapModel().prepareToMapping();
-    return myMapper.visualLineToOffset(visualLine);
+    DocumentText document = myDocument.getDocumentText();
+    return myMapper.visualLineToOffset(document, visualLine);
   }
 
   @RequiresEdt
   public @NotNull VisualPosition xyToVisualPosition(@NotNull Point2D p) {
     assertNotInBulkMode();
     getSoftWrapModel().prepareToMapping();
-    return myMapper.xyToVisualPosition(p);
+    DocumentText document = myDocument.getDocumentText();
+    return myMapper.xyToVisualPosition(document, p);
   }
 
   @RequiresEdt
   public @NotNull Point2D visualPositionToXY(@NotNull VisualPosition pos) {
     assertNotInBulkMode();
     getSoftWrapModel().prepareToMapping();
-    return myMapper.visualPositionToXY(pos);
+    DocumentText document = myDocument.getDocumentText();
+    return myMapper.visualPositionToXY(document, pos);
   }
 
   @RequiresEdt
   public @NotNull Point2D offsetToXY(int offset, boolean leanTowardsLargerOffsets, boolean beforeSoftWrap) {
     assertNotInBulkMode();
     getSoftWrapModel().prepareToMapping();
-    return myMapper.offsetToXY(offset, leanTowardsLargerOffsets, beforeSoftWrap);
+    DocumentText document = myDocument.getDocumentText();
+    return myMapper.offsetToXY(document, offset, leanTowardsLargerOffsets, beforeSoftWrap);
   }
 
   public float getPrefixTextWidthInPixels() {
@@ -376,7 +386,12 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
   }
 
   public int getVisibleLineCount() {
-    return myMapper.getVisibleLineCount();
+    DocumentText document = myDocument.getDocumentText();
+    return myMapper.getVisibleLineCount(document);
+  }
+
+  public int getVisibleLineCount(DocumentText document) {
+    return myMapper.getVisibleLineCount(document);
   }
 
   public @NotNull LogicalPosition xyToLogicalPosition(@NotNull Point p) {
@@ -420,16 +435,18 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
     SettingsSnapshot settings = myEditor.getSettingsSnapshot();
     int newBidiFlags = readBidiFlags(settings);
     int newTabSize = readTabSize(settings);
+    CharacterGridSpec newGridSpec = myEditor.getCharacterGridSpec();
     SNAPSHOT_UPDATER.updateAndGet(this, snapshot -> {
       FontRenderContext newFontRenderContext = readFontRenderContext(snapshot);
       return snapshot
         .withFontRenderContext(newFontRenderContext)
         .withMetrics(EditorViewMetrics.UNINITIALIZED)
-        .withFontResolver(createFontResolver(newFontRenderContext, snapshot.fontResolver().resolvedFontFamilies()))
+        .withFontResolver(createFontResolver(newFontRenderContext, snapshot.fontResolver().resolvedFontFamilies(), newGridSpec))
         .withTabSize(newTabSize)
         .withBidiFlags(newBidiFlags)
         .withRtlEnabled(settings.isRtlEnabled())
-        .withPrefixLayout(NOT_INITIALIZED_PREFIX);
+        .withPrefixLayout(NOT_INITIALIZED_PREFIX)
+        .withGridSpec(newGridSpec);
     });
     myLogicalPositionCache.reset(false, getTabSize());
     myTextLayoutCache.resetToDocumentSize(false);
@@ -528,7 +545,8 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
   int getMaxTextWidthInLineRange(int startVisualLine, int endVisualLine) {
     getSoftWrapModel().prepareToMapping();
     int maxWidth = 0;
-    VisualLinesIterator iterator = new VisualLinesIterator(this, startVisualLine);
+    DocumentText document = myDocument.getDocumentText();
+    VisualLinesIterator iterator = new VisualLinesIterator(document, this, startVisualLine);
     while (!iterator.atEnd() && iterator.getVisualLine() <= endVisualLine) {
       int width = mySizeManager.getVisualLineWidth(iterator, false);
       maxWidth = Math.max(maxWidth, width);
@@ -630,16 +648,6 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
     return layout;
   }
 
-  float getCodePointWidth(int codePoint, @JdkConstants.FontStyle int fontStyle) {
-    var grid = myEditor.getCharacterGrid();
-    if (grid != null) {
-      return grid.codePointWidth(codePoint);
-    }
-    else {
-      return getFontResolver().editorFonts().codePointWidth(codePoint, fontStyle);
-    }
-  }
-
   /**
    * Returns the font resolver of the current font settings.
    * {@link #reinitSettings} and a render context change build the resolver at once.
@@ -652,7 +660,7 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
       if (resolver != EditorFontResolver.UNINITIALIZED) {
         return resolver;
       }
-      EditorFontResolver newResolver = createFontResolver(snapshot.fontRenderContext(), List.of());
+      EditorFontResolver newResolver = createFontResolver(snapshot.fontRenderContext(), List.of(), snapshot.gridSpec());
       if (SNAPSHOT_UPDATER.compareAndSet(this, snapshot, snapshot.withFontResolver(newResolver))) {
         return newResolver;
       }
@@ -692,12 +700,16 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
    * So the text of the editor highlighter gets the fonts of its font families.
    * Like {@link #createNewMetrics}, it can run on any thread.
    */
-  private @NotNull EditorFontResolver createFontResolver(FontRenderContext context, Collection<FontFamilies> fontFamilies) {
+  private @NotNull EditorFontResolver createFontResolver(
+    FontRenderContext context,
+    Collection<FontFamilies> fontFamilies,
+    @Nullable CharacterGridSpec gridSpec
+  ) {
     EditorColorsScheme colorsScheme = myEditor.getColorsScheme();
     Font specialCharacterFont = myEditor.getSettings().isShowingSpecialChars() ? colorsScheme.getFont(EditorFontType.PLAIN) : null;
     boolean fontFamiliesEnabled = EditorRegistry.current().isFontFamiliesEnabled();
     return EditorFontResolver.create(
-      layoutFontPreferences(colorsScheme),
+      layoutFontPreferences(colorsScheme, gridSpec),
       context,
       specialCharacterFont,
       fontFamiliesEnabled,
@@ -709,9 +721,9 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
    * Returns the font preferences of the text layout.
    * A grid editor, such as the terminal, has its own column spacing, so its text layout has no letter spacing.
    */
-  private @NotNull FontPreferences layoutFontPreferences(@NotNull EditorColorsScheme colorsScheme) {
+  private static @NotNull FontPreferences layoutFontPreferences(@NotNull EditorColorsScheme colorsScheme, @Nullable CharacterGridSpec gridSpec) {
     FontPreferences preferences = colorsScheme.getFontPreferences();
-    if (myEditor.getCharacterGrid() == null || preferences.getLetterSpacing() == 0) {
+    if (gridSpec == null || preferences.getLetterSpacing() == 0) {
       return preferences;
     }
     FontPreferences current = preferences.getSnapshot();
@@ -725,7 +737,7 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
    * Returns true when the text layout adds a letter spacing, see {@link FontPreferences#getLetterSpacing()}.
    */
   public boolean hasLetterSpacing() {
-    return layoutFontPreferences(myEditor.getColorsScheme()).getLetterSpacing() != 0;
+    return layoutFontPreferences(myEditor.getColorsScheme(), mySnapshot.gridSpec()).getLetterSpacing() != 0;
   }
 
   private Collection<FontFamilies> withSourceFontFamilies(Collection<FontFamilies> fontFamilies, EditorColorsScheme scheme) {
@@ -837,11 +849,13 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
     if (topOverhang == 0 && bottomOverhang == 0) {
       return false; // no resolved font family is taller than the line box
     }
-    int[] lineRange = visualLineToYRange(visualLine);
+    assertNotInBulkMode();
+    DocumentText document = myDocument.getDocumentText();
+    int[] lineRange = myMapper.visualLineToYRange(document, visualLine);
     Rectangle visibleArea = myEditor.getScrollingModel().getVisibleArea();
     int top = Math.max(visibleArea.y, lineRange[0] - bottomOverhang);
     int bottom = Math.min(visibleArea.y + visibleArea.height, lineRange[1] + topOverhang);
-    VisualLinesIterator iterator = new VisualLinesIterator(this, yToVisualLine(top));
+    VisualLinesIterator iterator = new VisualLinesIterator(document, this, yToVisualLine(top));
     while (!iterator.atEnd() && iterator.getY() < bottom) {
       int line = iterator.getVisualLine();
       if (line != visualLine && !iterator.isCustomFoldRegionLine()) {
@@ -946,7 +960,11 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
     return layout == null ? -1 : layout.getFontFamiliesMetric(descent);
   }
 
-  private @NotNull EditorViewSnapshot getSnapshotWithMetrics() {
+  /**
+   * Returns the current snapshot with its metrics, and measures them when the snapshot has none.
+   * It leaves the font resolver and the prefix layout alone, so a text layout can call it.
+   */
+  @NotNull EditorViewSnapshot getSnapshotWithMetrics() {
     while (true) {
       EditorViewSnapshot snapshot = mySnapshot;
       EditorViewMetrics metrics = snapshot.metrics();
@@ -984,7 +1002,7 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
     FontMetrics fm = FontInfo.getFontMetrics(font, fontRenderContext);
     // The fonts have no letter spacing, so the metrics add it as FontInfo.charWidth2D does
     float letterSpacing = FontInfo.letterSpacingPixels(
-      layoutFontPreferences(colorsScheme).getLetterSpacing(),
+      layoutFontPreferences(colorsScheme, snapshot.gridSpec()).getLetterSpacing(),
       font.getSize2D(),
       fontRenderContext
     );
@@ -1117,7 +1135,7 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
       EditorViewSnapshot newSnapshot = snapshot
         .withFontRenderContext(newContext)
         .withMetrics(EditorViewMetrics.UNINITIALIZED)
-        .withFontResolver(createFontResolver(newContext, snapshot.fontResolver().resolvedFontFamilies()))
+        .withFontResolver(createFontResolver(newContext, snapshot.fontResolver().resolvedFontFamilies(), snapshot.gridSpec()))
         .withPrefixLayout(NOT_INITIALIZED_PREFIX);
       if (SNAPSHOT_UPDATER.compareAndSet(this, snapshot, newSnapshot)) {
         return true;

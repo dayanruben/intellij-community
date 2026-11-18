@@ -324,6 +324,13 @@ class LineChunk {
     FontInfo fontInfo,
     EditorView view
   ) {
+    EditorViewSnapshot viewSnapshot = view.getSnapshotWithMetrics();
+    CharacterGridSpec gridSpec = viewSnapshot.gridSpec();
+    if (gridSpec != null) {
+      // The grid owns the geometry of the text, so one fragment covers each run, also a run of plain ASCII
+      fragments.add(new GridTextFragment(lineChars, start, end, isRtl, fontInfo, gridSpec, viewSnapshot.gridCellWidth()));
+      return;
+    }
     boolean needsLayout = isRtl || fontInfo.getFont().hasLayoutAttributes();
     boolean nonLatinText = false;
     if (!needsLayout) {
@@ -334,7 +341,7 @@ class LineChunk {
       }
     }
     if (!needsLayout) {
-      LineFragment fragment = new SimpleTextFragment(lineChars, start, end, fontInfo, view);
+      LineFragment fragment = new SimpleTextFragment(lineChars, start, end, fontInfo);
       fragments.add(fragment);
       return;
     }
@@ -355,7 +362,7 @@ class LineChunk {
             script != Character.UnicodeScript.INHERITED &&
             script != Character.UnicodeScript.UNKNOWN) {
           if (lastScript != script && lastScript != Character.UnicodeScript.COMMON) {
-            LineFragment fragment = new ComplexTextFragment(lineChars, lastOffset, i, isRtl, fontInfo, view);
+            LineFragment fragment = new ComplexTextFragment(lineChars, lastOffset, i, isRtl, fontInfo);
             fragments.add(fragment);
             lastOffset = i;
           }
@@ -363,7 +370,7 @@ class LineChunk {
         }
       }
     }
-    LineFragment fragment = new ComplexTextFragment(lineChars, lastOffset, end, isRtl, fontInfo, view);
+    LineFragment fragment = new ComplexTextFragment(lineChars, lastOffset, end, isRtl, fontInfo);
     fragments.add(fragment);
   }
 

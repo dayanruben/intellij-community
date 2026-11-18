@@ -1098,6 +1098,7 @@ platform/settings.v2/shared
 platform/settings.v2/test
 platform/settings.v2/testKeys
 platform/settings.v2/testKeys/plugin
+platform/settings.v2/vcs
 platform/smRunner
 platform/smRunner/dashboard
 platform/smRunner/vcs
@@ -1283,6 +1284,7 @@ plugins/copyright/vcs
 plugins/coverage
 plugins/coverage-common
 plugins/coverage-common/intellij.platform.coverage.agent
+plugins/coverage-common/plugin
 plugins/coverage/coverage_rt
 plugins/coverage/junit
 plugins/coverage/testng
@@ -1814,6 +1816,7 @@ plugins/maven/src/integrationTest/docker
 plugins/maven/src/test
 plugins/maven/testFramework
 plugins/mcp-server
+plugins/mcp-server/mcpserver.configurables
 plugins/mcp-server/mcpserver.frontend
 plugins/mcp-server/mcpserver.plugin
 plugins/mcp-server/mcpserver.skills
@@ -2007,6 +2010,7 @@ python/openapi
 python/pipenv
 python/pipenv/common
 python/pipenv/frontend
+python/pipenv/tests
 python/pluginCore
 python/pluginCore/frontend
 python/pluginCore/impl
@@ -2034,6 +2038,7 @@ python/python-grazie
 python/python-hatch
 python/python-hatch/common
 python/python-hatch/frontend
+python/python-hatch/tests
 python/python-lsp-core
 python/python-lsp-core/common
 python/python-lsp-core/frontend
@@ -2053,6 +2058,7 @@ python/python-pixi/tests/junit5Env
 python/python-poetry/backend
 python/python-poetry/common
 python/python-poetry/frontend
+python/python-poetry/tests
 python/python-process-output/common
 python/python-process-output/frontend
 python/python-process-output/frontend/tests/junit5Env

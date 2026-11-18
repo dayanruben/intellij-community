@@ -27,6 +27,8 @@ import com.intellij.python.pyproject.model.evolution.getInterpreter
 import com.intellij.python.pyproject.model.evolution.setPythonInterpreter
 import com.intellij.python.pyproject.model.usePyprojectToml
 import com.intellij.python.sdk.backend.PythonInterpreter
+import com.intellij.python.sdk.backend.interpreterRefOf
+import com.intellij.python.sdk.common.PyInterpreterRef
 import com.intellij.python.sdk.backend.getSdkAPI
 import com.intellij.python.sdk.backend.pythonInterpreterResultAsync
 import com.intellij.python.sdk.common.PyInterpreterItem
@@ -163,11 +165,11 @@ internal class PyModuleDetailsPane(
   ) {
     override fun actionPerformed(e: AnActionEvent) {
       val group = DefaultActionGroup().apply {
-        addAll(collectAddInterpreterActions(moduleOrProject) { newSdk ->
+        addAll(collectAddInterpreterActions(moduleOrProject) { interpreter ->
           projectSdksModel.reset(project)
           reloadSdkComboItems()
           resetSdkComboSelection()
-          findExistingByName(newSdk.name)?.let { sdkComboModel.selectedItem = it }
+          findExistingByRef(interpreter.ref)?.let { sdkComboModel.selectedItem = it }
         })
       }
       val popup = JBPopupFactory.getInstance().createActionGroupPopup(
@@ -264,6 +266,29 @@ internal class PyModuleDetailsPane(
         sourcesConfigurable.reset()
         projectLinksPane.reset()
         refreshPackages()
+      }
+    }
+  }
+
+  /**
+   * Reads the interpreter of the module again, and rebuilds only the SDK combo. For a change outside this page, such as
+   * a pick in the widget. A selection that the user made here and has not applied stays when the combo still holds it.
+   * Without such a selection the combo follows the module, so the change does not look like an edit of the user.
+   */
+  fun refreshModuleSdk() {
+    moduleScope.launch {
+      val sdk = findModuleSdk(pyProject)
+      withContext(Dispatchers.EDT) {
+        val hasPendingSelection = model.isSdkChanged(selectedExistingSdk()?.name)
+        moduleSdkSnapshot = sdk
+        model.markSdkApplied(sdk?.name)
+        if (hasPendingSelection) {
+          refreshSdkCombo()
+        }
+        else {
+          reloadSdkComboItems()
+          resetSdkComboSelection()
+        }
       }
     }
   }
@@ -470,6 +495,17 @@ internal class PyModuleDetailsPane(
     is SdkComboItem.NoInterpreter -> null
     is SdkComboItem.ShowAll -> null
     null -> null
+  }
+
+  /** The row of the interpreter with [ref], or `null` when the combo has none. */
+  private fun findExistingByRef(ref: PyInterpreterRef): SdkComboItem.Existing? {
+    for (row in sdkComboModel.items) {
+      when (row) {
+        is SdkComboItem.Existing -> if (interpreterRefOf(row.sdk) == ref) return row
+        SdkComboItem.NoInterpreter, SdkComboItem.ShowAll, null -> Unit
+      }
+    }
+    return null
   }
 
   /**

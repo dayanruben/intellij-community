@@ -22,16 +22,22 @@ import com.intellij.openapi.util.io.toNioPathOrNull
 import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.platform.backend.workspace.workspaceModel
 import com.intellij.platform.workspace.jps.entities.ModuleEntity
+import com.intellij.python.community.execService.python.validatePythonAndGetInfo
 import com.intellij.python.sdk.common.PyInterpreterRef
 import com.intellij.util.concurrency.annotations.RequiresWriteLock
 import com.jetbrains.python.PyNames
 import com.jetbrains.python.PythonBinary
+import com.jetbrains.python.Result
 import com.jetbrains.python.errorProcessing.PyResult
 import com.jetbrains.python.project.PyProject
 import com.jetbrains.python.project.getPyProjectsWithoutJpsSync
 import com.jetbrains.python.project.project
+import com.jetbrains.python.psi.LanguageLevel
 import com.jetbrains.python.sdk.PyRemoteSdkAdditionalDataMarker
 import com.jetbrains.python.sdk.PythonSdkAdditionalData
+import com.jetbrains.python.sdk.add.v2.EelOrTarget
+import com.jetbrains.python.sdk.add.v2.FileSystem
+import com.jetbrains.python.sdk.add.v2.FileSystemFactory
 import com.jetbrains.python.sdk.add.v2.PathHolder
 import com.jetbrains.python.sdk.legacy.PythonSdkUtil
 import com.jetbrains.python.sdk.pythonBinaryPath
@@ -44,6 +50,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
@@ -59,6 +66,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.TestOnly
 import java.nio.file.Path
+import java.util.UUID
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -89,11 +97,21 @@ class PythonInterpreterRegistry(private val project: Project, private val scope:
   /**
    * One computed list, with one interpreter for each SDK. It compares by reference, so each recompute emits. It is a
    * list because [PythonInterpreter] compares by its ref, and two SDKs can have one ref. A set keeps only one of them, so
-   * a lookup by the other SDK finds nothing.
+   * a lookup by the other SDK finds nothing. [recordsVersion] is the change count of [PythonInterpreterRecords] that the
+   * computation read, so a caller that changed the store can wait for a list that holds the change.
    */
-  private class Computed(val interpreters: List<PythonInterpreter>)
+  private class Computed(val interpreters: List<PythonInterpreter>, val recordsVersion: Long)
 
   private val state = MutableStateFlow<Computed?>(null)
+
+  /** For tests: the last computation of the list against the store, for the report of a wait that does not end. */
+  @TestOnly
+  fun describeForTests(): String {
+    val computed = state.value
+    val records = PythonInterpreterRecords.getInstance(project)
+    return "registry: computed at records version ${computed?.recordsVersion} of ${records.versions.value}, " +
+           "interpreters ${computed?.interpreters?.map { it.key }}, records ${records.keys()}"
+  }
 
   /**
    * Makes the search for an SDK to adopt and the add one step. Without it, two parallel adds for one Python both find
@@ -108,8 +126,9 @@ class PythonInterpreterRegistry(private val project: Project, private val scope:
         .onStart { emit(Unit) }
         .conflate()
         .collect {
+          val recordsVersion = PythonInterpreterRecords.getInstance(project).versions.value
           val interpreters = compute()
-          state.value = Computed(interpreters)
+          state.value = Computed(interpreters, recordsVersion)
           // The roots of an interpreter that the registry no longer holds are of no use, see PythonInterpreterDetails.
           project.serviceIfCreated<PythonInterpreterRoots>()?.retain(interpreters.mapTo(mutableSetOf()) { it.key })
         }
@@ -207,20 +226,42 @@ class PythonInterpreterRegistry(private val project: Project, private val scope:
                else SdkConfigurationUtil.createUniqueSdkName(suggestedName, existing)
     @Suppress("SETUP_SDK_DIRECTLY") // The registry is the only place that creates a Python SDK.
     val sdk = ProjectJdkTable.getInstance().createSdkForEnvironment(project, name, sdkType, homePath)
-    // A version that the store saved needs no probe, so a project opens without running its interpreters.
-    val version = knownVersion ?: withContext(Dispatchers.IO) { sdkType.getVersionString(homePath) }
+    val parsedHomePath = Path.of(homePath)
+    val fileSystem = FileSystemFactory.createForPythonSdkAdditionalData(data, parsedHomePath)
+    val version = knownVersion ?: probeVersionString(fileSystem, parsedHomePath)
+    
     sdk.sdkModificator.apply {
       sdkAdditionalData = data
       this.homePath = homePath
       versionString = version
     }.applyChangesWithoutWriteAction()
-    // The version of a target interpreter is not read from its home path, so the target answers for it. A target
-    // interpreter has no detected environment, so this version is the only one it states before it is registered.
-    if (sdk.versionString == null) {
-      val targetVersion = withContext(Dispatchers.IO) { sdkType.getVersionString(sdk) } ?: return sdk
-      sdk.sdkModificator.apply { versionString = targetVersion }.applyChangesWithoutWriteAction()
-    }
+    
     return sdk
+  }
+
+  /**
+   * The version of the interpreter at [homePath] on [fileSystem], or `null` when [fileSystem] cannot tell it. An Eel
+   * machine reads the version from [homePath]. A target runs the interpreter, and the probe keeps the modality of the
+   * caller. A target interpreter has no detected environment, so this version is the only one it states before it is
+   * registered.
+   */
+  private suspend fun probeVersionString(fileSystem: FileSystem<*>, homePath: Path): String? = withContext(Dispatchers.IO) {
+    when (fileSystem.eelOrTarget) {
+      is EelOrTarget.IsEel -> pythonSdkType().getVersionString(homePath.toString())
+      is EelOrTarget.IsTarget -> when (val version = fileSystem.pythonLanguageLevel(homePath.toString())) {
+        is Result.Success -> version.result.toPythonVersion()
+        is Result.Failure -> {
+          // An unreachable target says nothing about the interpreter, so the SDK keeps no version.
+          thisLogger().info("Cannot read the version of python at \"${homePath}\": ${version.error.message}")
+          null
+        }
+      }
+    }
+  }
+
+  private suspend fun <P : PathHolder> FileSystem<P>.pythonLanguageLevel(pythonBinary: String): PyResult<LanguageLevel> {
+    val path = parsePath(pythonBinary).getOr { return it }
+    return getBinaryToExec(path).validatePythonAndGetInfo().mapSuccess { it.languageLevel }
   }
 
   private fun pythonSdkType(): SdkType = SdkType.findByName(PyNames.PYTHON_SDK_ID_NAME) ?: error("The Python SDK type is not registered")
@@ -361,8 +402,8 @@ class PythonInterpreterRegistry(private val project: Project, private val scope:
    * Holds [sdk] as the SDK of [key] in [PythonInterpreterSdks]. The SDK takes the name of the interpreter library of
    * [key], see [PyInterpreterLibraryName]. That name is unique in the project, so no other SDK of the project has it.
    */
-  private suspend fun holdSdk(key: PythonInterpreterKey, sdk: Sdk) {
-    val name = project.basePath?.let { PyInterpreterLibraryName.of(Path.of(it), key).toString() }
+  private suspend fun holdSdk(key: PythonInterpreterKey, sdk: Sdk, fromRecord: Boolean = false) {
+    val name = project.interpreterOwnerProjectDir?.let { PyInterpreterLibraryName.of(it, key).toString() }
     if (name != null && sdk.name != name) {
       val rename = { modificator: SdkModificator ->
         modificator.name = name
@@ -375,7 +416,7 @@ class PythonInterpreterRegistry(private val project: Project, private val scope:
       if (PythonSdkTable.tableSdks().none { it === sdk }) sdk.sdkModificator.apply(rename).applyChangesWithoutWriteAction()
       else edtWriteAction { sdk.sdkModificator.apply(rename).commitChanges() }
     }
-    PythonInterpreterSdks.getInstance(project).put(key, sdk)
+    PythonInterpreterSdks.getInstance(project).put(key, sdk, fromRecord)
   }
 
   /** The interpreter of [sdk], when the list holds it. */
@@ -444,7 +485,7 @@ class PythonInterpreterRegistry(private val project: Project, private val scope:
     data.associatedModulePath = key.ownerDir.toString()
     applyRecord(data, record)
     val sdk = newSdk(homePath, data, suggestedName = null, knownVersion = record.version)
-    holdSdk(key, sdk)
+    holdSdk(key, sdk, fromRecord = true)
     return sdk
   }
 
@@ -456,7 +497,16 @@ class PythonInterpreterRegistry(private val project: Project, private val scope:
    * target interpreter, or the owner that PythonSdkAdditionalDataMigrationActivity writes for an SDK of an older build.
    */
   private fun sdkTableChanges(): Flow<Unit> =
-    merge(PythonInterpreterDetails.getInstance(project).changes.map { }, moduleChanges())
+    merge(PythonInterpreterDetails.getInstance(project).changes.map { }, moduleChanges(), recordChanges())
+
+  /**
+   * The changes of the records in the interpreter library flow. The details report them as events, and the loop of the
+   * list subscribes to those only after its first computation. A record put in between, such as by the first set of an
+   * interpreter, would be lost, and [resolveEntryKey] would wait for it forever. The records are a state, so the first
+   * value covers that gap.
+   */
+  private fun recordChanges(): Flow<Unit> =
+    if (isInterpreterLibraryFlowEnabled()) PythonInterpreterRecords.getInstance(project).changes else emptyFlow()
 
   private fun moduleChanges(): Flow<Unit> =
     project.workspaceModel.eventLog.filter { it.getChanges(ModuleEntity::class.java).isNotEmpty() }.map { }
@@ -504,7 +554,8 @@ class PythonInterpreterRegistry(private val project: Project, private val scope:
 
   /**
    * The key of the interpreter for the SDK named [sdkName], for the PyProject at [ownerDir], or `null` when there is no
-   * such Python SDK. Only the migration of a module of an older build calls it, in the interpreter library flow, see
+   * such Python SDK, or when the project has no directory to name the owner relative to, see [interpreterOwnerProjectDir].
+   * Only the migration of a module of an older build calls it, in the interpreter library flow, see
    * [isInterpreterLibraryFlowEnabled].
    *
    * The import saves the record of the SDK, see [PythonInterpreterRecords], and the registry builds the SDK of the
@@ -517,10 +568,49 @@ class PythonInterpreterRegistry(private val project: Project, private val scope:
   @ApiStatus.Obsolete
   fun importTableSdk(sdkName: String, ownerDir: Path): PythonInterpreterKey? {
     val (key, tableSdk) = tableSdkKeyOf(sdkName, ownerDir) ?: return null
+    val projectDir = project.interpreterOwnerProjectDir ?: return null
     val store = PythonInterpreterRecords.getInstance(project)
     // An earlier import of the same SDK already stored it.
-    if (store.recordOf(key) == null) store.put(key, recordOf(key, tableSdk))
+    if (store.recordOf(key) == null) store.put(key, recordOf(projectDir, key, tableSdk))
     return key
+  }
+
+  /**
+   * Stores a record for [key] when the store has none: the owner, the ref and a new UUID. A module names [key] by its
+   * interpreter library entry, and the key gives the interpreter, see [PythonInterpreterRecords]. So a project whose
+   * workspace file has no record of it, such as a fresh checkout, still gets the interpreter. Returns whether it stored
+   * a record. The recompute that follows builds the interpreter, or keeps the record while the environment is gone, see
+   * [buildSdk]. Only the interpreter library flow names an interpreter by its key, see [isInterpreterLibraryFlowEnabled].
+   */
+  fun adoptEntryKey(key: PythonInterpreterKey): Boolean {
+    if (!isInterpreterLibraryFlowEnabled()) return false
+    val projectDir = project.interpreterOwnerProjectDir ?: return false
+    val record = PythonInterpreterRecords.StoredInterpreter().apply {
+      // In the form that `recordOf` writes, relative to the project, so the record follows the project when it moves.
+      ownerDir = PyInterpreterOwnerDir.of(projectDir, key.ownerDir).toString()
+      ref = key.ref.toString()
+      uuid = UUID.randomUUID().toString()
+    }
+    return PythonInterpreterRecords.getInstance(project).putIfAbsent(key, record)
+  }
+
+  /**
+   * The interpreter of [key], which a module names by its interpreter library entry, or `null` while its environment is
+   * gone. A key without a record gets one first, see [adoptEntryKey], and the call waits for the computation that reads
+   * it. For a caller that needs a true answer at this instant, such as the configuration lock. It writes the store, so the
+   * computation of a snapshot does not call it.
+   *
+   * A computation that does not read the record after [RESOLVE_TIMEOUT] is a bug. The wait then logs an error and answers
+   * from the last computation, so a caller that holds a lock does not hang.
+   */
+  suspend fun resolveEntryKey(key: PythonInterpreterKey): PythonInterpreter? {
+    adoptEntryKey(key)
+    val needed = PythonInterpreterRecords.getInstance(project).versions.value
+    val computed = withTimeoutOrNull(RESOLVE_TIMEOUT) { state.filterNotNull().first { it.recordsVersion >= needed } }
+    if (computed == null) {
+      thisLogger().error("No computation read the records at version $needed after $RESOLVE_TIMEOUT, the last one read ${state.value?.recordsVersion}")
+    }
+    return (computed ?: state.value)?.interpreters?.firstOrNull { it.key == key }
   }
 
   /**
@@ -595,6 +685,7 @@ class PythonInterpreterRegistry(private val project: Project, private val scope:
 
   companion object {
     private val REMOVE_TIMEOUT = 30.seconds
+    private val RESOLVE_TIMEOUT = 30.seconds
 
     fun getInstance(project: Project): PythonInterpreterRegistry = project.service()
   }
@@ -738,6 +829,12 @@ suspend fun removeTestSdkFromOpenProjects(sdk: Sdk) {
     val sdks = project.serviceIfCreated<PythonInterpreterSdks>() ?: continue
     if (sdks.keyOf(sdk) != null) PythonInterpreterRegistry.getInstance(project).removeSdk(sdk)
   }
+}
+
+/** Removes [interpreter] for a test that holds the interpreter that a flow created, see [removeTestSdkFromOpenProjects]. */
+@TestOnly
+suspend fun removeTestInterpreterFromOpenProjects(interpreter: PythonInterpreter) {
+  removeTestSdkFromOpenProjects(interpreter.sdk)
 }
 
 /**

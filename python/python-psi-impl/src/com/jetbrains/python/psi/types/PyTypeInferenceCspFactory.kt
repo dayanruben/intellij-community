@@ -5,6 +5,8 @@ import com.intellij.openapi.util.RecursionManager
 import com.intellij.openapi.util.Ref
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.psi.PsiElement
+import com.jetbrains.python.codeInsight.PyCodeInsightCounters
+import com.jetbrains.python.codeInsight.PyCodeInsightCounters.Counter
 import com.jetbrains.python.psi.PyArgumentList
 import com.jetbrains.python.psi.PyCallExpression
 import com.jetbrains.python.psi.PyCallSiteExpression
@@ -151,12 +153,9 @@ object PyTypeInferenceCspFactory {
 
   private fun buildAndSolveCsp(si: SubstitutionsIdentifier, tmpContext: TypeEvalContextImpl) : CspBuilder? {
     try {
+      PyCodeInsightCounters.inc(Counter.CSP_PROBLEMS_BUILT)
       val builder = CspBuilder(tmpContext)
-      val returnType = when (si.expression) {
-        is PyCallExpression -> buildCallSiteExpressionCsp(si, builder, tmpContext)
-        is PySequenceExpression -> buildSequenceExpressionCsp(SubstitutionsIdentifier(si.expression), builder, tmpContext)
-        else -> throw NotSupportedException()
-      }
+      val returnType = buildNestedCsp(si, builder, tmpContext)
 
       val expectedType = getExpectedType(si.expression, tmpContext)
       if (expectedType != null && !expectedType.isAnyOrUnknown && !returnType.isAnyOrUnknown) {
@@ -186,17 +185,26 @@ object PyTypeInferenceCspFactory {
 
     return when (actualCspAnchor) {
       is PyCallExpression -> buildCallSiteExpressionCsp(actualCspAnchor, builder, context)
-      is PySequenceExpression -> buildSequenceExpressionCsp(SubstitutionsIdentifier(actualCspAnchor), builder, context)
+      is PySequenceExpression -> buildNestedCsp(SubstitutionsIdentifier(actualCspAnchor), builder, context)
       else -> throw NotSupportedException()
     }
   }
 
-  private fun buildSequenceExpressionCsp(si: SubstitutionsIdentifier, builder: CspBuilder, context: TypeEvalContext) : PyType {
+  private fun buildNestedCsp(si: SubstitutionsIdentifier, builder: CspBuilder, context: TypeEvalContext) : PyType? {
+    return builder.cacheNestedCsp(si) {
+      when (si.expression) {
+        is PyCallExpression -> buildCallSiteExpressionCsp(si, builder, context)
+        is PySequenceExpression -> buildSequenceExpressionCsp(si, builder, context)
+        else -> throw NotSupportedException()
+      }
+    }
+  }
+
+  private fun buildSequenceExpressionCsp(si: SubstitutionsIdentifier, builder: CspBuilder, context: TypeEvalContext) : NestedCsp {
     val seqExpr = si.expression as? PySequenceExpression ?: throw NotSupportedException()
     val genericType = PyCollectionTypeUtil.findGenericDefinitionTypeOfSequence(seqExpr, context)
     val sequenceType = normalizeType(genericType, context) as? PyClassType ?: throw NotSupportedException()
     val cspSubstitutions = PyTypeChecker.unifyReceiver(sequenceType, context)
-    builder.putSubstitutions(si, cspSubstitutions)
 
     val elementsPerTypeVar = mapElementsToTypeVars(seqExpr, sequenceType, cspSubstitutions)
     val typeArgumentIVs = mutableListOf<PyType?>()
@@ -207,10 +215,13 @@ object PyTypeInferenceCspFactory {
       builder.addConstraint(iv, PyUnionType.unionOrUnknown(elementTypes), PyVariance.CONTRAVARIANT, ConstraintPriority.MEDIUM)
     }
 
-    if (seqExpr is PyTupleExpression) {
-      return PyTupleType.create(seqExpr, typeArgumentIVs) ?: throw NotSupportedException()
+    val returnType = if (seqExpr is PyTupleExpression) {
+      PyTupleType.create(seqExpr, typeArgumentIVs) ?: throw NotSupportedException()
     }
-    return PyCollectionTypeImpl(sequenceType.pyClass, false, typeArgumentIVs)
+    else {
+      PyCollectionTypeImpl(sequenceType.pyClass, false, typeArgumentIVs)
+    }
+    return NestedCsp(cspSubstitutions, returnType)
   }
 
   private fun buildNestedCspAndUnpack(expression: PySequenceExpression,
@@ -270,7 +281,8 @@ object PyTypeInferenceCspFactory {
     var allNotSupported = callableTypes.isNotEmpty()
     for (callableType in callableTypes) {
       try {
-        val returnType = buildCallSiteExpressionCsp(SubstitutionsIdentifier(callSite, callableType), builder, context)
+        val si = SubstitutionsIdentifier(callSite, callableType)
+        val returnType = buildNestedCsp(si, builder, context)
         returnTypes.add(returnType)
         allNotSupported = false
       } catch (_ : NotSupportedException) {}
@@ -279,7 +291,7 @@ object PyTypeInferenceCspFactory {
     return PyUnionType.unionOrUnknown(returnTypes)
   }
 
-  private fun buildCallSiteExpressionCsp(si: SubstitutionsIdentifier, builder: CspBuilder, context: TypeEvalContext) : PyType? {
+  private fun buildCallSiteExpressionCsp(si: SubstitutionsIdentifier, builder: CspBuilder, context: TypeEvalContext) : NestedCsp {
     val (callSite, callableType) = si
     if (callSite !is PyCallExpression) throw NotSupportedException()
     if (callableType == null) throw NotSupportedException()
@@ -289,7 +301,6 @@ object PyTypeInferenceCspFactory {
     val cspSubstitutions = GenericSubstitutions()
     val declaredReturn = callableType.getReturnType(context)
 
-    builder.putSubstitutions(si, cspSubstitutions)
     // find type variables
     val ivSubstitutionMap = HashMap<PyTypeVarType, Ref<PyType?>>()
     val generics = callableType.collectGenerics(context)
@@ -331,7 +342,7 @@ object PyTypeInferenceCspFactory {
     }
 
     // return type
-    return PyTypeChecker.substitute(declaredReturn, ivSubstitutions, context)
+    return NestedCsp(cspSubstitutions, PyTypeChecker.substitute(declaredReturn, ivSubstitutions, context))
   }
 
   fun hasGenericsOrIVs(type: PyType?, context: TypeEvalContext): Boolean {

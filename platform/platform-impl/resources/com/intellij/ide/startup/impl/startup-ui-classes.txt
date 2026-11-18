@@ -232,7 +232,7 @@ com.intellij.ui.BalloonImpl$AtRight
 com.intellij.ui.BalloonImpl$AtLeft
 com.intellij.openapi.keymap.KeymapUtilKt
 com.intellij.openapi.actionSystem.ex.TooltipLinkProvider
-com.intellij.openapi.actionSystem.ExperimentalIcons
+com.intellij.openapi.actionSystem.ExperimentalIconRendering
 com.intellij.openapi.util.IconLoaderKt
 com.intellij.openapi.util.IconLoaderKt$fakeComponent$2$1
 com.intellij.openapi.util.DarkReplacer
@@ -9106,7 +9106,7 @@ com.intellij.platform.workspace.jps.entities.SourceRootEntity
 com.intellij.platform.workspace.storage.WorkspaceEntityWithSymbolicId
 com.intellij.platform.workspace.storage.impl.cache.EntityStorageChange
 com.intellij.workspaceModel.core.fileIndex.EntityStorageKind
-com.intellij.platform.unified.workspace.IjLightWorkspaceProjectEntity
+com.intellij.platform.unified.workspace.shared.IjLightWorkspaceProjectEntity
 com.intellij.platform.diagnostic.telemetry.helpers.Nanoseconds
 com.intellij.platform.diagnostic.telemetry.helpers.Nanoseconds$Companion
 com.intellij.platform.workspace.storage.impl.ClassToIntConverterImpl
@@ -9127,7 +9127,6 @@ com.intellij.platform.eel.provider.EelMachineProviderUtil
 com.intellij.platform.eel.provider.EelMachineProviderUtil$resolveEelMachine$1
 com.intellij.platform.eel.provider.EelProviderProjectUtilKt
 com.intellij.openapi.extensions.impl.ExtensionPointCleanupKt
-com.intellij.platform.unified.workspace.IjLightWorkspaceViewPane
 com.intellij.diagnostic.CoroutineTracerShim
 com.intellij.diagnostic.CoroutineTracerShim$Companion
 com.intellij.openapi.extensions.impl.ExtensionUnregistrationReport
@@ -11964,3 +11963,4 @@ com.intellij.station.core.discovery.DefaultDiscoveryService$doDiscovery$2$handle
 com.intellij.station.core.impl.StationConnectionUtilKt
 com.intellij.station.core.impl.StationSocketConnectionLoop
 com.intellij.station.core.impl.StationSocketConnectionLoop$connectWithRetries$2
+com.intellij.platform.unified.workspace.backend.baseline.IjLightWorkspaceViewPane
