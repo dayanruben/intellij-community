@@ -83,9 +83,16 @@ intellij.gradle.completion.kotlin.tests
 intellij.gradle.completion.kotlin.tests.benchmark
 intellij.gradle.completion.tests
 intellij.gradle.java.maven.tests
+intellij.gradle.java.tests
 intellij.gradle.java.tests.benchmark
+intellij.gradle.java.tests.integration.service
 intellij.gradle.java.toml.tests
+intellij.gradle.native.tooling.tests
+intellij.gradle.properties.tests
+intellij.gradle.testFramework.tests
+intellij.gradle.tests
 intellij.gradle.tests.benchmark
+intellij.gradle.tests.integration.service
 intellij.gradle.toolingExtension.tests.compatibility
 intellij.gradle.toolingExtension.tests.util
 intellij.grazie.markdown.specification.tests
@@ -132,6 +139,7 @@ intellij.java.structuralSearch.tests
 intellij.java.terminal.tests
 intellij.java.testFramework.tests
 intellij.java.tests
+intellij.java.javadoc.tests
 intellij.java.typeMigration.tests
 intellij.java.ui.tests
 intellij.javaFX.community.tests

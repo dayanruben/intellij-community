@@ -364,6 +364,7 @@ java/java-structure-view
 java/java-syntax
 java/java-tests
 java/java-todo
+java/javadoc-tests
 java/jdkAnnotations
 java/jsp-base-openapi
 java/jsp-openapi
@@ -917,6 +918,8 @@ platform/libraries/cglib
 platform/locking-impl
 platform/lsp
 platform/lsp-impl
+platform/lsp-impl/integrationTests
+platform/lsp-impl/integrationTests/idePlugin
 platform/lsp-impl/structureView
 platform/lsp-impl/tests
 platform/lsp/testFramework
@@ -1369,6 +1372,7 @@ plugins/git4idea/rt
 plugins/git4idea/shared
 plugins/git4idea/terminal
 plugins/git4idea/testFramework
+plugins/git4idea/testFramework/plugin
 plugins/git4idea/tests/disabled
 plugins/github/github-core
 plugins/github/github-git

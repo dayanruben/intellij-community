@@ -118,6 +118,7 @@ import java.nio.file.Path
 import java.text.MessageFormat
 import java.util.ArrayDeque
 import java.util.MissingResourceException
+import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.function.BiConsumer
@@ -227,7 +228,8 @@ fun debuggerTestFixture(
       debugger?.checkAfterProjectClose(testFailed = context.extensionContext.executionException.isPresent)
     }
   }
-  refreshSources(testAppPath)
+  val methodName = context.extensionContext.testMethod.map { it.name }.orElse(null)
+  refreshSources(if (methodName == null) testAppPath else options.execution.testAppPath(testAppPath, methodName))
   val execution = executionTestFixture(testAppPath, outputChecker, options.execution, afterProjectClose).init()
   edtWriteAction {
     JavaTestUtil.setupInternalJdkAsTestJDK(execution.disposable, DebuggerTestFixture.TEST_JDK_NAME)
@@ -422,7 +424,12 @@ class DebuggerTestFixture internal constructor(
     }
   }
 
-  private fun runProcess() {
+  /**
+   * Starts the debuggee of [debugProcess] and does not wait for it. A second call does nothing.
+   * Call it in the body when the test talks to the running session.
+   * [runTest] then waits for the end of the debuggee in [runProcessAndAwaitCompleted].
+   */
+  fun runProcess() {
     val process = debugProcess
     if (process != null && processStarted.compareAndSet(false, true)) {
       process.processHandler.startNotify()
@@ -629,6 +636,22 @@ class DebuggerTestFixture internal constructor(
    */
   fun onEveryBreakpoint(runnable: SuspendContextRunnable) {
     getBreakpointProvider().onEveryBreakpoint(runnable)
+  }
+
+  /**
+   * Collects each stop of the VM, as [onEveryBreakpoint] reports it, in a [PauseMonitor].
+   * Call it before the debuggee starts, for example before [runProcess].
+   */
+  fun createPauseMonitor(): PauseMonitor {
+    val pauses = LinkedBlockingQueue<SuspendContextImpl>()
+    onEveryBreakpoint { suspendContext -> pauses.add(suspendContext) }
+    return PauseMonitor(pauses)
+  }
+
+  /** The stops of the VM that [createPauseMonitor] collects, in their order. */
+  class PauseMonitor internal constructor(private val pauses: LinkedBlockingQueue<SuspendContextImpl>) {
+    /** Takes the next stop. It waits up to 1 minute and returns `null` after the timeout. */
+    fun waitForPause(): SuspendContextImpl? = pauses.poll(1, TimeUnit.MINUTES)
   }
 
   /** Queues two actions to run a single time, one after the other. See [onBreakpoint]. */
