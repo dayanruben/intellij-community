@@ -15,6 +15,7 @@ import com.intellij.python.pyproject.model.evolution.PyInterpreterLibrarySync
 import com.intellij.python.pyproject.model.evolution.setPythonInterpreter
 import com.intellij.python.sdk.backend.PythonInterpreter
 import com.intellij.python.sdk.backend.PythonInterpreterRegistry
+import com.intellij.python.sdk.backend.addMockPythonInterpreter
 import com.intellij.testFramework.IndexingTestUtil
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.junit5.RegistryKeyAppLevel
@@ -101,7 +102,7 @@ internal abstract class PyDependencyModuleInterpreterResolveTest {
       val registry = PythonInterpreterRegistry.getInstance(project)
       for ((pyProject, interpreter) in interpreters) {
         pyProject.setPythonInterpreter(null)
-        registry.removePythonInterpreter(pyProject, interpreter)
+        registry.remove(interpreter)
       }
     }
   }

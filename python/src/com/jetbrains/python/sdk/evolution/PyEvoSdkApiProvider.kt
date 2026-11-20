@@ -76,7 +76,6 @@ import com.intellij.python.sdk.backend.evolution.toDisplayPath
 import com.intellij.python.sdk.backend.evolution.toSectionLabel
 import com.intellij.python.sdk.backend.evolution.withCreators
 import com.intellij.python.sdk.backend.getPythonInfo
-import com.intellij.python.sdk.backend.interpreterItem
 import com.intellij.python.sdk.common.EvoRowAction
 import com.intellij.python.sdk.common.PyInterpreterRef
 import com.intellij.python.sdk.common.evolution.EvoAddNewOptionDto
@@ -139,8 +138,6 @@ import com.jetbrains.python.sdk.evolution.PyEvoSdkApiImpl.installBaseIfRequested
 import com.jetbrains.python.sdk.evolution.PyEvoSdkApiImpl.refreshRebuiltSdk
 import com.jetbrains.python.sdk.evolution.PyEvoSdkApiImpl.rootScope
 import com.jetbrains.python.sdk.evolution.PyEvoSdkApiImpl.slowLoadThreshold
-import com.jetbrains.python.sdk.getAssignablePythonSdks
-import com.jetbrains.python.sdk.isAssociatedWithModule
 import com.jetbrains.python.sdk.isSdkConfigurationInProgress
 import com.jetbrains.python.sdk.updateInterpreterFacts
 import com.jetbrains.python.sdk.withSdkConfigurationLock
@@ -548,7 +545,7 @@ private object PyEvoSdkApiImpl : PyEvoSdkApi {
     // not shown as gone.
     val entryKey = pyProject.entryKey
     val interpreter = pyProject.interpreter
-                      ?: entryKey?.let { PythonInterpreterRegistry.getInstance(project).resolveEntryKey(it) }
+                      ?: entryKey?.let { PythonInterpreterRegistry.getInstance(project).findEnsuringRecord(it) }
                       ?: return entryKey?.let(::unavailableInterpreterDto)
     // The other way was here: a remote or target SDK (WSL, SSH, Docker) used to be left out, and is now reported like
     // any other. Nothing below reads the interpreter's machine — the presentation is the label the classic widget
@@ -701,12 +698,9 @@ private object PyEvoSdkApiImpl : PyEvoSdkApi {
 
   override suspend fun listAssociatedInterpreters(projectId: ProjectId, pyProjectKey: String): List<PyInterpreterDto> {
     val pyProject = resolveTarget(projectId, pyProjectKey)?.pyProject?.pyProject ?: return emptyList()
-    val module = pyProject.residesOnModule
-    // Only interpreters actually associated with this module (its own envs) — not every configured SDK, which for a
-    // fresh project would be a huge global list. De-duplicated like the classic popup.
-    return ModuleOrProject.ModuleAndProject(pyProject).getAssignablePythonSdks().filter { it.isAssociatedWithModule(module) }
-      .distinctBy { it.sdkAdditionalData?.javaClass to it.homePath }.mapNotNull { sdk ->
-        val item = sdk.interpreterItem() ?: return@mapNotNull null
+    // Only the interpreters that this Python project owns, see PythonInterpreterRegistry.interpreters.
+    return PythonInterpreterRegistry.getInstance(pyProject.project).interpreters(pyProject).distinct().map { interpreter ->
+        val item = interpreter.asItem()
         PyInterpreterDto(
           title = item.shortName,
           description = item.description,
@@ -1415,7 +1409,7 @@ private object PyEvoSdkApiImpl : PyEvoSdkApi {
     val snapshot = projectId.findProjectOrNull()?.let { EvoPyProjectModel.getInstance(it) }?.snapshot() ?: return null
     // `forKey` states the rule, disposed module included, so the workspace is found by the instance it answers.
     val pyProject = snapshot.forKey(pyProjectKey) ?: return null
-    val workspace = snapshot.workspaces.firstOrNull { w -> w.members.any { it === pyProject } } ?: return null
+    val workspace = snapshot.workspaceOf(pyProject) ?: return null
     return EvoTarget(workspace, pyProject)
   }
 }

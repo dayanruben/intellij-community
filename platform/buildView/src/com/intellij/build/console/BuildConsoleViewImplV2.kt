@@ -26,6 +26,7 @@ import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.editor.ClientEditorManager.Companion.getClientEditor
 import com.intellij.openapi.editor.ComponentInlayAlignment
 import com.intellij.openapi.editor.ComponentInlayRenderer
+import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.Inlay
 import com.intellij.openapi.editor.InlayProperties
@@ -39,7 +40,8 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.text.StringUtil
-import com.intellij.util.Alarm
+import com.intellij.ui.ClientProperty
+import com.intellij.ui.JBColor
 import com.intellij.util.text.nullize
 import org.jetbrains.annotations.CheckReturnValue
 import org.jetbrains.annotations.TestOnly
@@ -84,12 +86,9 @@ internal class BuildConsoleViewImplV2(
   private var autoScroll = true
   private var followListenersAttached = false
 
-  /** Restores the component that the last click flashed. Read and written on EDT. */
-  private val flashAlarm = Alarm(Alarm.ThreadToUse.SWING_THREAD, this)
-  private var flashRestore: (() -> Unit)? = null
-
-
   init {
+    ClientProperty.put(consoleView, BUILD_CONSOLE_V2, true)
+
     consoleView.editor?.configureEditor()
     Disposer.register(this, delegate)
   }
@@ -181,7 +180,6 @@ internal class BuildConsoleViewImplV2(
           val targetOffset = editor.offsetToLogicalPosition(inlay.offset)
           editor.scrollingModel.scrollTo(targetOffset, ScrollType.CENTER)
         }
-        editor.flashInlayComponent(inlay.renderer.component)
       }
       else {
         val outputRanges = sortedOutputMarkers(nodeId)
@@ -195,32 +193,11 @@ internal class BuildConsoleViewImplV2(
     }
   }
 
-  /** Flashes the inlay component background, so the user finds the clicked callout among similar ones. */
-  private fun Editor.flashInlayComponent(component: JComponent) {
-    val flashColor = colorsScheme.getColor(EditorColors.SELECTION_BACKGROUND_COLOR) ?: return
-    flashAlarm.cancelAllRequests()
-    flashRestore?.invoke()
-    val originalOpaque = component.isOpaque
-    val originalBackground = component.background
-    component.isOpaque = true
-    component.background = flashColor
-    component.repaint()
-    val restore = {
-      component.isOpaque = originalOpaque
-      component.background = originalBackground
-      component.repaint()
-    }
-    flashRestore = restore
-    flashAlarm.addRequest({
-      restore()
-      flashRestore = null
-    }, 700)
-  }
-
   private fun Editor.selectOutputText(outputRanges: List<TextRange>) {
     caretModel.removeSecondaryCarets()
     caretModel.primaryCaret.removeSelection()
-    for ([index, outputRange] in outputRanges.withIndex()) {
+    val trimmedRanges = trimRanges(document, outputRanges)
+    for ([index, outputRange] in trimmedRanges.withIndex()) {
       if (index == 0) {
         caretModel.primaryCaret.moveToOffset(outputRange.startOffset)
         caretModel.primaryCaret.setSelection(outputRange.startOffset, outputRange.endOffset)
@@ -236,8 +213,22 @@ internal class BuildConsoleViewImplV2(
     }
   }
 
+  private fun trimRanges(document: Document, outputRanges: List<TextRange>): List<TextRange> {
+    val text = document.immutableCharSequence
+    val notEmptyRanges = outputRanges.dropLastWhile { range -> range.subSequence(text).isBlank() }
+    val tailRange = notEmptyRanges.lastOrNull() ?: return emptyList()
+    val head = notEmptyRanges.dropLast(1)
+    val lastTextOffset = tailRange.startOffset + tailRange.subSequence(text).trimEnd().length
+    val trimmedTailEnd = document.getLineNumber(lastTextOffset)
+    val trimmedTailEndOffset = document.getLineEndOffset(trimmedTailEnd)
+    return head + TextRange(tailRange.startOffset, minOf(trimmedTailEndOffset, tailRange.endOffset))
+  }
+
   private fun Editor.configureEditor() {
     settings.isHighlightSelectionOccurrences = false
+    colorsScheme.setColor(EditorColors.SELECTION_BACKGROUND_COLOR_INACTIVE, JBColor.lazy {
+      JBColor.namedColor("Tree.selectionInactiveBackground")
+    })
   }
 
   private fun isVScrollAtBottom(editor: EditorEx): Boolean {

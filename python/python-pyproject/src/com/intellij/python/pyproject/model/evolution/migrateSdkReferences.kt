@@ -16,6 +16,8 @@ import com.intellij.python.pyproject.model.internal.pyProject.PyProjectImpl
 import com.intellij.python.sdk.backend.PythonInterpreterRegistry
 import com.jetbrains.python.PyNames
 import com.jetbrains.python.sdk.internal.PYTHON_FACET_ID
+import com.jetbrains.python.sdk.legacy.importTableSdk
+import com.jetbrains.python.sdk.legacy.transferredPathsOfTableSdk
 import java.nio.file.Path
 import com.intellij.python.sdk.backend.PyInterpreterLibraryName
 import com.intellij.python.sdk.backend.PythonInterpreterKey
@@ -33,7 +35,7 @@ private val logger = fileLogger()
  *
  * Call it only after the synchronization with the JPS model, so the SDK table is complete. A module that has an entry
  * keeps it. A module without one gets the entry of the SDK, which the registry imports from the SDK table into its
- * store, owned by the PyProject of the module, see [PythonInterpreterRegistry.importTableSdk]. This is the only read of
+ * store, owned by the PyProject of the module, see [importTableSdk]. This is the only read of
  * the table. Then the reference goes in each case, also when the table has no such SDK, so the entry is the only thing
  * that names the interpreter, and a removed entry does not come back. An SDK whose environment is gone gives an entry,
  * and its interpreter appears when the environment comes back.

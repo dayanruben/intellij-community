@@ -23,8 +23,7 @@ import org.jetbrains.annotations.NonNls
 private val LOG: Logger = fileLogger()
 
 /**
- * Split-mode wire contract for the "Evo" Python interpreter widget
- * (registry `python.evolution.widget`).
+ * Split-mode wire contract for the "Evo" Python interpreter widget.
  *
  * All Python-SDK discovery is backend-only, so the frontend widget/popup obtain their display data
  * through these read-only RPC calls and render it into UI; [selectInterpreter] is the single mutating
@@ -277,10 +276,6 @@ suspend fun requestEvoCurrentRecreate(projectId: ProjectId, pyProjectKey: String
 @ApiStatus.Internal
 suspend fun requestEvoResolveVersion(projectId: ProjectId, pyProjectKey: String, nodeId: String, homePath: String, traceId: String): String? =
   PyEvoSdkApi().resolveInterpreterVersion(projectId, pyProjectKey, nodeId, homePath, traceId)
-
-@ApiStatus.Internal
-suspend fun requestEvoAddInterpreter(projectId: ProjectId, pyProjectKey: String, nodeId: String): EvoSelectResultDto =
-  PyEvoSdkApi().addInterpreter(projectId, pyProjectKey, nodeId)
 
 @ApiStatus.Internal
 suspend fun requestEvoPerformNodeAction(projectId: ProjectId, pyProjectKey: String, nodeId: String, actionId: String): EvoSelectResultDto =

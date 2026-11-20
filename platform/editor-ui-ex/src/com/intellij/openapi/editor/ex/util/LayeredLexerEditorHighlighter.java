@@ -72,11 +72,13 @@ public class LayeredLexerEditorHighlighter extends LexerEditorHighlighter {
     final Int2IntMap index2Global = new Int2IntOpenHashMap();
     private final String mySeparator;
     final int insertOffset;
+    int replaceEnd;
 
     LightMapper(@NotNull Mapper mapper, int insertOffset) {
       this.mapper = mapper;
       mySeparator = mapper.mySeparator;
       this.insertOffset = insertOffset;
+      replaceEnd = insertOffset;
     }
 
     void addToken(@NotNull CharSequence tokenText, @NotNull IElementType tokenType, int globalIndex) {
@@ -89,7 +91,7 @@ public class LayeredLexerEditorHighlighter extends LexerEditorHighlighter {
     void finish() {
       assert insertOffset >= 0;
       DocumentImpl document = mapper.doc;
-      document.insertString(insertOffset, text);
+      document.replaceString(insertOffset, replaceEnd, text);
       int start = insertOffset;
       for (int i = 0; i < tokenTypes.size(); i++) {
         IElementType type = tokenTypes.get(i);
@@ -220,7 +222,74 @@ public class LayeredLexerEditorHighlighter extends LexerEditorHighlighter {
 
     @Override
     public void replace(int startIndex, int endIndex, @NotNull SegmentArrayWithData newData) {
-      withFreezedHighlighters(() -> super.replace(startIndex, endIndex, newData));
+      withFreezedHighlighters(() -> replaceMappings(startIndex, endIndex, newData));
+    }
+
+    private void replaceMappings(int startIndex, int endIndex, @NotNull SegmentArrayWithData newData) {
+      int newStart = 0;
+      int newEnd = newData.getSegmentCount();
+      while (startIndex < endIndex && newStart < newEnd && canReuseMapping(startIndex, newData, newStart)) {
+        setElementLight(startIndex++, newData.getSegmentStart(newStart), newData.getSegmentEnd(newStart), newData.getSegmentData(newStart));
+        newStart++;
+      }
+      while (startIndex < endIndex && newStart < newEnd && canReuseMapping(endIndex - 1, newData, newEnd - 1)) {
+        endIndex--;
+        newEnd--;
+        setElementLight(endIndex, newData.getSegmentStart(newEnd), newData.getSegmentEnd(newEnd), newData.getSegmentData(newEnd));
+      }
+      if (startIndex == endIndex && newStart == newEnd) return;
+      if (newStart == 0 && newEnd == newData.getSegmentCount()) {
+        replaceMappingRange(startIndex, endIndex, newData);
+        return;
+      }
+      SegmentArrayWithData middle = new SegmentArrayWithData(newData.createStorage());
+      for (int i = newStart; i < newEnd; i++) {
+        middle.setElementAt(i - newStart, newData.getSegmentStart(i), newData.getSegmentEnd(i), newData.getSegmentData(i));
+      }
+      replaceMappingRange(startIndex, endIndex, middle);
+    }
+
+    private void replaceMappingRange(int startIndex, int endIndex, @NotNull SegmentArrayWithData newData) {
+      Map<Mapper, LightMapper> replacements = FactoryMap.create(mapper -> {
+        MappedRange predecessor = mapper.findPredecessor(startIndex, this);
+        return new LightMapper(mapper, predecessor != null ? predecessor.range.getEndOffset() : 0);
+      });
+      for (int i = startIndex; i < endIndex; i++) {
+        MappedRange range = myRanges[i];
+        if (range != null && range.range.isValid()) {
+          replacements.get(range.mapper).replaceEnd = range.range.getEndOffset();
+          range.range.dispose();
+        }
+      }
+      int newCount = newData.getSegmentCount();
+      for (int i = 0; i < newCount; i++) {
+        IElementType token = unpackTokenFromData(newData.getSegmentData(i));
+        Mapper mapper = getMappingDocument(token);
+        if (mapper != null) {
+          CharSequence text = getLexedText().subSequence(newData.getSegmentStart(i), newData.getSegmentEnd(i));
+          replacements.get(mapper).addToken(text, token, startIndex + i);
+        }
+      }
+      if (startIndex < endIndex) {
+        removeRange(myRanges, startIndex, endIndex);
+        super.remove(startIndex, endIndex);
+      }
+      if (newCount > 0) {
+        super.insert(newData, startIndex);
+        myRanges = insert(myRanges, new MappedRange[newCount], startIndex, newCount);
+      }
+      replacements.keySet().forEach(this::freezeHighlighter);
+      replacements.values().forEach(LightMapper::finish);
+    }
+
+    private boolean canReuseMapping(int oldIndex, @NotNull SegmentArrayWithData newData, int newIndex) {
+      IElementType token = unpackTokenFromData(newData.getSegmentData(newIndex));
+      Mapper mapper = getMappingDocument(token);
+      MappedRange oldMapping = myRanges[oldIndex];
+      if (oldMapping == null) return mapper == null;
+      if (oldMapping.mapper != mapper || oldMapping.outerToken != token || !oldMapping.range.isValid()) return false;
+      return Comparing.equal(mapper.doc.getCharsSequence().subSequence(oldMapping.range.getStartOffset(), oldMapping.range.getEndOffset()),
+                             getLexedText().subSequence(newData.getSegmentStart(newIndex), newData.getSegmentEnd(newIndex)));
     }
 
     @Override

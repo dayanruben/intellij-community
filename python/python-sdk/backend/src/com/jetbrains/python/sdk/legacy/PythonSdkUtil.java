@@ -5,7 +5,8 @@ import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
-import com.intellij.python.sdk.backend.PythonSdkTable;
+import com.intellij.python.sdk.backend.PythonInterpreterSdkBoundaryKt;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.roots.OrderRootType;
@@ -17,7 +18,6 @@ import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.platform.eel.EelDescriptor;
-import com.intellij.platform.eel.provider.LocalEelDescriptor;
 import com.intellij.util.PlatformUtils;
 import com.intellij.util.SystemProperties;
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread;
@@ -40,8 +40,6 @@ import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.function.Predicate;
-import java.util.stream.Collectors;
 
 /**
  * Utility methods for Python {@link Sdk} based on the project model and the file system.
@@ -65,7 +63,6 @@ public final class PythonSdkUtil {
    * In which root type built-in skeletons are put.
    */
   public static final OrderRootType BUILTIN_ROOT_TYPE = OrderRootType.CLASSES;
-  private static final Predicate<Sdk> REMOTE_SDK_PREDICATE = PythonSdkUtil::isRemote;
 
   public static boolean isPythonSdk(@NotNull Sdk sdk) {
     return isPythonSdk(sdk, false);
@@ -93,27 +90,47 @@ public final class PythonSdkUtil {
 
   /**
    * Returns <strong>all</strong> SDKs for all eels.
-   * Most probably you need {@link #getAllSdks(Project)} or {@link #getAllSdks(PyProject)}
+   *
+   * @deprecated There is no global list of interpreters. Read the interpreters of a {@link PyProject} from
+   * {@link com.intellij.python.sdk.backend.PythonInterpreterRegistry} or from the {@code EvoPyProjectModel} snapshot.
    */
+  @Deprecated
   @PyInternalExecApi
   public static @Unmodifiable @NotNull List<@NotNull Sdk> getAllSdks() {
-    return PythonSdkTable.pythonSdks();
+    return ContainerUtil.filter(PythonInterpreterSdkBoundaryKt.pythonSdksOfOpenProjects(), sdk -> isPythonSdk(sdk, false));
   }
 
+  /**
+   * @deprecated Read the interpreters of a {@link PyProject} from {@link com.intellij.python.sdk.backend.PythonInterpreterRegistry}.
+   */
+  @Deprecated
   public static @Unmodifiable @NotNull List<@NotNull Sdk> getAllSdks(@NotNull Project project) {
     return getAllSdks(new ModuleOrProject.ProjectOnly(project));
   }
 
+  /**
+   * @deprecated Read the interpreters of {@code module} from {@link com.intellij.python.sdk.backend.PythonInterpreterRegistry}.
+   */
+  @Deprecated
   public static @Unmodifiable @NotNull List<@NotNull Sdk> getAllSdks(@NotNull PyProject module) {
     return getAllSdks(new ModuleOrProject.ModuleAndProject(module));
   }
 
+  /**
+   * @deprecated Read the interpreters of a {@link PyProject} from {@link com.intellij.python.sdk.backend.PythonInterpreterRegistry}.
+   */
+  @Deprecated
   public static @Unmodifiable @NotNull List<@NotNull Sdk> getAllSdks(@NotNull ModuleOrProject moduleOrProject) {
-    return SdkFiltersKt.filterAssignablePythonSdks(moduleOrProject, PythonSdkTable.allSdks(moduleOrProject.getProject()));
+    return SdkFiltersKt.filterAssignablePythonSdks(moduleOrProject, PythonInterpreterSdkBoundaryKt.pythonSdksForSettings(moduleOrProject.getProject()));
   }
 
+  /**
+   * @deprecated There is no global list of interpreters. Read the interpreters of a {@link PyProject} from
+   * {@link com.intellij.python.sdk.backend.PythonInterpreterRegistry}, or the system Pythons from {@code SystemPythonService}.
+   */
+  @Deprecated
   public static @Unmodifiable @NotNull List<@NotNull Sdk> getAllSdksOn(@NotNull EelDescriptor eelDescriptor) {
-    return SdkFiltersKt.filterAssignablePythonSdks(eelDescriptor, PythonSdkTable.allSdks());
+    return SdkFiltersKt.filterAssignablePythonSdks(eelDescriptor, PythonInterpreterSdkBoundaryKt.pythonSdksOfOpenProjects());
   }
 
   /**
@@ -203,16 +220,8 @@ public final class PythonSdkUtil {
     return null;
   }
 
-  public static boolean hasValidSdk() {
-    return !PythonSdkTable.pythonSdks().isEmpty();
-  }
-
   public static boolean isDisposed(@NotNull Sdk sdk) {
     return sdk instanceof Disposable && Disposer.isDisposed((Disposable)sdk);
-  }
-
-  public static List<Sdk> getAllLocalCPythons() {
-    return getAllSdksOn(LocalEelDescriptor.INSTANCE).stream().filter(REMOTE_SDK_PREDICATE.negate()).collect(Collectors.toList());
   }
 
   // It is only here for external plugins
@@ -280,12 +289,8 @@ public final class PythonSdkUtil {
     return null;
   }
 
-  public static @Nullable Sdk findSdkByKey(@NotNull String key) {
-    return PythonSdkTable.findByName(key);
-  }
-
   /**
-   * @deprecated path is not unique, use {@link #findSdkByKey(String)} instead
+   * @deprecated A path is not unique, and there is no global list of interpreters. Use the interpreter of a {@link PyProject}.
    */
   @Deprecated
   public static @Nullable Sdk findSdkByPath(@Nullable String path) {
@@ -297,7 +302,7 @@ public final class PythonSdkUtil {
 
 
   /**
-   * @deprecated path is not unique, use {@link #findSdkByKey(String)} instead
+   * @deprecated A path is not unique. Use the interpreter of a {@link PyProject}.
    */
   @Deprecated
   public static @Nullable Sdk findSdkByPath(List<? extends Sdk> sdkList, @Nullable String path) {

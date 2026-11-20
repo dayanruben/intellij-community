@@ -188,12 +188,10 @@ private class LineIndex(private val source: CharSequence, private val document: 
       val ruleEnd =
         if (next != null) document.getLineStartOffset(document.getLineNumber(next.startOffset))
         else document.getLineEndOffset(document.getLineNumber(marker.startOffset))
-      val placeholder = if (source.getOrNull(marker.endOffset)?.let { it in " \t" } == true) " " else "  "
       MarkdownLivePreviewSpec.BlockQuote(
         range = markerRuns.getValue(marker.startOffset),
         markerRange = marker,
         ruleRange = MarkdownLivePreviewRange(marker.startOffset, ruleEnd),
-        placeholderText = placeholder,
         alertType = alertType,
       )
     }
@@ -293,7 +291,6 @@ private fun PsiElement.isTopLevelOrQuoted(): Boolean =
     .all { PsiUtilCore.getElementType(it) in QuoteTypes }
 
 private fun PsiElement.toImageSpec(editor: Editor): MarkdownLivePreviewSpec.Image? {
-  if (!editor.isProjectTrusted()) return null
   val image = this as? MarkdownImage ?: return null
   val link = image.exclamationMark?.nextSibling ?: return null
   val linkDestination = image.linkDestination ?: LinkDefinitions.findFor(link)?.linkDestination ?: return null
@@ -303,8 +300,10 @@ private fun PsiElement.toImageSpec(editor: Editor): MarkdownLivePreviewSpec.Imag
   val range = image.wholeLineRange() ?: image.textRange
   val altText = image.collectLinkDescriptionText()?.let(StringUtil::collapseWhiteSpace).orEmpty()
   val placeholderText = altText.ifEmpty { MarkdownBundle.message("markdown.live.preview.image.placeholder") }
-  val source = editor.getOrCreateMarkdownLivePreviewImageManager().findImageData(destination)
-  return MarkdownLivePreviewSpec.Image(range.toMarkdownLivePreviewRange(), destination, placeholderText, isBrowserOwned, source)
+  val spec = MarkdownLivePreviewSpec.Image(range.toMarkdownLivePreviewRange(), destination, placeholderText, isBrowserOwned)
+  if (!editor.isProjectTrusted()) return spec.copy(failure = MarkdownLivePreviewSpec.ImageFailure.UNTRUSTED)
+  val loaded = editor.getOrCreateMarkdownLivePreviewImageManager().findImage(destination) ?: return spec
+  return spec.copy(source = loaded.source, failure = loaded.failure)
 }
 
 private fun MarkdownCodeFence.toCodeFenceSpec(): MarkdownLivePreviewSpec.CodeFence? {

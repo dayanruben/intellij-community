@@ -11,6 +11,7 @@ import com.intellij.python.sdk.backend.PythonInterpreter
 import com.intellij.python.sdk.backend.PythonInterpreterDetails
 import com.intellij.python.sdk.backend.PythonInterpreterRegistry
 import com.intellij.python.sdk.backend.PythonInterpreterRoots
+import com.intellij.python.sdk.backend.addMockPythonInterpreter
 import com.intellij.python.sdk.backend.classRoots
 import com.intellij.python.sdk.backend.getSdkAPI
 import com.intellij.testFramework.IndexingTestUtil
@@ -154,7 +155,7 @@ internal class PythonInterpreterDetailsTest {
       body(interpreter)
     }
     finally {
-      registry.removePythonInterpreter(pyProject, interpreter)
+      registry.remove(interpreter)
     }
   }
 
