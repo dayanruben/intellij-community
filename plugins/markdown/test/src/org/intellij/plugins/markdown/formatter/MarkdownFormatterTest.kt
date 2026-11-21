@@ -118,6 +118,12 @@ class MarkdownFormatterTest {
   fun `test reflow`(): Unit = doTest()
 
   @Test
+  fun `test reflow before inline elements`(): Unit = doTest(rightMargin = 100)
+
+  @Test
+  fun `test reflow before inline elements in blockquote`(): Unit = doTest(rightMargin = 100, insertQuoteArrows = true)
+
+  @Test
   fun `test long table`(): Unit = doTest()
 
   @Test
@@ -208,6 +214,9 @@ class MarkdownFormatterTest {
 
   @Test
   fun `test blockquote with emphasis wrap`(): Unit = doTest(rightMargin = 80, insertQuoteArrows = true)
+
+  @Test
+  fun `test blockquote with long link`(): Unit = doTest(rightMargin = 80, keepLineBreaks = true, insertQuoteArrows = true)
 
   @Test
   fun `test do not wrap text inside block quotes`(): Unit = doTest(rightMargin = 80, wrapTextInsideBlockquotes = false)

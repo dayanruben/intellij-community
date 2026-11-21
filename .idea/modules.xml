@@ -1330,6 +1330,7 @@
       <module fileurl="file://$PROJECT_DIR$/libraries/ktor/serialization-gson/intellij.libraries.ktor.serialization.gson.iml" filepath="$PROJECT_DIR$/libraries/ktor/serialization-gson/intellij.libraries.ktor.serialization.gson.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/ktor/server-cio/intellij.libraries.ktor.server.cio.iml" filepath="$PROJECT_DIR$/libraries/ktor/server-cio/intellij.libraries.ktor.server.cio.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/ktor/server-content-negotiation/intellij.libraries.ktor.server.content.negotiation.iml" filepath="$PROJECT_DIR$/libraries/ktor/server-content-negotiation/intellij.libraries.ktor.server.content.negotiation.iml" />
+      <module fileurl="file://$PROJECT_DIR$/libraries/ktor/server-core/intellij.libraries.ktor.server.core.iml" filepath="$PROJECT_DIR$/libraries/ktor/server-core/intellij.libraries.ktor.server.core.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/ktor/server-sse/intellij.libraries.ktor.server.sse.iml" filepath="$PROJECT_DIR$/libraries/ktor/server-sse/intellij.libraries.ktor.server.sse.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/ktor/utils/intellij.libraries.ktor.utils.iml" filepath="$PROJECT_DIR$/libraries/ktor/utils/intellij.libraries.ktor.utils.iml" />
       <module fileurl="file://$PROJECT_DIR$/libraries/kxml2/intellij.libraries.kxml2.iml" filepath="$PROJECT_DIR$/libraries/kxml2/intellij.libraries.kxml2.iml" />
@@ -1778,6 +1779,7 @@
       <module fileurl="file://$PROJECT_DIR$/platform/platform-impl/playback/intellij.platform.ide.playback.iml" filepath="$PROJECT_DIR$/platform/platform-impl/playback/intellij.platform.ide.playback.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/platform-impl/plugin-signature-verifier/intellij.platform.ide.pluginSignatureVerifier.iml" filepath="$PROJECT_DIR$/platform/platform-impl/plugin-signature-verifier/intellij.platform.ide.pluginSignatureVerifier.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/platform-impl/presentation-assistant/intellij.platform.ide.presentationAssistant.iml" filepath="$PROJECT_DIR$/platform/platform-impl/presentation-assistant/intellij.platform.ide.presentationAssistant.iml" />
+      <module fileurl="file://$PROJECT_DIR$/platform/platform-impl/presentation-assistant/tests/intellij.platform.ide.presentationAssistant.tests.iml" filepath="$PROJECT_DIR$/platform/platform-impl/presentation-assistant/tests/intellij.platform.ide.presentationAssistant.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/progress/shared/intellij.platform.ide.progress.iml" filepath="$PROJECT_DIR$/platform/progress/shared/intellij.platform.ide.progress.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/platform-impl/recentProjects/intellij.platform.ide.recentProjects.iml" filepath="$PROJECT_DIR$/platform/platform-impl/recentProjects/intellij.platform.ide.recentProjects.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/platform-impl/remote/intellij.platform.ide.remote.iml" filepath="$PROJECT_DIR$/platform/platform-impl/remote/intellij.platform.ide.remote.iml" />

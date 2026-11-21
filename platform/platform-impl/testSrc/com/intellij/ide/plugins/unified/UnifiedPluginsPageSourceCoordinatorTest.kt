@@ -277,10 +277,11 @@ internal class UnifiedPluginsPageSourceCoordinatorTest {
   }
 
   @Test
-  fun `local plugins are excluded from Suggested`() {
+  fun `Suggested limits results after excluding local plugins`() {
     val installed = item(plugin("installed.plugin", "Installed"))
     val bundled = item(plugin("bundled.plugin", "Bundled"))
     val suggestedOnly = item(plugin("suggested.plugin", "Suggested"))
+    val marketplace = (1..20).map { index -> item(plugin("marketplace.$index", "Marketplace $index")) }
 
     val state = composeUnifiedPluginsPageSourceState(
       query = PluginsQueryState(),
@@ -298,14 +299,14 @@ internal class UnifiedPluginsPageSourceCoordinatorTest {
             item(plugin(installed.pluginId.idString, "Suggested Installed")),
             item(plugin(bundled.pluginId.idString, "Suggested Bundled")),
             suggestedOnly,
-          ),
+          ) + marketplace,
         ),
         listModelData = PluginListModelData.EMPTY,
       ),
     )
 
     assertThat(state.sections.single { it.id == PluginSectionId.Suggested }.items.map(PluginItemState::pluginId))
-      .containsExactly(suggestedOnly.pluginId)
+      .containsExactlyElementsOf(listOf(suggestedOnly.pluginId) + marketplace.take(19).map(PluginItemState::pluginId))
   }
 
   @Test
@@ -821,7 +822,7 @@ internal class UnifiedPluginsPageSourceCoordinatorTest {
   }
 
   @Test
-  fun `installed relevance uses legacy name and description match scores`() {
+  fun `installed relevance ranks name, description, and plugin ID matches`() {
     val shortName = localItem(plugin("name.short", "Target"), enabled = true)
     val longName = localItem(plugin("name.long", "Target Integration"), enabled = true)
     val shortDescription = localItem(
@@ -829,14 +830,16 @@ internal class UnifiedPluginsPageSourceCoordinatorTest {
       enabled = true,
     )
     val longDescription = localItem(
-      plugin("description.long", "Verbose").apply { description = "Target appears in a longer description" },
+      plugin("description.target", "Verbose").apply { description = "Target appears in a longer description" },
       enabled = true,
     )
+    val idMatch = localItem(plugin("org.example.targetSupport", "Tools"), enabled = true)
+    val fullIdMatch = localItem(plugin("target", "Utilities"), enabled = true)
     val local = localState(
       listOf(
         PluginSectionState(
           PluginSectionId.Installed,
-          items = listOf(longDescription, longName, shortDescription, shortName),
+          items = listOf(idMatch, longDescription, longName, fullIdMatch, shortDescription, shortName),
         ),
         PluginSectionState(PluginSectionId.Bundled),
       )
@@ -847,7 +850,14 @@ internal class UnifiedPluginsPageSourceCoordinatorTest {
       local,
     ).sections.single { it.id == PluginSectionId.Installed }.items.map { it.pluginId.idString }
 
-    assertThat(result).containsExactly("name.short", "name.long", "description.short", "description.long")
+    assertThat(result).containsExactly(
+      "name.short",
+      "name.long",
+      "description.short",
+      "description.target",
+      "target",
+      "org.example.targetSupport",
+    )
   }
 
   @Test

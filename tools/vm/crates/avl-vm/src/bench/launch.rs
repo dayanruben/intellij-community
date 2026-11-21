@@ -6,6 +6,9 @@
 //! options of the run with the JVM class-load log, the `--add-opens` lines of `OpenedPackages.txt` for this OS, `-classpath` with the entries of
 //! `core-classpath.txt`, and the main class of the dist config. Every path in it is a path of the generation.
 //!
+//! The IDE is its own responsible process on macOS, as an app that Launch Services starts, so the WebKit processes of its
+//! web views name its pid, see [`super::memory`].
+//!
 //! A run starts the IDE under a child context, waits for the event of its gate, holds, reads the FUS log, and quits the IDE
 //! through a second JVM with the program argument `exit`. When the IDE does not exit, the run cancels the child
 //! context, which sends SIGTERM to its process group, and then drops the spawn, which sends SIGKILL. The spawn
@@ -19,12 +22,14 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, anyhow, bail};
 use avl_base::{Exit, Refusal};
+use avl_host_sys::proc::Responsibility;
 use avl_host_sys::{Ctx, ProcError, Runner, SpawnOptions};
 use serde::Deserialize;
 
-use super::arm::{Arm, ArmKind, Gate};
+use super::arm::{Arm, ArmKind, Gate, Twin};
 use super::files;
 use super::fus;
+use super::memory::{self, MEMORY_FILE};
 use super::profile::{GATE_PROFILE, ProfileEvent, WHOLE_PROFILE};
 use super::record::{self, EDITOR_HIGHLIGHTED, LaunchFacts, RunKind, THREAD_DUMP_FILE};
 use super::session::{CLASS_LOAD_LOG, ProjectPaths, Sandbox, TRACE_FILE};
@@ -100,8 +105,8 @@ pub(crate) const CARGO_SYNC_PROPERTIES: [&str; 2] = [
     "org.rust.external.linter.on.the.fly=false",
 ];
 
-/// The property of a twin arm, see [`Arm::suppressed`]. The IDE reads it as a list of plugin ids at the start and loads
-/// none of them.
+/// The property of a twin arm without a plugin, see [`Twin::Without`]. The IDE reads it as a list of plugin ids at the
+/// start and loads none of them.
 pub(crate) const SUPPRESSED_PLUGINS_PROPERTY: &str = "idea.suppressed.plugins.id";
 
 /// The file of the opened packages in a generation, a copy of
@@ -144,8 +149,8 @@ pub(crate) fn class_load_option(run_dir: &Path) -> Result<String, String> {
 }
 
 /// The options of a measured start, in order: the sandbox, the files of the run, the asynchronous log, see
-/// [`ASYNC_LOG_OPTIONS`], the class-load log, the properties, the arm, the suppressed plugin of a twin and the
-/// profiler. A run directory that the class-load log cannot name is an error, see [`class_load_option`]. The profiler
+/// [`ASYNC_LOG_OPTIONS`], the class-load log, the properties, the arm, the change of a twin and the profiler. The
+/// property of a twin comes after the properties of the bench, so it wins over a property of the same name. A run directory that the class-load log cannot name is an error, see [`class_load_option`]. The profiler
 /// starts with the JVM and writes [`WHOLE_PROFILE`] at the exit, unless the run stops it at the gate.
 pub(crate) fn measure_options(run_dir: &Path, sandbox: &Sandbox, arm: &Arm, profiler: Option<&Profiler>) -> Result<Vec<String>, String> {
     let mut options = sandbox_options(sandbox);
@@ -168,8 +173,10 @@ pub(crate) fn measure_options(run_dir: &Path, sandbox: &Sandbox, arm: &Arm, prof
         }
         ArmKind::NonModal | ArmKind::OpenProject => {}
     }
-    if let Some(plugin) = &arm.suppressed {
-        options.push(format!("-D{SUPPRESSED_PLUGINS_PROPERTY}={plugin}"));
+    match &arm.twin {
+        Some(Twin::Without(plugin)) => options.push(format!("-D{SUPPRESSED_PLUGINS_PROPERTY}={plugin}")),
+        Some(Twin::With(property)) => options.push(format!("-D{property}")),
+        None => {}
     }
     if let Some(profiler) = profiler {
         options.push(DYNAMIC_AGENT_OPTION.to_owned());
@@ -570,7 +577,10 @@ impl Launcher {
         };
         let child = Ctx::new(ctx.token().child_token());
         let log = run_dir.join("launch.log");
-        let spawn_options = self.logged(self.ceiling(), "bench_ide_ceiling");
+        let spawn_options = SpawnOptions {
+            responsibility: Responsibility::Own,
+            ..self.logged(self.ceiling(), "bench_ide_ceiling")
+        };
         let started = Instant::now();
         let mut ide = Box::pin(self.runner.checked_to_file(&child, &argv, &log, &spawn_options));
         let mut collector = fus::Collector::default();
@@ -583,6 +593,7 @@ impl Launcher {
         };
         facts.waited_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
         if exited.is_none() && facts.failure.is_none() {
+            facts.memory_failure = sample_memory(run_dir).err();
             facts.thread_dump_failure = self.dump_threads(ctx, run_dir).await.err();
         }
         if exited.is_none()
@@ -620,12 +631,7 @@ impl Launcher {
         if !jcmd.is_file() {
             return Err("the JBR of the generation has no bin/jcmd".to_owned());
         }
-        let log = files::read_optional(&run_dir.join("log").join("idea.log"))
-            .ok()
-            .flatten()
-            .unwrap_or_default();
-        let pid = idea_log_pid(&log).ok_or_else(|| "log/idea.log names no PID".to_owned())?;
-        Ok((jcmd, pid))
+        Ok((jcmd, ide_pid(run_dir)?))
     }
 
     /// Stops the profiler of the running IDE when the run passed its gate, so [`GATE_PROFILE`] holds the start-up and
@@ -777,6 +783,24 @@ impl Launcher {
         drop(ide);
         None
     }
+}
+
+/// The PID of the running IDE, which `log/idea.log` of `run_dir` names, see [`idea_log_pid`].
+fn ide_pid(run_dir: &Path) -> Result<u32, String> {
+    let log = files::read_optional(&run_dir.join("log").join("idea.log"))
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    idea_log_pid(&log).ok_or_else(|| "log/idea.log names no PID".to_owned())
+}
+
+/// Writes [`MEMORY_FILE`] with the memory of the IDE and of the processes that work for it, after the gate and before
+/// the thread dump, so the `jcmd` of the dump adds nothing to it. Answers why it could not: no PID, or a failed
+/// sample. The record makes that a note of the run.
+fn sample_memory(run_dir: &Path) -> Result<(), String> {
+    let pid = ide_pid(run_dir)?;
+    let sample = memory::take(pid).map_err(|error| format!("the memory sample of the IDE {pid} failed: {error:#}"))?;
+    files::write_json(&run_dir.join(MEMORY_FILE), &sample).map_err(|error| format!("{error:#}"))
 }
 
 fn interrupted_text() -> String {

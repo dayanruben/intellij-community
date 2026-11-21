@@ -1,6 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.plugins
 
+import com.intellij.ide.IdeBundle
 import com.intellij.ide.plugins.api.PluginDto
 import com.intellij.ide.plugins.marketplace.statistics.UnifiedPluginSearchStatistics
 import com.intellij.ide.plugins.marketplace.statistics.enums.PluginManagerOpenSourceEnum
@@ -8,6 +9,7 @@ import com.intellij.ide.plugins.marketplace.statistics.enums.UnifiedPluginSearch
 import com.intellij.ide.plugins.marketplace.statistics.enums.UnifiedPluginSearchQueryShape
 import com.intellij.ide.plugins.marketplace.statistics.enums.UnifiedPluginSearchSection
 import com.intellij.ide.plugins.marketplace.statistics.enums.UnifiedPluginSearchSourceKind
+import com.intellij.ide.plugins.marketplace.utils.MarketplaceCustomizationService
 import com.intellij.ide.plugins.newui.CustomPluginRepository
 import com.intellij.ide.plugins.newui.CustomPluginRepositoryLoadResult
 import com.intellij.ide.plugins.newui.EventHandler.SelectionType
@@ -54,6 +56,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.UiWithModelAccess
+import com.intellij.openapi.application.impl.ApplicationInfoImpl.DEFAULT_PLUGINS_HOST
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.options.newEditor.SpotlightPainter
@@ -68,6 +71,7 @@ import com.intellij.openapi.util.ExpirableRunnable
 import com.intellij.openapi.util.text.HtmlChunk
 import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.openapi.wm.IdeFrame
+import com.intellij.testFramework.ExtensionTestUtil
 import com.intellij.testFramework.TestActionEvent
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.common.waitUntilAssertSucceeds
@@ -78,6 +82,7 @@ import com.intellij.testFramework.replaceService
 import com.intellij.ui.AnimatedIcon
 import com.intellij.ui.ComponentUtil
 import com.intellij.ui.SearchTextField
+import com.intellij.ui.components.ActionLink
 import com.intellij.ui.components.SearchFieldWithExtension
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.withForcedRespectIsShowingClientProperty
@@ -104,7 +109,9 @@ import java.awt.Dimension
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
 import java.awt.Window
+import java.awt.event.KeyEvent
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JPanel
@@ -1219,7 +1226,86 @@ internal class UnifiedPluginsPageSessionTest {
     }
 
   @Test
-  fun `session renders and filters ordered repository rows`(): Unit =
+  fun `Suggested links to the default Marketplace and hides the link for an override`(@TestDisposable disposable: Disposable): Unit =
+    uiTest {
+      val marketplaceUrl = AtomicReference("$DEFAULT_PLUGINS_HOST/")
+      setMarketplaceUrl(disposable, marketplaceUrl::get)
+
+      val suggested = PluginDto("Suggested Plugin", PluginId.getId("suggested.plugin"))
+      val session = createSession(null, marketplaceProvider = FixedMarketplaceDataProvider(suggested = listOf(suggested)))
+      try {
+        val content = session.getComponent()
+        val linkText = IdeBundle.message("plugins.configurable.more.on.marketplace")
+        waitUntilAssertSucceeds {
+          assertThat(componentsOfType(content, ActionLink::class.java).filter { it.text == linkText && it.parent.isVisible }).hasSize(1)
+        }
+
+        marketplaceUrl.set("$DEFAULT_PLUGINS_HOST/custom")
+        withShowingChanged { content.parent.remove(content) }
+        yield()
+        showComponent(content)
+
+        waitUntilAssertSucceeds {
+          assertThat(componentsOfType(content, ActionLink::class.java)).noneMatch { it.text == linkText && it.parent.isVisible }
+        }
+      }
+      finally {
+        Disposer.dispose(session)
+      }
+    }
+
+  @Test
+  fun `arrows move between Suggested rows the Marketplace link and the next section`(@TestDisposable disposable: Disposable): Unit =
+    uiTest {
+      setMarketplaceUrl(disposable) { DEFAULT_PLUGINS_HOST }
+      val suggested = PluginDto("Suggested Plugin", PluginId.getId("suggested.plugin"))
+      val repositoryPlugin = PluginDto("Repository Plugin", PluginId.getId("repository.plugin"))
+      val repository = CustomPluginRepository("repository", PluginSource.LOCAL)
+      val session = createSession(
+        null,
+        marketplaceProvider = FixedMarketplaceDataProvider(suggested = listOf(suggested)),
+        repositoryProvider = FixedRepositoryDataProvider(listOf(repository), mapOf(repository.id to listOf(repositoryPlugin))),
+      )
+      try {
+        val content = session.getComponent()
+        val suggestedIds = setOf(suggested.pluginId.idString)
+        val repositoryIds = setOf(repositoryPlugin.pluginId.idString)
+        waitForPluginIds(content, suggestedIds + repositoryIds)
+
+        val linkText = IdeBundle.message("plugins.configurable.more.on.marketplace")
+        waitUntilAssertSucceeds {
+          assertThat(componentsOfType(content, ActionLink::class.java)).anyMatch { it.text == linkText && it.parent.isVisible }
+        }
+        val link = componentsOfType(content, ActionLink::class.java).single { it.text == linkText }
+        session.select(listOf(suggested.pluginId))
+        waitForSelectedPluginIds(content, suggestedIds)
+
+        fun pressArrow(component: Component, keyCode: Int) {
+          val event = KeyEvent(component, KeyEvent.KEY_PRESSED, 0, 0, keyCode, KeyEvent.CHAR_UNDEFINED)
+          component.keyListeners.forEach { it.keyPressed(event) }
+          assertThat(event.isConsumed).isTrue()
+        }
+
+        fun row(pluginId: PluginId): ListPluginComponent =
+          componentsOfType(content, ListPluginComponent::class.java).single { it.getPluginModel().pluginId == pluginId }
+
+        pressArrow(row(suggested.pluginId), KeyEvent.VK_DOWN)
+        waitForSelectedPluginIds(content, emptySet())
+        pressArrow(link, KeyEvent.VK_UP)
+        waitForSelectedPluginIds(content, suggestedIds)
+        pressArrow(row(suggested.pluginId), KeyEvent.VK_DOWN)
+        pressArrow(link, KeyEvent.VK_DOWN)
+        waitForSelectedPluginIds(content, repositoryIds)
+        pressArrow(row(repositoryPlugin.pluginId), KeyEvent.VK_UP)
+        waitForSelectedPluginIds(content, emptySet())
+      }
+      finally {
+        Disposer.dispose(session)
+      }
+    }
+
+  @Test
+  fun `session shows repository rows with and without a query`(): Unit =
     uiTest {
       val first = CustomPluginRepository("first", PluginSource.LOCAL)
       val second = CustomPluginRepository("second", PluginSource.LOCAL)
@@ -1233,12 +1319,14 @@ internal class UnifiedPluginsPageSessionTest {
       val session = createSession(null, repositoryProvider = repositoryProvider)
       try {
         val content = session.getComponent()
-        session.enableSearch("Plugin")!!.run()
         waitForPluginIds(content, setOf("alpha.plugin", "beta.plugin"))
 
         session.enableSearch("Beta")!!.run()
-
         waitForPluginIds(content, setOf("beta.plugin"))
+
+        session.enableSearch("")!!.run()
+        waitForPluginIds(content, setOf("alpha.plugin", "beta.plugin"))
+
         assertThat(repositoryProvider.repositoryLoadCount).isEqualTo(2)
       }
       finally {
@@ -1367,6 +1455,13 @@ internal class UnifiedPluginsPageSessionTest {
     val container = JPanel()
     ComponentUtil.forceMarkAsShowing(container, true)
     withShowingChanged { container.add(component) }
+  }
+
+  private fun setMarketplaceUrl(disposable: Disposable, url: () -> String) {
+    val customization = object : MarketplaceCustomizationService by MarketplaceCustomizationService.getInstance() {
+      override fun getPluginManagerUrl(): String = url()
+    }
+    ExtensionTestUtil.maskExtensions(MarketplaceCustomizationService.EP, listOf(customization), disposable)
   }
 
   private class SpotlightSearchCaller : SpotlightPainter(JPanel(), {}) {
