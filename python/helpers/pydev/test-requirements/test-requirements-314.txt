@@ -42,7 +42,7 @@ Pygments==2.19.1
 python-dateutil==2.9.0.post0
 pytz==2025.1
 six==1.17.0
-soupsieve==2.6
+soupsieve==4.0
 sqlparse==0.5.3
 stack-data==0.6.3
 tomli==2.2.1
