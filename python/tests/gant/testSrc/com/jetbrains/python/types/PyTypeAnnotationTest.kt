@@ -94,7 +94,7 @@ class PyTypeAnnotationTest : PyCodeInsightTestCase() {
     """.trimIndent())
 
   @Test
-  @TestFor(issues = ["PY-28243"])
+  @TestFor(issues = ["PY-28243", "PY-55307"])
   fun `TypeVar parameterized constraints`() = test("""
     from typing import TypeVar, List
 
@@ -105,7 +105,7 @@ class PyTypeAnnotationTest : PyCodeInsightTestCase() {
     #                       ^^^^^^^^ WARNING Constraints cannot be parametrized by type variables
     T3 = TypeVar('T3', bound=List[T1])
     #                        │    ^^ WARNING Unbound type variable
-    #                        ^^^^^^^^ WARNING Constraints cannot be parametrized by type variables
+    #                        ^^^^^^^^ WARNING TypeVar bound cannot be parametrized by type variables
 
     T4 = TypeVar('T4', int, List[int])
     T5 = TypeVar('T5', bound=List[int])
@@ -2097,6 +2097,24 @@ class PyTypeAnnotationTest : PyCodeInsightTestCase() {
     #                                │        ^^^^ WARNING Cannot use 'Self' if 'cls' parameter is not 'Self' annotated
     #                                ^^^^ WARNING Cannot use 'Self' if 'cls' parameter is not 'Self' annotated
             return bar
+    """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-92848"])
+  fun `typing Self return type accepts a class with an Any base`() = test("""
+    from typing import Self
+
+    class C:
+        def __add__(self, other: object) -> Self:
+            return NotImplemented
+
+        def __sub__(self, other: object) -> Self | None:
+            return NotImplemented
+
+        @classmethod
+        def make(cls) -> type[Self]:
+            return NotImplemented
+    #              ^^^^^^^^^^^^^^ WARNING Expected type 'type[Self@C]', got 'NotImplementedType' instead
     """.trimIndent())
 
   @Test
@@ -5674,6 +5692,31 @@ class PyTypeAnnotationTest : PyCodeInsightTestCase() {
 
         @classmethod
         def c(cls: "type[Self]") -> Self: ...
+    """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-93514"])
+  @TestCaseOptions(languageLevel = LanguageLevel.PYTHON310)
+  fun `typing names in __all__ before the Python version that declares them`() = test(
+    """
+    import typing
+    from typing import TypedDict, Unpack, Self
+    from typing import Unpack as U
+
+    class C(TypedDict): ...
+
+    def f(**kwargs: Unpack[C]) -> None: ...
+
+    def g(**kwargs: U[C]) -> None: ...
+
+    def h(**kwargs: typing.Unpack[C]) -> None: ...
+
+    class D:
+        def m(self) -> Self: ...
+
+    __all__ = ["f"]
+    x: __all__
+    #  ^^^^^^^ WARNING Invalid type annotation
     """.trimIndent())
 
   @Test

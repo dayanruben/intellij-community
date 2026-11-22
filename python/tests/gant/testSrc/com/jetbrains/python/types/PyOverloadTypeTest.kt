@@ -352,6 +352,43 @@ class PyOverloadTypeTest : PyCodeInsightTestCase() {
       #    │         ^^^ WARNING No overload of 'conv' matches the arguments. Argument types: (int | str). Expected one of: (x: int), (x: str) FIXME
       #    └ TYPE UnsafeUnion[int, str] FIXME int | str
       """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-92229"])
+    fun `overloaded callable argument binds a type parameter with any matching overload`() = test("""
+      from typing import Callable, overload
+
+      @overload
+      def takes(x: int) -> None: ...
+      @overload
+      def takes(x: str) -> None: ...
+      def takes(x): ...
+
+      def upper_first[T](cb: Callable[[T], None], x: T) -> None: ...
+      def lower_first[T](x: T, cb: Callable[[T], None]) -> None: ...
+
+      upper_first(takes, "")
+      lower_first("", takes)
+      lower_first(b"", takes)
+      #                ^^^^^ WARNING Expected type '(bytes) -> None' (matched generic type '(T) -> None'), got 'Overload[(x: int) -> None, (x: str) -> None]' instead
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-92229"])
+    fun `overloaded callable argument with one matching overload binds a type parameter from its side`() = test("""
+      from typing import Callable, overload
+
+      @overload
+      def takes(x: int) -> None: ...
+      @overload
+      def takes(x: bytes, y: int) -> None: ...
+      def takes(x, y=0): ...
+
+      def upper_first[T](cb: Callable[[T], None], x: T) -> None: ...
+
+      upper_first(takes, 1)
+      upper_first(takes, "") # WARNING Expected type 'int' (matched generic type 'T'), got 'Literal[""]' instead
+      """.trimIndent())
   }
 
   @Nested
