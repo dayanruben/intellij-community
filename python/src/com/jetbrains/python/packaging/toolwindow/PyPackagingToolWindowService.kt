@@ -486,7 +486,7 @@ internal class PyPackagingToolWindowService(val project: Project, val serviceSco
 
     interpreterContext = InterpreterContext(
       interpreter = interpreter,
-      managerUI = PythonPackageManagerUI.forPythonInterpreter(project, interpreter)
+      managerUI = PythonPackageManagerUI.forPythonInterpreter(interpreter)
     )
 
     withContext(Dispatchers.EDT) {
@@ -549,7 +549,7 @@ internal class PyPackagingToolWindowService(val project: Project, val serviceSco
   }
 
   /**
-   * Rebinds this view when the bound manager no longer [PythonPackageManager.matchesSdk] its interpreter.
+   * Rebinds this view when the bound manager no longer [PythonPackageManager.matchesInterpreter] its interpreter.
    * The commit that changes the root dependency file of the interpreter fires [ModuleRootListener.rootsChanged].
    * The rebind runs off the event thread.
    */
@@ -557,7 +557,7 @@ internal class PyPackagingToolWindowService(val project: Project, val serviceSco
     project.messageBus.connect(serviceScope).subscribe(ModuleRootListener.TOPIC, object : ModuleRootListener {
       override fun rootsChanged(event: ModuleRootEvent) {
         val context = interpreterContext ?: return
-        if (context.manager.matchesSdk()) return
+        if (context.manager.matchesInterpreter()) return
         serviceScope.launch(Dispatchers.IO + NON_INTERACTIVE_ROOT_TRACE_CONTEXT) { rebind(context) }
       }
     })
@@ -566,7 +566,7 @@ internal class PyPackagingToolWindowService(val project: Project, val serviceSco
   /** Binds this view to the current manager of the interpreter of [context], while [context] is still the bound one. */
   private suspend fun rebind(context: InterpreterContext) {
     if (project.isDisposed || interpreterContext !== context) return
-    interpreterContext = InterpreterContext(context.interpreter, PythonPackageManagerUI.forPythonInterpreter(project, context.interpreter))
+    interpreterContext = InterpreterContext(context.interpreter, PythonPackageManagerUI.forPythonInterpreter(context.interpreter))
     refreshInstalledPackages()
   }
 

@@ -19,7 +19,7 @@ Run a test target from the ultimate root. From `community/`, drop the `@communit
 `bt_rust_crate` in `defs.bzl` declares each crate: its library or binary, its `<crate>_test` and its `<crate>-clippy`.
 It binds `rust_tool_crate`, the shared macro core in `community/build/rust-tools/defs.bzl`, to the `@bt` hub. bt-core
 takes the slash-path rules from `distpath` and the file listing of a checkout from `checkout-files`, two crates of the
-dev-dist tools, through path dependencies. `_CROSS_MODULE_CRATES` in `defs.bzl` maps them to their targets in this
+distribution tools, through path dependencies. `_CROSS_MODULE_CRATES` in `defs.bzl` maps them to their targets in this
 module, so Bazel builds each once.
 `optimized_binary` of the core declares a shipped binary: one file, and always optimized. `defs.bzl` re-exports it for
 the Air UI-lane workspace. The spec of a Rust tool workspace is `community/build/rust-tools/README.md`.
@@ -56,7 +56,9 @@ A class name or an FQN resolves in the whole repository, through the pinned acci
 
 The filter is `<FQN>[#method]`. The runner finds an `@Nested` class only through its outer class, so a nested class
 without a method runs through its outer class, and a `note` line says so. bt passes no `--no-build`, so accio builds
-or refreshes its index by itself. A failed call of accio is exit 6 with the code `accio_failed`.
+or refreshes its index by itself. bt sets `ACCIO_WAIT` to 1800 s, because the 90 s default of accio is too short for a
+slot without an index under a high load. A failed call of accio is exit 6 with the code `accio_failed`. Its message
+names the last lines of the stderr and of the stdout of accio, because accio writes its error to stdout.
 
 A package is no selector, and neither is a JPS module name: both are dotted lower-case words. Run a package with
 `--module <module> --filter <package>`.
@@ -167,7 +169,8 @@ bt is the only writer. `bins/bt/src/check.rs` holds the rules:
    so in the monorepo a read takes about 1.5 s with `status.showUntrackedFiles=all` and 17-49 s without it.
 4. A record of a tree with local changes names those paths on the stderr. The pick finds the record only for a commit
    of the same files, so commit or delete scratch files before the last check.
-5. A `--host` run records the tree of the commit that the report of `brd-host` names as the one that ran.
+5. A `--host` run records the tree of the commit that the report of `brd-host` names as the one that ran, and the
+   HEAD that the report names. That commit holds the local changes of the checkout, so rule 4 applies to it too.
 6. The file is `bd-checks.jsonl` in the git directory (`git rev-parse --git-path bd-checks.jsonl`), so each linked work
    tree has its own. Each write replaces the file in one step. It keeps the last 100 records, one JSON object a line:
 
@@ -186,14 +189,15 @@ that took only some classes. For a `--host` run it holds the arguments of bt on 
 before or after the selector. `bins/bt/src/remote.rs` starts `brd-host` of Branch Deck, and the agent `brd-host serve`
 on the host does the rest. bt finds `brd-host` on the PATH, else at `~/.local/bin/brd-host`, where `brd install` links
 it. Without it, bt refuses with 6 and `host_not_installed`, and the message names `brd install`. The contract of
-`brd-host` is `spec/cli/host.spec.md` of Branch Deck. No step of a run uses ssh. The command line is:
+`brd-host` is `openspec/specs/cli/host/spec.md` of Branch Deck. No step of a run uses ssh. The command line is:
 
 ```sh
-brd-host run <alias> --head --fetch out/bt-runs [--repo <path>] --report-fd 3 -- ./community/tools/bt.cmd <args>
+brd-host run <alias> --nice 0 --no-outputs --fetch out/bt-runs [--repo <path>] --report-fd 3 -- ./community/tools/bt.cmd <args>
 ```
 
-1. `brd-host` refuses a checkout with local changes, untracked files included, because only the commit reaches the
-   host.
+1. `brd-host` writes HEAD and the local changes as one commit, untracked files included and ignored files left out.
+   The index, the files and the refs of the checkout stay as they are, and no ref names the commit. A clean checkout
+   ships HEAD itself.
 2. `brd-host` sends the git objects that the host lacks, as a thin pack, to the main repository of the host.
    `--host-repo` or `BT_HOST_REPO` names that repository. Without them, the host file that `brd-host setup` writes
    names it.
@@ -202,7 +206,8 @@ brd-host run <alias> --head --fetch out/bt-runs [--repo <path>] --report-fd 3 --
    digest or the `--json` payload, and bt reads it. `brd-host` writes one JSON report of the run to the descriptor 3:
    the exit code of the command, the commit, the fetched files, or a refusal code. The exit code of the command is the
    exit code here. A refusal of `brd-host` is 6, with the code `host_<code>` and the exit code of `brd-host` in the
-   details (`{"brd_host_exit": 75}` when the command did not run). Local changes are 2.
+   details (`{"brd_host_exit": 75}` when the command did not run). bt never runs the command locally after a
+   refusal: `heavy_timeout` and `superseded` also exit 75, and their run belongs on the host.
 4. The new run directories of `out/bt-runs` come back to `out/bt-runs` here, and the digest names each local copy.
 5. The run lives on the agent, not on the connection, and `brd-host` follows it again after a lost connection.
    `brd-host` stays in the process group of bt, so Ctrl+C reaches it, and bt only waits. Ctrl+C cancels the run on the

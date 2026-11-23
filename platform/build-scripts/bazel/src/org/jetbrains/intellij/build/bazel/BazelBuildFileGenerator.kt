@@ -1908,7 +1908,7 @@ private fun compileExcludeSortKey(pattern: String): String = pattern.lowercase()
  * and a predicate that assumes two directories leaves those unexported, which is an analysis error
  * the moment the plan names one.
  *
- * Deliberately a superset. An `exports_files` entry costs nothing - only what `build/dev_dist_plan.bzl` and the
+ * Deliberately a superset. An `exports_files` entry costs nothing - only what `build/dist_plan.bzl` and the
  * convention probe name is materialized into the project model tree - and keeping the two rules independent is what
  * makes them unable to disagree: this side only has to be wide enough.
  */
@@ -1935,7 +1935,7 @@ private fun exportDescriptorFiles(module: ModuleDescriptor, buildFile: BuildFile
       // root, and Bazel therefore leaves the subtree out of the main repository's execroot symlink farm:
       // `//:community/<path>` analyses, and an action that declares it gets a symlink to nothing. The label an action
       // can read is `@community//<package>:<path>`, which only the community package can export - see
-      // `containingBazelPackageLabel` in `devDistPluginDescriptorPlan.kt`.
+      // `containingBazelPackageLabel` in `distPluginDescriptorPlan.kt`.
       if (relative.startsWith("../")) {
         continue
       }

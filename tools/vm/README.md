@@ -89,7 +89,7 @@ A crate exists when two binaries share it, or when it is the frozen-bytes engine
 `avl-report` writes the bytes an agent reads. Code that one binary uses is a module of that binary. So the `vm`
 controller holds the modules `bench`, `console`, `daemon`, `lane`, `report` and `worker`, and `air-trace` holds `serve`,
 `plan` and `publish`.
-`build/docs/decisions/0043-the-crate-boundaries-follow-the-re-key-domains.md` states the same rule for the dev-dist tools.
+`build/docs/decisions/0043-the-crate-boundaries-follow-the-re-key-domains.md` states the same rule for the distribution tools.
 The crates form a DAG with the contracts at the bottom. `avl-wire`,
 `avl-trace`, `avl-control` and `avl-testkit` depend on no sibling, and `avl-trace-tools` and `avl-bridge` stand on `avl-trace` alone.
 `avl-junit` stands on `avl-wire` and on `serde`, `serde_json` and `jiff`, which the guest agent links already. So the guest agent can write the JUnit XML and the IJ Perf file.
@@ -102,12 +102,12 @@ so they send one token header and follow one deadline rule.
 which takes the class pattern of BT from it. The tests of `avl-junit` read back its XML with it. The agent links no
 crate of BT. `bt-core` is linked by `avl-affected` and by the
 two crates that resolve a lane or a selector, `avl-vm` and `air-trace`.
-`avl-host-sys`, `avl-trace-tools`, `air-trace` and `avl-vm` link `fscopy` of the dev-dist tools for the
+`avl-host-sys`, `avl-trace-tools`, `air-trace` and `avl-vm` link `fscopy` of the distribution tools for the
 real path. `refusal` of BT's workspace holds the refusal type, and `avl-base`, `avl-affected`, `air-trace` and
-`avl-guest` link it. `avl-affected` also links `distpath` of the dev-dist tools for the slash paths of BT, and `checkout-files` of the
-dev-dist tools, which `bt-core` links for the file listing of a checkout. rules_rs finds the path of such a crate
+`avl-guest` link it. `avl-affected` also links `distpath` of the distribution tools for the slash paths of BT, and `checkout-files` of the
+distribution tools, which `bt-core` links for the file listing of a checkout. rules_rs finds the path of such a crate
 only in a dependency of a member of this workspace, so `avl-affected` names it. `avl-guest`
-links `dev-launch` of the dev-dist tools, which composes the argument file of the lane IDE. Through it the agent links
+links `dev-launch` of the distribution tools, which composes the argument file of the lane IDE. Through it the agent links
 `java-properties` and a regex engine.
 `avl.bzl` maps each of these seven crates to its label in the community module
 (`_CROSS_MODULE_CRATES`), so Bazel builds it once. That build links the community module's `serde` and `regex`, so a value crosses as JSON text, and
@@ -175,7 +175,8 @@ and copy `<bin>_closure.txt` from `out/bazel-bin` over `closure.txt`.
 
 ## The bench
 
-`vm bench` measures the start-up of the IDE on a macOS host. ADR 0193 records why the verb is in `vm`.
+`vm bench` measures the start-up of the IDE on a macOS host, and one search workload after the start-up: Find in
+Files. ADR 0193 records why the verb is in `vm`.
 `vm.cmd bench --help` states what a session does and the exit codes. `vm.cmd bench <verb> --help` states the grammar
 and the defaults of the verb.
 
@@ -248,7 +249,7 @@ that the JVM loads, and the digest notes how many samples it left out.
 | --- | --- | --- |
 | `welcome` | How long does the IDE take to show the welcome screen, in the modal and the non-modal arm? | A session directory with its `summary.json`, and a text digest. |
 | `open-project <project>` | How long does a running IDE take to open a project and paint its editor? | A session with the open-project arm. |
-| `project <project>` | How long does the IDE take from its start on a project to the highlighted editor, or, with `--arm empty-editor`, to the built Air composer of an empty editor area? With `--arm cargo-sync` and `--target //build:rustrover_dist`, to the first Cargo sync, as the RustRover perf test measures it. `--cold` starts each empty-editor run with empty caches. | A session with the project arm, the empty-editor arm, both, or the cargo-sync arm. |
+| `project <project>` | How long does the IDE take from its start on a project to the highlighted editor, or, with `--arm empty-editor`, to the built Air composer of an empty editor area? With `--arm cargo-sync` and `--target //build:rustrover_dist`, to the first Cargo sync, as the RustRover perf test measures it. With `--arm find-in-files` and `--query`, how long the Find in Files searches of each query take. `--cold` starts each empty-editor run with empty caches. | A session with the project arm, the empty-editor arm, both, or the cargo-sync arm. |
 | `replay <session>` | What does a finished session give when the controller parses it again? | A new `summary.json` and the digest, without an IDE. |
 | `trace <session>` | What runs between the frame and the welcome paint? | The anchors of one run, and one line per span in the window. |
 | `activities <session>` | Which post-startup activities run while the welcome panel paints? | One table by class and one table by plugin for one run. |
@@ -265,6 +266,8 @@ the `.dist` directory, the dist config and `OpenedPackages.txt`. The home in the
 three inputs is the key, so a generation that exists is reused. Its files are read-only. Its `generation.json`
 names the commit of the checkout that built it. A run starts from the home that the dist config names: the `.dist`
 directory, or its `Contents` for a macOS app.
+The sandbox template takes the license `out/dev-data/idea/config/idea.key` of the checkout, or of the main checkout when
+the checkout is a linked worktree without a license.
 
 `--generation` takes the start of a digest and runs the session over that generation, with no build and no stage. The
 session names the commit that built the generation, so `ls` and `compare` show the commit of the measured bytes. An
@@ -292,6 +295,40 @@ A session directory holds:
 | `summary.json` | `distDigest`, `measureModel`, `maxLoad`, `warnings`, the runs and the median, min and max of each metric per arm, and the non-modal minus modal `delta` |
 
 The lock of a session and of `gc` is `<runtime root>/bench/session.lock`.
+
+A run of the find-in-files arm writes the script `find-in-files.ijperf` of the performance plugin into its run
+directory. The script is the line `%findInFiles -headless -project=<project> <query>;<query>`, and
+`-Dtestscript.filename` names it. `-Dperformance.execute.script.right.after.ide.opened=true` runs it once the first
+project opened: JetBrains Light holds the dumb mode, and the plugin would wait for the smart mode. `-headless` runs each
+search to its last usage without the popup, because the popup search of JetBrains Light does not finish in a bench run.
+`-project=<project>` runs the searches in the project of the project directory, after it opened and its
+`FindInProjectDirectoriesProvider` gave its directories. JetBrains Light opens the project as a member project of a
+workspace, because the workspace feature is on by default. It opens the host project of the workspace first, and the
+script starts there, but the frame gives the member project to Find in Files. The gate is the span
+`findInFiles#search: <query>` of each query. The metric `findInFiles.search` is the sum of the searches. `--directory
+<dir>` adds a second pass over that directory of the project, with its subdirectories: the line `%findInFiles -headless
+-project=<project> -directory=<path> <query>;<query>`, the spans `findInFiles#searchInDirectory: <query>` and their sum
+`findInFiles.searchInDirectory`. The two passes take two paths through Find in Files, and the digest shows both. A
+directory pass in the project directories skips the walk of the tree once accio covered all candidates. With
+`--property ijlight.workspace.enabled=false`, the project opens outside a workspace, the IDE logs "No project directory
+found for search", and the directory pass walks the whole tree of its directory. A run with that line in `idea.log` is
+not valid, and its reason names the property. Each search is a metric with its duration, and `<span> results` holds its
+result count, so a twin of `--with-property ijlight.accio.enabled=false` shows whether accio and the platform walk find
+the same. JetBrains Light does not bundle the performance plugin, so a session gives it with `--context-plugins
+//platform/unified:performance_testing_plugin_dir`. The session builds that pool from the working tree, also with
+`--generation`, and copies its plugin directories into the `plugins` directory of the template. `--in-place` opens a tree
+too large to copy, such as a checkout, where it is, and the IDE writes the `.idea` of that tree. Each run gets the
+environment of `vm.cmd`, so the accio of `PATH` answers the searches of the accio plugin. `--property accio.binary=<path>`
+and `--property accio.home=<dir>` name another accio and its index for every run. `--property` passes `-D<name>=<value>`
+to every run of a session, also to the prime runs, and its value can name a path, which a twin of `--with-property`
+cannot.
+
+```bash
+./community/tools/vm.cmd bench project . --in-place --target //build:jetbrains_light_all_plugins_dist \
+  --context-plugins //platform/unified:performance_testing_plugin_dir --arm find-in-files \
+  --query createSearcher --query FindModel --directory platform \
+  --property accio.binary=$HOME/.cargo/bin/accio --property accio.home=$PWD/out/bench-accio-home
+```
 
 What a session cannot measure yet:
 
@@ -358,7 +395,7 @@ The extension watches only the workspace `Cargo.toml` and `Cargo.lock`. A depend
 `Cargo.toml`, for example with a comment line, and run the command again.
 
 A member names a crate of another workspace by path: `bt-core`, `bt-junit` and `refusal` of BT, and `dev-launch`,
-`distpath` and `fscopy` of the dev-dist tools. rules_rs finds such a path only from a direct dependency of a member, so each member
+`distpath` and `fscopy` of the distribution tools. rules_rs finds such a path only from a direct dependency of a member, so each member
 that uses the crate names it. rules_rs also reads the `Cargo.toml` of the crate without its own workspace. So that
 crate spells its `[package]` values inline, with no `.workspace = true`. A fetch of its repository proves it:
 

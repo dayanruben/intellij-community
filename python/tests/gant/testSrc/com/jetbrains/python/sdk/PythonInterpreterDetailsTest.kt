@@ -2,6 +2,9 @@
 package com.jetbrains.python.sdk
 
 import com.intellij.openapi.application.edtWriteAction
+import com.intellij.python.sdk.backend.requirementsPath
+import com.intellij.python.sdk.backend.writeRequirementsPath
+import com.intellij.python.sdk.backend.classRoots
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
@@ -12,8 +15,6 @@ import com.intellij.python.sdk.backend.PythonInterpreterDetails
 import com.intellij.python.sdk.backend.PythonInterpreterRegistry
 import com.intellij.python.sdk.backend.PythonInterpreterRoots
 import com.intellij.python.sdk.backend.addMockPythonInterpreter
-import com.intellij.python.sdk.backend.classRoots
-import com.intellij.python.sdk.backend.getSdkAPI
 import com.intellij.testFramework.IndexingTestUtil
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.junit5.RegistryKeyAppLevel
@@ -58,11 +59,11 @@ internal class PythonInterpreterDetailsTest {
 
       assertThat(details.writeSysPath(interpreter, listOf(first.path))).isTrue()
       awaitRoots()
-      assertThat(interpreter.classRoots(project)).contains(first).doesNotContain(second)
+      assertThat(interpreter.classRoots).contains(first).doesNotContain(second)
 
       assertThat(details.writeSysPath(interpreter, listOf(second.path))).isTrue()
       awaitRoots()
-      assertThat(interpreter.classRoots(project)).contains(second).doesNotContain(first)
+      assertThat(interpreter.classRoots).contains(second).doesNotContain(first)
       // The SDK gets them too, for the code that still reads the roots of an SDK.
       assertThat(sdkClassRoots(interpreter)).contains(second).doesNotContain(first)
     }
@@ -101,7 +102,7 @@ internal class PythonInterpreterDetailsTest {
       assertThat(updateInterpreterFacts(interpreter, project).successOrNull).isNotNull()
 
       assertThat(details.facts(interpreter).sysPath).contains(onSysPath.toNioPath())
-      assertThat(interpreter.classRoots(project)).contains(onSysPath)
+      assertThat(interpreter.classRoots).contains(onSysPath)
     }
   }
 
@@ -113,9 +114,8 @@ internal class PythonInterpreterDetailsTest {
       assertThat(details.writeAddedPaths(interpreter, listOf(added.toNioPath()))).isTrue()
       awaitRoots()
 
-      // A run reads the paths from the SDK, which gets a copy of them. The record holds the fact.
-      @Suppress("DEPRECATION") val sdk = interpreter.getSdkAPI()
-      assertThat(PythonCommandLineState.getAddedPaths(sdk).map { Path.of(it) }).contains(added.toNioPath())
+      // A run reads the paths from the facts of the project.
+      assertThat(PythonCommandLineState.getAddedPaths(interpreter).map { Path.of(it) }).contains(added.toNioPath())
       assertThat(details.facts(interpreter).addedPaths).containsExactly(added.toNioPath())
     }
   }
@@ -140,6 +140,49 @@ internal class PythonInterpreterDetailsTest {
       assertThat(readAction { PythonLanguageLevelPusher.getEffectiveLanguageLevel(project, file) }).isEqualTo(expected)
     }
   }
+
+  @Test
+  fun `a requirements file inside the owner directory reads back from the record`(): Unit = timeoutRunBlocking {
+    withMockInterpreter { interpreter ->
+      val file = interpreter.ownerDir.resolve("deps").resolve("requirements-dev.txt")
+
+      interpreter.writeRequirementsPath(file)
+
+      assertThat(interpreter.requirementsPath).isEqualTo(file)
+    }
+  }
+
+  @Test
+  fun `a relative requirements file is relative to the owner directory`(): Unit = timeoutRunBlocking {
+    withMockInterpreter { interpreter ->
+      interpreter.writeRequirementsPath(Path.of("deps", "requirements.txt"))
+
+      assertThat(interpreter.requirementsPath).isEqualTo(interpreter.ownerDir.resolve("deps").resolve("requirements.txt"))
+    }
+  }
+
+  @Test
+  fun `a requirements file outside the owner directory keeps its absolute path`(): Unit = timeoutRunBlocking {
+    withMockInterpreter { interpreter ->
+      val file = tempDir.get().resolve("elsewhere").resolve("requirements.txt")
+
+      interpreter.writeRequirementsPath(file)
+
+      assertThat(interpreter.requirementsPath).isEqualTo(file.normalize())
+    }
+  }
+
+  @Test
+  fun `no requirements file removes the stored one`(): Unit = timeoutRunBlocking {
+    withMockInterpreter { interpreter ->
+      interpreter.writeRequirementsPath(interpreter.ownerDir.resolve("requirements.txt"))
+
+      interpreter.writeRequirementsPath(null)
+
+      assertThat(interpreter.requirementsPath).isNull()
+    }
+  }
+
 
   /** Waits until the roots follow the facts. A writer does not wait for them, see [PythonInterpreterRoots.requestDerive]. */
   private suspend fun awaitRoots() = PythonInterpreterRoots.getInstance(projectFixture.get()).awaitCommittedForTests()

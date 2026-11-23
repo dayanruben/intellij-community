@@ -2,6 +2,8 @@
 package com.jetbrains.python.psi.impl
 
 import com.intellij.python.sdk.backend.findPythonInterpreterIfReady
+import com.intellij.python.sdk.backend.languageLevel
+import com.intellij.python.sdk.backend.PythonInterpreter
 import com.intellij.python.sdk.backend.isIgnoredInterpreterEntry
 import com.intellij.python.sdk.backend.isInterpreterLibraryCarrier
 import com.intellij.openapi.project.Project
@@ -22,9 +24,7 @@ import com.intellij.psi.util.CachedValueProvider
 import com.intellij.psi.util.CachedValuesManager
 import com.intellij.psi.util.PsiModificationTracker
 import com.intellij.psi.util.QualifiedName
-import com.intellij.python.sdk.backend.PythonInterpreter
 import com.intellij.python.sdk.backend.PythonInterpreterRegistry
-import com.intellij.python.sdk.backend.languageLevel
 import com.jetbrains.python.PyNames
 import com.jetbrains.python.PythonRuntimeService
 import com.jetbrains.python.psi.LanguageLevel
@@ -38,7 +38,6 @@ import com.jetbrains.python.psi.resolve.PyResolveCachesInvalidator
 import com.jetbrains.python.psi.resolve.findModuleForPsiElementCached
 import com.jetbrains.python.psi.resolve.fromInterpreter
 import com.jetbrains.python.psi.resolve.pythonInterpreterIfReady
-import com.jetbrains.python.psi.resolve.resolveSdk
 import com.jetbrains.python.psi.resolve.resolveQualifiedName
 import com.jetbrains.python.psi.types.PyAnyType
 import com.jetbrains.python.psi.types.PyClassLikeType
@@ -234,10 +233,6 @@ class PyBuiltinCache private constructor(
       return DUD_INSTANCE // a non-functional fail-fast instance, for a case when skeletons are not available
     }
 
-    /** The SDK of [findInterpreterForFile]. */
-    @JvmStatic
-    fun findSdkForFile(psiFile: PsiFileSystemItem?): Sdk? = findInterpreterForFile(psiFile)?.resolveSdk()
-
     /**
      * The interpreter that resolves the names of [psiFile]: the interpreter of its module, or for a file outside every
      * module, see [findInterpreterForNonModuleFile].
@@ -306,7 +301,7 @@ class PyBuiltinCache private constructor(
 
     @JvmStatic
     fun getBuiltinsForInterpreter(project: Project, interpreter: PythonInterpreter): PyFile? {
-      val moduleName = getBuiltinsModuleName(interpreter.languageLevel(project))
+      val moduleName = getBuiltinsModuleName(interpreter.languageLevel)
       return getFileForInterpreter(project, interpreter, QualifiedName.fromDottedString(moduleName))
     }
 

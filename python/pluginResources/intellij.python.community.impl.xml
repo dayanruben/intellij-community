@@ -442,9 +442,6 @@
                          bundle="messages.PyBundle"
                          key="configurable.PyDebuggerConfigurable.display.name"/> <!--id is used in PyCharmProjectConfigurableStartupActivity-->
 
-    <applicationService serviceInterface="com.jetbrains.python.packaging.PyPackageManagers"
-                        serviceImplementation="com.jetbrains.python.packaging.PyPackageManagersImpl"/>
-
     <projectService serviceInterface="com.jetbrains.python.packaging.management.PythonPackageManagerService"
                     serviceImplementation="com.jetbrains.python.packaging.management.PythonPackageManagerServiceImpl"/>
     <projectService serviceInterface="com.intellij.python.sdk.backend.PythonInterpreterPathsSetup"
@@ -673,7 +670,6 @@
                     interface="com.jetbrains.python.run.target.PythonCommandLineTargetEnvironmentProvider" dynamic="true"/>
     <extensionPoint qualifiedName="Pythonid.pyLaunchPreparer"
                     interface="com.jetbrains.python.run.PyLaunchPreparer" dynamic="true"/>
-    <extensionPoint qualifiedName="Pythonid.runnableScriptFilter" interface="com.jetbrains.python.run.RunnableScriptFilter" dynamic="true"/>
     <extensionPoint qualifiedName="Pythonid.unresolvedReferenceQuickFixProvider"
                     interface="com.jetbrains.python.inspections.PyUnresolvedReferenceQuickFixProvider"
                     dynamic="true"/>
@@ -699,12 +695,7 @@
     <extensionPoint qualifiedName="Pythonid.pep8ProblemSuppressor"
                     interface="com.jetbrains.python.validation.Pep8ProblemSuppressor"
                     dynamic="true"/>
-    <extensionPoint qualifiedName="Pythonid.debugSessionFactory" interface="com.jetbrains.python.debugger.PyDebugSessionFactory"
-                    dynamic="true"/>
     <extensionPoint qualifiedName="Pythonid.pythonDebugBackendRunner" interface="com.jetbrains.python.debugger.PyDebugBackendRunner"
-                    dynamic="true"/>
-    <extensionPoint qualifiedName="Pythonid.packageManagerProvider"
-                    interface="com.jetbrains.python.packaging.PyPackageManagerProvider"
                     dynamic="true"/>
 
     <extensionPoint qualifiedName="Pythonid.interpreterTargetEnvironmentFactory"
