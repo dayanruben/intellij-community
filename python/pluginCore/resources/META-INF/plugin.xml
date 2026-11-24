@@ -20,8 +20,8 @@ The Python plug-in provides smart editing for Python scripts. The feature set of
   <dependencies>
     <plugin id="com.intellij.modules.lang"/>
     <plugin id="com.intellij.modules.python-core-capable"/>
-    <module name="intellij.platform.debugger.impl.shared"/>
     <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
+    <plugin id="com.intellij.python.basic"/>
     <plugin id="org.toml.lang"/>
     <module name="intellij.platform.lang"/>
     <!-- endregion -->
@@ -32,10 +32,6 @@ The Python plug-in provides smart editing for Python scripts. The feature set of
 
     <!-- Frontend-safe modules: keep loading="required" -->
     <module name="intellij.python.community.common" loading="required"/>
-    <module name="intellij.python.parser" loading="required"/>
-    <module name="intellij.python.ast" loading="required"/>
-    <module name="intellij.python.syntax.core" loading="required"/>
-    <module name="intellij.python.syntax" loading="required"/>
 
     <module name="intellij.python.processOutput.common"/>
     <module name="intellij.python.processOutput.frontend"/>
@@ -81,7 +77,6 @@ The Python plug-in provides smart editing for Python scripts. The feature set of
     <module name="intellij.python.uv.backend"/>
     <module name="intellij.python.community.impl.pipenv"/>
     <module name="intellij.python.community.impl.conda"/>
-    <module name="intellij.python.community.core.impl"/>
     <module name="intellij.python.community.helpersLocator"/>
     <module name="intellij.python.community"/>
     <module name="intellij.python.community.impl" required-if-available="intellij.platform.backend"/>

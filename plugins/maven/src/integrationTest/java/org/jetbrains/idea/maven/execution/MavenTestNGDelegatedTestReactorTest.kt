@@ -23,6 +23,7 @@ import com.theoryinpractice.testng.model.TestType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import org.jetbrains.idea.maven.model.MavenExplicitProfiles
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -103,7 +104,7 @@ class MavenTestNGDelegatedTestReactorTest {
   // ── PACKAGE ───────────────────────────────────────────────────────────────
 
   @Test
-  fun `PACKAGE type produces pkg-star filter`() = runBlocking {
+  fun `PACKAGE type produces the filter of the package and its subpackages`() = runBlocking {
     createProject()
     maven.importProjectAsync()
 
@@ -111,7 +112,8 @@ class MavenTestNGDelegatedTestReactorTest {
       persistantData.PACKAGE_NAME = "probe.sub"
     }
 
-    assertTrue(goals.contains("-Dtest=probe.sub.*"), "goals=$goals")
+    // Not `probe.sub.*`: Surefire reads a final `.*` as "any file extension" (IDEA-394511).
+    assertTrue(goals.contains("-Dtest=probe.sub.**"), "goals=$goals")
   }
 
   @Test
@@ -139,6 +141,24 @@ class MavenTestNGDelegatedTestReactorTest {
     }
 
     assertTrue(goals.contains("-Dtest=probe.ATest+probe.BTest"), "goals=$goals")
+  }
+
+  // ── profiles ──────────────────────────────────────────────────────────────
+
+  @Test
+  fun `the run uses the profiles that are checked and cleared in the Maven tool window`() = runBlocking {
+    createProject()
+    maven.importProjectAsync()
+    maven.projectsManager.explicitProfiles = MavenExplicitProfiles(listOf("on"), listOf("off"))
+
+    val env = createEnvironment(TestType.CLASS) {
+      persistantData.MAIN_CLASS_NAME = "probe.MyTest"
+    }
+    assertNotNull(env)
+
+    // IDEA-396099: a delegated test run gives Maven the same profiles as a delegated build.
+    val profiles = (env!!.runProfile as MavenSurefireRunConfiguration).runnerParameters.profilesMap
+    assertEquals(mapOf("on" to true, "off" to false), profiles)
   }
 
   // ── helpers ───────────────────────────────────────────────────────────────

@@ -3,10 +3,10 @@ use std::path::Path;
 use pretty_assertions::assert_eq;
 
 use super::{
-    DYNAMIC_AGENT_OPTION, EVENT_TIMEOUT, FIND_TIMEOUT, FORCE_MODAL_PROPERTY, INTEGRATION_TEST_PROPERTY, PRODUCT_INFO_FILE, Profiler,
-    RunPlan, SUPPRESSED_PLUGINS_PROPERTY, TRUST_PROPERTY, argfile_text, class_load_option, dist_options, entry_options, gate_timeout,
-    idea_log_pid, measure_options, product_info_file, profile_stop_argv, quote_argument, sandbox_options, scheme_arguments, span_ended,
-    thread_dump_argv, vm_options_file,
+    DYNAMIC_AGENT_OPTION, EVENT_TIMEOUT, FIND_TIMEOUT, FORCE_MODAL_PROPERTY, INTEGRATION_TEST_PROPERTY, PREFERENCES_FACTORY,
+    PRODUCT_INFO_FILE, Profiler, RunPlan, SUPPRESSED_PLUGINS_PROPERTY, TRUST_PROPERTY, Waits, argfile_text, class_cause_options,
+    class_load_option, dist_options, entry_options, home_option, idea_log_pid, measure_options, preferences_options, product_info_file,
+    profile_stop_argv, quote_argument, sandbox_options, scheme_arguments, span_ended, thread_dump_argv, vm_options_file,
 };
 use crate::bench::arm::{Arm, ArmKind, Property};
 use crate::bench::profile::ProfileEvent;
@@ -37,6 +37,58 @@ fn the_measure_options_select_the_sandbox_and_the_files_of_the_run() {
         !options.iter().any(|option| option.contains("non.modal")),
         "the non-modal arm forces nothing"
     );
+}
+
+/// The IDE of a run sees no account, no Java preferences and no common data of the host: its `user.home` is the home of
+/// its sandbox, and the preferences are in its memory. Only the cargo-sync arm keeps the home of the host, for the
+/// toolchain of the Rust plugin.
+#[test]
+fn a_run_takes_the_home_of_its_sandbox_and_the_preferences_in_its_memory() {
+    let sandbox = Sandbox::new("/s/sandbox");
+    assert_eq!(home_option(&sandbox), "-Duser.home=/s/sandbox/home");
+    for arm in [
+        Arm::MODAL,
+        Arm::NON_MODAL,
+        Arm::OPEN_PROJECT,
+        Arm::PROJECT,
+        Arm::EMPTY_EDITOR,
+        Arm::FIND_IN_FILES,
+    ] {
+        let options = measure_options(Path::new("/s/run"), &sandbox, &arm, None).expect("the options");
+        assert_eq!(options[3], "-Duser.home=/s/sandbox/home", "{arm:?}");
+    }
+    let cargo_sync = measure_options(Path::new("/s/run"), &sandbox, &Arm::CARGO_SYNC, None).expect("the options");
+    assert!(
+        !cargo_sync.iter().any(|option| option.starts_with("-Duser.home=")),
+        "{cargo_sync:?}"
+    );
+    assert_eq!(
+        preferences_options(Path::new("/g/bench-preferences.jar")),
+        [
+            format!("-Djava.util.prefs.PreferencesFactory={PREFERENCES_FACTORY}"),
+            "-Xbootclasspath/a:/g/bench-preferences.jar".to_owned(),
+        ]
+    );
+}
+
+/// The run keeps the Java preferences in memory, so every start sees no accepted agreement. A policy text of the
+/// version 999.999 counts as accepted, so no agreement dialog stops a run.
+#[test]
+fn every_arm_starts_without_an_agreement_dialog() {
+    let sandbox = Sandbox::new("/s/sandbox");
+    for arm in Arm::ALL {
+        let options = measure_options(Path::new("/s/run"), &sandbox, &arm, None).expect("the options");
+        for property in [
+            "-Djb.privacy.policy.text=<!--999.999-->",
+            "-Djb.privacy.policy.ai.assistant.text=<!--999.999-->",
+            "-Djb.consents.confirmation.enabled=false",
+        ] {
+            assert!(
+                options.iter().any(|option| option == property),
+                "{arm:?}: no {property} in {options:?}"
+            );
+        }
+    }
 }
 
 /// Every arm is an integration test, as every run of the IDE Starter is, and only a project start trusts its project.
@@ -101,10 +153,10 @@ fn a_twin_arm_with_a_property_passes_it_after_the_properties_of_the_bench() {
     let sandbox = Sandbox::new("/s/sandbox");
     let run = Path::new("/s/run");
     let plain = measure_options(run, &sandbox, &Arm::EMPTY_EDITOR, None).expect("the options");
-    let property = Property::parse("air.apps.native.webview=true").expect("a property");
+    let property = Property::parse("air.native.webview=true").expect("a property");
     let twin = measure_options(run, &sandbox, &Arm::EMPTY_EDITOR.with(&property), None).expect("the options");
     let mut expected = plain;
-    expected.push("-Dair.apps.native.webview=true".to_owned());
+    expected.push("-Dair.native.webview=true".to_owned());
     assert_eq!(twin, expected);
     let integration = Property::parse("idea.is.integration.test=false").expect("a property");
     let options = measure_options(run, &sandbox, &Arm::PROJECT.with(&integration), None).expect("the options");
@@ -144,6 +196,20 @@ fn every_arm_writes_the_class_load_log_and_a_colon_in_the_run_directory_is_a_fai
                 .to_owned()
         )
     );
+}
+
+/// A run of `--class-causes` logs the stack of every class load into its own file, without the rotation that drops
+/// the start of a large log. A `:` in the run directory is an error, as for the class-load log.
+#[test]
+fn the_class_causes_log_every_class_without_a_rotation() {
+    assert_eq!(
+        class_cause_options(Path::new("/s/run")),
+        Ok([
+            "-XX:LogClassLoadingCauseFor=*".to_owned(),
+            "-Xlog:class+load+cause=info:file=/s/run/class-causes.log:uptime,tid,tags:filecount=0".to_owned(),
+        ])
+    );
+    class_cause_options(Path::new("/s/a:b/run")).expect_err("a `:` in the run directory");
 }
 
 /// A profiled run starts the agent with the JVM and allows the dynamic load of the stop. The event of the profile is
@@ -347,8 +413,19 @@ fn the_find_in_files_arm_opens_its_project_where_it_is_and_waits_longer() {
     );
     let other = RunPlan { arm: Arm::PROJECT, ..plan };
     assert_eq!(other.find_script(), None, "only the find-in-files arm has a script");
-    assert_eq!(gate_timeout(Arm::FIND_IN_FILES.gate()), FIND_TIMEOUT);
-    assert_eq!(gate_timeout(Arm::EMPTY_EDITOR.gate()), EVENT_TIMEOUT);
+    assert_eq!(Waits::of(false).gate(Arm::FIND_IN_FILES.gate()), FIND_TIMEOUT);
+    assert_eq!(Waits::of(false).gate(Arm::EMPTY_EDITOR.gate()), EVENT_TIMEOUT);
+}
+
+/// The stack of each class load makes a start about ten times slower, so each wait of a run of `--class-causes` is
+/// ten times longer.
+#[test]
+fn the_waits_of_a_class_causes_run_are_ten_times_longer() {
+    let plain = Waits::of(false);
+    let causes = Waits::of(true);
+    assert_eq!(causes.event, plain.event * 10);
+    assert_eq!(causes.quit, plain.quit * 10);
+    assert_eq!(causes.gate(Arm::EMPTY_EDITOR.gate()), EVENT_TIMEOUT * 10);
 }
 
 /// The poll of a span gate: no trace, a trace without the span, then a trace that the running IDE still writes, with

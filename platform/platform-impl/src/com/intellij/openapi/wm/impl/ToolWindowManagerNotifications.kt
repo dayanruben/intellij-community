@@ -27,6 +27,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.jetbrains.annotations.VisibleForTesting
 import java.awt.Component
 import java.awt.Dimension
 import java.awt.Point
@@ -34,11 +35,14 @@ import javax.swing.JComponent
 import javax.swing.SwingUtilities
 import kotlin.time.Duration.Companion.milliseconds
 
+/**
+ * Shows the notifications of the tool windows of [manager]. Each function takes the id of the tool window that shows
+ * the notification, see [resolveNotificationTarget]. The manager resolves the id before the call.
+ */
 internal class ToolWindowManagerNotifications(
   private val manager: ToolWindowManagerImpl,
 ) {
-  fun canShowNotification(requestedId: String): Boolean {
-    val toolWindowId = resolveNotificationTarget(requestedId)
+  fun canShowNotification(toolWindowId: String): Boolean {
     val readOnlyWindowInfo = manager.idToEntry[toolWindowId]?.readOnlyWindowInfo
     val anchor = readOnlyWindowInfo?.anchor ?: return false
     val isSplit = readOnlyWindowInfo.isSplit
@@ -47,8 +51,7 @@ internal class ToolWindowManagerNotifications(
     } != null
   }
 
-  fun notifyByBalloon(requestedOptions: ToolWindowBalloonShowOptions) {
-    val options = requestedOptions.copy(toolWindowId = resolveNotificationTarget(requestedOptions.toolWindowId))
+  fun notifyByBalloon(options: ToolWindowBalloonShowOptions) {
     if (manager.isNewUi) {
       notifySquareButtonByBalloon(options)
       return
@@ -86,10 +89,9 @@ internal class ToolWindowManagerNotifications(
 
     val show = Runnable {
       val tracker: PositionTracker<Balloon>
-      if (entry.toolWindow.isVisible &&
-          (entry.toolWindow.type == ToolWindowType.WINDOWED ||
-           entry.toolWindow.type == ToolWindowType.FLOATING)) {
-        tracker = createPositionTracker(entry.toolWindow.component, ToolWindowAnchor.BOTTOM)
+      val externalWindowAnchor = externalWindowAnchor(entry)
+      if (externalWindowAnchor != null) {
+        tracker = createPositionTracker(externalWindowAnchor, ToolWindowAnchor.BOTTOM)
       }
       else if (button == null || !button.isShowing) {
         tracker = createPositionTracker(toolWindowPane, anchor)
@@ -121,8 +123,7 @@ internal class ToolWindowManagerNotifications(
     }
   }
 
-  fun getToolWindowButton(requestedId: String): JComponent? {
-    val toolWindowId = resolveNotificationTarget(requestedId)
+  fun getToolWindowButton(toolWindowId: String): JComponent? {
     val entry = manager.idToEntry[toolWindowId] ?: return null
     return findBallonAlignment(entry, toolWindowId).first
   }
@@ -133,18 +134,34 @@ internal class ToolWindowManagerNotifications(
     }
   }
 
-  fun getToolWindowBalloon(id: String): Balloon? = manager.idToEntry[resolveNotificationTarget(id)]?.balloon
+  fun getToolWindowBalloon(id: String): Balloon? = manager.idToEntry[id]?.balloon
 
   /**
    * Returns the tool window that shows the notifications for [toolWindowId].
    * When `run.toolwindow.merge.debug` is on, the Debug tool window is not registered,
    * and the Run tool window shows the debugger notifications.
    */
-  private fun resolveNotificationTarget(toolWindowId: String): String {
+  fun resolveNotificationTarget(toolWindowId: String): String {
     if (toolWindowId == ToolWindowId.DEBUG && Registry.`is`("run.toolwindow.merge.debug", false)) {
       return ToolWindowId.RUN
     }
     return toolWindowId
+  }
+
+  /**
+   * The component that a balloon points at when a window of its own shows the tool window of [entry]: the content that
+   * the user sees in that window. A tool window of a frame owner that shows the tool window of a frame guest holds its
+   * own content in no window, so the content of the frame guest is the anchor.
+   *
+   * @return `null` for a tool window in the frame, and for a hidden tool window
+   */
+  @VisibleForTesting
+  fun externalWindowAnchor(entry: ToolWindowEntry): JComponent? {
+    val toolWindow = entry.toolWindow
+    if (!toolWindow.isVisible || (toolWindow.type != ToolWindowType.WINDOWED && toolWindow.type != ToolWindowType.FLOATING)) {
+      return null
+    }
+    return (manager.presentation.shownToolWindowOf(entry.id) ?: toolWindow).component
   }
 
   private fun notifySquareButtonByBalloon(options: ToolWindowBalloonShowOptions) {
@@ -158,10 +175,9 @@ internal class ToolWindowManagerNotifications(
     val toolWindowPane = manager.getToolWindowPane(entry.readOnlyWindowInfo.safeToolWindowPaneId)
     val show = Runnable {
       val tracker: PositionTracker<Balloon>
-      if (entry.toolWindow.isVisible &&
-          (entry.toolWindow.type == ToolWindowType.WINDOWED ||
-           entry.toolWindow.type == ToolWindowType.FLOATING)) {
-        tracker = createPositionTracker(entry.toolWindow.component, ToolWindowAnchor.BOTTOM)
+      val externalWindowAnchor = externalWindowAnchor(entry)
+      if (externalWindowAnchor != null) {
+        tracker = createPositionTracker(externalWindowAnchor, ToolWindowAnchor.BOTTOM)
       }
       else if (!button.isShowing) {
         tracker = createPositionTracker(toolWindowPane, anchor)
@@ -242,7 +258,8 @@ internal class ToolWindowManagerNotifications(
     }
   }
 
-  private fun createBalloon(options: ToolWindowBalloonShowOptions, entry: ToolWindowEntry): Balloon {
+  @VisibleForTesting
+  fun createBalloon(options: ToolWindowBalloonShowOptions, entry: ToolWindowEntry): Balloon {
     val listenerWrapper = BalloonHyperlinkListener(options.listener)
 
     var foreground = options.type.titleForeground

@@ -2,15 +2,25 @@
 package com.jetbrains.python.types
 
 import com.intellij.idea.TestFor
+import com.intellij.openapi.Disposable
+import com.intellij.psi.PsiElement
+import com.intellij.testFramework.junit5.TestDisposable
 import com.jetbrains.python.allure.Components
 import com.jetbrains.python.allure.Layers
 import com.jetbrains.python.allure.Subsystems
+import com.jetbrains.python.codeInsight.dataflow.scope.ScopeUtilCore
 import com.jetbrains.python.codeInsight.typing.PyTypedDictTypeProvider
 import com.jetbrains.python.fixtures.PyCodeInsightTestCase
 import com.jetbrains.python.inspections.PyTypeCheckerInspection
 import com.jetbrains.python.psi.LanguageLevel
+import com.jetbrains.python.psi.resolve.PyResolveContext
+import com.jetbrains.python.psi.types.PyClassMembersProvider
+import com.jetbrains.python.psi.types.PyClassMembersProviderBase
+import com.jetbrains.python.psi.types.PyClassType
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Type and type-checker tests for [TypedDict](https://docs.python.org/3/library/typing.html#typing.TypedDict):
@@ -55,6 +65,86 @@ class PyTypedDictTypeTest : PyCodeInsightTestCase() {
       td = {'v': 1} # type: BadTD
       #     ^^^^^^ WARNING Extra key 'v' for TypedDict 'BadTD'
       """.trimIndent())
+  }
+
+  /**
+   * Each class in a type hint is checked for a TypedDict base. For a class from another file, the check reads the bases from
+   * the PSI stub, and it must resolve them in the scope that holds the class, not among the members of the class.
+   */
+  @Nested
+  @TestFor(issues = ["PY-94316"], classes = [PyTypedDictTypeProvider::class, ScopeUtilCore::class])
+  inner class TypedDictCheckOfAClassFromAnotherFile {
+    @Test
+    fun `the base of a class resolves outside of the class`(@TestDisposable disposable: Disposable) {
+      val namesAskedOfModel = recordNamesAskedOf("Model", disposable)
+
+      test("""
+        from other import Model
+
+        def f(m: Model) -> Model:
+            return m
+        """,
+        "other.py" to """
+          class Base:
+              pass
+
+          class Model(Base):
+              pass
+          """)
+
+      assertFileNotParsed("other.py")
+      assertFalse("Base" in namesAskedOfModel, "The members of Model were asked for the name of its base")
+    }
+
+    @Test
+    fun `the base of a generic class resolves outside of the class`(@TestDisposable disposable: Disposable) {
+      val namesAskedOfModel = recordNamesAskedOf("Model", disposable)
+
+      test("""
+        from other import Model
+
+        def f(m: Model[int]) -> Model[int]:
+            return m
+        """,
+        "other.py" to """
+          class Base[T]:
+              pass
+
+          class Model[T](Base[T]):
+              pass
+          """)
+
+      assertFileNotParsed("other.py")
+      assertFalse("Base" in namesAskedOfModel, "The members of Model were asked for the name of its base")
+    }
+
+    @Test
+    fun `the base of a generic class sees the type parameters of the class`() = test(
+      """
+      from other import Model
+
+      def f(m: Model[int]):
+          expr = m.get()
+      #   └ TYPE int
+      """,
+      "other.py" to """
+        class Base[T]:
+            def get(self) -> T: ...
+
+        class Model[T](Base[T]):
+            pass
+        """)
+
+    private fun recordNamesAskedOf(className: String, disposable: Disposable): Set<String> {
+      val names = ConcurrentHashMap.newKeySet<String>()
+      PyClassMembersProvider.EP_NAME.point.registerExtension(object : PyClassMembersProviderBase() {
+        override fun resolveMember(type: PyClassType, name: String, location: PsiElement?, resolveContext: PyResolveContext): PsiElement? {
+          if (type.name == className) names.add(name)
+          return null
+        }
+      }, disposable)
+      return names
+    }
   }
 
   @Nested
@@ -822,7 +912,7 @@ class PyTypedDictTypeTest : PyCodeInsightTestCase() {
 
       td: D[int]
       td.get("f2")
-      #  ^^^ TYPE (key: str, default: Any) -> int
+      #  ^^^ TYPE (key: str, default: Any = ...) -> int
       """)
 
     @Test
@@ -1535,6 +1625,36 @@ class PyTypedDictTypeTest : PyCodeInsightTestCase() {
       """.trimIndent())
 
     @Test
+    @TestFor(issues = ["PY-89543"])
+    fun `typed dict against a mapping or a dict with a key type other than str`() = test("""
+      from collections.abc import Mapping
+      from typing import Any, TypedDict
+
+      class Flags(TypedDict):
+          body: bool
+
+      def takes_mapping(m: Mapping[Any, Any]) -> None: ...
+      def takes_mapping_of_bool(m: Mapping[Any, bool]) -> None: ...
+      def takes_dict(d: dict[Any, Any]) -> None: ...
+      def takes_bare_mapping(m: Mapping) -> None: ...
+      def takes_object_key(m: Mapping[object, Any]) -> None: ...
+      def takes_int_key(m: Mapping[int, Any]) -> None: ...
+
+      flags = Flags(body=True)
+      takes_mapping(flags)
+      # An open TypedDict can have extra items of the type `object`.
+      takes_mapping_of_bool(flags)
+      #                     ^^^^^ WARNING Expected type 'Mapping[Any, bool]', got 'Flags' instead
+      takes_dict(flags)
+      #          ^^^^^ WARNING Expected type 'dict[Any, Any]', got 'Flags' instead
+      takes_bare_mapping(flags)
+      takes_object_key(flags)
+      #                ^^^^^ WARNING Expected type 'Mapping[object, Any]', got 'Flags' instead
+      takes_int_key(flags)
+      #             ^^^^^ WARNING Expected type 'Mapping[int, Any]', got 'Flags' instead
+      """.trimIndent())
+
+    @Test
     fun `literal type in typed dict`() = test("""
       from typing import TypedDict, Literal
       class Foo(TypedDict):
@@ -1914,7 +2034,7 @@ class PyTypedDictTypeTest : PyCodeInsightTestCase() {
       def bar(*, v1: int, v3: str, v2: str = "", **kwargs) -> None:
           ...
       _: TDProtocol = foo
-      #               ^^^ WARNING Expected type 'TDProtocol', got '(*, v1: int, v3: str, v2: str) -> None' instead
+      #               ^^^ WARNING Expected type 'TDProtocol', got 'def foo(*, v1: int, v3: str, v2: str = ...) -> None' instead
       _: TDProtocol = bar # OK, has **kwargs
       """.trimIndent())
 

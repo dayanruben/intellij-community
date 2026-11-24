@@ -1,5 +1,5 @@
 //! The verbs: a `welcome`, an `open-project` or a `project` session from the build to the summary, `replay`, `gc`,
-//! `trace`, `activities`, `classes`, `triggers`, `compare` and `ls`.
+//! `trace`, `activities`, `classes`, `triggers`, `causes`, `compare` and `ls`.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
@@ -18,12 +18,13 @@ use serde_json::json;
 use super::activities;
 use super::arm::{Arm, ArmKind};
 use super::binary::{self, BinaryAge};
+use super::causes;
 use super::classes;
 use super::compare::{self, Compared};
 use super::digest;
 use super::files;
 use super::gc;
-use super::launch::{Launcher, Profiler, RunPlan};
+use super::launch::{HOST_HOME_NOTE, Launcher, Profiler, RunPlan};
 use super::load;
 use super::ls;
 use super::options::{BenchVerb, LaunchArgs};
@@ -65,6 +66,8 @@ struct Plan {
     cold: bool,
     profile: bool,
     profile_event: ProfileEvent,
+    /// Each run writes the Java stack of each class load, see `--class-causes`.
+    class_causes: bool,
     project: Option<PlannedProject>,
     /// The plugin that the twin arms of `--suppress-plugin` suppress.
     suppressed_plugin: Option<String>,
@@ -142,6 +145,7 @@ impl Bench<'_> {
                     cold: args.measure.cold,
                     profile: args.measure.profile,
                     profile_event: args.measure.profile_event,
+                    class_causes: args.measure.class_causes,
                     project: None,
                     suppressed_plugin: args.measure.twins.plugin.clone(),
                     with_property: args.measure.twins.property.as_ref().map(ToString::to_string),
@@ -163,6 +167,7 @@ impl Bench<'_> {
                     cold: false,
                     profile: false,
                     profile_event: ProfileEvent::Cpu,
+                    class_causes: false,
                     project: Some(PlannedProject::Open(project)),
                     suppressed_plugin: None,
                     with_property: None,
@@ -180,6 +185,7 @@ impl Bench<'_> {
                     cold: args.cold(),
                     profile: args.measure.profile,
                     profile_event: args.measure.profile_event,
+                    class_causes: args.measure.class_causes,
                     project: Some(PlannedProject::Start(project_source(
                         &args.project,
                         &working_dir()?,
@@ -212,6 +218,11 @@ impl Bench<'_> {
             }
             BenchVerb::Triggers(args) => {
                 let report = triggers::report(&self.locate(&args.selection.session)?, &args)?;
+                Outcome::new(&report, report.text())
+            }
+            BenchVerb::Causes(args) => {
+                let baseline = args.baseline.as_deref().map(|baseline| self.locate(baseline)).transpose()?;
+                let report = causes::report(&self.locate(&args.selection.session)?, baseline.as_deref(), &args)?;
                 Outcome::new(&report, report.text())
             }
             BenchVerb::Compare(args) => {
@@ -314,7 +325,10 @@ impl Bench<'_> {
             }
             (staged.generation, git, staged.target)
         } else {
-            let labels: Vec<String> = std::iter::once(args.target.clone()).chain(plan.context_plugins.clone()).collect();
+            let labels: Vec<String> = [args.target.clone(), resolve::PREFERENCES_TARGET.to_owned()]
+                .into_iter()
+                .chain(plan.context_plugins.clone())
+                .collect();
             self.bazel.build_labels(ctx, &build_log, &labels).await?;
             let sources = resolve::sources(ctx, self.bazel, repo, &args.target).await?;
             let git = self.git_info(ctx, repo).await;
@@ -345,7 +359,13 @@ impl Bench<'_> {
         } else {
             None
         };
-        let launcher = Launcher::of(&generation, self.runner.clone(), repo, profiler, args.hold, &args.properties)?;
+        let mut launcher = Launcher::of(&generation, self.runner.clone(), repo, profiler, args.hold, &args.properties)?;
+        if plan.class_causes {
+            warnings.push(
+                "--class-causes logs the Java stack of each class load; its runs are slower, so compare only its class counts".to_owned(),
+            );
+            launcher.class_causes = true;
+        }
 
         let template = Sandbox::new(session.join(TEMPLATE_DIR));
         session::write_template(&template, license, generation.config.platform_prefix.as_deref())
@@ -501,7 +521,10 @@ impl Bench<'_> {
         std::fs::create_dir_all(&run_dir).map_err(|error| session_failed(format!("cannot create {}: {error}", run_dir.display())))?;
         std::fs::rename(&sandbox.root, &kept)
             .map_err(|error| session_failed(format!("cannot move {} to {}: {error}", sandbox.root.display(), kept.display())))?;
-        let record = record::collect(&run_dir, id, facts);
+        let mut record = record::collect(&run_dir, id, facts);
+        if id.arm.kind == ArmKind::CargoSync {
+            record.notes.push(HOST_HOME_NOTE.to_owned());
+        }
         write_result(&run_dir, &record, self.reporter);
         self.publish_run(&name, &record);
         if ctx.is_cancelled() {

@@ -694,7 +694,7 @@ public class PyStubsTest extends PyTestCase {
     final PyFile file = getTestFile();
     final PyFunction function = file.findTopLevelFunction("f");
     assertNotNull(function);
-    final PyTargetExpressionStub targetExpressionStub = (PyTargetExpressionStub)function.getStub().findChildStubByElementType(PyStubElementTypes.TARGET_EXPRESSION);
+    final PyTargetExpressionStub targetExpressionStub = (PyTargetExpressionStub)function.getStub().findChildStubByElementType(PyElementTypes.TARGET_EXPRESSION);
     assertNotNull(targetExpressionStub);
     assertEquals("number", targetExpressionStub.getName());
   }
@@ -1072,7 +1072,7 @@ public class PyStubsTest extends PyTestCase {
     final String annotation = func.getAnnotationValue();
     assertEquals("int", annotation);
     assertNotParsed(file);
-    assertType("() -> int", func, TypeEvalContext.codeInsightFallback(myFixture.getProject()));
+    assertType("def func() -> int", func, TypeEvalContext.codeInsightFallback(myFixture.getProject()));
     assertNotParsed(file);
   }
 
@@ -1166,7 +1166,7 @@ public class PyStubsTest extends PyTestCase {
   public void testUnresolvedTypingSymbol() {
     final PyFile file = getTestFile();
     final PyFunction func = file.findTopLevelFunction("func");
-    assertType("() -> Unknown", func, TypeEvalContext.codeInsightFallback(file.getProject()));
+    assertType("def func() -> Unknown", func, TypeEvalContext.codeInsightFallback(file.getProject()));
     assertNotParsed(file);
   }
 
@@ -1215,7 +1215,7 @@ public class PyStubsTest extends PyTestCase {
     final PyFile file = getTestFile();
     final PyFunction func = file.findTopLevelFunction("func");
     final PyFunctionStub funcStub = func.getStub();
-    assertNull(funcStub.findChildStubByType(PyStubElementTypes.ANNOTATION));
+    assertNull(funcStub.findChildStubByElementType(PyElementTypes.ANNOTATION));
   }
 
   // PY-26163

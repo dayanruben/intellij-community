@@ -48,7 +48,7 @@ class PyiTypeTest : PyCodeInsightTestCase() {
   @TestCaseOptions(testFileName = "FunctionType.py")
   fun `function type`() = test("""
     def f(x):
-    #   └ TYPE (x: int) -> dict[Unknown, Unknown]
+    #   └ TYPE def f(x: int) -> dict[Unknown, Unknown]
         pass
     """.trimIndent(),
     "FunctionType.pyi" to "def f(x: int) -> dict: ...",
@@ -210,7 +210,7 @@ class PyiTypeTest : PyCodeInsightTestCase() {
     from lib import MyClass
     
     expr = 42 < MyClass(42) < MyClass('foo')
-    #└ TYPE int
+    #└ TYPE Literal[False] | int
     """.trimIndent(),
     "lib.pyi" to """
       from typing import overload, Generic, TypeVar

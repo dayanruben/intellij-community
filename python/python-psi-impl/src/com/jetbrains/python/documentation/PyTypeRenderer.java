@@ -34,6 +34,7 @@ import com.jetbrains.python.psi.types.PyCallableType;
 import com.jetbrains.python.psi.types.PyClassLikeType;
 import com.jetbrains.python.psi.types.PyClassType;
 import com.jetbrains.python.psi.types.PyConcatenateType;
+import com.jetbrains.python.psi.types.PyFunctionType;
 import com.jetbrains.python.psi.types.PyInferredVarianceJudgment;
 import com.jetbrains.python.psi.types.PyIntersectionType;
 import com.jetbrains.python.psi.types.PyLiteralType;
@@ -224,6 +225,11 @@ public abstract class PyTypeRenderer extends PyTypeVisitorExt<@NotNull HtmlChunk
     }
 
     @Override
+    public @NotNull HtmlChunk visitPyFunctionType(@NotNull PyFunctionType functionType) {
+      return visitPyCallableType(functionType);
+    }
+
+    @Override
     public HtmlChunk visitPyCallableType(@NotNull PyCallableType callableType) {
       List<PyCallableParameter> parameters = getParameters(callableType);
       HtmlChunk parameterList = parameters != null
@@ -268,6 +274,11 @@ public abstract class PyTypeRenderer extends PyTypeVisitorExt<@NotNull HtmlChunk
     @Override
     protected @NotNull HtmlChunk visitPyCallableParameter(@NotNull PyCallableParameter param) {
       return render(param.getType(myTypeEvalContext));
+    }
+
+    @Override
+    protected boolean needsParenthesesInUnion(@Nullable PyType member) {
+      return false;
     }
 
     @Override
@@ -511,7 +522,8 @@ public abstract class PyTypeRenderer extends PyTypeVisitorExt<@NotNull HtmlChunk
     }
     if (unionType.getMembers().stream().anyMatch(it -> isUnknown(it))) {
       // Always put Unknown at the end of the union
-      return renderUnion(List.of(render(PyUnionType.unionOrUnknown(ContainerUtil.filter(unionType.getMembers(), it -> !isUnknown(it)))), visitUnknownType()));
+      var knownType = PyUnionType.unionOrUnknown(ContainerUtil.filter(unionType.getMembers(), it -> !isUnknown(it)));
+      return renderUnion(List.of(renderUnionMember(knownType), visitUnknownType()));
     }
     return renderUnion(ContainerUtil.map(unionType.getMembers(), this::renderUnionMember));
   }
@@ -520,10 +532,22 @@ public abstract class PyTypeRenderer extends PyTypeVisitorExt<@NotNull HtmlChunk
     HtmlChunk rendered = render(member);
     // Add parentheses around intersections in unions when using | & syntax for clarity: (A & B) | C instead of A & B | C
     // Not needed for Union[...] syntax
-    if (member instanceof PyIntersectionType && isBitwiseOrUnionAvailable()) {
-      return PyTypeLayout.concat(styled("(", PyHighlighter.PY_PARENTHS), rendered, styled(")", PyHighlighter.PY_PARENTHS));
+    if (isBitwiseOrUnionAvailable() && needsParenthesesInUnion(member)) {
+      return wrapInParentheses(rendered);
     }
     return rendered;
+  }
+
+  protected boolean needsParenthesesInUnion(@Nullable PyType member) {
+    return member instanceof PyIntersectionType || isRenderedAsCallableSignature(member);
+  }
+
+  private static boolean isRenderedAsCallableSignature(@Nullable PyType type) {
+    return type instanceof PyCallableType && !(type instanceof PyClassLikeType);
+  }
+
+  private @NotNull HtmlChunk wrapInParentheses(@NotNull HtmlChunk chunk) {
+    return PyTypeLayout.concat(styled("(", PyHighlighter.PY_PARENTHS), chunk, styled(")", PyHighlighter.PY_PARENTHS));
   }
 
   @Override
@@ -554,12 +578,13 @@ public abstract class PyTypeRenderer extends PyTypeVisitorExt<@NotNull HtmlChunk
 
   // TODO get rid of dedicated rendering for Optional
   private @NotNull HtmlChunk renderOptional(@NotNull PyUnionType type) {
-    HtmlChunk renderedType = render(ContainerUtil.find(type.getMembers(), t -> !isNoneType(t)));
+    PyType notNoneMember = ContainerUtil.find(type.getMembers(), t -> !isNoneType(t));
     if (isBitwiseOrUnionAvailable()) {
-      return joinWithOperator(List.of(renderedType, render(ContainerUtil.find(type.getMembers(), t -> isNoneType(t)))), "|");
+      return joinWithOperator(List.of(renderUnionMember(notNoneMember),
+                                      render(ContainerUtil.find(type.getMembers(), t -> isNoneType(t)))), "|");
     }
     return PyTypeLayout.concat(escaped(isRenderingFqn() ? "typing.Optional" : "Optional"), //NON-NLS
-                               inSquareBrackets(List.of(renderedType)));
+                               inSquareBrackets(List.of(render(notNoneMember))));
   }
 
   @Override
@@ -567,9 +592,8 @@ public abstract class PyTypeRenderer extends PyTypeVisitorExt<@NotNull HtmlChunk
     return joinWithOperator(ContainerUtil.map(intersectionType.getMembers(), member -> {
       HtmlChunk rendered = render(member);
       // Add parentheses around unions in intersections when using | & syntax for clarity: (A | B) & C instead of A | B & C
-
-      if (member instanceof PyUnionType && isBitwiseOrUnionAvailable()) {
-        return PyTypeLayout.concat(styled("(", PyHighlighter.PY_PARENTHS), rendered, styled(")", PyHighlighter.PY_PARENTHS));
+      if ((member instanceof PyUnionType && isBitwiseOrUnionAvailable()) || isRenderedAsCallableSignature(member)) {
+        return wrapInParentheses(rendered);
       }
       return rendered;
     }), "&");
@@ -785,6 +809,21 @@ public abstract class PyTypeRenderer extends PyTypeVisitorExt<@NotNull HtmlChunk
   }
 
   @Override
+  public @NotNull HtmlChunk visitPyFunctionType(@NotNull PyFunctionType functionType) {
+    var callable = functionType.getCallable();
+    var name = isRenderingFqn() ? callable.getQualifiedName() : null;
+    if (name == null) {
+      name = callable.getName();
+    }
+    if (name == null) {
+      return visitPyCallableType(functionType);
+    }
+    return PyTypeLayout.concat(styled("def ", PyHighlighter.PY_KEYWORD), //NON-NLS
+                               styled(name, PyHighlighter.PY_FUNC_DEFINITION),
+                               visitPyCallableType(functionType));
+  }
+
+  @Override
   public HtmlChunk visitPyCallableType(@NotNull PyCallableType callableType) {
     List<HtmlChunk> result = new ArrayList<>();
     var typeParameters = callableType.getTypeParameters(myTypeEvalContext);
@@ -834,6 +873,10 @@ public abstract class PyTypeRenderer extends PyTypeVisitorExt<@NotNull HtmlChunk
         }
       }
       result.add(render(type));
+    }
+    if (param.hasDefaultValue()) {
+      result.add(styled(" = ", PyHighlighter.PY_OPERATION_SIGN));
+      result.add(styled("...", PyHighlighter.PY_DOT));
     }
     return PyTypeLayout.concat(result);
   }

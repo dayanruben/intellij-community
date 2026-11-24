@@ -6,6 +6,7 @@ import com.intellij.facet.FacetManager
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.edtWriteAction
+import com.intellij.openapi.application.impl.NonBlockingReadActionImpl
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.module.Module
@@ -71,7 +72,7 @@ class LightJavaProject internal constructor(
   internal val sourceRootPath: Path,
   private val moduleFile: Path,
   internal val classDescriptor: LightProjectDescriptor,
-) {
+) : JavaTestProject {
   /**
    * The module `light_idea_test_case`. The fixture creates a new module when a test changes it, so do not keep it between tests.
    */
@@ -364,6 +365,11 @@ fun lightJavaCodeInsightFixture(
 
   initialized(codeInsightFixture) {
     runAllSuspend(
+      {
+        withContext(Dispatchers.EDT) {
+          NonBlockingReadActionImpl.waitForAsyncTaskCompletion()
+        }
+      },
       { codeInsightFixture.tearDown() },
       { lightProject.deleteTestFiles() },
       { TestApplicationManager.cleanUpProjectForNextTest(project) },
@@ -384,4 +390,17 @@ internal fun lightTestDataPath(basePath: String): String {
   val communityPath = PlatformTestUtil.getCommunityPath().replace('\\', '/')
   val path = communityPath + basePath
   return if (Path.of(path).exists()) path else "$communityPath/../$basePath"
+}
+
+/**
+ * Returns [project] as the fixture of a [LightJavaProject]. The IDE host gets each project from [JavaTestFixtures].
+ * A project from another factory fails here, with the type of the project.
+ */
+@TestOnly
+internal fun lightJavaProject(project: TestFixture<JavaTestProject>): TestFixture<LightJavaProject> = testFixture("lightJavaProject") {
+  val javaProject = project.init()
+  check(javaProject is LightJavaProject) {
+    "The IDE host needs a project of JavaTestFixtures.javaTestProjectFixture(), but the project is a ${javaProject.javaClass.name}"
+  }
+  initialized(javaProject) {}
 }

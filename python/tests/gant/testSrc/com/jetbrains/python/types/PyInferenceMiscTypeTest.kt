@@ -731,6 +731,68 @@ class PyInferenceMiscTypeTest : PyCodeInsightTestCase() {
       expr = B[int]().foo()
       #└ TYPE A[int]
       """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-92837"])
+    fun `container parameters take the types of the base containers of the same kind`() = test("""
+      class Base:
+          def __init__(self, *args: int, **kwargs: str): ...
+
+      class Subclass(Base):
+          def __init__(self, *args, **kwargs):
+              expr = args
+      #       └ TYPE tuple[int, ...]
+              expr = kwargs
+      #       └ TYPE dict[str, str]
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-92837"])
+    fun `keyword container does not take the type of a positional container`() = test("""
+      class Base:
+          def __init__(self, *args: int): ...
+
+      class Subclass(Base):
+          def __init__(self, rep, *gens, **args):
+              expr = args
+      #       └ TYPE dict[str, Unknown]
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-92837"])
+    fun `positional container does not take the type of a keyword container`() = test("""
+      class Base:
+          def __init__(self, **args: int): ...
+
+      class Subclass(Base):
+          def __init__(self, *args):
+              expr = args
+      #       └ TYPE tuple[Unknown, ...]
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-92837"])
+    fun `positional container does not take the type of a plain parameter`() = test("""
+      class Base:
+          def __init__(self, args: int): ...
+
+      class Subclass(Base):
+          def __init__(self, *args):
+              expr = args
+      #       └ TYPE tuple[Unknown, ...]
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-92837"])
+    fun `plain parameter does not take the type of a positional container`() = test("""
+      class Base:
+          def __init__(self, *args: int): ...
+
+      class Subclass(Base):
+          def __init__(self, args):
+              expr = args
+      #       └ TYPE Unknown
+      """.trimIndent())
   }
 
   @Nested
@@ -753,6 +815,191 @@ class PyInferenceMiscTypeTest : PyCodeInsightTestCase() {
           def __new__(cls):
               expr = object.__new__(cls)
       #       └ TYPE Self@C
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-92217"])
+    fun `explicit base __new__ result is the class of cls`() = test("""
+      from typing import Self
+
+      class Base:
+          def __new__(cls) -> Self: ...
+
+      class Derived(Base, str):
+          def __new__(cls) -> Self:
+              a = Base.__new__(cls)
+      #       └ TYPE Self@Derived
+              b = str.__new__(cls, "")
+      #       └ TYPE Self@Derived
+              c = object.__new__(cls)
+      #       └ TYPE Self@Derived
+              return a
+
+      expr = Base.__new__(Derived)
+      #└ TYPE Derived
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-92217"])
+    fun `explicit overloaded __new__ result is the class of cls`() = test("""
+      from typing import Self, overload
+
+      class Base:
+          @overload
+          def __new__(cls, x: int) -> Self: ...
+          @overload
+          def __new__(cls, x: str) -> Self: ...
+          def __new__(cls, x): ...
+
+      class Derived(Base):
+          def __new__(cls, x):
+              a = Base.__new__(cls, 1)
+      #       └ TYPE Self@Derived
+              b = Base.__new__(cls, "")
+      #       └ TYPE Self@Derived
+              return a
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-92217"])
+    fun `explicit stub __new__ result is the class of cls`() = test("""
+      from base import Base
+
+      class Derived(Base):
+          def __new__(cls, x):
+              expr = Base.__new__(cls, 1)
+      #       └ TYPE Self@Derived
+              return expr
+      """.trimIndent(),
+      "base.pyi" to """
+        from typing import Self
+
+        class Base:
+            def __new__(cls, x: int) -> Self: ...
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-92217"])
+    fun `explicit __new__ with a class that is not a subclass`() = test("""
+      from typing import Self
+
+      class Base:
+          def __new__(cls) -> Self: ...
+
+      expr = Base.__new__(int)
+      #│                  ^^^ WARNING Expected type 'type[Base]', got 'type[int]' instead
+      #└ TYPE Base
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-92217"])
+    fun `explicit __new__ with a type var or an unknown class`() = test("""
+      from typing import Self
+
+      class Base:
+          def __new__(cls) -> Self: ...
+
+      def from_type_var[T: Base](c: type[T]) -> T:
+          expr = Base.__new__(c)
+      #   └ TYPE T
+          return expr
+
+      def from_unknown(c):
+          expr = Base.__new__(c)
+      #   └ TYPE Base
+          return expr
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-92217"])
+    fun `explicit __new__ with a subclass type parameter`() = test("""
+      from typing import Self
+
+      class Base:
+          def __new__(cls) -> Self: ...
+
+      class Derived(Base): ...
+
+      def f(c: type[Derived]) -> Derived:
+          expr = Base.__new__(c)
+      #   └ TYPE Derived
+          return expr
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-92217"])
+    fun `explicit __new__ with the cls of a classmethod`() = test("""
+      from typing import Self
+
+      class Base:
+          def __new__(cls) -> Self: ...
+
+      class Derived(Base):
+          @classmethod
+          def make(cls) -> Self:
+              expr = Base.__new__(cls)
+      #       └ TYPE Self@Derived
+              return expr
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-92217"])
+    fun `explicit __new__ of a generic base`() = test("""
+      from typing import Self
+
+      class Box[T]:
+          def __new__(cls, item: T) -> Self: ...
+
+      class IntBox(Box[int]):
+          def __new__(cls, item: int) -> Self:
+              expr = Box.__new__(cls, 1)
+      #       └ TYPE Self@IntBox
+              Box[int].__new__(cls, "")
+      #                             ^^ WARNING Expected type 'int', got 'Literal[""]' instead
+              return expr
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-92217"])
+    fun `explicit __new__ of a metaclass`() = test("""
+      from typing import Any
+
+      class Meta(type):
+          def __new__(mcs, name: str, bases: tuple[type, ...], ns: dict[str, Any]):
+              expr = type.__new__(mcs, name, bases, ns)
+      #       └ TYPE Self@Meta
+              return expr
+
+      class SubMeta(Meta):
+          def __new__(mcs, name: str, bases: tuple[type, ...], ns: dict[str, Any]):
+              expr = Meta.__new__(mcs, name, bases, ns)
+      #       └ TYPE Self@SubMeta
+              return expr
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-92217"])
+    fun `__new__ reference without a call`() = test("""
+      from typing import Callable, Self
+
+      class Base:
+          def __new__(cls) -> Self: ...
+
+      expr = Base.__new__
+      #└ TYPE (cls: type[Base]) -> Base
+      f: Callable[[type[Base]], Base] = Base.__new__
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-92217"])
+    fun `explicit __new__ of a nested class`() = test("""
+      class A:
+          class B: ...
+
+      direct = A.B.__new__(A.B)
+      #└ TYPE B
+      via_object = object.__new__(A.B)
+      #└ TYPE B
       """.trimIndent())
 
     @Test
@@ -941,7 +1188,7 @@ class PyInferenceMiscTypeTest : PyCodeInsightTestCase() {
               return f(A(), b)
       #                ^^^ WARNING FIXME Expected 'T', got 'A' instead
           return a
-      #          └ WARNING Expected type '(T, bool) -> bool', got '(b: bool) -> bool' instead
+      #          └ WARNING Expected type '(T, bool) -> bool', got 'def a(b: bool) -> bool' instead
 
       class A:
           @dec
@@ -1600,7 +1847,7 @@ class PyInferenceMiscTypeTest : PyCodeInsightTestCase() {
           print_a_callable_name(i_have_special_attributes)
           print_a_callable_doc(i_have_special_attributes)
           print_a_callable_unknown(i_have_special_attributes)
-      #                            ^^^^^^^^^^^^^^^^^^^^^^^^^ WARNING Expected type '{unknown}', got '() -> None' instead
+      #                            ^^^^^^^^^^^^^^^^^^^^^^^^^ WARNING Expected type '{unknown}', got 'def i_have_special_attributes() -> None' instead
       """.trimIndent())
 
     @Test
@@ -1869,7 +2116,37 @@ class PyInferenceMiscTypeTest : PyCodeInsightTestCase() {
     @TestFor(issues = ["PY-79184"])
     fun `or keeps dunder debug on left side`() = test("""
       expr = __debug__ or 1
-      #└ TYPE bool | Literal[1]
+      #└ TYPE Literal[True, 1]
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-94326"])
+    fun `and and or keep the bool literal with the needed truthiness`() = test("""
+      def f(x: bool, y: int):
+          expr = x and y
+      #   └ TYPE Literal[False] | int
+          expr = x or y
+      #   └ TYPE Literal[True] | int
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-94326"])
+    fun `and of comparisons with an unknown operand keeps the weak type`() = test("""
+      def f(x):
+          expr = x >= 0
+      #   └ TYPE UnsafeUnion[bool, Unknown]
+          expr = x >= 0 and x <= 9
+      #   └ TYPE UnsafeUnion[bool, Unknown]
+
+      class C:
+          def __init__(self):
+              self.foo = None
+
+      def g(c: C):
+          expr = c.foo
+      #   └ TYPE UnsafeUnion[None, Unknown]
+          expr = c.foo or 1
+      #   └ TYPE Literal[1] | Unknown
       """.trimIndent())
 
     @Test
@@ -1916,7 +2193,7 @@ class PyInferenceMiscTypeTest : PyCodeInsightTestCase() {
       def foo(p):
           assert p
       expr = foo
-      #└ TYPE (p: Unknown) -> None
+      #└ TYPE def foo(p: Unknown) -> None
       """.trimIndent())
 
     @Test
@@ -1963,7 +2240,7 @@ class PyInferenceMiscTypeTest : PyCodeInsightTestCase() {
           for entry in entries:
               yield entry
       expr = resort
-      #└ TYPE (entries: Unknown) -> Generator[Unknown, Unknown, None]
+      #└ TYPE def resort(entries: Unknown) -> Generator[Unknown, Unknown, None]
       """.trimIndent())
 
     @Test

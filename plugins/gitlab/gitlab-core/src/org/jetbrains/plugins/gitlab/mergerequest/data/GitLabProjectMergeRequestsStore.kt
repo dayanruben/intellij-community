@@ -13,7 +13,6 @@ import com.intellij.collaboration.util.ListPart
 import com.intellij.collaboration.util.ResultUtil.runCatchingUser
 import com.intellij.collaboration.util.mapItems
 import com.intellij.openapi.project.Project
-import git4idea.remote.GitRemoteUrlCoordinates
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -71,7 +70,7 @@ class CachingGitLabProjectMergeRequestsStore(
   private val currentUser: GitLabUserDTO,
   private val projectCoordinates: GitLabProjectCoordinates,
   private val projectId: String,
-  private val gitRemote: GitRemoteUrlCoordinates,
+  private val localRepository: GitLabLocalRepository,
 ) : GitLabProjectMergeRequestsStore {
 
   private val cs = parentCs.childScope(this::class)
@@ -101,7 +100,7 @@ class CachingGitLabProjectMergeRequestsStore(
                                                          glMetadata,
                                                          projectCoordinates,
                                                          projectId,
-                                                         gitRemote,
+                                                         localRepository,
                                                          currentUser,
                                                          mrData) }
         }

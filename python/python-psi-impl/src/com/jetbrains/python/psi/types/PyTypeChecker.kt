@@ -34,6 +34,7 @@ import com.jetbrains.python.psi.PyFile
 import com.jetbrains.python.psi.PyFunction
 import com.jetbrains.python.psi.PyListLiteralExpression
 import com.jetbrains.python.psi.PyNamedParameter
+import com.jetbrains.python.psi.PyQualifiedNameOwner
 import com.jetbrains.python.psi.PySequenceExpression
 import com.jetbrains.python.psi.PyStarExpression
 import com.jetbrains.python.psi.PyTargetExpression
@@ -76,6 +77,12 @@ import kotlin.jvm.optionals.getOrDefault
 import kotlin.jvm.optionals.getOrElse
 
 object PyTypeChecker {
+  /**
+   * The largest number of parameter combinations that [matchSingleCallableAgainstOverloads] checks.
+   * Above it, the check is [matchAnyMember] only.
+   */
+  private const val MAX_OVERLOAD_PARAMETER_COMBINATIONS = 24
+
   /**
    * The widest composite type that still gets a per-member breakdown. Past it, matching short-circuits and
    * records one summarizing reason. `0` means no bound.
@@ -351,9 +358,17 @@ object PyTypeChecker {
     return matched
   }
 
-  /** Best-effort reason a protocol member didn't match, used as the breakdown node above the type leaf. */
-  private fun protocolMemberFailureMessage(protocolMember: PyTypeMember, candidates: List<PyTypeMember>, context: TypeEvalContext): ProblemMessage {
-    val name = protocolMember.name
+  /**
+   * Best-effort reason a protocol member didn't match, used as the breakdown node above the type leaf.
+   * The name of the protocol member links to [subclassMember], the member that this frame checks.
+   */
+  private fun protocolMemberFailureMessage(
+    protocolMember: PyTypeMember,
+    subclassMember: PyTypeMember,
+    candidates: List<PyTypeMember>,
+    context: TypeEvalContext,
+  ): ProblemMessage {
+    val name: Any? = protocolMember.name?.let { memberReference(subclassMember, it) ?: it }
     val candidate = candidates.singleOrNull()
     if (candidate != null) {
       if (PyTypeUtil.isSettable(protocolMember, context) && !PyTypeUtil.isSettable(candidate, context)) {
@@ -365,6 +380,10 @@ object PyTypeChecker {
     }
     return PyPsiBundle.problemMessage("INSP.type.checker.breakdown.member.incompatible", name)
   }
+
+  /** [name] as a link to the declaration of [member], or null when the declaration has no qualified name. */
+  private fun memberReference(member: PyTypeMember, name: String): PyInspectionMessages.CodifiedParam? =
+    (member.element as? PyQualifiedNameOwner)?.let { PyInspectionMessages.CodifiedParam.ofReference(it, name) }
 
   private fun match(expected: PyType?, actual: PyType?, context: MatchContext): Optional<Boolean> {
     PyCodeInsightCounters.inc(Counter.MATCH_STEPS)
@@ -588,11 +607,10 @@ object PyTypeChecker {
 
     if (actual is PyOverloadType) {
       val matched = withoutRecording(context) {
-        if (expected is PyClassLikeType && expected.isCallable) {
-          matchOverloadWithCallable(actual, expected, context, false)
-        }
-        else {
-          matchAnyMember(expected, actual, actual.items, context, onCopy = true)
+        when {
+          expected is PyClassLikeType && expected.isCallable -> matchOverloadWithCallable(actual, expected, context, false)
+          expected is PyCallableType && expected !is PyClassLikeType -> matchSingleCallableAgainstOverloads(expected, actual, context)
+          else -> matchAnyMember(expected, actual, actual.items, context, onCopy = true)
         }
       }
       return Optional.of(recordOverloadLeaf(context, expected, actual, matched))
@@ -1453,14 +1471,15 @@ object PyTypeChecker {
       for (subclassElementMember in subclassElementMembers) {
         val isMatchingProtocolMember = recordFrameBool(
           protocolContext,
-          { protocolMemberFailureMessage(protocolMember, subclassElementMembers, context) },
+          { protocolMemberFailureMessage(protocolMember, subclassElementMember, subclassElementMembers, context) },
           // The subclass's type for the attribute, so the Attribute step can report the attribute's own types when the
           // mismatch is buried inside a parameterized type (`list[set[int]]` vs `list[set[None]]`).
           { protocolMember.name?.let {
               PyMismatchStep.Attribute(it,
                                        subclassElementType(expected, actual, subclassElementMember, subclassElementMember.type, actualSubstitutions, protocolContext)
                                          ?.let { t -> codifiedType(protocolContext, t) },
-                                       codifiedType(protocolContext, protocolElementType)) } },
+                                       codifiedType(protocolContext, protocolElementType),
+                                       memberReference(subclassElementMember, it)) } },
           { isMatchingProtocolMember(expected, actual, protocolMember, subclassElementMember, protocolElementType, expectedSubstitutions, actualSubstitutions, protocolContext) }
         )
         if (isMatchingProtocolMember) {
@@ -2381,8 +2400,87 @@ object PyTypeChecker {
     return when {
       expectedIsOverload -> matchAllMembers(overloadType, overloadType.items, callType, context)
       callType is PyOverloadType -> matchAllMembers(callType, callType.items, overloadType, context)
-      else -> matchAnyMember(callType, overloadType, overloadType.items, context, onCopy = true)
+      callType is PyCallableType -> matchSingleCallableAgainstOverloads(callType, overloadType, context)
+      else -> false
     }
+  }
+
+  /**
+   * Decides whether the overload type [actual] matches the single callable [expected].
+   *
+   * Some overload item must accept each call that [expected] accepts.
+   * First, the check looks for one item that matches all of [expected], as [matchAnyMember] does.
+   * When no item matches, each union parameter of [expected] splits into its members.
+   * Then each combination of the members must match some item.
+   * Thus the items `(x: int) -> int` and `(x: str) -> str` match `(x: int | str) -> int | str`.
+   *
+   * The split keeps the arity of [expected]. Items that cover an optional parameter by their arity do not match.
+   * Above [MAX_OVERLOAD_PARAMETER_COMBINATIONS] combinations, the result is the result of [matchAnyMember].
+   * Each combination is an independent call, so it matches on its own copy of the substitutions.
+   * The split keeps none of these substitutions.
+   */
+  private fun matchSingleCallableAgainstOverloads(
+    expected: PyCallableType,
+    actual: PyOverloadType,
+    context: MatchContext,
+  ): Boolean {
+    if (matchAnyMember(expected, actual, actual.items, context, onCopy = true)) return true
+
+    val combinations = unionParameterCombinations(expected, context.context) ?: return false
+    val typeParameters = expected.getTypeParameters(context.context)
+    val returnType = expected.getReturnType(context.context)
+    return combinations.all { parameters ->
+      val combination = PyCallableTypeImpl(typeParameters, PyCallableParameterListTypeImpl(parameters), returnType,
+                                           expected.callable, expected.modifier)
+      val combinationContext = context.withSubstitutions(context.mySubstitutions.copy(KeyImpl))
+      matchAnyMember(combination, actual, actual.items, combinationContext, onCopy = true)
+    }
+  }
+
+  /**
+   * Returns each combination of the members of the union parameters of [callable].
+   * Returns `null` when [callable] has no union parameter, or more than [MAX_OVERLOAD_PARAMETER_COMBINATIONS] combinations.
+   */
+  private fun unionParameterCombinations(callable: PyCallableType, context: TypeEvalContext): List<List<PyCallableParameter>>? {
+    val parameters = callable.getParameters(context) ?: return null
+    val variants = parameters.map { parameter ->
+      distributableUnionMembers(parameter, context)?.map { withParameterType(parameter, it) } ?: listOf(parameter)
+    }
+    var count = 1
+    for (parameterVariants in variants) {
+      // The same as `count * parameterVariants.size > MAX_OVERLOAD_PARAMETER_COMBINATIONS`, with no overflow.
+      if (parameterVariants.size > MAX_OVERLOAD_PARAMETER_COMBINATIONS / count) return null
+      count *= parameterVariants.size
+    }
+    if (count == 1) return null
+    return variants.fold(listOf<List<PyCallableParameter>>(emptyList())) { prefixes, parameterVariants ->
+      prefixes.flatMap { prefix -> parameterVariants.map { prefix + it } }
+    }
+  }
+
+  private fun distributableUnionMembers(parameter: PyCallableParameter, context: TypeEvalContext): List<PyType?>? {
+    if (parameter.isSelf || parameter.isPositionalContainer || parameter.isKeywordContainer ||
+        parameter.isPositionOnlySeparator || parameter.isKeywordOnlySeparator) {
+      return null
+    }
+    val type = parameter.getArgumentType(context)
+    return if (type is PyUnionType && type.members.size > 1) type.members.toList() else null
+  }
+
+  private fun withParameterType(parameter: PyCallableParameter, type: PyType?): PyCallableParameter {
+    return PyCallableParameterImpl(
+      parameter.name,
+      Ref.create(type),
+      parameter.defaultValue,
+      parameter.defaultValueText,
+      parameter.parameter,
+      parameter.isPositionalContainer,
+      parameter.isKeywordContainer,
+      parameter.isSelf,
+      parameter.isKeywordOnlySeparator,
+      parameter.isPositionOnlySeparator,
+      parameter.declarationElement,
+    )
   }
 
   @JvmOverloads

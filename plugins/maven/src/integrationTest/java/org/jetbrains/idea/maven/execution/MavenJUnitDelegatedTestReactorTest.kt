@@ -26,6 +26,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.jetbrains.idea.maven.fixtures.execute
+import org.jetbrains.idea.maven.model.MavenExplicitProfiles
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -134,6 +135,139 @@ class MavenJUnitDelegatedTestReactorTest {
     val delegatedResult = maven.execute(delegatedParameters)
     assertTrue(delegatedResult.stdout.contains("BUILD FAILURE"), delegatedResult.stdout)
     assertTrue(delegatedResult.stdout.contains("cannot find symbol"), delegatedResult.stdout)
+  }
+
+  // IDEA-394511: Surefire reads a final `.*` of a -Dtest filter as "any file extension", so the filter `probe.*` selects
+  // the class `probe` and no test runs. These tests run Maven to make sure that Surefire runs the selected tests.
+
+  @Test
+  fun `delegated JUnit package run runs the tests of the package and of its subpackages`() = runBlocking {
+    createPackageProject()
+
+    val stdout = runDelegated {
+      TEST_OBJECT = JUnitConfiguration.TEST_PACKAGE
+      PACKAGE_NAME = "probe"
+    }
+
+    assertTrue(stdout.contains("Running probe.LeafTest"), stdout)
+    assertTrue(stdout.contains("Running probe.sub.SubTest"), stdout)
+  }
+
+  @Test
+  fun `delegated JUnit directory run runs the tests of the directory and of its subdirectories`() = runBlocking {
+    createPackageProject()
+
+    val stdout = runDelegated {
+      TEST_OBJECT = JUnitConfiguration.TEST_DIRECTORY
+      dirName = maven.projectPath.resolve("leaf/src/test/java/probe").toCanonicalPath()
+    }
+
+    assertTrue(stdout.contains("Running probe.LeafTest"), stdout)
+    assertTrue(stdout.contains("Running probe.sub.SubTest"), stdout)
+  }
+
+  // IDEA-396099: a delegated test run must give Maven the profiles that are checked in the Maven tool window, as a
+  // delegated build does. Here only the profile `needed` gives the module `leaf` its dependency on `upstream`, so the
+  // tests of `leaf` do not compile without the profile.
+  @Test
+  fun `delegated JUnit run uses the checked Maven profiles`() = runBlocking {
+    createReactorProject()
+    maven.createModulePom("leaf", """
+      <parent>
+        <groupId>probe</groupId>
+        <artifactId>root</artifactId>
+        <version>1</version>
+      </parent>
+      <artifactId>leaf</artifactId>
+      <dependencies>
+        <dependency>
+          <groupId>junit</groupId>
+          <artifactId>junit</artifactId>
+          <version>4.13.2</version>
+          <scope>test</scope>
+        </dependency>
+      </dependencies>
+      <profiles>
+        <profile>
+          <id>needed</id>
+          <dependencies>
+            <dependency>
+              <groupId>probe</groupId>
+              <artifactId>upstream</artifactId>
+              <version>1</version>
+            </dependency>
+          </dependencies>
+        </profile>
+      </profiles>
+    """.trimIndent())
+    maven.repositoryPath = maven.projectPath.resolve("maven-repository")
+    maven.createProjectSubFile("upstream/src/main/java/probe/Upstream.java", """
+      package probe;
+
+      public class Upstream {
+        public static String value() {
+          return "old";
+        }
+      }
+    """.trimIndent())
+    maven.importProjectAsync()
+    // After the import: the import of the test fixture sets the explicit profiles to none.
+    maven.projectsManager.explicitProfiles = MavenExplicitProfiles(listOf("needed"))
+
+    val stdout = runDelegated {
+      TEST_OBJECT = JUnitConfiguration.TEST_CLASS
+      MAIN_CLASS_NAME = "probe.LeafTest"
+    }
+
+    assertTrue(stdout.contains("Running probe.LeafTest"), stdout)
+  }
+
+  private suspend fun createPackageProject() {
+    createReactorProject()
+    maven.repositoryPath = maven.projectPath.resolve("maven-repository")
+    maven.createProjectSubFile("upstream/src/main/java/probe/Upstream.java", """
+      package probe;
+
+      public class Upstream {
+        public static String value() {
+          return "old";
+        }
+      }
+    """.trimIndent())
+    maven.createProjectSubFile("leaf/src/test/java/probe/sub/SubTest.java", """
+      package probe.sub;
+
+      import org.junit.Test;
+
+      public class SubTest {
+        @Test
+        public void runs() {
+        }
+      }
+    """.trimIndent())
+    maven.importProjectAsync()
+  }
+
+  /** Builds the delegated Maven run of a JUnit configuration of the module `leaf`, runs it, and returns its output. */
+  private suspend fun runDelegated(configure: JUnitConfiguration.Data.() -> Unit): String {
+    val junitConfiguration = JUnitConfiguration("ProbeTests", maven.project).apply {
+      setModule(maven.getModule("leaf"))
+      persistentData.configure()
+    }
+    val executionEnvironment = withContext(Dispatchers.EDT) {
+      writeIntentReadAction {
+        MavenJUnitConfigurationExecutionEnvironmentProvider().createExecutionEnvironment(
+          maven.project,
+          executionTask(junitConfiguration),
+          null,
+        )
+      }
+    }
+    assertNotNull(executionEnvironment)
+    val delegatedParameters = (executionEnvironment!!.runProfile as MavenSurefireRunConfiguration).runnerParameters
+    val result = maven.execute(delegatedParameters)
+    assertTrue(result.stdout.contains("BUILD SUCCESS"), result.stdout)
+    return result.stdout
   }
 
   private fun createReactorProject() {

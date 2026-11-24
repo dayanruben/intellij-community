@@ -15,6 +15,7 @@ import com.intellij.psi.search.LocalSearchScope;
 import com.intellij.psi.search.SearchScope;
 import com.intellij.psi.stubs.IStubElementType;
 import com.intellij.psi.stubs.StubElement;
+import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.CachedValue;
 import com.intellij.psi.util.CachedValueProvider;
 import com.intellij.psi.util.CachedValuesManager;
@@ -24,8 +25,8 @@ import com.intellij.ui.IconManager;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.PlatformIcons;
 import com.intellij.util.containers.JBIterable;
+import com.jetbrains.python.PyElementTypes;
 import com.jetbrains.python.PyNames;
-import com.jetbrains.python.PyStubElementTypes;
 import com.jetbrains.python.codeInsight.controlflow.CallInstruction;
 import com.jetbrains.python.codeInsight.controlflow.ControlFlowCache;
 import com.jetbrains.python.codeInsight.controlflow.FlowContext;
@@ -77,7 +78,6 @@ import com.jetbrains.python.psi.types.PyAnyType;
 import com.jetbrains.python.psi.types.PyCallableParameter;
 import com.jetbrains.python.psi.types.PyCallableParameterImpl;
 import com.jetbrains.python.psi.types.PyCallableType;
-import com.jetbrains.python.psi.types.PyClassType;
 import com.jetbrains.python.psi.types.PyFunctionTypeImpl;
 import com.jetbrains.python.psi.types.PyNeverType;
 import com.jetbrains.python.psi.types.PyType;
@@ -115,11 +115,17 @@ public class PyFunctionImpl extends PyBaseElementImpl<PyFunctionStub> implements
   }
 
   public PyFunctionImpl(final PyFunctionStub stub) {
-    this(stub, PyStubElementTypes.FUNCTION_DECLARATION);
+    this(stub, PyElementTypes.FUNCTION_DECLARATION);
   }
 
-  public PyFunctionImpl(PyFunctionStub stub, IStubElementType nodeType) {
+  public PyFunctionImpl(PyFunctionStub stub, IElementType nodeType) {
     super(stub, nodeType);
+  }
+
+  /** @deprecated use {@link #PyFunctionImpl(PyFunctionStub, IElementType)}. */
+  @Deprecated(forRemoval = true)
+  public PyFunctionImpl(PyFunctionStub stub, IStubElementType<?, ?> nodeType) {
+    this(stub, (IElementType)nodeType);
   }
 
   private class CachedStructuredDocStringProvider implements CachedValueProvider<StructuredDocString> {
@@ -230,12 +236,6 @@ public class PyFunctionImpl extends PyBaseElementImpl<PyFunctionStub> implements
     return PyTypingTypeProvider.removeNarrowedTypeIfNeeded(PyTypingTypeProvider.toAsyncIfNeeded(this, inferredType));
   }
 
-  /** The type of `None`, or an unknown type when the project has no builtins. */
-  private @Nullable PyType getNoneTypeOrUnknown() {
-    final PyClassType noneType = PyBuiltinCache.getInstance(this).getNoneType();
-    return noneType != null ? noneType : PyAnyType.getUnknown();
-  }
-
   private static @Nullable PyType derefType(@NotNull Ref<PyType> typeRef, @NotNull PyTypeProvider typeProvider) {
     final PyType type = typeRef.get();
     if (type != null) {
@@ -311,16 +311,16 @@ public class PyFunctionImpl extends PyBaseElementImpl<PyFunctionStub> implements
       if (point instanceof PyReturnStatement returnStatement) {
         hasReturn = true;
         final PyExpression expr = returnStatement.getExpression();
-        types.add(expr != null ? context.getType(expr) : getNoneTypeOrUnknown());
+        types.add(expr != null ? context.getType(expr) : PyBuiltinCache.getInstance(this).getNoneTypeOrUnknown());
       }
       else {
-        types.add(getNoneTypeOrUnknown());
+        types.add(PyBuiltinCache.getInstance(this).getNoneTypeOrUnknown());
       }
     }
 
     if ((isGeneratedStub() || PyKnownDecoratorUtil.hasAbstractDecorator(this, context)) && !hasReturn) {
       if (PyUtil.isInitMethod(this)) {
-        return getNoneTypeOrUnknown();
+        return PyBuiltinCache.getInstance(this).getNoneTypeOrUnknown();
       }
       return PyAnyType.getUnknown();
     }
@@ -720,22 +720,22 @@ public class PyFunctionImpl extends PyBaseElementImpl<PyFunctionStub> implements
 
   @Override
   public @NotNull PyParameterList getParameterList() {
-    return getRequiredStubOrPsiChild(PyStubElementTypes.PARAMETER_LIST);
+    return getRequiredStubOrPsiChild(PyElementTypes.PARAMETER_LIST, PyParameterList.class);
   }
 
   @Override
   public @Nullable PyTypeParameterList getTypeParameterList() {
-    return getStubOrPsiChild(PyStubElementTypes.TYPE_PARAMETER_LIST);
+    return getStubOrPsiChild(PyElementTypes.TYPE_PARAMETER_LIST, PyTypeParameterList.class);
   }
 
   @Override
   public @Nullable PyDecoratorList getDecoratorList() {
-    return getStubOrPsiChild(PyStubElementTypes.DECORATOR_LIST);
+    return getStubOrPsiChild(PyElementTypes.DECORATOR_LIST, PyDecoratorList.class);
   }
 
   @Override
   public @Nullable PyAnnotation getAnnotation() {
-    return getStubOrPsiChild(PyStubElementTypes.ANNOTATION);
+    return getStubOrPsiChild(PyElementTypes.ANNOTATION, PyAnnotation.class);
   }
 
   /**

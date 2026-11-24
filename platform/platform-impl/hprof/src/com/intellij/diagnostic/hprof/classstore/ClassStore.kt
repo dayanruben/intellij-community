@@ -28,6 +28,7 @@ class ClassStore(private val classes: Long2ObjectMap<ClassDefinition>) {
 
   val softReferenceClass: ClassDefinition
   val weakReferenceClass: ClassDefinition
+  val phantomReferenceClass: ClassDefinition?
 
   val classClass: ClassDefinition
 
@@ -80,9 +81,11 @@ class ClassStore(private val classes: Long2ObjectMap<ClassDefinition>) {
     }
     clashedClassNames.forEach { assert(!stringToClassDefinition.contains(it)) }
 
-    // Every heap dump should have definitions of Soft/WeakReference and java.lang.Class
+    // Every real heap dump has definitions of Soft/Weak/PhantomReference and java.lang.Class.
+    // A synthetic test dump can lack PhantomReference, so its definition is nullable.
     softReferenceClass = stringToClassDefinition["java.lang.ref.SoftReference"]!!
     weakReferenceClass = stringToClassDefinition["java.lang.ref.WeakReference"]!!
+    phantomReferenceClass = stringToClassDefinition["java.lang.ref.PhantomReference"]
     classClass = stringToClassDefinition["java.lang.Class"]!!
 
     Type.values().forEach { type ->

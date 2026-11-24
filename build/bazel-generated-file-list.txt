@@ -835,6 +835,7 @@ platform/execution-impl
 platform/execution-impl/backend
 platform/execution-impl/frontend
 platform/execution-impl/rpc
+platform/execution-impl/rpc.backend
 platform/execution-process-elevation
 platform/execution-process-mediator/client
 platform/execution-process-mediator/common
@@ -922,6 +923,8 @@ platform/lsp
 platform/lsp-impl
 platform/lsp-impl/integrationTests
 platform/lsp-impl/integrationTests/idePlugin
+platform/lsp-impl/problems
+platform/lsp-impl/problems/tests
 platform/lsp-impl/structureView
 platform/lsp-impl/tests
 platform/lsp/testFramework
@@ -1247,6 +1250,7 @@ platform/xdebugger-impl/bookmarks
 platform/xdebugger-impl/dashboard
 platform/xdebugger-impl/frontend
 platform/xdebugger-impl/rpc
+platform/xdebugger-impl/rpc.backend
 platform/xdebugger-impl/shared
 platform/xdebugger-impl/ui
 platform/xdebugger-testFramework
@@ -1401,6 +1405,7 @@ plugins/gradle/codeInsight/groovy/backend/tests.integration
 plugins/gradle/codeInsight/kotlin
 plugins/gradle/codeInsight/kotlin/backend
 plugins/gradle/codeInsight/kotlin/backend/tests.integration
+plugins/gradle/codeInsight/kotlin/testFramework
 plugins/gradle/codeInsight/properties
 plugins/gradle/codeInsight/properties/backend
 plugins/gradle/codeInsight/properties/backend/tests.integration
@@ -1785,6 +1790,8 @@ plugins/markdown/frontmatter/yaml
 plugins/markdown/images
 plugins/markdown/java
 plugins/markdown/jcef
+plugins/markdown/jewel
+plugins/markdown/jewel/tests
 plugins/markdown/model
 plugins/markdown/plugin
 plugins/markdown/projectView
@@ -1984,6 +1991,7 @@ plugins/yaml/syntax
 python
 python/IntelliLang-python
 python/aliasProvider
+python/basic-plugin
 python/build
 python/build/build-debug-binaries
 python/build/tests/sdks
@@ -2032,7 +2040,6 @@ python/python-black/tests
 python/python-code-insight
 python/python-console
 python/python-copyright
-python/python-core-impl
 python/python-devkit
 python/python-exec-service
 python/python-exec-service/execService.python
@@ -2108,6 +2115,7 @@ python/python-source-roots
 python/python-spellchecker
 python/python-syntax
 python/python-syntax-core
+python/python-syntax-core/frontend
 python/python-syntax/lambdaTests
 python/python-syntax/lambdaTests/intellij.python.syntax.lambdaTests.plugin
 python/python-test-env/common

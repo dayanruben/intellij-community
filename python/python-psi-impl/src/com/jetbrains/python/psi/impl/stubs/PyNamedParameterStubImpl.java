@@ -1,8 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.psi.impl.stubs;
 
-import com.intellij.psi.stubs.IStubElementType;
-import com.intellij.psi.stubs.StubBase;
+import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.stubs.StubElement;
 import com.jetbrains.python.psi.PyNamedParameter;
 import com.jetbrains.python.psi.stubs.PyNamedParameterStub;
@@ -10,7 +9,7 @@ import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Nullable;
 
 @ApiStatus.Internal
-public class PyNamedParameterStubImpl extends StubBase<PyNamedParameter> implements PyNamedParameterStub {
+public class PyNamedParameterStubImpl extends PyStubBase<PyNamedParameter> implements PyNamedParameterStub {
   private final String myName;
   private final boolean myPositionalContainer;
   private final boolean myKeywordContainer;
@@ -25,7 +24,7 @@ public class PyNamedParameterStubImpl extends StubBase<PyNamedParameter> impleme
                                   @Nullable String typeCommentAnnotation,
                                   @Nullable String annotation,
                                   StubElement parent,
-                                  IStubElementType stubElementType) {
+                                  IElementType stubElementType) {
     super(parent, stubElementType);
     myName = name;
     myPositionalContainer = isPositionalContainer;

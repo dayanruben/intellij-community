@@ -7,18 +7,6 @@
             "module": "intellij.python.community.common"
         },
         {
-            "module": "intellij.python.parser"
-        },
-        {
-            "module": "intellij.python.ast"
-        },
-        {
-            "module": "intellij.python.syntax.core"
-        },
-        {
-            "module": "intellij.python.syntax"
-        },
-        {
             "module": "intellij.python.processOutput.common"
         },
         {
@@ -143,9 +131,6 @@
         },
         {
             "module": "intellij.python.community.impl.conda"
-        },
-        {
-            "module": "intellij.python.community.core.impl"
         },
         {
             "module": "intellij.python.community.helpersLocator"

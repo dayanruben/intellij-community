@@ -379,6 +379,8 @@
                     dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.lookup.usageDetails" interface="com.intellij.codeInsight.lookup.impl.LookupUsageDescriptor" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.createDirectoryCompletionContributor" interface="com.intellij.ide.actions.CreateDirectoryCompletionContributor" dynamic="true"/>
+    <extensionPoint qualifiedName="com.intellij.copyReference.targetProvider" dynamic="true" interface="com.intellij.ide.actions.copyReference.CopyReferenceTargetProvider"/>
+    <extensionPoint qualifiedName="com.intellij.copyReference.symbolTargetProvider" dynamic="true" interface="com.intellij.ide.actions.copyReference.SymbolCopyReferenceTargetProvider"/>
     <extensionPoint dynamic="true" qualifiedName="com.intellij.codeCompletionConfigurable" beanClass="com.intellij.application.options.CodeCompletionConfigurableEP">
       <with attribute="instance" implements="com.intellij.openapi.options.UnnamedConfigurable" />
     </extensionPoint>
@@ -1011,6 +1013,7 @@
     <lang.syntaxHighlighterFactory language="TEXT" implementationClass="com.intellij.openapi.fileTypes.PlainTextSyntaxHighlighterFactory"/>
     <lang.braceMatcher language="TEXT" implementationClass="com.intellij.ide.highlighter.custom.impl.CustomFileTypeBraceMatcher"/>
     <lang.quoteHandler language="TEXT" implementationClass="com.intellij.ide.highlighter.custom.impl.CustomFileTypeQuoteHandler"/>
+    <uiDataRule implementation="com.intellij.ide.actions.copyReference.CopyReferenceTargetsDataRule"/>
     <uiDataRule implementation="com.intellij.ide.impl.dataRules.BasicLangUiDataRule" order="last"/>
     <uiDataRule implementation="com.intellij.model.psi.impl.TargetSymbolsDataRule"/>
     <uiDataRule implementation="com.intellij.find.actions.SearchTargetsDataRule"/>
@@ -1556,7 +1559,6 @@
     <searchEverywhereContributor implementation="com.intellij.ide.actions.searcheverywhere.ActionSearchEverywhereContributor$Factory"/>
     <searchEverywhereContributor implementation="com.intellij.ide.actions.searcheverywhere.CalculatorSEContributorFactory"/>
     <searchEverywhereContributor implementation="com.intellij.ide.actions.searcheverywhere.RecentFilesSEContributor$Factory"/>
-    <searchEverywhereContributor implementation="com.intellij.ide.actions.searcheverywhere.TopHitSEContributor$Factory"/>
     <searchEverywhereResultsEqualityProvider implementation="com.intellij.ide.actions.searcheverywhere.TrivialElementsEqualityProvider"/>
     <searchEverywhereResultsEqualityProvider implementation="com.intellij.ide.actions.searcheverywhere.PsiElementsEqualityProvider"/>
     <searchEverywhereResultsEqualityProvider implementation="com.intellij.ide.actions.searcheverywhere.ActionsEqualityProvider"/>
@@ -1938,6 +1940,8 @@
     <listener topic="com.intellij.openapi.fileEditor.FileEditorManagerListener"
               class="com.intellij.codeInsight.daemon.impl.EditorTrackerImpl$MyAppLevelFileEditorManagerListener"/>
     <listener class="com.intellij.codeInsight.hints.codeVision.CodeVisionPluginListener" topic="com.intellij.ide.plugins.DynamicPluginListener"/>
+    <listener class="com.intellij.ide.actions.copyReference.CopyReferenceTransferablePluginListener"
+              topic="com.intellij.ide.plugins.DynamicPluginListener"/>
     <listener class="com.intellij.ide.projectView.impl.ProjectViewImpl$MyToolWindowManagerListener"
               topic="com.intellij.openapi.wm.ex.ToolWindowManagerListener"/>
     <listener class="com.intellij.ide.GeneratedSourceFileChangeTrackerImpl$MyProjectManagerListener"

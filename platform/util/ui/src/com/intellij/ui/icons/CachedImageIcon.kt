@@ -382,8 +382,14 @@ open class CachedImageIcon private constructor(
     val loader = loader
     if (loader is EmptyImageDataLoader) return null
 
-    val image = loader.loadImage(parameters = getLoadIconParameters(attributes),
-                                 scaleContext = scaleContext)
+    ImageDataLoaderStatisticsService.getInstance()?.loadImageStarted(loader)
+    val image = try {
+      loader.loadImage(parameters = getLoadIconParameters(attributes),
+                       scaleContext = scaleContext)
+    }
+    finally {
+      ImageDataLoaderStatisticsService.getInstance()?.loadImageFinished()
+    }
     if (start != -1L) {
       IconLoadMeasurer.findIconLoad.end(start)
     }
@@ -430,8 +436,22 @@ open class CachedImageIcon private constructor(
     return ProtoBuf.encodeToByteArray(descriptor)
   }
 
+  /**
+   * The flags of the image that the icon loads. The path patch can change them.
+   */
   val imageFlags: Int
-    get() = loader.flags
+    get() = synchronized(iconCache) {
+      checkPathTransform()
+      loader.flags
+    }
+
+  /**
+   * Finds the custom version of the image that the icon loads. The path patch can change it.
+   */
+  internal fun getCustomVersion(width: Int, height: Int): ImageCustomVersion = synchronized(iconCache) {
+    checkPathTransform()
+    loader.getCustomVersion(width = width, height = height)
+  }
 
   override fun equals(other: Any?): Boolean = when {
     this === other -> true

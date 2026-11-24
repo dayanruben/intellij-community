@@ -672,6 +672,29 @@ class PyNarrowingTypeTest : PyCodeInsightTestCase() {
       """.trimIndent())
 
     @Test
+    @TestFor(issues = ["PY-94326"], classes = [PyUnreachableCodeInspection::class])
+    fun `a chained comparison is always false only when every result is falsy`() = test("""
+      from typing import Literal
+
+      class AlwaysTrue:
+          def __lt__(self, other: object) -> Literal[True]: ...
+
+      class AlwaysFalse:
+          def __lt__(self, other: object) -> Literal[False]: ...
+
+      def f(t: AlwaysTrue, f: AlwaysFalse, o: object):
+          if o is t < o:
+              print(1)
+          else:
+              print(2)
+          if o is f < o:
+              print(3)
+      #       ^^^^^^^^ WARNING This code is unreachable
+          else:
+              print(4)
+      """.trimIndent())
+
+    @Test
     @TestFor(issues = ["PY-94129"], classes = [PyTypeAssertionEvaluator::class, PyUnreachableCodeInspection::class])
     fun `members of different enums are never equal unless a builtin mixin compares them`() = test("""
       from enum import Enum, IntEnum
@@ -989,7 +1012,7 @@ class PyNarrowingTypeTest : PyCodeInsightTestCase() {
           x.foo
 
       expr = f
-      #└ TYPE (x: {foo}) -> None
+      #└ TYPE def f(x: {foo}) -> None
       """.trimIndent())
 
     @Test
@@ -1391,7 +1414,7 @@ class PyNarrowingTypeTest : PyCodeInsightTestCase() {
       def main() -> None:
           assert isinstance(g_b, B)
           expr = g_b
-      #   └ TYPE () -> None & B
+      #   └ TYPE (def g_b() -> None) & B
       """.trimIndent())
 
     @Test
@@ -1911,7 +1934,7 @@ class PyNarrowingTypeTest : PyCodeInsightTestCase() {
               p = "foo"
           x = p.lower()
       expr = f
-      #└ TYPE (p: Unknown) -> None
+      #└ TYPE def f(p: Unknown) -> None
       """.trimIndent())
 
     @Test
@@ -1923,7 +1946,7 @@ class PyNarrowingTypeTest : PyCodeInsightTestCase() {
                   p.upper()
           p.attr
       expr = patmat
-      #└ TYPE (p: {attr}) -> None
+      #└ TYPE def patmat(p: {attr}) -> None
       """.trimIndent())
 
     @Test
@@ -1933,7 +1956,7 @@ class PyNarrowingTypeTest : PyCodeInsightTestCase() {
           x = p.upper() if isinstance(p, str) else "bar"
           p.attr
       expr = conditional
-      #└ TYPE (p: {attr}) -> None
+      #└ TYPE def conditional(p: {attr}) -> None
       """.trimIndent())
 
     @Test
@@ -2173,7 +2196,7 @@ class PyNarrowingTypeTest : PyCodeInsightTestCase() {
 
       def func1(val: List[object]):
           expr = is_str_list(val)
-      #       └ TYPE (val: list[object]) -> None FIXME TypeGuard[list[str]]
+      #       └ TYPE def func1(val: list[object]) -> None FIXME TypeGuard[list[str]]
       """.trimIndent())
 
     @Test
@@ -2187,7 +2210,7 @@ class PyNarrowingTypeTest : PyCodeInsightTestCase() {
 
       def func1(val: List[object]):
           expr = is_str_list(val)
-      #       └ TYPE (val: list[object]) -> None FIXME TypeIs[list[str]]
+      #       └ TYPE def func1(val: list[object]) -> None FIXME TypeIs[list[str]]
       """.trimIndent())
 
     @Test
@@ -2585,6 +2608,73 @@ class PyNarrowingTypeTest : PyCodeInsightTestCase() {
       if a:
           print(1)
       #   ^^^^^^^^ WARNING This code is unreachable
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-94288"])
+    fun `false global value that the function rebinds keeps code after the if reachable`() = test("""
+      _created = False
+
+      def reset():
+          global _created
+          if not _created:
+              _created = True
+              return
+          print(1)
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-94288"])
+    fun `false module value that another function rebinds keeps both branches reachable`() = test("""
+      _created = False
+
+      def create():
+          global _created
+          _created = True
+
+      create()
+      if _created:
+          print(1)
+      else:
+          print(2)
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-94288"])
+    fun `false local value that a nested function rebinds keeps both branches reachable`() = test("""
+      def outer():
+          started = False
+
+          def start():
+              nonlocal started
+              started = True
+
+          start()
+          if started:
+              print(1)
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-94288"])
+    fun `false final module value read in a function still makes if unreachable`() = test("""
+      from typing import Final
+
+      DEBUG: Final = False
+
+      def f():
+          if DEBUG:
+              print(1)
+      #       ^^^^^^^^ WARNING This code is unreachable
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-94288"])
+    fun `false local value without a rebinding still makes if unreachable`() = test("""
+      def f():
+          created = False
+          if created:
+              print(1)
+      #       ^^^^^^^^ WARNING This code is unreachable
       """.trimIndent())
   }
 

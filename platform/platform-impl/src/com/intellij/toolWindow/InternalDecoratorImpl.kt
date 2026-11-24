@@ -6,6 +6,7 @@ import com.intellij.ide.IdeBundle
 import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.actionSystem.ActionToolbar
 import com.intellij.openapi.actionSystem.AnAction
+import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.actionSystem.DataSink
 import com.intellij.openapi.actionSystem.PlatformDataKeys
 import com.intellij.openapi.actionSystem.UiDataProvider
@@ -144,12 +145,21 @@ class InternalDecoratorImpl internal constructor(
       installDefaultFocusTraversalKeys(container, KeyboardFocusManager.BACKWARD_TRAVERSAL_KEYS)
     }
 
+    /**
+     * The top decorator of the tool window that holds [component]. The decorator of a frame owner can hold the decorator of a
+     * frame guest, see [present]. They belong to two tool windows, so the search stops below the decorator of the frame owner.
+     */
     @JvmStatic
     fun findTopLevelDecorator(component: Component?): InternalDecoratorImpl? {
+      var toolWindow = (component as? InternalDecoratorImpl)?.toolWindow
       var parent: Component? = component?.parent
       var candidate: InternalDecoratorImpl? = null
       while (parent != null) {
         if (parent is InternalDecoratorImpl) {
+          if (toolWindow != null && parent.toolWindow !== toolWindow) {
+            break
+          }
+          toolWindow = parent.toolWindow
           candidate = parent
         }
         parent = parent.parent
@@ -198,6 +208,9 @@ class InternalDecoratorImpl internal constructor(
     /** Checks if the tool window header should have a top border. */
     @JvmStatic
     internal fun headerNeedsTopBorder(header: ToolWindowHeader): Boolean {
+      if (ClientProperty.isTrue(header, ToolWindowHeader.IN_MAC_TITLE_BAR)) {
+        return false
+      }
       val decorator = findNearestDecorator(header) ?: return false
       return decorator.toolWindow.type == ToolWindowType.WINDOWED &&
           SideProperty.TOP_TOOL_WINDOW_EDGE in decorator.getSideProperties(decorator)
@@ -274,6 +287,12 @@ class InternalDecoratorImpl internal constructor(
   private var isWindowHovered = false
   private var divider: JPanel? = null
   private val dividerAndHeader = JPanel(BorderLayout())
+  /** The header and the notification below it. `null` until the decorator has its header. */
+  private var headerPanel: JComponent? = null
+
+  /** The root decorator of the tool window of a frame guest that this decorator shows in place of its own header and content. */
+  private var presentedDecorator: InternalDecoratorImpl? = null
+  private var projectSelector: JComponent? = null
   private var disposable: CheckedDisposable? = null
   val header: ToolWindowHeader
   private val notificationHeader = Wrapper()
@@ -301,7 +320,9 @@ class InternalDecoratorImpl internal constructor(
     enableEvents(AWTEvent.COMPONENT_EVENT_MASK)
     installFocusTraversalPolicy(this, LayoutFocusTraversalPolicy())
     dividerAndHeader.isOpaque = false
-    dividerAndHeader.add(JBUI.Panels.simplePanel(header).addToBottom(notificationHeader), BorderLayout.SOUTH)
+    val headerPanel = JBUI.Panels.simplePanel(header).addToBottom(notificationHeader)
+    this.headerPanel = headerPanel
+    dividerAndHeader.add(headerPanel, BorderLayout.SOUTH)
     if (SystemInfoRt.isMac) {
       background = JBColor(Gray._200, Gray._90)
     }
@@ -310,7 +331,7 @@ class InternalDecoratorImpl internal constructor(
     }
     contentManager.addContentManagerListener(object : ContentManagerListener {
       override fun contentRemoved(event: ContentManagerEvent) {
-        val parentDecorator = findNearestDecorator(this@InternalDecoratorImpl) ?: return
+        val parentDecorator = findParentCell() ?: return
         if (!parentDecorator.isSplitUnsplitInProgress() && !isSplitUnsplitInProgress() && contentManager.isEmpty) {
           // Find some selected content in the child contents of the parent split to preserve focus in the tool window.
           val toSelect = parentDecorator.contentManager.contentsRecursively.find { content ->
@@ -337,29 +358,88 @@ class InternalDecoratorImpl internal constructor(
     }
   }
 
+  /** The split decorator of this tool window that holds this cell. The decorator of another tool window is no such parent. */
+  private fun findParentCell(): InternalDecoratorImpl? = findNearestDecorator(this)?.takeIf { it.toolWindow === toolWindow }
+
+  /**
+   * Shows [decorator], the root decorator of the tool window of a frame guest, in place of the header and the content of this
+   * decorator. `null` brings the own header and content back. The divider and the project selector stay, see [setProjectSelector].
+   * This decorator stays in the tool window pane, so the place and the size of the tool window do not change.
+   *
+   * This decorator paints the border or the island around the project selector and [decorator], see [addInHolder].
+   * [decorator] paints none.
+   */
+  internal fun present(decorator: InternalDecoratorImpl?) {
+    if (presentedDecorator === decorator) {
+      return
+    }
+    // the holder of the old decorator leaves this decorator, but it keeps its child
+    presentedDecorator?.let { it.parent?.remove(it) }
+    presentedDecorator = decorator
+    doUpdateMode(mode)
+    applyWindowInfo(toolWindow.windowInfo)
+    revalidate()
+    repaint()
+  }
+
+  /**
+   * Puts [selector] above the header: the component that selects the project whose tool window this decorator shows.
+   * The selector is inside the border or the island of this decorator, also above a presented decorator, see [present].
+   * When the content of this decorator is split, each cell has its header, and the selector is above the cells.
+   */
+  internal fun setProjectSelector(selector: JComponent?) {
+    if (projectSelector === selector) {
+      return
+    }
+    projectSelector?.let(dividerAndHeader::remove)
+    projectSelector = selector
+    if (selector != null) {
+      dividerAndHeader.add(selector, BorderLayout.CENTER)
+    }
+    if (mode.isSplit && presentedDecorator == null) {
+      // the split content shows only the cells, see `doUpdateMode`: the selector comes above them and leaves with no rebuild of the cells
+      if (selector != null) {
+        add(dividerAndHeader, BorderLayout.NORTH)
+      }
+      else {
+        remove(dividerAndHeader)
+      }
+      revalidate()
+      repaint()
+    }
+    dividerAndHeader.revalidate()
+    dividerAndHeader.repaint()
+  }
+
   private fun doUpdateMode(mode: Mode) {
     this.mode = mode
     removeAll()
     border = null
+    val presentedDecorator = presentedDecorator
+    // the presented decorator has its header, and each cell of split content has one
+    headerPanel?.isVisible = presentedDecorator == null && !mode.isSplit
+    if (presentedDecorator != null) {
+      // the child has the header, and this decorator keeps the divider, the project selector, the border and the island
+      layout = BorderLayout()
+      addInHolder(presentedDecorator)
+      if (!mode.isSplit) {
+        disposeNestedContentManagers()
+      }
+      return
+    }
     when (mode) {
       Mode.SINGLE, Mode.CELL -> {
         layout = BorderLayout()
-
-        val decorator = InternalUICustomization.getInstance()?.toolWindowUIDecorator
-          ?.decorateAndReturnHolder(dividerAndHeader, myDecoratorChild, toolWindow) { InnerPanelBorder(toolWindow) }
-
-        decorator?.let {
-          add(it, BorderLayout.CENTER)
-        } ?: run {
+        if (toolWindow.isPresented) {
+          // the decorator of the presenting tool window paints the border and the island, see `present`
           add(dividerAndHeader, BorderLayout.NORTH)
           add(myDecoratorChild, BorderLayout.CENTER)
-          border = InnerPanelBorder(toolWindow)
+        }
+        else {
+          addInHolder(myDecoratorChild)
         }
 
-        nestedDecorators?.let {
-          Disposer.dispose(it.first.contentManager)
-          Disposer.dispose(it.second.contentManager)
-        }
+        disposeNestedContentManagers()
         return
       }
       Mode.VERTICAL_SPLIT, Mode.HORIZONTAL_SPLIT -> {
@@ -369,8 +449,36 @@ class InternalDecoratorImpl internal constructor(
         splitter.setSecondComponent(decorators.second)
         this.splitter = splitter
         layout = BorderLayout()
+        if (projectSelector != null) {
+          // the user selects the project also when this decorator shows split content of the frame owner
+          add(dividerAndHeader, BorderLayout.NORTH)
+        }
         add(splitter, BorderLayout.CENTER)
       }
+    }
+  }
+
+  /**
+   * Adds the divider, the header and [content] to this decorator. The theme paints the border or the island around them:
+   * its holder takes the three components. Without a theme customization, this decorator has the border itself.
+   */
+  private fun addInHolder(content: JComponent) {
+    val holder = InternalUICustomization.getInstance()?.toolWindowUIDecorator
+      ?.decorateAndReturnHolder(dividerAndHeader, content, toolWindow) { InnerPanelBorder(toolWindow) }
+    if (holder != null) {
+      add(holder, BorderLayout.CENTER)
+    }
+    else {
+      add(dividerAndHeader, BorderLayout.NORTH)
+      add(content, BorderLayout.CENTER)
+      border = InnerPanelBorder(toolWindow)
+    }
+  }
+
+  private fun disposeNestedContentManagers() {
+    nestedDecorators?.let {
+      Disposer.dispose(it.first.contentManager)
+      Disposer.dispose(it.second.contentManager)
     }
   }
 
@@ -461,7 +569,7 @@ class InternalDecoratorImpl internal constructor(
 
   fun canUnsplit(): Boolean {
     if (mode != Mode.CELL) return false
-    val parent = findNearestDecorator(this) ?: return false
+    val parent = findParentCell() ?: return false
     val decorators = parent.nestedDecorators ?: return false
     return this == decorators.first && decorators.second.mode == Mode.CELL ||
            this == decorators.second && decorators.first.mode == Mode.CELL
@@ -469,7 +577,7 @@ class InternalDecoratorImpl internal constructor(
 
   fun unsplit(toSelect: Content?) {
     if (!mode.isSplit) {
-      findNearestDecorator(this)?.unsplit(toSelect)
+      findParentCell()?.unsplit(toSelect)
       return
     }
     if (isSplitUnsplitInProgress()) {
@@ -497,7 +605,7 @@ class InternalDecoratorImpl internal constructor(
           for (c in decorators.second.contentManager.contents) {
             moveContent(c, decorators.second, this)
           }
-          updateMode(if (findNearestDecorator(this) != null) Mode.CELL else Mode.SINGLE)
+          updateMode(if (findParentCell() != null) Mode.CELL else Mode.SINGLE)
           toSelect?.manager?.setSelectedContent(toSelect, true)
           nestedDecorators = null
           splitter = null
@@ -598,6 +706,10 @@ class InternalDecoratorImpl internal constructor(
   }
 
   fun applyWindowInfo(info: WindowInfo) {
+    if (toolWindow.isPresented) {
+      // the decorator of the presenting tool window has the divider and the external decorator
+      return
+    }
     if (info.type == ToolWindowType.SLIDING) {
       val anchor = info.anchor
       if (LOG.isDebugEnabled) {
@@ -642,6 +754,7 @@ class InternalDecoratorImpl internal constructor(
   }
 
   override fun uiDataSnapshot(sink: DataSink) {
+    toolWindow.dataContextProject?.let { sink[CommonDataKeys.PROJECT] = it }
     sink[PlatformDataKeys.TOOL_WINDOW] = toolWindow
     sink[PlatformDataKeys.CONTENT_MANAGER] = contentManager
     if (contentManager.contentCount > 1) {
@@ -985,7 +1098,8 @@ class InternalDecoratorImpl internal constructor(
     }
     contentUi.update()
 
-    if (toolWindow.type == ToolWindowType.WINDOWED || toolWindow.type == ToolWindowType.FLOATING) {
+    // no drag of a tab out of a presented tool window: the window of the presenting tool window holds it
+    if (!toolWindow.isPresented && (toolWindow.type == ToolWindowType.WINDOWED || toolWindow.type == ToolWindowType.FLOATING)) {
       ToolWindowInnerDragHelper(disposable, this).start()
     }
   }
@@ -1134,6 +1248,10 @@ class InternalDecoratorImpl internal constructor(
 
   /** Requests focus transfer to the preferred focusable component of the selected content. */
   internal fun requestContentFocus() {
+    presentedDecorator?.let {
+      it.requestContentFocus()
+      return
+    }
     val component = contentUi.contentManager.selectedContent?.preferredFocusableComponent
     if (component != null && component.isShowing) {
       component.requestFocusInWindow()

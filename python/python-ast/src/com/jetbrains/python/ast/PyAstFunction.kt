@@ -5,7 +5,6 @@ import com.intellij.lang.ASTNode
 import com.intellij.psi.PsiComment
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiNameIdentifierOwner
-import com.intellij.psi.StubBasedPsiElement
 import com.intellij.psi.TokenType
 import com.intellij.psi.util.PsiTreeUtil
 import com.jetbrains.python.PyElementTypes
@@ -73,8 +72,6 @@ interface PyAstFunction : PsiNameIdentifierOwner, PyAstCompoundStatement,
   override fun getDocStringExpression(): PyAstStringLiteralExpression? =
     DocStringUtilCore.findDocStringExpression(statementList)
 
-  override fun getTypeParameterList(): PyAstTypeParameterList?
-
   /**
    * Looks for two standard decorators to a function, or a wrapping assignment that closely follows it.
    *
@@ -100,6 +97,24 @@ interface PyAstFunction : PsiNameIdentifierOwner, PyAstCompoundStatement,
         if (asMethod() != null) PyNames.getBuiltinMethods(languageLevel) else PyNames.getModuleBuiltinMethods(languageLevel)
 
       return functionName !in builtinMethods
+    }
+
+  /** Whether this function holds a `yield` in its own body. A nested function, lambda or class does not count. */
+  val isGenerator: Boolean
+    get() {
+      var containsYield = false
+      statementList.accept(object : PyAstRecursiveElementVisitor() {
+        override fun visitPyYieldExpression(node: PyAstYieldExpression) {
+          containsYield = true
+        }
+
+        override fun visitPyFunction(node: PyAstFunction) {}
+
+        override fun visitPyLambdaExpression(node: PyAstLambdaExpression) {}
+
+        override fun visitPyClass(node: PyAstClass) {}
+      })
+      return containsYield
     }
 
   fun onlyRaisesNotImplementedError(): Boolean {
@@ -128,8 +143,12 @@ interface PyAstFunction : PsiNameIdentifierOwner, PyAstCompoundStatement,
     }
   }
 
+  /**
+   * The class that holds this function. The nearest enclosing class or function is the owner, and only a class counts.
+   * Every other element between them is transparent: a statement list, an `if` part, or a Cython `property` block.
+   */
   override fun getContainingClass(): PyAstClass? =
-    PsiTreeUtil.getParentOfType(this, StubBasedPsiElement::class.java) as? PyAstClass
+    PsiTreeUtil.getParentOfType(this, PyAstClass::class.java, PyAstFunction::class.java) as? PyAstClass
 
   override fun acceptPyVisitor(pyVisitor: PyAstElementVisitor): Unit =
     pyVisitor.visitPyFunction(this)

@@ -2,6 +2,7 @@
 package com.jetbrains.python.ast.impl
 
 import com.intellij.lang.ASTNode
+import com.intellij.lang.injection.InjectedLanguageManager
 import com.intellij.openapi.util.Condition
 import com.intellij.psi.PsiComment
 import com.intellij.psi.PsiElement
@@ -44,6 +45,19 @@ object PyPsiUtilsCore {
       return start
     }
     return PsiTreeUtil.skipWhitespacesAndCommentsForward(start)
+  }
+
+  /**
+   * Finds first sibling that is neither comment, nor whitespace before given element.
+   *
+   * @param strict prohibit returning element itself
+   */
+  @JvmStatic
+  fun getPrevNonCommentSibling(start: PsiElement?, strict: Boolean): PsiElement? {
+    if (!strict && !(start is PsiWhiteSpace || start is PsiComment)) {
+      return start
+    }
+    return PsiTreeUtil.skipWhitespacesAndCommentsBackward(start)
   }
 
   /**
@@ -92,6 +106,24 @@ object PyPsiUtilsCore {
         break
       }
       cur = cur.nextSibling
+    }
+    return null
+  }
+
+  /**
+   * Returns the first non-whitespace sibling preceding the given element but within its line boundaries.
+   */
+  @JvmStatic
+  fun getPrevNonWhitespaceSiblingOnSameLine(element: PsiElement): PsiElement? {
+    var cur = element.prevSibling
+    while (cur != null) {
+      if (cur !is PsiWhiteSpace) {
+        return cur
+      }
+      else if (cur.textContains('\n')) {
+        break
+      }
+      cur = cur.prevSibling
     }
     return null
   }
@@ -160,5 +192,12 @@ object PyPsiUtilsCore {
   @JvmStatic
   fun getParentRightBefore(element: PsiElement, superParent: PsiElement): PsiElement? {
     return PsiTreeUtil.findFirstParent(element, false, Condition { element1: PsiElement? -> element1!!.parent === superParent })
+  }
+
+  /** The text of [element]: the unescaped text when the element sits in an injected fragment, else its own text. */
+  @JvmStatic
+  fun getElementTextWithoutHostEscaping(element: PsiElement): String {
+    val manager = InjectedLanguageManager.getInstance(element.project)
+    return if (manager.isInjectedFragment(element.containingFile)) manager.getUnescapedText(element) else element.text
   }
 }

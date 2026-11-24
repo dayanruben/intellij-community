@@ -5,6 +5,9 @@ import com.intellij.mcpserver.McpExpectedError
 import com.intellij.mcpserver.McpToolset
 import com.intellij.mcpserver.annotations.McpDescription
 import com.intellij.mcpserver.annotations.McpTool
+import com.intellij.mcpserver.annotations.McpToolHintValue.FALSE
+import com.intellij.mcpserver.annotations.McpToolHintValue.TRUE
+import com.intellij.mcpserver.annotations.McpToolHints
 import com.intellij.mcpserver.project
 import com.intellij.mcpserver.toolsets.Constants
 import com.intellij.mcpserver.util.resolveInProject
@@ -156,6 +159,29 @@ class DevKitMcpToolset : McpToolset {
     return ThreadingRequirements(reqs.map { ThreadingRequirementUsage(it.first, it.second) }, timeout)
   }
 
+  @McpToolHints(readOnlyHint = TRUE, openWorldHint = FALSE)
+  @McpTool
+  @McpDescription(
+    """
+      |Resolves the source archives attached to the IntelliJ Platform dependencies of the project.
+      |Use this tool to find the source code of the IntelliJ Platform and of its bundled plugins.
+      |It also finds the sources of the libraries bundled with the IntelliJ Platform or with a plugin dependency.
+      |Supports a project that uses the IntelliJ Platform Gradle Plugin 2.x.
+      |Returns every distinct archive with its absolute path and its kind.
+      |Possible kinds are `PLATFORM`, `API`, and `LIBRARY`.
+      |Note: the archives are ZIP files outside the project directory.
+      |To read a source file, call `read_file` with an archive entry path, such as `<archive path>!/com/intellij/Foo.java`.
+      |Note: the tool does not download sources. When no `PLATFORM` archive is attached, the result has a hint.
+      |Note: the tool does not check that each IntelliJ Platform of the project has its own sources.
+      |Note: the result can have `PLATFORM` archives of different builds, because a plugin dependency can have the sources of another build.
+      |The file name of a `PLATFORM` archive has its version.
+    """
+  )
+  @Suppress("unused", "FunctionName")
+  suspend fun resolve_intellij_platform_sources(): IntelliJPlatformSources {
+    return resolveIntelliJPlatformSources(currentCoroutineContext().project)
+  }
+
   private suspend fun <T> runSourceRequirementSearch(
     filePath: String,
     line: Int,
@@ -286,5 +312,29 @@ class DevKitMcpToolset : McpToolset {
     val description: String,
     @property:McpDescription("Quick-fix family names available in batch mode.")
     val quickFixes: List<String>,
+  )
+
+  enum class IntelliJPlatformSourceArchiveKind {
+    PLATFORM, API, LIBRARY
+  }
+
+  @Serializable
+  data class IntelliJPlatformSources(
+    @property:McpDescription("Distinct source archives attached to the IntelliJ Platform dependencies of the project.")
+    val archives: List<IntelliJPlatformSourceArchive>,
+    @property:McpDescription("Tells how to get the missing sources, or null when the result has a `PLATFORM` archive.")
+    val hint: String?,
+  )
+
+  @Serializable
+  data class IntelliJPlatformSourceArchive(
+    @property:McpDescription("Absolute path to the source archive.")
+    val path: String,
+    @property:McpDescription(
+      "Archive kind. `PLATFORM` is the IntelliJ Platform sources. " +
+      "`API` is the API sources of a bundled plugin from the `lib/src` directory of the IntelliJ Platform. " +
+      "`LIBRARY` is any other sources, usually of a third-party library bundled with the IntelliJ Platform."
+    )
+    val kind: IntelliJPlatformSourceArchiveKind,
   )
 }

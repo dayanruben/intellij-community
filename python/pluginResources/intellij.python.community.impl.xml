@@ -99,7 +99,6 @@
     <module name="intellij.python.codeInsight"/>
     <module name="intellij.python.community"/>
     <module name="intellij.python.community.common"/>
-    <module name="intellij.python.community.core.impl"/>
     <module name="intellij.python.community.execService"/>
     <module name="intellij.python.community.execService.python"/>
     <module name="intellij.python.community.helpersLocator"/>
@@ -349,6 +348,8 @@
     <advancedSetting id="python.typing.strict.unions" default="true" groupKey="group.advanced.settings.python"/>
     <advancedSetting id="python.formatter.use.new.defaults" default="false" groupKey="group.advanced.settings.python"
                      service="com.jetbrains.python.formatter.PyNewFormatterDefaultsSettings" property="useNewDefaults"/>
+    <applicationService serviceInterface="com.jetbrains.python.formatter.PyNewFormatterDefaultsSettings"
+                        serviceImplementation="com.jetbrains.python.formatter.PyNewFormatterDefaultsSettingsImpl"/>
     <runLineMarkerContributor language="Python"
                               implementationClass="com.jetbrains.python.testing.PyTestLineMarkerContributor"/>
     <toolWindow id="Python Console" anchor="right" icon="com.jetbrains.python.icons.PythonIcons.Python.PythonConsoleToolWindow"
@@ -446,6 +447,8 @@
                     serviceImplementation="com.jetbrains.python.packaging.management.PythonPackageManagerServiceImpl"/>
     <projectService serviceInterface="com.intellij.python.sdk.backend.PythonInterpreterPathsSetup"
                     serviceImplementation="com.jetbrains.python.sdk.PythonInterpreterFactsPathsSetup"/>
+    <projectService serviceInterface="com.jetbrains.python.module.PyModuleService"
+                    serviceImplementation="com.jetbrains.python.module.PyModuleServiceImpl"/>
 
     <externalAnnotator language="Python" implementationClass="com.jetbrains.python.validation.Pep8ExternalAnnotator"/>
 
@@ -758,6 +761,7 @@
     <interpreterUpdateStep id="sdkSkeletonsFailure" order="after environmentBackground" implementation="com.jetbrains.python.sdk.PythonSdkSkeletonsFailureStep"/>
     <interpreterUpdateStep id="sdkPackages" order="after sdkSkeletonsFailure" implementation="com.jetbrains.python.sdk.PythonSdkPackagesStep"/>
     <interpreterRootsContributor id="packageStubs" order="after typeshedStdlib" implementation="com.jetbrains.python.packaging.management.PythonPackageStubRoots"/>
+    <consoleLexerDetector implementation="com.jetbrains.python.console.PyPydevConsoleLexerDetector"/>
     <pyRunToolProvider implementation="com.jetbrains.python.sdk.uv.run.UvRunToolProvider"/>
     <pythonDebugBackendRunner implementation="com.jetbrains.python.debugger.PydevdDebugBackendRunner"/>
     <pyRunToolProvider implementation="com.jetbrains.python.hatch.run.HatchRunToolProvider"/>

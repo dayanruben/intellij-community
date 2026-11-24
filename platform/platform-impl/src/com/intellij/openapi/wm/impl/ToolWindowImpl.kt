@@ -134,6 +134,13 @@ private val LOG = logger<ToolWindowManagerImpl>()
   contentFactory: ToolWindowFactory?,
   private var isAvailable: Boolean = true,
   private var stripeTitleProvider: Supplier<@NlsContexts.TabTitle String>,
+  /**
+   * The tool window belongs to a frame guest, and the tool window of the frame owner with the same id presents it.
+   * It never goes into a tool window pane, and it has no stripe button and no activation action of its own.
+   */
+  internal val isPresented: Boolean = false,
+  /** The factory of the tool window has the marker `MultiProjectToolWindowFactory`: the tool window presents every project itself. */
+  internal val isMultiProject: Boolean = false,
 ) : ToolWindowEx {
   private val toolWindowClientId = ClientId.current
   private val contentFactory: AtomicReference<ToolWindowFactory?> = AtomicReference(contentFactory)
@@ -160,6 +167,63 @@ private val LOG = logger<ToolWindowManagerImpl>()
   override fun getId(): String = id
 
   override fun getProject(): Project = toolWindowManager.project
+
+  /**
+   * The slot of the frame owner that holds this presented tool window. Only [ToolWindowManagerPresentation] writes it:
+   * it sets the slot when the frame owner starts to present this tool window, and it clears the slot when the frame owner stops.
+   */
+  internal var presentingSlot: PresentingSlot? = null
+
+  /**
+   * The tool window of the frame owner that presents this tool window of a frame guest now.
+   * `null` for a tool window that is not presented, see [isPresented], and for a presented tool window that the frame owner
+   * does not present: such a tool window is hidden, and it has no entry in a project selector.
+   */
+  internal val presentedBy: ToolWindowImpl?
+    get() = presentingSlot?.presenting
+
+  /**
+   * This tool window is on the stripe of its project, so the project selector of the presenting tool window lists the project.
+   * A presented tool window has no stripe button of its own, and a presenting tool window keeps its stripe button for its
+   * frame guests. So the flag changes where the stripe button of a tool window in a frame with one project comes and goes:
+   * it leaves with the last content, and it comes back with the next content or the next show.
+   * The manager of a presented tool window writes it, and [ToolWindowManagerPresentation] writes it for a presenting one.
+   * It has no meaning for another tool window.
+   */
+  internal var isOnProjectStripe: Boolean = true
+
+  /**
+   * A frame guest has an entry in the project selector of this presenting tool window. The tool window is available then,
+   * whatever the frame owner asked for, see [isAvailable]. Only [ToolWindowManagerPresentation] writes it.
+   */
+  internal var hasFrameGuestEntry: Boolean = false
+    private set
+
+  /** The available state that the code of the project of this tool window asked for, see [setAvailable]. */
+  internal val isOwnAvailable: Boolean
+    get() = isAvailable
+
+  /**
+   * The project of the data context of this tool window, or `null`.
+   * With `null`, the data context has the active project of the frame.
+   */
+  val dataContextProject: Project?
+    get() = when {
+      // the tool window of a frame guest shows the content of its project
+      isPresented -> project
+      // the tool window shows every project itself
+      isMultiProject -> null
+      // the legacy mode is on, and the project shows tool window content of its own
+      toolWindowManager.showsOwnProject -> project
+      else -> null
+    }
+
+  /**
+   * The decorator that a tool window pane holds for this tool window, or `null` when the tool window has no decorator yet.
+   * The decorator of a presented tool window is inside the decorator of its presenting tool window.
+   */
+  val decoratorInPane: InternalDecoratorImpl?
+    get() = (presentedBy ?: this).decorator
 
   override fun getDecoration(): ToolWindowEx.ToolWindowDecoration {
     return ToolWindowEx.ToolWindowDecoration(icon, additionalGearActions)
@@ -308,8 +372,11 @@ private val LOG = logger<ToolWindowManagerImpl>()
 
     val decorator = InternalDecoratorImpl(this, contentUi!!, decoratorChild)
     this.decorator = decorator
+    // the decorator can show the tool window of a frame guest from now on
+    toolWindowManager.presentation.presentingDecoratorCreated(this)
     val editorTabService = ToolWindowEditorTabService.getInstanceOrNull()
-    if (editorTabService != null && editorTabService.hasSupport(id)) {
+    // a presented tool window has no place of its own, so its content cannot move into an editor tab
+    if (editorTabService != null && !isPresented && editorTabService.hasSupport(id)) {
       ApplicationManager.getApplication().invokeLater {
         editorTabService.installDockContainer(toolWindowManager.project, id, decorator)
       }
@@ -453,6 +520,8 @@ private val LOG = logger<ToolWindowManagerImpl>()
       decorator.validate()
       decorator.repaint()
     }
+    // the tool window of a frame guest that this tool window presents follows its visible state and its place
+    toolWindowManager.presentation.presentingInfoApplied(this)
   }
 
   val decoratorComponent: JComponent?
@@ -484,10 +553,17 @@ private val LOG = logger<ToolWindowManagerImpl>()
   }
 
   override fun activate(runnable: Runnable?, autoFocusContents: Boolean, forced: Boolean) {
+    if (!isPresented) {
+      toolWindowManager.presentation.ownerShowRequested(this)
+    }
     toolWindowManager.activateToolWindow(id = id, runnable = runnable, autoFocusContents = autoFocusContents)
   }
 
   override fun isActive(): Boolean {
+    if (isPresented) {
+      // the frame of a frame guest is the frame of its owner, and the manager of the owner knows a floating tool window
+      return windowInfo.isVisible && presentedBy?.isActive == true
+    }
     return windowInfo.isVisible && decorator != null && toolWindowManager.activeToolWindowId == id
   }
 
@@ -507,6 +583,9 @@ private val LOG = logger<ToolWindowManagerImpl>()
 
   override fun show(runnable: Runnable?) {
     EDT.assertIsEdt()
+    if (!isPresented) {
+      toolWindowManager.presentation.ownerShowRequested(this)
+    }
     toolWindowManager.showToolWindow(id)
     callLater(runnable)
   }
@@ -608,13 +687,51 @@ private val LOG = logger<ToolWindowManagerImpl>()
 
     toolWindowManager.assertIsEdt()
 
+    val wasAvailable = isAvailable()
     isAvailable = value
-    if (value) {
-      toolWindowManager.toolWindowAvailable(this)
+    availabilityChanged(wasAvailable)
+    if (!isPresented) {
+      // the frame owner has an entry in the project selector while it makes its tool window available
+      toolWindowManager.presentation.availabilityChanged(this)
+    }
+  }
+
+  /**
+   * Sets [hasFrameGuestEntry]. The manager hears of it only when the tool window becomes available or unavailable.
+   * Without [withStripeButton], a tool window that becomes available gets no stripe button, see `ToolWindowManagerImpl.toolWindowAvailable`.
+   */
+  internal fun setHasFrameGuestEntry(value: Boolean, withStripeButton: Boolean = true) {
+    if (hasFrameGuestEntry == value) {
+      return
+    }
+    val wasAvailable = isAvailable()
+    hasFrameGuestEntry = value
+    availabilityChanged(wasAvailable, withStripeButton)
+  }
+
+  private fun availabilityChanged(wasAvailable: Boolean, withStripeButton: Boolean = true) {
+    val isAvailable = isAvailable()
+    if (wasAvailable == isAvailable) {
+      return
+    }
+    if (isAvailable) {
+      toolWindowManager.toolWindowAvailable(this, withStripeButton)
     }
     else {
       toolWindowManager.toolWindowUnavailable(this)
       contentUi?.dropCaches()
+    }
+  }
+
+  /**
+   * Content came to this tool window, which hides without content, see [setToHideOnEmptyContent]. The tool window is available
+   * again, and it comes back to the stripe that the removal of its last content took it off. No show, no activation.
+   */
+  @ApiStatus.Internal
+  fun contentCameBack() {
+    setAvailable(true)
+    if (!isShowStripeButton || !isOnProjectStripe) {
+      toolWindowManager.restoreStripeButton(id)
     }
   }
 
@@ -633,7 +750,8 @@ private val LOG = logger<ToolWindowManagerImpl>()
     ContentManagerWatcher.watchContentManager(this, contentManager)
   }
 
-  override fun isAvailable(): Boolean = isAvailable
+  /** The code of the project made the tool window available, or a frame guest has an entry in its project selector. */
+  override fun isAvailable(): Boolean = isAvailable || hasFrameGuestEntry
 
   override fun getComponent(): JComponent {
     if (toolWindowManager.project.isDisposed) {
@@ -768,7 +886,13 @@ private val LOG = logger<ToolWindowManagerImpl>()
     }
   }
 
-  override fun isShowStripeButton(): Boolean = windowInfo.isShowStripeButton
+  override fun isShowStripeButton(): Boolean {
+    if (isPresented) {
+      // the frame owner keeps the stripe button
+      return isOnProjectStripe && presentedBy?.isShowStripeButton != false
+    }
+    return windowInfo.isShowStripeButton
+  }
 
   override fun isDisposed(): Boolean = contentManager.isInitialized() && contentManager.value.isDisposed
 

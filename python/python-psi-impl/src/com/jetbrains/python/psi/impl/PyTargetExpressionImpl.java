@@ -13,14 +13,15 @@ import com.intellij.psi.search.LocalSearchScope;
 import com.intellij.psi.search.SearchScope;
 import com.intellij.psi.stubs.IStubElementType;
 import com.intellij.psi.stubs.StubElement;
+import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.QualifiedName;
 import com.intellij.ui.IconManager;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.containers.ContainerUtil;
+import com.jetbrains.python.PyElementTypes;
 import com.jetbrains.python.PyNames;
-import com.jetbrains.python.PyStubElementTypes;
 import com.jetbrains.python.codeInsight.controlflow.ControlFlowCache;
 import com.jetbrains.python.codeInsight.controlflow.ScopeOwner;
 import com.jetbrains.python.codeInsight.dataflow.scope.Scope;
@@ -113,11 +114,17 @@ public class PyTargetExpressionImpl extends PyBaseElementImpl<PyTargetExpression
   }
 
   public PyTargetExpressionImpl(final PyTargetExpressionStub stub) {
-    super(stub, PyStubElementTypes.TARGET_EXPRESSION);
+    super(stub, PyElementTypes.TARGET_EXPRESSION);
   }
 
-  public PyTargetExpressionImpl(final PyTargetExpressionStub stub, IStubElementType nodeType) {
+  public PyTargetExpressionImpl(final PyTargetExpressionStub stub, IElementType nodeType) {
     super(stub, nodeType);
+  }
+
+  /** @deprecated use {@link #PyTargetExpressionImpl(PyTargetExpressionStub, IElementType)}. */
+  @Deprecated(forRemoval = true)
+  public PyTargetExpressionImpl(final PyTargetExpressionStub stub, IStubElementType<?, ?> nodeType) {
+    this(stub, (IElementType)nodeType);
   }
 
   @Override
@@ -240,6 +247,18 @@ public class PyTargetExpressionImpl extends PyBaseElementImpl<PyTargetExpression
             if (positionalItemType != null) {
               return positionalItemType;
             }
+          }
+        }
+      }
+      // `with cm as (a, b)` unpacks the value of `__enter__` or `__aenter__`
+      if (nextParent instanceof PyWithItem withItem &&
+          PyPsiUtils.flattenParens(withItem.getTarget()) instanceof PySequenceExpression target &&
+          (target instanceof PyTupleExpression || target instanceof PyListLiteralExpression)) {
+        var enterType = getWithItemVariableType(withItem, context);
+        if (enterType != null) {
+          var positionalItemType = getTargetTypeFromIterableUnpacking(this, target, null, enterType, context);
+          if (positionalItemType != null) {
+            return positionalItemType;
           }
         }
       }

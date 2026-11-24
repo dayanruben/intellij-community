@@ -389,6 +389,7 @@
     <!-- region nested: essential > execution.split -->
     <module name="intellij.platform.execution.impl.frontend"/>
     <module name="intellij.platform.execution.impl.backend"/>
+    <module name="intellij.platform.execution.impl.rpc.backend"/>
     <module name="intellij.platform.execution.rpc"/>
     <!-- endregion -->
 
@@ -438,6 +439,7 @@
     <!-- region nested: debugger -->
     <module name="intellij.platform.debugger.impl.frontend"/>
     <module name="intellij.platform.debugger.impl.backend"/>
+    <module name="intellij.platform.debugger.impl.rpc.backend"/>
     <module name="intellij.platform.debugger.impl.shared"/>
     <module name="intellij.platform.debugger.impl.rpc"/>
     <module name="intellij.platform.debugger.impl.ui"/>
@@ -509,6 +511,7 @@
     <module name="intellij.platform.lsp"/>
     <module name="intellij.platform.lsp.impl"/>
     <module name="intellij.platform.lsp.impl.structureView"/>
+    <module name="intellij.platform.lsp.impl.problems"/>
     <!-- endregion -->
     <!-- endregion -->
 

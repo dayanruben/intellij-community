@@ -27,6 +27,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.registry.Registry
 import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.idea.maven.model.MavenExplicitProfiles
 import java.io.OutputStream
 import java.nio.file.Path
 import kotlin.io.path.ExperimentalPathApi
@@ -108,7 +109,7 @@ class SurefireTestRunProfileState(
     val mavenResult = delegate.execute(executor, runner) ?: return null
     val mavenHandler = (mavenResult as? DefaultExecutionResult)?.processHandler ?: return mavenResult
 
-    val proxy = SurefireProcessProxy(mavenHandler, testModuleDirectory, configuration.reportSuffix)
+    val proxy = SurefireProcessProxy(mavenHandler, testModuleDirectory, configuration.reportSuffix, configuration.name)
     val properties = SurefireTestConsoleProperties(configuration, this.executor)
     val console = SMTestRunnerConnectionUtil.createConsole(properties)
     console.attachToProcess(proxy)
@@ -125,7 +126,8 @@ class SurefireTestRunProfileState(
 /**
  * Wraps the Maven [ProcessHandler] to present a unified lifecycle to the SM test runner console.
  *
- * - `startNotify()` starts the proxy AND the Maven handler so output begins to flow.
+ * - `startNotify()` starts the proxy AND the Maven handler so output begins to flow, and gives the root node of the
+ *   test tree the name [rootName].
  * - On Maven termination, surefire reports are parsed and fed as TC service messages before the
  *   proxy signals its own termination.  This keeps everything in a single Run toolwindow tab.
  * - `destroyProcess()` / `detachProcess()` delegate to the Maven handler so the Stop button works.
@@ -136,6 +138,7 @@ private class SurefireProcessProxy(
   private val mavenHandler: ProcessHandler,
   private val testModuleDirectory: String,
   private val reportSuffix: String?,
+  private val rootName: String,
 ) : ProcessHandler() {
 
   // Filters out [IJ]-... Maven spy protocol messages (normally consumed by MavenHandlerFilterSpyWrapper).
@@ -185,6 +188,9 @@ private class SurefireProcessProxy(
       }
     }
     super.startNotify()           // fires startNotified on proxy listeners (SM console)
+    // The Maven output goes to the root node, and a test history entry (TestResultsXmlFormatter) keeps the output of
+    // the root node only when the root has a name (IDEA-395942).
+    notifyTextAvailable(SurefireReportParser.rootNameMessage(rootName) + "\n", ProcessOutputTypes.STDOUT)
     mavenHandler.startNotify()    // starts event dispatching on the Maven process
   }
 
@@ -193,3 +199,22 @@ private class SurefireProcessProxy(
   override fun detachIsDefault(): Boolean = false
   override fun getProcessInput(): OutputStream? = null
 }
+
+/**
+ * The Surefire `-Dtest=` filter that selects the test classes of [packageName] and of its subpackages, as "All in
+ * package" does in the IDE. The empty package selects all test classes.
+ *
+ * Do not use `<package>.*`: Surefire reads a final `.*` as "any file extension", so `com.example.*` selects the class
+ * `com.example`, and no test runs (IDEA-394511).
+ */
+@ApiStatus.Internal
+fun surefirePackageFilter(packageName: String): String = if (packageName.isEmpty()) "*" else "$packageName.**"
+
+/**
+ * The [MavenRunnerParameters.getProfilesMap] of a delegated test run: `true` for each profile that is checked in the
+ * Maven tool window, `false` for each profile that is cleared. A delegated build gives Maven the same profiles
+ * (IDEA-396099).
+ */
+@ApiStatus.Internal
+fun surefireProfilesMap(profiles: MavenExplicitProfiles): Map<String, Boolean> =
+  profiles.enabledProfiles.associateWith { true } + profiles.disabledProfiles.associateWith { false }

@@ -26,6 +26,7 @@ import com.intellij.testFramework.TestDataPath;
 import com.intellij.testFramework.TestIndexingModeSupporter;
 import com.intellij.testFramework.UsefulTestCase;
 import com.intellij.testFramework.fixtures.impl.LightTempDirTestFixtureImpl;
+import com.intellij.util.lang.JavaVersion;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.TestOnly;
@@ -82,6 +83,13 @@ public abstract class LightJavaCodeInsightFixtureTestCase extends UsefulTestCase
       myWithAnnotations = withAnnotations;
     }
 
+    /**
+     * Returns the language level of the module.
+     */
+    public @NotNull LanguageLevel getLanguageLevel() {
+      return myLanguageLevel;
+    }
+
     @Override
     public void setUpProject(@NotNull Project project, @NotNull SetupHandler handler) throws Exception {
       if (myLanguageLevel.isPreview() || myLanguageLevel == LanguageLevel.JDK_X) {
@@ -101,9 +109,17 @@ public abstract class LightJavaCodeInsightFixtureTestCase extends UsefulTestCase
       createContentEntry(module, sourceRoot);
     }
 
+    /**
+     * Returns the Java version of the mock JDK of the module. By default, it is the version of the language level.
+     * {@link IdeaTestUtil#getMockJdk(JavaVersion)} maps the version to a mock JDK.
+     */
+    public @NotNull JavaVersion getMockJdkVersion() {
+      return myLanguageLevel.toJavaVersion();
+    }
+
     @Override
     public Sdk getSdk() {
-      Sdk jdk = IdeaTestUtil.getMockJdk(myLanguageLevel.toJavaVersion());
+      Sdk jdk = IdeaTestUtil.getMockJdk(getMockJdkVersion());
       return myWithAnnotations ? PsiTestUtil.addJdkAnnotations(jdk) : jdk;
     }
 
@@ -117,12 +133,15 @@ public abstract class LightJavaCodeInsightFixtureTestCase extends UsefulTestCase
     @Override
     public void configureModule(@NotNull Module module, @NotNull ModifiableRootModel model, @NotNull ContentEntry contentEntry) {
       model.getModuleExtension(LanguageLevelModuleExtension.class).setLanguageLevel(myLanguageLevel);
-      if (myLanguageLevel.isAtLeast(LanguageLevel.JDK_1_8)) {
-        addJetBrainsAnnotationsWithTypeUse(model);
-      }
-      else {
-        addJetBrainsAnnotations(model);
-      }
+      MavenDependencyUtil.addFromMaven(model, getJetBrainsAnnotationsCoordinates());
+    }
+
+    /**
+     * Returns the Maven coordinates of the JetBrains annotations of the module.
+     * From Java 8, they are the annotations with type use. Below Java 8, they are the annotations for Java 5.
+     */
+    public @NotNull String getJetBrainsAnnotationsCoordinates() {
+      return myLanguageLevel.isAtLeast(LanguageLevel.JDK_1_8) ? JETBRAINS_ANNOTATIONS_COORDINATES_JAVA_8 : JETBRAINS_ANNOTATIONS_COORDINATES;
     }
   }
 
@@ -175,8 +194,8 @@ public abstract class LightJavaCodeInsightFixtureTestCase extends UsefulTestCase
    */
   public static final @NotNull LightProjectDescriptor JAVA_LATEST = new ProjectDescriptor(LanguageLevel.HIGHEST) {
     @Override
-    public Sdk getSdk() {
-      return IdeaTestUtil.getMockJdk17();
+    public @NotNull JavaVersion getMockJdkVersion() {
+      return JavaVersion.compose(7);
     }
   };
 

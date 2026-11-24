@@ -343,6 +343,36 @@ public abstract class KotlinFirInlineTestGenerated extends AbstractKotlinFirInli
         public void testUseSiteVarianceReordered() throws Exception {
             runTest("testData/inline/inlineTypeAlias/useSiteVarianceReordered.kt");
         }
+
+        @TestMetadata("varargArrayParameter.kt")
+        public void testVarargArrayParameter() throws Exception {
+            runTest("testData/inline/inlineTypeAlias/varargArrayParameter.kt");
+        }
+
+        @TestMetadata("varargGenericParameter.kt")
+        public void testVarargGenericParameter() throws Exception {
+            runTest("testData/inline/inlineTypeAlias/varargGenericParameter.kt");
+        }
+
+        @TestMetadata("varargNestedTypeArgument.kt")
+        public void testVarargNestedTypeArgument() throws Exception {
+            runTest("testData/inline/inlineTypeAlias/varargNestedTypeArgument.kt");
+        }
+
+        @TestMetadata("varargNullableParameter.kt")
+        public void testVarargNullableParameter() throws Exception {
+            runTest("testData/inline/inlineTypeAlias/varargNullableParameter.kt");
+        }
+
+        @TestMetadata("varargParameter.kt")
+        public void testVarargParameter() throws Exception {
+            runTest("testData/inline/inlineTypeAlias/varargParameter.kt");
+        }
+
+        @TestMetadata("varargSuspendFunctionParameter.kt")
+        public void testVarargSuspendFunctionParameter() throws Exception {
+            runTest("testData/inline/inlineTypeAlias/varargSuspendFunctionParameter.kt");
+        }
     }
 
     @RunWith(JUnit3RunnerWithInners.class)
@@ -1139,6 +1169,16 @@ public abstract class KotlinFirInlineTestGenerated extends AbstractKotlinFirInli
             @TestMetadata("intMax.kt")
             public void testIntMax() throws Exception {
                 runTest("testData/inline/inlineVariableOrProperty/intMax.kt");
+            }
+
+            @TestMetadata("lambdaWithoutParameters.kt")
+            public void testLambdaWithoutParameters() throws Exception {
+                runTest("testData/inline/inlineVariableOrProperty/lambdaWithoutParameters.kt");
+            }
+
+            @TestMetadata("lambdaWithoutParametersAsArgument.kt")
+            public void testLambdaWithoutParametersAsArgument() throws Exception {
+                runTest("testData/inline/inlineVariableOrProperty/lambdaWithoutParametersAsArgument.kt");
             }
 
             @TestMetadata("lessAndGreaterInCallArgs.kt")
@@ -1986,6 +2026,49 @@ public abstract class KotlinFirInlineTestGenerated extends AbstractKotlinFirInli
             @TestMetadata("usageInImport.kt")
             public void testUsageInImport() throws Exception {
                 runTest("testData/inline/namedFunction/fromKotlinToJava/usageInImport.kt");
+            }
+        }
+
+        @RunWith(JUnit3RunnerWithInners.class)
+        @TestMetadata("testData/inline/namedFunction/operatorSideEffects")
+        public static class OperatorSideEffects extends AbstractKotlinFirInlineTest {
+            private void runTest(String testDataFilePath) throws Exception {
+                KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+            }
+
+            @TestMetadata("abstractArrayAccess.kt")
+            public void testAbstractArrayAccess() throws Exception {
+                runTest("testData/inline/namedFunction/operatorSideEffects/abstractArrayAccess.kt");
+            }
+
+            @TestMetadata("customExtension.kt")
+            public void testCustomExtension() throws Exception {
+                runTest("testData/inline/namedFunction/operatorSideEffects/customExtension.kt");
+            }
+
+            @TestMetadata("nestedOperator.kt")
+            public void testNestedOperator() throws Exception {
+                runTest("testData/inline/namedFunction/operatorSideEffects/nestedOperator.kt");
+            }
+
+            @TestMetadata("repeatedArgument.kt")
+            public void testRepeatedArgument() throws Exception {
+                runTest("testData/inline/namedFunction/operatorSideEffects/repeatedArgument.kt");
+            }
+
+            @TestMetadata("stdlibOperators.kt")
+            public void testStdlibOperators() throws Exception {
+                runTest("testData/inline/namedFunction/operatorSideEffects/stdlibOperators.kt");
+            }
+
+            @TestMetadata("unusedArgument.kt")
+            public void testUnusedArgument() throws Exception {
+                runTest("testData/inline/namedFunction/operatorSideEffects/unusedArgument.kt");
+            }
+
+            @TestMetadata("unusedReceiver.kt")
+            public void testUnusedReceiver() throws Exception {
+                runTest("testData/inline/namedFunction/operatorSideEffects/unusedReceiver.kt");
             }
         }
 

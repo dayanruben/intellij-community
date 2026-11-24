@@ -488,6 +488,10 @@
                  defaultValue="true"
                  description="Save and restore the appearance settings for tool windows with each layout"
                  restartRequired="false"/>
+    <registryKey key="ide.frame.guests.legacy.tool.windows"
+                 defaultValue="false"
+                 description="In a frame that shows several projects, a tool window that knows one project gets a project selector"
+                 restartRequired="true"/>
     <registryKey
       key="universal.file.chooser.is.enabled"
       defaultValue="true"
@@ -1905,7 +1909,6 @@
                         serviceImplementation="com.intellij.workspaceModel.ide.impl.GlobalWorkspaceModelCacheImpl"/>
     <projectService serviceInterface="com.intellij.platform.backend.workspace.WorkspaceModelCache"
                     serviceImplementation="com.intellij.workspaceModel.ide.impl.WorkspaceModelCacheImpl"/>
-    <applicationActivity implementation="com.intellij.ide.ui.UiDslAndHtmlClassesWarmUp"/>
     <applicationActivity implementation="com.intellij.openapi.wm.impl.FrameClassesWarmUp"/>
     <applicationActivity implementation="com.intellij.openapi.actionSystem.impl.ActionListenerClassesWarmUp"/>
     <cachesInvalidator implementation="com.intellij.workspaceModel.ide.impl.WorkspaceModelCachesInvalidator"/>

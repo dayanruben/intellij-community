@@ -17,6 +17,7 @@ import com.intellij.psi.util.parents
 import com.jetbrains.python.PyNames
 import com.jetbrains.python.PyPsiBundle
 import com.jetbrains.python.PyTokenTypes
+import com.jetbrains.python.ast.PyAstBinaryExpression
 import com.jetbrains.python.codeInsight.dataflow.scope.ScopeUtil.getScopeOwner
 import com.jetbrains.python.codeInsight.stdlib.PyDataclassTransformResolver
 import com.jetbrains.python.codeInsight.stdlib.PyNamedTupleTypeProvider
@@ -396,7 +397,7 @@ open class PyTypeCheckerInspection : PyInspection() {
           }
 
           val actual =
-            if (returnExpr == null) PyBuiltinCache.getInstance(node).noneType ?: PyAnyType.unknown
+            if (returnExpr == null) PyBuiltinCache.getInstance(node).noneTypeOrUnknown
             else returnExpr.getType(myTypeEvalContext)
           if (!matchesExpectedType(expected, actual, returnExpr, null)) {
             if (returnExpr != null) {
@@ -1040,7 +1041,7 @@ open class PyTypeCheckerInspection : PyInspection() {
       if (hasExplicitType(node)) {
         val annotation = node.annotation
         val expected: PyType? = getExpectedReturnStatementType(node, myTypeEvalContext)
-        val noneType: PyType? = PyBuiltinCache.getInstance(node).noneType ?: PyAnyType.unknown
+        val noneType: PyType? = PyBuiltinCache.getInstance(node).noneTypeOrUnknown
         val returnsNone = expected.isNoneType
         val returnsOptional = match(expected, noneType, myTypeEvalContext)
 
@@ -1271,7 +1272,7 @@ open class PyTypeCheckerInspection : PyInspection() {
       val (lhs, rhs) =
         when (callSite) {
           is PyBinaryExpression ->
-            callSite.leftExpression to callSite.rightExpression
+            PyAstBinaryExpression.getChainedComparisonAwareLeftExpression(callSite) as PyExpression? to callSite.rightExpression
           is PyAugAssignmentStatement ->
             callSite.target to callSite.value
           else -> null

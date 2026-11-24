@@ -30,6 +30,7 @@ import com.jetbrains.python.psi.impl.stubs.PyFromImportStatementElementType;
 import com.jetbrains.python.psi.impl.stubs.PyFunctionElementType;
 import com.jetbrains.python.psi.impl.stubs.PyImportElementElementType;
 import com.jetbrains.python.psi.impl.stubs.PyImportStatementElementType;
+import com.jetbrains.python.psi.impl.stubs.PyLegacyStubElementType;
 import com.jetbrains.python.psi.impl.stubs.PyNamedParameterElementType;
 import com.jetbrains.python.psi.impl.stubs.PyParameterListElementType;
 import com.jetbrains.python.psi.impl.stubs.PySingleStarParameterElementType;
@@ -60,32 +61,101 @@ import com.jetbrains.python.psi.stubs.PyTypeAliasStatementStub;
 import com.jetbrains.python.psi.stubs.PyTypeParameterListStub;
 import com.jetbrains.python.psi.stubs.PyTypeParameterStub;
 
+
+/**
+ * The legacy {@link PyStubElementType} view of the stub element types, kept for an external plugin.
+ * <p>
+ * The Python PSI uses the plain constants of {@link PyElementTypes} as the node types, and binds the stubs to them through
+ * {@link com.jetbrains.python.psi.impl.stubs.PyStubRegistryExtension}. Each constant here is a separate
+ * {@link PyLegacyStubElementType} that delegates to the same factory. It is not the node type of any tree node, so a comparison
+ * with {@code node.getElementType()} fails. Use {@link PyElementTypes} instead.
+ * <p>
+ * The {@code stubElementTypeHolder} registration of this interface derives the external id of each constant from the field name.
+ * Keep the field names.
+ */
 public interface PyStubElementTypes {
-  PyStubElementType<PyFunctionStub, PyFunction> FUNCTION_DECLARATION = new PyFunctionElementType();
-  PyStubElementType<PyClassStub, PyClass> CLASS_DECLARATION = new PyClassElementType();
-  PyStubElementType<PyParameterListStub, PyParameterList> PARAMETER_LIST = new PyParameterListElementType();
+  /** @deprecated use {@link PyElementTypes#FUNCTION_DECLARATION}. */
+  @Deprecated(forRemoval = true)
+  PyStubElementType<PyFunctionStub, PyFunction> FUNCTION_DECLARATION =
+    new PyLegacyStubElementType<>(PyElementTypes.FUNCTION_DECLARATION, new PyFunctionElementType());
+  /** @deprecated use {@link PyElementTypes#CLASS_DECLARATION}. */
+  @Deprecated(forRemoval = true)
+  PyStubElementType<PyClassStub, PyClass> CLASS_DECLARATION =
+    new PyLegacyStubElementType<>(PyElementTypes.CLASS_DECLARATION, new PyClassElementType());
+  /** @deprecated use {@link PyElementTypes#PARAMETER_LIST}. */
+  @Deprecated(forRemoval = true)
+  PyStubElementType<PyParameterListStub, PyParameterList> PARAMETER_LIST =
+    new PyLegacyStubElementType<>(PyElementTypes.PARAMETER_LIST, new PyParameterListElementType());
 
-  PyStubElementType<PyDecoratorListStub, PyDecoratorList> DECORATOR_LIST = new PyDecoratorListElementType();
+  /** @deprecated use {@link PyElementTypes#DECORATOR_LIST}. */
+  @Deprecated(forRemoval = true)
+  PyStubElementType<PyDecoratorListStub, PyDecoratorList> DECORATOR_LIST =
+    new PyLegacyStubElementType<>(PyElementTypes.DECORATOR_LIST, new PyDecoratorListElementType());
 
-  PyStubElementType<PyNamedParameterStub, PyNamedParameter> NAMED_PARAMETER = new PyNamedParameterElementType();
-  PyStubElementType<PyTupleParameterStub, PyTupleParameter> TUPLE_PARAMETER = new PyTupleParameterElementType();
-  PyStubElementType<PySlashParameterStub, PySlashParameter> SLASH_PARAMETER = new PySlashParameterElementType();
-  PyStubElementType<PySingleStarParameterStub, PySingleStarParameter> SINGLE_STAR_PARAMETER = new PySingleStarParameterElementType();
+  /** @deprecated use {@link PyElementTypes#NAMED_PARAMETER}. */
+  @Deprecated(forRemoval = true)
+  PyStubElementType<PyNamedParameterStub, PyNamedParameter> NAMED_PARAMETER =
+    new PyLegacyStubElementType<>(PyElementTypes.NAMED_PARAMETER, new PyNamedParameterElementType());
+  /** @deprecated use {@link PyElementTypes#TUPLE_PARAMETER}. */
+  @Deprecated(forRemoval = true)
+  PyStubElementType<PyTupleParameterStub, PyTupleParameter> TUPLE_PARAMETER =
+    new PyLegacyStubElementType<>(PyElementTypes.TUPLE_PARAMETER, new PyTupleParameterElementType());
+  /** @deprecated use {@link PyElementTypes#SLASH_PARAMETER}. */
+  @Deprecated(forRemoval = true)
+  PyStubElementType<PySlashParameterStub, PySlashParameter> SLASH_PARAMETER =
+    new PyLegacyStubElementType<>(PyElementTypes.SLASH_PARAMETER, new PySlashParameterElementType());
+  /** @deprecated use {@link PyElementTypes#SINGLE_STAR_PARAMETER}. */
+  @Deprecated(forRemoval = true)
+  PyStubElementType<PySingleStarParameterStub, PySingleStarParameter> SINGLE_STAR_PARAMETER =
+    new PyLegacyStubElementType<>(PyElementTypes.SINGLE_STAR_PARAMETER, new PySingleStarParameterElementType());
 
-  PyStubElementType<PyDecoratorStub, PyDecorator> DECORATOR_CALL = new PyDecoratorCallElementType();
+  /** @deprecated use {@link PyElementTypes#DECORATOR_CALL}. */
+  @Deprecated(forRemoval = true)
+  PyStubElementType<PyDecoratorStub, PyDecorator> DECORATOR_CALL =
+    new PyLegacyStubElementType<>(PyElementTypes.DECORATOR_CALL, new PyDecoratorCallElementType());
 
-  PyStubElementType<PyImportElementStub, PyImportElement> IMPORT_ELEMENT = new PyImportElementElementType();
+  /** @deprecated use {@link PyElementTypes#IMPORT_ELEMENT}. */
+  @Deprecated(forRemoval = true)
+  PyStubElementType<PyImportElementStub, PyImportElement> IMPORT_ELEMENT =
+    new PyLegacyStubElementType<>(PyElementTypes.IMPORT_ELEMENT, new PyImportElementElementType());
 
-  PyStubElementType<PyAnnotationStub, PyAnnotation> ANNOTATION = new PyAnnotationElementType();
+  /** @deprecated use {@link PyElementTypes#ANNOTATION}. */
+  @Deprecated(forRemoval = true)
+  PyStubElementType<PyAnnotationStub, PyAnnotation> ANNOTATION =
+    new PyLegacyStubElementType<>(PyElementTypes.ANNOTATION, new PyAnnotationElementType());
 
-  PyStubElementType<PyStarImportElementStub, PyStarImportElement> STAR_IMPORT_ELEMENT = new PyStarImportElementElementType();
-  PyStubElementType<PyExceptPartStub, PyExceptPart> EXCEPT_PART = new PyExceptPartElementType();
+  /** @deprecated use {@link PyElementTypes#STAR_IMPORT_ELEMENT}. */
+  @Deprecated(forRemoval = true)
+  PyStubElementType<PyStarImportElementStub, PyStarImportElement> STAR_IMPORT_ELEMENT =
+    new PyLegacyStubElementType<>(PyElementTypes.STAR_IMPORT_ELEMENT, new PyStarImportElementElementType());
+  /** @deprecated use {@link PyElementTypes#EXCEPT_PART}. */
+  @Deprecated(forRemoval = true)
+  PyStubElementType<PyExceptPartStub, PyExceptPart> EXCEPT_PART =
+    new PyLegacyStubElementType<>(PyElementTypes.EXCEPT_PART, new PyExceptPartElementType());
 
-  PyStubElementType<PyFromImportStatementStub, PyFromImportStatement> FROM_IMPORT_STATEMENT = new PyFromImportStatementElementType();
-  PyStubElementType<PyImportStatementStub, PyImportStatement> IMPORT_STATEMENT = new PyImportStatementElementType();
+  /** @deprecated use {@link PyElementTypes#FROM_IMPORT_STATEMENT}. */
+  @Deprecated(forRemoval = true)
+  PyStubElementType<PyFromImportStatementStub, PyFromImportStatement> FROM_IMPORT_STATEMENT =
+    new PyLegacyStubElementType<>(PyElementTypes.FROM_IMPORT_STATEMENT, new PyFromImportStatementElementType());
+  /** @deprecated use {@link PyElementTypes#IMPORT_STATEMENT}. */
+  @Deprecated(forRemoval = true)
+  PyStubElementType<PyImportStatementStub, PyImportStatement> IMPORT_STATEMENT =
+    new PyLegacyStubElementType<>(PyElementTypes.IMPORT_STATEMENT, new PyImportStatementElementType());
 
-  PyStubElementType<PyTargetExpressionStub, PyTargetExpression> TARGET_EXPRESSION = new PyTargetExpressionElementType();
-  PyStubElementType<PyTypeParameterStub, PyTypeParameter> TYPE_PARAMETER = new PyTypeParameterElementType();
-  PyStubElementType<PyTypeParameterListStub, PyTypeParameterList> TYPE_PARAMETER_LIST = new PyTypeParameterListElementType();
-  PyStubElementType<PyTypeAliasStatementStub, PyTypeAliasStatement> TYPE_ALIAS_STATEMENT = new PyTypeAliasStatementElementType();
+  /** @deprecated use {@link PyElementTypes#TARGET_EXPRESSION}. */
+  @Deprecated(forRemoval = true)
+  PyStubElementType<PyTargetExpressionStub, PyTargetExpression> TARGET_EXPRESSION =
+    new PyLegacyStubElementType<>(PyElementTypes.TARGET_EXPRESSION, new PyTargetExpressionElementType());
+  /** @deprecated use {@link PyElementTypes#TYPE_PARAMETER}. */
+  @Deprecated(forRemoval = true)
+  PyStubElementType<PyTypeParameterStub, PyTypeParameter> TYPE_PARAMETER =
+    new PyLegacyStubElementType<>(PyElementTypes.TYPE_PARAMETER, new PyTypeParameterElementType());
+  /** @deprecated use {@link PyElementTypes#TYPE_PARAMETER_LIST}. */
+  @Deprecated(forRemoval = true)
+  PyStubElementType<PyTypeParameterListStub, PyTypeParameterList> TYPE_PARAMETER_LIST =
+    new PyLegacyStubElementType<>(PyElementTypes.TYPE_PARAMETER_LIST, new PyTypeParameterListElementType());
+  /** @deprecated use {@link PyElementTypes#TYPE_ALIAS_STATEMENT}. */
+  @Deprecated(forRemoval = true)
+  PyStubElementType<PyTypeAliasStatementStub, PyTypeAliasStatement> TYPE_ALIAS_STATEMENT =
+    new PyLegacyStubElementType<>(PyElementTypes.TYPE_ALIAS_STATEMENT, new PyTypeAliasStatementElementType());
 }

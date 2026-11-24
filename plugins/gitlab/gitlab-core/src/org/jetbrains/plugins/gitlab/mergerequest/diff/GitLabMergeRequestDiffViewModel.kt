@@ -25,6 +25,7 @@ import com.intellij.openapi.util.Key
 import com.intellij.platform.util.coroutines.childScope
 import git4idea.changes.GitBranchComparisonResult
 import git4idea.changes.GitTextFilePatchWithHistory
+import git4idea.repo.GitRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
@@ -38,6 +39,7 @@ import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.plugins.gitlab.api.dto.GitLabUserDTO
 import org.jetbrains.plugins.gitlab.data.GitLabImageLoader
 import org.jetbrains.plugins.gitlab.mergerequest.GitLabMergeRequestsPreferences
+import org.jetbrains.plugins.gitlab.mergerequest.data.GitLabLocalRepository
 import org.jetbrains.plugins.gitlab.mergerequest.data.GitLabMergeRequest
 import org.jetbrains.plugins.gitlab.mergerequest.data.GitLabMergeRequestChanges
 import org.jetbrains.plugins.gitlab.mergerequest.data.loadRevisionsAndParseChanges
@@ -90,12 +92,14 @@ internal class GitLabMergeRequestDiffProcessorViewModelImpl(
   parentCs: CoroutineScope,
   currentUser: GitLabUserDTO,
   private val mergeRequest: GitLabMergeRequest,
+  private val gitRepository: GitRepository,
+  localRepository: GitLabLocalRepository,
   private val discussionsContainer: GitLabMergeRequestDiscussionsViewModels,
   private val avatarIconsProvider: IconsProvider<GitLabUserDTO>,
   private val imageLoader: GitLabImageLoader,
 ) : GitLabMergeRequestDiffViewModel, GitLabMergeRequestReviewViewModelBase(
   parentCs.childScope("GitLab Merge Request Diff Review VM"),
-  project, currentUser, mergeRequest,
+  project, localRepository, currentUser, mergeRequest,
   project.service<GitLabMergeRequestsPreferences>().diffReviewViewOption
 ) {
   private val preferences = project.service<GitLabMergeRequestsPreferences>()
@@ -229,7 +233,7 @@ internal class GitLabMergeRequestDiffProcessorViewModelImpl(
   ) =
     GitLabMergeRequestDiffReviewViewModelImpl(
       project, this,
-      mergeRequest, parsedChanges, diffData, change,
+      mergeRequest, gitRepository, parsedChanges, diffData, change,
       this@GitLabMergeRequestDiffProcessorViewModelImpl,
       discussionsContainer, discussionsViewOption, avatarIconsProvider,
       imageLoader

@@ -56,9 +56,11 @@ import java.io.File
 import java.io.PrintStream
 import java.nio.charset.Charset
 import java.nio.file.AccessDeniedException
+import java.nio.file.FileAlreadyExistsException
 import java.nio.file.FileSystems
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.StandardOpenOption
 import java.util.concurrent.CancellationException
 import kotlin.io.path.ExperimentalPathApi
 import kotlin.io.path.absolutePathString
@@ -73,6 +75,7 @@ import kotlin.random.Random
 
 private const val EXIT_FAILURE = 41  // prevent ignoring any System.exit(1) as test failures
 private const val NO_TESTS_ERROR = 42
+private const val TEST_CLASSPATH_ARTIFACT_DIR = "test-classpath"
 
 internal class TestingTasksImpl(context: CompilationContext, private val options: TestingOptions) : TestingTasks {
   private val context: CompilationContext = if (options.useArchivedCompiledClasses) context.asArchived else context
@@ -272,6 +275,7 @@ internal class TestingTasksImpl(context: CompilationContext, private val options
     ).forEach(::setPropertyFromPass)
 
     val modules = JpsJavaExtensionService.dependencies(mainModule).recursively().modules.toList()
+    val performanceTestFinder = if (options.isPerformanceTestsOnly) createPerformanceUnitTestFinder(modules) else null
     val hasTests = modules.mapConcurrent {
       if (rootExcludeCondition != null) {
         val contentRoot = it.contentRootsList.urls.firstOrNull()?.let(JpsPathUtil::urlToNioPath)
@@ -288,12 +292,29 @@ internal class TestingTasksImpl(context: CompilationContext, private val options
         }
 
         // same as `com.intellij.tests.JUnit5TeamCityRunner.CommonTestClassesFilter` and `com.intellij.tests.JUnit5TeamCityRunner.BucketingClassNameFilter`
-        if (classNames.any { TestCaseLoader.isClassNameIncluded(it) && TestCaseLoader.matchesCurrentBucket(it) }) return@mapConcurrent true
+        if (classNames.any { isTestOfCurrentRun(it, performanceTestFinder) }) return@mapConcurrent true
       }
 
       false
     }
     return modules.filterIndexed { index, _ -> hasTests[index] }.sortedBy { it.name }
+  }
+
+  /**
+   * The performance check runs before the bucket check.
+   * The bucket check logs a line for each class that the season does not know.
+   */
+  private fun isTestOfCurrentRun(className: String, performanceTestFinder: PerformanceUnitTestFinder?): Boolean {
+    return TestCaseLoader.isClassNameIncluded(className) &&
+           (performanceTestFinder == null || performanceTestFinder.hasPerformanceTest(className)) &&
+           TestCaseLoader.matchesCurrentBucket(className)
+  }
+
+  private fun createPerformanceUnitTestFinder(modules: List<JpsModule>): PerformanceUnitTestFinder {
+    val classpath = modules
+      .flatMap { context.getModuleRuntimeClasspath(module = it, forTests = true) }
+      .distinct()
+    return PerformanceUnitTestFinder(UrlClassLoader.build().files(classpath).get())
   }
 
   private fun runTestsFromGroupsAndPatterns(
@@ -556,15 +577,17 @@ internal class TestingTasksImpl(context: CompilationContext, private val options
       messages.info("Runtime options: $allJvmArgs")
       messages.info("System properties: $systemProperties")
 
+      val classpathLines = ArrayList<String>()
       if (devBuildServerSettings == null) {
-        messages.info("Bootstrap classpath: $bootstrapClasspath")
+        classpathLines.add("Bootstrap classpath: $bootstrapClasspath")
       }
-
-      messages.info("Tests classpath: $testClasspath")
+      classpathLines.add("Tests classpath: $testClasspath")
       modulePath?.let { mp ->
         @Suppress("SpellCheckingInspection")
-        messages.info("Tests modulepath: $mp")
+        classpathLines.add("Tests modulepath: $mp")
       }
+      reportTestClasspath(testsModule.name, classpathLines)
+
       if (!envVariables.isEmpty()) {
         messages.info("Environment variables: $envVariables")
       }
@@ -808,6 +831,19 @@ internal class TestingTasksImpl(context: CompilationContext, private val options
       // tests.cmd doesn't call jps-to-bazel and there may be no build/bazel-targets.json file, use it from jps_to_bazel_targets_json rule
       systemProperties.put(ArchivedCompilationContextUtil.BAZEL_TARGETS_JSON_FILE_PROPERTY, ArchivedCompilationContextUtil.getBazelTargetsJsonPath(context.paths.projectHome).absolutePathString())  // resolve against JAVA_RUNFILES or RUNFILES_MANIFEST_FILE
     }
+  }
+
+  /**
+   * On TeamCity the class path goes to a build artifact. [TestingOptions.printTestClasspath] prints it in the build log.
+   */
+  private fun reportTestClasspath(moduleName: String, lines: List<String>) {
+    if (options.printTestClasspath || !TeamCityHelper.isUnderTeamCity) {
+      lines.forEach(context.messages::info)
+      return
+    }
+    val file = writeTestClasspath(context.paths.artifactDir.resolve(TEST_CLASSPATH_ARTIFACT_DIR), moduleName, lines)
+    context.notifyArtifactBuilt(file)
+    context.messages.info("Tests classpath: see the build artifact $TEST_CLASSPATH_ARTIFACT_DIR/${file.fileName}")
   }
 
   override fun runTestsSkippedInHeadlessEnvironment() {
@@ -1279,6 +1315,22 @@ internal class TestingTasksImpl(context: CompilationContext, private val options
       context.messages.warning("Tests failed with exit code $exitCode")
     }
     return exitCode
+  }
+}
+
+/**
+ * Writes [lines] to a new file in [directory] and returns the file.
+ * The file name starts with [moduleName], and each call creates its own file, also for the same module.
+ */
+internal fun writeTestClasspath(directory: Path, moduleName: String, lines: List<String>): Path {
+  Files.createDirectories(directory)
+  while (true) {
+    val file = directory.resolve("$moduleName-${Random.nextLong().toULong()}.txt")
+    try {
+      return Files.write(file, lines, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
+    }
+    catch (_: FileAlreadyExistsException) {
+    }
   }
 }
 

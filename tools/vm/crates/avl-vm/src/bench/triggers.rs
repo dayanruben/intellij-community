@@ -21,22 +21,27 @@ use super::session::{self, SelectedRun};
 use super::trace::tenth;
 
 /// The class name prefixes of the frames that the search for a trigger skips. The runtime, the libraries of the
-/// language, the service container, the extension points and the message bus call a plugin class on behalf of another
-/// frame. A trigger in them would put most loaders in one row, such as `ComponentManagerImplKt.doLoadClass`.
-const SKIPPED_PREFIXES: [&str; 8] = [
+/// language, the class loaders, the service and instance containers and their accessors, the extension points and the message bus call a
+/// plugin class on behalf of another frame. A trigger in them would put most loaders in one row, such as
+/// `ComponentManagerImplKt.doLoadClass`, and the JVM stack of a supertype ends in `UrlClassLoader.consumeClassData`.
+const SKIPPED_PREFIXES: [&str; 12] = [
     "java.",
     "jdk.",
     "sun.",
     "kotlin.",
     "kotlinx.",
+    "com.intellij.util.lang.",
+    "com.intellij.ide.plugins.cl.",
     "com.intellij.serviceContainer.",
+    "com.intellij.platform.instanceContainer.",
+    "com.intellij.openapi.components.",
     "com.intellij.openapi.extensions.",
     "com.intellij.util.messages.",
 ];
 
 /// The marker of a lambda class in a frame, such as `com.intellij.Foo$$Lambda/0x0000000801001000`. The class of the
 /// frame is the class before it.
-const LAMBDA_MARKER: &str = "$$Lambda";
+pub(crate) const LAMBDA_MARKER: &str = "$$Lambda";
 
 /// The row of the loaders without an activation stack.
 pub(crate) const NO_STACK: &str = "(no activation stack)";
@@ -50,14 +55,23 @@ pub(crate) const NO_OTHER_OWNER: &str = "(no frame of another owner)";
 pub(crate) fn trigger_frame(owner: &Owner, stack: &[String], log: &PluginLog) -> Option<String> {
     stack.iter().map(|frame| strip_frame_prefix(frame)).find_map(|frame| {
         let class = frame_class(frame)?;
-        if SKIPPED_PREFIXES.iter().any(|prefix| class.starts_with(prefix)) {
+        if is_skipped(class) {
             return None;
         }
-        let frame_owner = log
-            .owner(class)
-            .or_else(|| class.split_once(LAMBDA_MARKER).and_then(|(host, _)| log.owner(host)));
-        (frame_owner != Some(owner)).then(|| frame.to_owned())
+        (frame_owner(class, log) != Some(owner)).then(|| frame.to_owned())
     })
+}
+
+/// Tells whether the search for a trigger skips a frame of `class`, see [`SKIPPED_PREFIXES`].
+pub(crate) fn is_skipped(class: &str) -> bool {
+    SKIPPED_PREFIXES.iter().any(|prefix| class.starts_with(prefix))
+}
+
+/// The owner of the class of a frame in `log`. A lambda counts as its host class. A class without an owner in `log`
+/// is a platform class, which has none.
+pub(crate) fn frame_owner<'a>(class: &str, log: &'a PluginLog) -> Option<&'a Owner> {
+    log.owner(class)
+        .or_else(|| class.split_once(LAMBDA_MARKER).and_then(|(host, _)| log.owner(host)))
 }
 
 /// A frame without the prefix that `StackTraceElement.toString` writes before the class: `<loader>/`, `<module>/` or
@@ -73,7 +87,7 @@ pub(crate) fn strip_frame_prefix(frame: &str) -> &str {
 }
 
 /// The class of a frame without its prefix: the text before the method, which follows the last `.` before `(`.
-fn frame_class(frame: &str) -> Option<&str> {
+pub(crate) fn frame_class(frame: &str) -> Option<&str> {
     let head = frame.split_once('(').map_or(frame, |(head, _)| head);
     head.rsplit_once('.').map(|(class, _)| class)
 }

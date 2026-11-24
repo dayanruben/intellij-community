@@ -10,7 +10,6 @@ import com.intellij.formatting.FormattingModelProvider;
 import com.intellij.formatting.Indent;
 import com.intellij.formatting.SpacingBuilder;
 import com.intellij.lang.ASTNode;
-import com.intellij.openapi.progress.Cancellation;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
@@ -118,9 +117,6 @@ import static com.jetbrains.python.PyTokenTypes.YIELD_KEYWORD;
 @SuppressWarnings("UseOfSystemOutOrSystemErr")
 public class PythonFormattingModelBuilder implements FormattingModelBuilder, CustomFormattingModelBuilder {
   private static final boolean DUMP_FORMATTING_AST = false;
-  static final TokenSet STATEMENT_OR_DECLARATION = Cancellation.forceNonCancellableSectionInClassInitializer(
-    () -> PythonDialectsTokenSetProvider.getInstance().getStatementTokens()
-  );
   private static final TokenSet STAR_PATTERNS = TokenSet.create(SINGLE_STAR_PATTERN, DOUBLE_STAR_PATTERN);
   private static final TokenSet EXPRESSIONS_WITH_COLON = TokenSet.create(KEY_VALUE_EXPRESSION, KEY_VALUE_PATTERN, LAMBDA_EXPRESSION);
 
@@ -145,6 +141,7 @@ public class PythonFormattingModelBuilder implements FormattingModelBuilder, Cus
     final PyCodeStyleSettings pySettings = settings.getCustomSettings(PyCodeStyleSettings.class);
 
     final CommonCodeStyleSettings commonSettings = settings.getCommonSettings(PythonLanguage.getInstance());
+    final TokenSet statementOrDeclaration = PythonDialectsTokenSetProvider.getInstance().getStatementTokens();
     final SpacingBuilder builder = new SpacingBuilder(commonSettings)
       .before(END_OF_LINE_COMMENT).spacing(2, 0, 0, commonSettings.KEEP_LINE_BREAKS, commonSettings.KEEP_BLANK_LINES_IN_CODE)
       .after(END_OF_LINE_COMMENT).spacing(0, 0, 1, commonSettings.KEEP_LINE_BREAKS, commonSettings.KEEP_BLANK_LINES_IN_CODE)
@@ -155,7 +152,7 @@ public class PythonFormattingModelBuilder implements FormattingModelBuilder, Cus
       // Note that ImportOptimizer gets rid of them anyway.
       // Empty lines between import groups are handles in PyBlock#getSpacing
       .between(IMPORT_STATEMENTS, IMPORT_STATEMENTS).spacing(0, Integer.MAX_VALUE, 1, false, 1)
-      .between(STATEMENT_OR_DECLARATION, STATEMENT_OR_DECLARATION)
+      .between(statementOrDeclaration, statementOrDeclaration)
       .spacing(0, Integer.MAX_VALUE, 1, false, commonSettings.KEEP_BLANK_LINES_IN_CODE)
 
       .between(COLON, STATEMENT_LIST).spacing(1, Integer.MAX_VALUE, 0, true, 0)

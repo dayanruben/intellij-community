@@ -37,6 +37,8 @@ pub(crate) const RESULT_FILE: &str = "result.json";
 pub(crate) const TRACE_FILE: &str = "opentelemetry.json";
 /// The JVM class-load log of a run, which `-Xlog:class+load` writes. See [`super::classload`].
 pub(crate) const CLASS_LOAD_LOG: &str = "class-load.log";
+/// The JVM log of the Java stack of each class load of a run, which `--class-causes` turns on. See [`super::causes`].
+pub(crate) const CLASS_CAUSE_LOG: &str = "class-causes.log";
 pub(crate) const TEMPLATE_DIR: &str = "template";
 
 /// The directory below the runtime root that holds the bench state: `generations/` and `runs/`.
@@ -50,6 +52,15 @@ pub(crate) const GENERAL_SETTINGS: &str = r#"<application>
   <component name="GeneralSettings">
     <option name="confirmExit" value="false" />
     <option name="showTipsOnStartup" value="false" />
+  </component>
+</application>
+"#;
+
+/// The password settings of a sandbox template: the IDE keeps each password in its memory and reads no keychain of the
+/// host, as the IDE Starter does on Linux.
+pub(crate) const SECURITY_SETTINGS: &str = r#"<application>
+  <component name="PasswordSafe">
+    <option name="PROVIDER" value="MEMORY_ONLY" />
   </component>
 </application>
 "#;
@@ -172,8 +183,10 @@ pub(crate) struct SessionInfo {
 pub(crate) const MEASURE_MODEL_NAME: &str = "integration-test";
 
 /// The version of [`MEASURE_MODEL_NAME`]. A change of what every run passes to the IDE takes the next version. Version 2
-/// adds the thread lines to the class-load log and the thread dump after the gate.
-pub(crate) const MEASURE_MODEL_VERSION: u32 = 2;
+/// adds the thread lines to the class-load log and the thread dump after the gate. Version 3 gives the IDE no account,
+/// no Java preferences and no common data of the host: the home of its sandbox, the in-memory preferences of the
+/// generation and the passwords in its memory.
+pub(crate) const MEASURE_MODEL_VERSION: u32 = 3;
 
 /// What every measured run of a session passes that changes the IDE it measures, as a name and a version. `compare`
 /// notes two sessions of two models, because a delta between them mixes the change under test with the model.
@@ -230,7 +243,7 @@ pub(crate) struct GenerationRef {
     pub(crate) dist_digest: String,
 }
 
-/// The three directories of an IDE sandbox.
+/// The directories of an IDE sandbox: the config, the system, the plugins and the home of the user.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Sandbox {
     pub(crate) root: PathBuf,
@@ -253,6 +266,12 @@ impl Sandbox {
         self.root.join("plugins")
     }
 
+    /// The `user.home` of the IDE, so the common data of the platform, such as the pins of the Air mobile control, is
+    /// below the sandbox and not below the home of the host.
+    pub(crate) fn home(&self) -> PathBuf {
+        self.root.join("home")
+    }
+
     /// The FUS test scheme that lets the validator keep the welcome event ids.
     pub(crate) fn test_scheme(&self) -> PathBuf {
         self.config().join("event-log-metadata").join("fus").join("test-events-scheme.json")
@@ -266,13 +285,14 @@ pub(crate) fn license_file_name(platform_prefix: Option<&str>) -> String {
     format!("{}.key", platform_prefix.unwrap_or("idea").to_lowercase())
 }
 
-/// Writes the sandbox template: the general settings and the license, see [`license_file_name`]. The FUS test scheme
-/// comes from a headless run.
+/// Writes the sandbox template: the general settings, the password settings, the license, see [`license_file_name`],
+/// and an empty home. The FUS test scheme comes from a headless run.
 pub(crate) fn write_template(template: &Sandbox, license: &Path, platform_prefix: Option<&str>) -> anyhow::Result<()> {
     files::write_text(&template.config().join("options").join("ide.general.xml"), GENERAL_SETTINGS)?;
+    files::write_text(&template.config().join("options").join("security.xml"), SECURITY_SETTINGS)?;
     let target = template.config().join(license_file_name(platform_prefix));
     std::fs::copy(license, &target).with_context(|| format!("cannot copy the license {}", license.display()))?;
-    for dir in [template.system(), template.plugins()] {
+    for dir in [template.system(), template.plugins(), template.home()] {
         std::fs::create_dir_all(&dir).with_context(|| format!("cannot create {}", dir.display()))?;
     }
     Ok(())

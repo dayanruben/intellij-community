@@ -7,11 +7,10 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiListLikeElement;
 import com.intellij.psi.stubs.IStubElementType;
-import com.intellij.psi.tree.TokenSet;
+import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.QualifiedName;
 import com.intellij.util.ArrayUtil;
 import com.jetbrains.python.PyElementTypes;
-import com.jetbrains.python.PyStubElementTypes;
 import com.jetbrains.python.psi.PyElement;
 import com.jetbrains.python.psi.PyElementVisitor;
 import com.jetbrains.python.psi.PyImportElement;
@@ -38,11 +37,17 @@ public class PyImportStatementImpl extends PyBaseElementImpl<PyImportStatementSt
   }
 
   public PyImportStatementImpl(PyImportStatementStub stub) {
-    this(stub, PyStubElementTypes.IMPORT_STATEMENT);
+    this(stub, PyElementTypes.IMPORT_STATEMENT);
   }
 
-  public PyImportStatementImpl(PyImportStatementStub stub, IStubElementType nodeType) {
+  public PyImportStatementImpl(PyImportStatementStub stub, IElementType nodeType) {
     super(stub, nodeType);
+  }
+
+  /** @deprecated use {@link #PyImportStatementImpl(PyImportStatementStub, IElementType)}. */
+  @Deprecated(forRemoval = true)
+  public PyImportStatementImpl(PyImportStatementStub stub, IStubElementType<?, ?> nodeType) {
+    this(stub, (IElementType)nodeType);
   }
 
   @Override
@@ -51,7 +56,7 @@ public class PyImportStatementImpl extends PyBaseElementImpl<PyImportStatementSt
     if (stub != null) {
       return stub.getChildrenByType(PyElementTypes.IMPORT_ELEMENT, count -> new PyImportElement[count]);
     }
-    return childrenToPsi(TokenSet.create(PyElementTypes.IMPORT_ELEMENT), new PyImportElement[0]);
+    return childrenToPsi(PyElementTypes.IMPORT_ELEMENTS, new PyImportElement[0]);
   }
 
   @Override

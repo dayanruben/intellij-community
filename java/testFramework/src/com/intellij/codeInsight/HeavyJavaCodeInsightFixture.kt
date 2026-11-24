@@ -4,6 +4,8 @@ package com.intellij.codeInsight
 import com.intellij.application.options.CodeStyle
 import com.intellij.codeInsight.daemon.impl.DaemonCodeAnalyzerEx
 import com.intellij.ide.DataManager
+import com.intellij.ide.highlighter.JavaFileType
+import com.intellij.ide.highlighter.ModuleFileType
 import com.intellij.ide.highlighter.ProjectFileType
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.IdeActions
@@ -16,6 +18,7 @@ import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.actionSystem.TypedAction
 import com.intellij.openapi.editor.impl.EditorImpl
+import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
@@ -36,6 +39,7 @@ import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VfsUtilCore
+import com.intellij.openapi.vfs.VirtualFileVisitor
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.newvfs.impl.VfsRootAccess
 import com.intellij.platform.testFramework.core.FileComparisonFailedError
@@ -44,6 +48,8 @@ import com.intellij.project.stateStore
 import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiFile
+import com.intellij.psi.PsiFileFactory
+import com.intellij.psi.PsiJavaFile
 import com.intellij.psi.PsiManager
 import com.intellij.psi.PsiReference
 import com.intellij.psi.codeStyle.CodeStyleSettingsManager
@@ -61,6 +67,7 @@ import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.PsiTestUtil
 import com.intellij.testFramework.TestApplicationManager
 import com.intellij.testFramework.TestDataProvider
+import com.intellij.testFramework.TestFrameworkUtil
 import com.intellij.testFramework.VfsTestUtil
 import com.intellij.testFramework.awaitPendingNavigationAndEditorOpenIfEnabled
 import com.intellij.testFramework.common.runAll
@@ -71,6 +78,7 @@ import com.intellij.testFramework.junit5.fixture.tempPathFixture
 import com.intellij.testFramework.junit5.fixture.testFixture
 import com.intellij.testFramework.runInEdtAndWait
 import com.intellij.util.ThrowableRunnable
+import org.intellij.lang.annotations.Language
 import org.jetbrains.annotations.TestOnly
 import java.io.File
 import java.io.IOException
@@ -276,6 +284,12 @@ open class HeavyJavaCodeInsightFixture(context: Context, val testDataPath: Strin
   fun getTestName(lowercaseFirstLetter: Boolean): String = PlatformTestUtil.getTestName(testMethod.name, lowercaseFirstLetter)
 
   /**
+   * `true` for a performance or a stress test, as `UsefulTestCase.isStressTest` decides it from the method name and the class.
+   */
+  val isStressTest: Boolean
+    get() = TestFrameworkUtil.isStressTest(testMethod.name, testClass)
+
+  /**
    * Returns `true` when the test method, its class or a superclass has [annotationClass].
    */
   protected fun annotatedWith(annotationClass: Class<out Annotation>): Boolean {
@@ -434,15 +448,18 @@ open class HeavyJavaCodeInsightFixture(context: Context, val testDataPath: Strin
     IndexingTestUtil.waitUntilIndexesAreReady(project)
 
     runInEdtAndWait {
-      val editors = editorInfos.keys.map { newVFile ->
+      dispatchEventsBeforeEditorOpen()
+      val editors = editorInfos.keys.mapNotNull { newVFile ->
         val psiFile = psiManager.findFile(newVFile)
         if (file == null) file = psiFile
+        if (newVFile.fileType.isBinary) return@mapNotNull null
         val newEditor = createEditor(newVFile)
         if (editor == null) editor = newEditor
         editorInfos[newVFile]?.applyToEditor(newEditor)
         newEditor
       }
       setActiveEditor(editors.last())
+      filesConfigured()
     }
     return toDir
   }
@@ -485,19 +502,20 @@ open class HeavyJavaCodeInsightFixture(context: Context, val testDataPath: Strin
     file = null
     editor = null
     runInEdtAndWait {
-      val newEditor = createEditor(virtualFile)
-      val document = newEditor.document
+      dispatchEventsBeforeEditorOpen()
+      // the writes come before the editor opens, so no write action cancels the first daemon session of the editor
+      val document = checkNotNull(FileDocumentManager.getInstance().getDocument(virtualFile)) { virtualFile.path }
       val editorInfo = EditorInfo(document.text)
       val newFileText = editorInfo.newFileText
-      WriteAction.run<RuntimeException> {
-        if (document.text != newFileText) {
-          document.setText(newFileText)
-        }
-        file = psiManager.findFile(virtualFile)
-        editor = newEditor
-        editorInfo.applyToEditor(newEditor)
+      if (document.text != newFileText) {
+        WriteAction.run<RuntimeException> { document.setText(newFileText) }
       }
+      val newEditor = createEditor(virtualFile)
+      file = psiManager.findFile(virtualFile)
+      editor = newEditor
+      editorInfo.applyToEditor(newEditor)
       PsiDocumentManager.getInstance(project).commitAllDocuments()
+      existingFileConfigured()
     }
     IndexingTestUtil.waitUntilIndexesAreReady(project)
   }
@@ -521,6 +539,14 @@ open class HeavyJavaCodeInsightFixture(context: Context, val testDataPath: Strin
     val psiFile = checkNotNull(file)
     check(psiFile.virtualFile.fileType == fileType) { "Expected $fileType, actual ${psiFile.virtualFile.fileType}" }
     return psiFile
+  }
+
+  /**
+   * Runs the queued EDT events before the first editor of a configure call opens.
+   * An index wait off the EDT can leave the `exitDumbMode` listeners in the queue, and they restart the daemon.
+   */
+  private fun dispatchEventsBeforeEditorOpen() {
+    PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue()
   }
 
   /**
@@ -670,6 +696,99 @@ open class HeavyJavaCodeInsightFixture(context: Context, val testDataPath: Strin
    * Writes [text] to a new file [fileName] in a new temporary directory, which becomes a source root of [module].
    */
   fun createFile(fileName: String, text: String): PsiFile = createFile(module, createTempVirtualDir(), fileName, text)
+
+  /**
+   * Writes the Java class [text] to the path of its qualified name in the first source root of [module], and returns the class.
+   * When [module] has no source root, a new temporary directory becomes one.
+   */
+  fun createClass(@Language("JAVA") text: String): PsiClass {
+    val classVFile = WriteCommandAction.writeCommandAction(project).compute<VirtualFile, IOException> {
+      val javaFile = PsiFileFactory.getInstance(project).createFileFromText("a.java", JavaFileType.INSTANCE, text) as PsiJavaFile
+      val qName = checkNotNull(javaFile.classes[0].qualifiedName) { text }
+      val sourceRoots = ModuleRootManager.getInstance(module).sourceRoots
+      val dir = if (sourceRoots.isNotEmpty()) {
+        sourceRoots[0]
+      }
+      else {
+        createTempVirtualDir().also { addSourceContentToRoots(module, it) }
+      }
+      val path = dir.toNioPath().resolve(qName.replace('.', '/') + ".java")
+      Files.createDirectories(path.parent)
+      if (!Files.exists(path)) {
+        Files.createFile(path)
+      }
+      val vFile = checkNotNull(LocalFileSystem.getInstance().refreshAndFindFileByNioFile(path)) { path.toString() }
+      VfsUtil.saveText(vFile, text)
+      vFile
+    }
+    IndexingTestUtil.waitUntilIndexesAreReady(project)
+    return ReadAction.computeBlocking<PsiClass, RuntimeException> {
+      (checkNotNull(psiManager.findFile(classVFile)) { classVFile.path } as PsiJavaFile).classes[0]
+    }
+  }
+
+  /**
+   * Loads each module file under [rootDir] into the project with [loadModule], and returns the first module, or `null`.
+   */
+  fun loadAllModulesUnder(rootDir: VirtualFile): Module? {
+    var result: Module? = null
+    VfsUtilCore.visitChildrenRecursively(rootDir, object : VirtualFileVisitor<Void>() {
+      override fun visitFile(file: VirtualFile): Boolean {
+        if (!file.isDirectory && file.name.endsWith(ModuleFileType.DOT_DEFAULT_EXTENSION)) {
+          val module = loadModule(file.toNioPath())
+          if (result == null) result = module
+        }
+        return true
+      }
+    })
+    return result
+  }
+
+  /**
+   * Copies the files [relativePaths] of the test data directory [testDataFromDir] to [toDir], and returns the editor info of each copy.
+   * A binary file gets no editor info. Open the copies with [openEditors].
+   * It is `copyFilesFillingEditorInfos` of [JavaCodeInsightTestCase].
+   */
+  fun copyFilesFillingEditorInfos(testDataFromDir: String, toDir: VirtualFile, vararg relativePaths: String): Map<VirtualFile, EditorInfo?> {
+    val fromDir = findVirtualFile(if (testDataFromDir.startsWith("/")) testDataFromDir else "/$testDataFromDir")
+    return WriteAction.computeAndWait<Map<VirtualFile, EditorInfo?>, IOException> {
+      copyFilesFillingEditorInfos(fromDir, toDir, relativePaths.toList())
+    }
+  }
+
+  /**
+   * Opens an editor for each file of [editorInfos] and applies its caret and selection markers.
+   * When [file] and [editor] are `null`, the first file and its editor become [file] and [editor].
+   * It is `openEditors` of [JavaCodeInsightTestCase].
+   */
+  fun openEditors(editorInfos: Map<VirtualFile, EditorInfo?>): List<Editor> {
+    var editors: List<Editor> = emptyList()
+    runInEdtAndWait {
+      dispatchEventsBeforeEditorOpen()
+      editors = editorInfos.keys.map { newVFile ->
+        val psiFile = psiManager.findFile(newVFile)
+        if (file == null) file = psiFile
+        val newEditor = createEditor(newVFile)
+        if (editor == null) editor = newEditor
+        editorInfos[newVFile]?.applyToEditor(newEditor)
+        newEditor
+      }
+    }
+    return editors
+  }
+
+  /**
+   * Runs on the EDT in [configureByExistingFile], after [editor] and [file] are set, with no EDT event between.
+   * [configureByText] calls it too.
+   */
+  protected open fun existingFileConfigured() {
+  }
+
+  /**
+   * Runs on the EDT in `configureByFiles`, after the editors of the call open, with no EDT event between.
+   */
+  protected open fun filesConfigured() {
+  }
 
   companion object {
     /**

@@ -1,8 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.psi.impl.stubs;
 
-import com.intellij.psi.stubs.IStubElementType;
-import com.intellij.psi.stubs.StubBase;
+import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.stubs.StubElement;
 import com.jetbrains.python.psi.PyTypeParameter;
 import com.jetbrains.python.psi.stubs.PyTypeParameterStub;
@@ -11,7 +10,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 @ApiStatus.Internal
-public class PyTypeParameterStubImpl extends StubBase<PyTypeParameter> implements PyTypeParameterStub {
+public class PyTypeParameterStubImpl extends PyStubBase<PyTypeParameter> implements PyTypeParameterStub {
 
   private final String myName;
   private final String myBoundExpressionText;
@@ -25,7 +24,7 @@ public class PyTypeParameterStubImpl extends StubBase<PyTypeParameter> implement
                                  @Nullable String boundExpressionText,
                                  @Nullable String defaultExpressionText,
                                  @Nullable StubElement parent,
-                                 @NotNull IStubElementType stubElementType) {
+                                 @NotNull IElementType stubElementType) {
     super(parent, stubElementType);
     myName = name;
     myKind = type;

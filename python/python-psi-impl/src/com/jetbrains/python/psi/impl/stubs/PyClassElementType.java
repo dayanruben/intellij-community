@@ -2,24 +2,22 @@
 package com.jetbrains.python.psi.impl.stubs;
 
 import com.google.common.collect.RangeSet;
-import com.intellij.lang.ASTNode;
 import com.intellij.openapi.util.Version;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
-import com.intellij.psi.stubs.IStubElementType;
+import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.stubs.IndexSink;
 import com.intellij.psi.stubs.StubElement;
 import com.intellij.psi.stubs.StubInputStream;
 import com.intellij.psi.stubs.StubOutputStream;
 import com.intellij.psi.util.QualifiedName;
 import com.intellij.util.containers.ContainerUtil;
-import com.jetbrains.python.PyStubElementTypes;
+import com.jetbrains.python.PyElementTypes;
 import com.jetbrains.python.psi.PyClass;
 import com.jetbrains.python.psi.PyExpression;
 import com.jetbrains.python.psi.PyFileElementType;
 import com.jetbrains.python.psi.PyImportElement;
 import com.jetbrains.python.psi.PyReferenceExpression;
-import com.jetbrains.python.psi.PyStubElementType;
 import com.jetbrains.python.psi.PyUtil;
 import com.jetbrains.python.psi.impl.PyClassImpl;
 import com.jetbrains.python.psi.impl.PyPsiUtils;
@@ -32,7 +30,6 @@ import com.jetbrains.python.psi.stubs.PyExportedModuleAttributeIndex;
 import com.jetbrains.python.psi.stubs.PyFileStub;
 import com.jetbrains.python.psi.stubs.PySuperClassIndex;
 import one.util.streamex.StreamEx;
-import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -44,21 +41,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
-public class PyClassElementType extends PyStubElementType<PyClassStub, PyClass>
+public class PyClassElementType extends PyStubElementFactory<PyClassStub, PyClass>
   implements PyCustomizableStubElementType<PyClass, PyCustomClassStub, PyCustomClassStubType<? extends PyCustomClassStub>> {
-
-  public PyClassElementType() {
-    this("CLASS_DECLARATION");
-  }
-
-  public PyClassElementType(@NotNull @NonNls String debugName) {
-    super(debugName);
-  }
-
-  @Override
-  public @NotNull PsiElement createElement(final @NotNull ASTNode node) {
-    return new PyClassImpl(node);
-  }
 
   @Override
   public PyClass createPsi(final @NotNull PyClassStub stub) {
@@ -209,8 +193,9 @@ public class PyClassElementType extends PyStubElementType<PyClassStub, PyClass>
     }
   }
 
-  protected @NotNull IStubElementType getStubElementType() {
-    return PyStubElementTypes.CLASS_DECLARATION;
+  @Override
+  protected @NotNull IElementType getStubElementType() {
+    return PyElementTypes.CLASS_DECLARATION;
   }
 
   @Override

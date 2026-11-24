@@ -545,6 +545,7 @@ DIST_MODULE_SETS = {
         modules = [
             "intellij.platform.debugger.impl.frontend",
             "intellij.platform.debugger.impl.backend",
+            "intellij.platform.debugger.impl.rpc.backend",
             "intellij.platform.debugger.impl.shared",
             "intellij.platform.debugger.impl.rpc",
             "intellij.platform.debugger.impl.ui",
@@ -561,6 +562,7 @@ DIST_MODULE_SETS = {
             "intellij.platform.debugger.impl.dashboard": "//platform/xdebugger-impl/dashboard:dashboard_content_module_jar",
             "intellij.platform.debugger.impl.frontend": "//platform/xdebugger-impl/frontend:frontend_content_module_jar",
             "intellij.platform.debugger.impl.rpc": "//platform/xdebugger-impl/rpc:rpc_content_module_jar",
+            "intellij.platform.debugger.impl.rpc.backend": "//platform/xdebugger-impl/rpc.backend:rpc.backend_content_module_jar",
             "intellij.platform.debugger.impl.shared": "//platform/xdebugger-impl/shared:shared_content_module_jar",
             "intellij.platform.debugger.impl.ui": "//platform/xdebugger-impl/ui:ui_content_module_jar",
         },
@@ -571,6 +573,7 @@ DIST_MODULE_SETS = {
             "intellij.platform.debugger.impl.dashboard",
             "intellij.platform.debugger.impl.frontend",
             "intellij.platform.debugger.impl.rpc",
+            "intellij.platform.debugger.impl.rpc.backend",
             "intellij.platform.debugger.impl.shared",
             "intellij.platform.debugger.impl.ui",
         ],
@@ -578,6 +581,7 @@ DIST_MODULE_SETS = {
             "frontend": [
                 "intellij.platform.debugger.impl.backend",
                 "intellij.platform.debugger.impl.dashboard",
+                "intellij.platform.debugger.impl.rpc.backend",
             ],
         },
     ),
@@ -717,6 +721,7 @@ DIST_MODULE_SETS = {
         modules = [
             "intellij.platform.execution.impl.frontend",
             "intellij.platform.execution.impl.backend",
+            "intellij.platform.execution.impl.rpc.backend",
             "intellij.platform.execution.rpc",
         ],
         nested = [
@@ -724,16 +729,19 @@ DIST_MODULE_SETS = {
         packed = {
             "intellij.platform.execution.impl.backend": "//platform/execution-impl/backend:backend_content_module_jar",
             "intellij.platform.execution.impl.frontend": "//platform/execution-impl/frontend:frontend_content_module_jar",
+            "intellij.platform.execution.impl.rpc.backend": "//platform/execution-impl/rpc.backend:rpc.backend_content_module_jar",
             "intellij.platform.execution.rpc": "//platform/execution-impl/rpc:rpc_content_module_jar",
         },
         module_system_loaded = [
             "intellij.platform.execution.impl.backend",
             "intellij.platform.execution.impl.frontend",
+            "intellij.platform.execution.impl.rpc.backend",
             "intellij.platform.execution.rpc",
         ],
         mode_refused = {
             "frontend": [
                 "intellij.platform.execution.impl.backend",
+                "intellij.platform.execution.impl.rpc.backend",
             ],
         },
     ),
@@ -1497,6 +1505,7 @@ DIST_MODULE_SETS = {
             "intellij.platform.lsp",
             "intellij.platform.lsp.impl",
             "intellij.platform.lsp.impl.structureView",
+            "intellij.platform.lsp.impl.problems",
         ],
         nested = [
             "intellij.moduleSets.libraries.lsp4j",
@@ -1504,11 +1513,13 @@ DIST_MODULE_SETS = {
         packed = {
             "intellij.platform.lsp": "//platform/lsp:lsp_content_module_jar",
             "intellij.platform.lsp.impl": "//platform/lsp-impl:lsp-impl_content_module_jar",
+            "intellij.platform.lsp.impl.problems": "//platform/lsp-impl/problems:problems_content_module_jar",
             "intellij.platform.lsp.impl.structureView": "//platform/lsp-impl/structureView:structureView_content_module_jar",
         },
         module_system_loaded = [
             "intellij.platform.lsp",
             "intellij.platform.lsp.impl",
+            "intellij.platform.lsp.impl.problems",
             "intellij.platform.lsp.impl.structureView",
         ],
     ),
