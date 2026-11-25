@@ -18,6 +18,7 @@ import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.extensions.PluginDescriptor
+import com.intellij.openapi.extensions.TechnologyFilter
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileEditorPolicy
 import com.intellij.openapi.fileEditor.FileEditorProvider
@@ -27,7 +28,6 @@ import com.intellij.openapi.fileEditor.ex.FileEditorProviderManager
 import com.intellij.openapi.fileEditor.ex.FileEditorWithProvider
 import com.intellij.openapi.fileTypes.FileType
 import com.intellij.openapi.fileTypes.FileTypeRegistry
-import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
@@ -73,9 +73,14 @@ class FileEditorProviderManagerImpl
     }
 
     val untrustedFile = !TrustedFiles.isTrusted(file, project)
+    val technologyFilter = TechnologyFilter.getInstance()
 
     val fileType = file.fileType
     for (bean in FileEditorProviderBean.EP_NAME.extensionList) {
+      // a provider of a tech the project has disabled is skipped before it is created, like one that the file type rules out
+      if (!technologyFilter.isApplicable(bean.pluginDescriptor, project)) {
+        continue
+      }
       // untrusted files are restricted to explicitly opted-in providers (plain text and large-file editors);
       // checked before instantiation, so suppressed provider classes are never loaded
       if (untrustedFile && !bean.allowedInUntrustedFiles) {
@@ -111,23 +116,13 @@ class FileEditorProviderManagerImpl
     return postProcessResult(sharedProviders)
   }
 
-  @Suppress("DuplicatedCode")
   override suspend fun getProvidersAsync(project: Project, file: VirtualFile): List<FileEditorProvider> {
-    return getProviders(project, file, dumUnawareOnly = false, excludeIds = emptySet())
-  }
-
-  override suspend fun getDumbUnawareProviders(project: Project, file: VirtualFile, excludeIds: Set<String>): List<FileEditorProvider> {
-    return getProviders(project = project, file = file, dumUnawareOnly = true, excludeIds = excludeIds)
+    return getProvidersAsync(project = project, file = file, openEditorTypeIds = emptySet())
   }
 
   @OptIn(ExperimentalCoroutinesApi::class)
   @Suppress("DuplicatedCode")
-  private suspend fun getProviders(
-    project: Project,
-    file: VirtualFile,
-    dumUnawareOnly: Boolean,
-    excludeIds: Set<String>,
-  ): List<FileEditorProvider> {
+  override suspend fun getProvidersAsync(project: Project, file: VirtualFile, openEditorTypeIds: Set<String>): List<FileEditorProvider> {
     // collect all possible editors
     val suppressors = FileEditorProviderSuppressor.EP_NAME.extensionList
 
@@ -144,7 +139,7 @@ class FileEditorProviderManagerImpl
       var hasDocument: Boolean? = null
 
       FileEditorProviderBean.EP_NAME.extensionList.mapNotNull { bean ->
-        if (excludeIds.contains(bean.id)) {
+        if (!TechnologyFilter.getInstance().isApplicable(bean.pluginDescriptor, project)) {
           return@mapNotNull null
         }
         // untrusted files are restricted to explicitly opted-in providers (plain text and large-file editors);
@@ -154,13 +149,6 @@ class FileEditorProviderManagerImpl
         }
 
         async {
-          if (dumUnawareOnly) {
-            val aClass = bean.loadImplementationClass()
-            if (aClass != null && DumbAware::class.java.isAssignableFrom(aClass)) {
-              return@async null
-            }
-          }
-
           if (!isAcceptedByFileType(bean = bean, fileType = fileType, file = file)) {
             return@async null
           }
@@ -179,17 +167,14 @@ class FileEditorProviderManagerImpl
           try {
             withTimeout(30.seconds) {
               val provider = bean.instanceOrLogError() ?: return@withTimeout null
-              if (excludeIds.contains(provider.editorTypeId)) {
-                return@withTimeout null
-              }
-
               getProviderIfApplicable(
                 provider = provider,
                 project = project,
                 file = file,
                 suppressors = suppressors,
                 pluginDescriptor = bean.pluginDescriptor,
-              )?.takeIf { !dumUnawareOnly || !DumbService.isDumbAware(it) }
+                isEditorOpened = openEditorTypeIds.contains(provider.editorTypeId),
+              )
             }
           }
           catch (e: TimeoutCancellationException) {
@@ -224,17 +209,26 @@ class FileEditorProviderManagerImpl
   }
 
   override fun getProvider(editorTypeId: String): FileEditorProvider? {
+    val bean = getProviderBean(editorTypeId) ?: return null
+    return bean.instance
+  }
+
+  override fun getProvider(project: Project, editorTypeId: String): FileEditorProvider? {
+    val bean = getProviderBean(editorTypeId) ?: return null
+    if (!TechnologyFilter.getInstance().isApplicable(bean.pluginDescriptor, project)) return null
+    return bean.instance
+  }
+
+  private fun getProviderBean(editorTypeId: String): FileEditorProviderBean? {
     val beans = FileEditorProviderBean.EP_NAME.extensionList
-    beans.firstOrNull { it.id == editorTypeId }?.let {
-      return it.instance
-    }
+    beans.firstOrNull { it.id == editorTypeId }?.let { return it }
 
     // check only the declarations without an id
     for (bean in beans) {
       if (bean.id == null) {
         val provider = bean.instance
         if (provider.editorTypeId == editorTypeId) {
-          return provider
+          return bean
         }
       }
     }
@@ -288,8 +282,13 @@ private suspend fun getProviderIfApplicable(
   file: VirtualFile,
   suppressors: List<FileEditorProviderSuppressor>,
   pluginDescriptor: PluginDescriptor,
+  isEditorOpened: Boolean,
 ): FileEditorProvider? {
   if (!DumbService.getInstance(project).isUsableInCurrentContext(provider)) {
+    if (isEditorOpened) {
+      // the open editor of the provider stays: we can't ask provider if the file should be still opened in the dumb mode
+      return provider
+    }
     LOG.warn("Please make ${provider.javaClass} dumb-aware")
     return null
   }

@@ -1,11 +1,20 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.editorTabGrouping.impl
 
+import com.intellij.openapi.actionSystem.ActionGroup
+import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.actionSystem.ActionUpdateThread
+import com.intellij.openapi.actionSystem.ActionWrapperUtil
+import com.intellij.openapi.actionSystem.AnAction
+import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.util.NlsContexts
 import com.intellij.ui.SimpleColoredText
 import com.intellij.ui.SimpleTextAttributes
 import com.intellij.ui.tabs.TabInfo
 import java.util.IdentityHashMap
+
+private const val CLOSE_ACTIONS_GROUP_ID = "CloseEditorsGroup"
 
 /** The pinned state and the key of a tab group. */
 internal typealias TabGroupKey = Pair<Boolean, String>
@@ -15,17 +24,6 @@ internal typealias TabGroupKey = Pair<Boolean, String>
  * The other [members] are hidden. The [members] keep the tab order of the expanded group.
  */
 private class CollapsedTabGroup(val group: TabGroup, val members: MutableList<TabInfo>, var groupTab: TabInfo)
-
-/** The steps of a file close in the editor window. The window needs each tab visible until it removes the tab of the file. */
-private enum class FileClose {
-  NONE,
-
-  /** Each group is expanded, and no group collapses. */
-  EXPANDED,
-
-  /** The close needs the expanded groups no more. The next update collapses the groups again, and the user must not see it. */
-  RESTORING,
-}
 
 /** The part of the tab component that [TabGroupCollapser] needs. */
 internal interface TabGroupCollapseHost {
@@ -41,13 +39,16 @@ internal interface TabGroupCollapseHost {
   val hasWindowSelection: Boolean
   val visibleTabs: List<TabInfo>
 
+  /** Returns false while the group of [info] is not resolved yet. A new tab gets its group some time after it opens. */
+  fun isGroupResolved(info: TabInfo): Boolean
+
   /** Puts the tabs in the [order]. */
   fun applyOrder(order: List<TabInfo>)
 
   /**
-   * Reports that the group of [members] collapses into the [groupTab] or expands from it.
+   * Reports that the group of [members] collapses into the [groupTab] or expands from it, because the selection went to another group.
    * The call comes before the change, so the host can read the layout that the user sees.
-   * A change that the user must not see, such as the expand for a file close, sends no report.
+   * Each other change sends no report: a new or a removed tab, a file close, a settings change.
    */
   fun groupChanging(groupTab: TabInfo, members: List<TabInfo>, collapsing: Boolean)
 
@@ -68,9 +69,14 @@ internal class TabGroupCollapser(private val host: TabGroupCollapseHost) {
   /** The selection counter value of each tab that had the selection. A larger value is a later selection. */
   private val selectionOrder = IdentityHashMap<TabInfo, Long>()
   private var selectionCount = 0L
-  private var fileClose = FileClose.NONE
 
-  /** True while a change runs that the user must not see. Such a change sends no group report to the host. */
+  /** True while the editor window closes a file. The window needs each tab visible until it removes the tab of the file. */
+  private var closingFile = false
+
+  /** True from a selection change to the update that applies it. Only that update sends group reports to the host. */
+  private var selectionChanged = false
+
+  /** True while a change runs that sends no group report to the host. */
   private var silentChange = false
 
   /** True while one update changes the hidden state of many tabs. */
@@ -81,16 +87,20 @@ internal class TabGroupCollapser(private val host: TabGroupCollapseHost) {
 
   fun groupTab(key: TabGroupKey): TabInfo? = collapsedGroups[key]?.groupTab
 
-  fun isGroupTab(info: TabInfo): Boolean = collapsedGroups.values.any { it.groupTab === info }
+  fun isGroupTab(info: TabInfo): Boolean = collapsedMembers(info) != null
+
+  /** Returns the tabs of the collapsed group that [groupTab] stands for, or null when it is no group tab. */
+  fun collapsedMembers(groupTab: TabInfo): List<TabInfo>? = collapsedGroups.values.firstOrNull { it.groupTab === groupTab }?.members
 
   fun tabSelected(info: TabInfo) {
     selectionOrder[info] = ++selectionCount
+    selectionChanged = true
     update()
   }
 
   fun tabRemoved(info: TabInfo) {
     selectionOrder.remove(info)
-    if (fileClose == FileClose.EXPANDED) fileClose = FileClose.RESTORING
+    endFileClose()
   }
 
   /** Expands each group and forgets the selection order. The component gets a new tab list after it. */
@@ -101,15 +111,15 @@ internal class TabGroupCollapser(private val host: TabGroupCollapseHost) {
 
   /** Collapses each shown group that does not hold the selected tab, and expands each other group. */
   fun update() {
-    if (isUpdating || fileClose == FileClose.EXPANDED || host.isDragging) return
-    val silent = fileClose == FileClose.RESTORING
-    fileClose = FileClose.NONE
-    val enabled = host.isCollapseEnabled
-    if (!enabled && collapsedGroups.isEmpty()) return
+    if (isUpdating || closingFile || host.isDragging) return
+    val selected = if (host.isCollapseEnabled) knownSelectedTab() else null
+    // An unresolved tab looks like a tab without a group, so its own group would collapse. The resolution sends the next update.
+    if (selected != null && !host.isGroupResolved(selected)) return
+    val silent = !selectionChanged
+    selectionChanged = false
     val snapshot = host.snapshot
-    val selected = knownSelectedTab()
     val selectedKey = selected?.let { info -> snapshot.groups[info]?.let { info.isPinned to it.key } }
-    val wanted = if (enabled && selected != null) {
+    val wanted = if (selected != null) {
       snapshot.members.filter { (key, members) -> members.size > 1 && key != selectedKey }
     }
     else emptyMap()
@@ -151,16 +161,23 @@ internal class TabGroupCollapser(private val host: TabGroupCollapseHost) {
    * with an index of all tabs, and hidden tabs make them differ.
    */
   fun fileCloseStarted() {
-    // Without a collapsed group the state still stops an update, so no group collapses around the tab that the close removes.
-    fileClose = FileClose.EXPANDED
+    // Without a collapsed group the flag still stops an update, so no group collapses around the tab that the close removes.
+    closingFile = true
     expandAll()
   }
 
   /** Collapses the groups again when the close removed no tab of this component. */
   fun fileCloseFinished() {
-    if (fileClose != FileClose.EXPANDED) return
-    fileClose = FileClose.RESTORING
+    if (!closingFile) return
+    endFileClose()
     update()
+  }
+
+  /** The selection change of a file close sends no group report. */
+  private fun endFileClose() {
+    if (!closingFile) return
+    closingFile = false
+    selectionChanged = false
   }
 
   private fun expandAll() {
@@ -277,6 +294,19 @@ internal class TabGroupCollapser(private val host: TabGroupCollapseHost) {
       if (members.size > 1) snapshot.groups[members.first()]?.let { result.putIfAbsent(key.second, it) }
     }
     return result.values.toList()
+  }
+}
+
+/**
+ * The popup of a group tab: the [delegate] without the group of the close actions.
+ * A close action there closes the one file of the group tab, and the user does not see which file it is.
+ */
+internal class GroupTabPopupGroup(private val delegate: ActionGroup) : ActionGroup(), DumbAware {
+  override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
+
+  override fun getChildren(e: AnActionEvent?): Array<AnAction> {
+    val actionManager = ActionManager.getInstance()
+    return ActionWrapperUtil.getChildren(e, this, delegate).filter { actionManager.getId(it) != CLOSE_ACTIONS_GROUP_ID }.toTypedArray()
   }
 }
 

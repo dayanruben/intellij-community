@@ -57,6 +57,7 @@ import com.intellij.platform.searchEverywhere.SePreviewInfo
 import com.intellij.platform.searchEverywhere.SePreviewInfoFactory
 import com.intellij.platform.searchEverywhere.providers.SeEverywhereFilterImpl
 import com.intellij.platform.searchEverywhere.providers.SeLog
+import com.intellij.platform.searchEverywhere.providers.SeSearchProjectContext
 import com.intellij.platform.searchEverywhere.providers.target.presentation.SeTargetPresentationProvider
 import com.intellij.platform.searchEverywhere.providers.target.selection.SeTargetItemSelectionProcessor
 import com.intellij.platform.searchEverywhere.utils.SuspendLazyProperty
@@ -79,6 +80,7 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ProducerScope
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.channelFlow
@@ -295,7 +297,8 @@ class SeTargetItemsProvider<T> private constructor(
     // The first search of a session builds the scope list here, so this can dominate its latency.
     val (scopeDescriptor, hiddenTypes) = stats.measure(stats.scopeResolveNanos) {
       SeEverywhereFilterImpl.isEverywhere(params.filter)?.let { isEverywhere ->
-        scopeOf(isEverywhere) to null
+        // The filter of the All tab holds no types. A filter that holds the flag and the types keeps the types.
+        scopeOf(isEverywhere) to SeTargetsFilter.from(params.filter).hiddenTypes.takeIf { it.isNotEmpty() }
       } ?: run {
         val targetsFilter = SeTargetsFilter.from(params.filter)
 
@@ -307,7 +310,8 @@ class SeTargetItemsProvider<T> private constructor(
 
     val scope = scopeDescriptor?.scope as? GlobalSearchScope ?: GlobalSearchScope.projectScope(project)
 
-    persistHiddenTypes(hiddenTypes)
+    // The search of another search project applies the filter of the popup, and keeps the saved filter of that project.
+    if (!SeSearchProjectContext.isSearchOfOtherProject(currentCoroutineContext())) persistHiddenTypes(hiddenTypes)
 
     val hiddenNamesByFilter = hiddenTypes ?: emptyMap()
     val hiddenTypeRefs = typeFilters.getValue().mapValues { (key, filter) ->

@@ -65,6 +65,7 @@ import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.VisibleForTesting;
 
 import java.lang.ref.Reference;
 import java.util.HashMap;
@@ -173,7 +174,7 @@ public final class InjectionRegistrarImpl implements MultiHostRegistrar {
     cleared = false;
     String nnPrefix = StringUtil.isEmpty(prefix) ? "" : prefix; // intern empty strings too to reduce gc
     String nnSuffix = StringUtil.isEmpty(suffix) ? "" : suffix; // intern empty strings too to reduce gc
-    PlaceInfo info = new PlaceInfo(nnPrefix, nnSuffix, host, rangeInsideHost);
+    PlaceInfo info = new PlaceInfo(nnPrefix, nnSuffix, host, rangeInsideHost, hostText(host, placeInfos));
     placeInfos.add(info);
 
     return this;
@@ -201,10 +202,19 @@ public final class InjectionRegistrarImpl implements MultiHostRegistrar {
     }
   }
 
+  /**
+   * Returns the host text of the previous place when that place has the same host, so that the places of one host share one text.
+   */
+  @VisibleForTesting
+  public static @NotNull String hostText(@NotNull PsiLanguageInjectionHost host, @NotNull List<PlaceInfo> placeInfos) {
+    PlaceInfo previous = ContainerUtil.getLastItem(placeInfos);
+    return previous != null && previous.getHost() == host ? previous.getHostText() : host.getText();
+  }
+
   private static void decode(@NotNull PlaceInfo info, @NotNull StringBuilder outChars) {
     int startOffset = outChars.length();
-    outChars.append(info.prefix);
-    LiteralTextEscaper<? extends PsiLanguageInjectionHost> textEscaper = info.myEscaper;
+    outChars.append(info.getPrefix());
+    LiteralTextEscaper<? extends PsiLanguageInjectionHost> textEscaper = info.getEscaper();
 
     TextRange relevantRange = info.getRelevantRangeInsideHost();
     if (relevantRange == null) {
@@ -218,12 +228,12 @@ public final class InjectionRegistrarImpl implements MultiHostRegistrar {
       if (!decodeSuccessful) {
         // if there are invalid chars, adjust the range
         int charsDecodedSuccessfully = outChars.length() - before;
-        int startOffsetInHost = textEscaper.getOffsetInHost(0, info.registeredRangeInsideHost);
+        int startOffsetInHost = textEscaper.getOffsetInHost(0, info.getRegisteredRangeInsideHost());
         assert relevantRange.containsOffset(startOffsetInHost) :
           textEscaper.getClass() + " is inconsistent: its.getOffsetInHost(0) = " + startOffsetInHost +
           " while its relevantRange=" + relevantRange;
 
-        int endOffsetInHost = textEscaper.getOffsetInHost(charsDecodedSuccessfully, info.registeredRangeInsideHost);
+        int endOffsetInHost = textEscaper.getOffsetInHost(charsDecodedSuccessfully, info.getRegisteredRangeInsideHost());
         assert relevantRange.containsOffset(endOffsetInHost) :
           textEscaper.getClass() + " is inconsistent: its.getOffsetInHost(" + charsDecodedSuccessfully + ") = " +
           endOffsetInHost + " while its relevantRange=" + relevantRange;
@@ -231,23 +241,23 @@ public final class InjectionRegistrarImpl implements MultiHostRegistrar {
         relevantRange = relevantRange.intersection(successfulHostRange);
       }
     }
-    outChars.append(info.suffix);
+    outChars.append(info.getSuffix());
     int endOffset = outChars.length();
-    info.rangeInDecodedPSI = new ProperTextRange(startOffset, endOffset);
-    info.rangeInHostElement = relevantRange;
+    info.setRangeInDecodedPSI(new ProperTextRange(startOffset, endOffset));
+    info.setRangeInHostElement(relevantRange);
   }
 
   private static @NotNull ShredImpl createShred(@NotNull PlaceInfo info, @NotNull StringBuilder outChars, @NotNull PsiFile hostPsiFile) {
     decode(info, outChars);
 
-    TextRange relevantRange = info.rangeInHostElement;
+    TextRange relevantRange = info.getRangeInHostElement();
 
-    TextRange hostTextRange = info.host.getTextRange();
+    TextRange hostTextRange = info.getHost().getTextRange();
     TextRange relevantRangeInHostFile = relevantRange.shiftRight(hostTextRange.getStartOffset());
     SmartPointerManagerEx manager = SmartPointerManagerEx.getInstanceEx(hostPsiFile.getProject());
     return new ShredImpl(manager.createSmartPsiFileRangePointer(hostPsiFile, relevantRangeInHostFile, true),
-                         manager.createSmartPsiElementPointer(info.host, hostPsiFile, true),
-                         info.prefix, info.suffix, info.rangeInDecodedPSI, false, info.myEscaper.isOneLine());
+                         manager.createSmartPsiElementPointer(info.getHost(), hostPsiFile, true),
+                         info.getPrefix(), info.getSuffix(), info.getRangeInDecodedPSI(), false, info.getEscaper().isOneLine());
   }
 
   @Override
@@ -280,7 +290,7 @@ public final class InjectionRegistrarImpl implements MultiHostRegistrar {
                                                     @NotNull PsiDocumentManagerEx documentManager) {
     boolean isAncestor = false;
     for (PlaceInfo info : placeInfos) {
-      isAncestor |= PsiTreeUtil.isAncestor(contextElement, info.host, false);
+      isAncestor |= PsiTreeUtil.isAncestor(contextElement, info.getHost(), false);
     }
     assert isAncestor : exceptionContext(
       "Context element " + contextElement.getTextRange() + ": '" + contextElement + "' (" + contextElement.getClass() + "); " +
@@ -292,7 +302,7 @@ public final class InjectionRegistrarImpl implements MultiHostRegistrar {
     StringBuilder decodedChars = new StringBuilder();
     Place place = new Place(ContainerUtil.map(placeInfos, info -> {
       ShredImpl shred = createShred(info, decodedChars, myHostPsiFile);
-      info.newInjectionHostRange = shred.getSmartPointer().getRange();
+      info.setNewInjectionHostRange(shred.getSmartPointer().getRange());
       return shred;
     }));
     DocumentWindowImpl documentWindow = new DocumentWindowImpl(myHostDocument, place);
@@ -680,17 +690,18 @@ public final class InjectionRegistrarImpl implements MultiHostRegistrar {
       }
       TextRange rangeInsideHost = TextRange.create(hostInjectionRange).shiftLeft(newInjectionHostRange.getStartOffset());
 
-      PlaceInfo info = new PlaceInfo(shred.getPrefix(), shred.getSuffix(), newDummyInjectionHost, rangeInsideHost);
+      PlaceInfo info = new PlaceInfo(shred.getPrefix(), shred.getSuffix(), newDummyInjectionHost, rangeInsideHost,
+                                     hostText(newDummyInjectionHost, placeInfos));
       placeInfos.add(info);
-      info.newInjectionHostRange = newInjectionHostRange;
+      info.setNewInjectionHostRange(newInjectionHostRange);
 
       decode(info, chars);
 
       // pass the old pointers because their offsets will be adjusted automatically (SmartPsiElementPointer does that)
-      TextRange rangeInHostElementPSI = info.rangeInHostElement;
+      TextRange rangeInHostElementPSI = info.getRangeInHostElement();
 
       newDocumentText.append(shred.getPrefix());
-      newDocumentText.append(newDummyInjectionHost.getText(), rangeInHostElementPSI.getStartOffset(), rangeInHostElementPSI.getEndOffset());
+      newDocumentText.append(info.getHostText(), rangeInHostElementPSI.getStartOffset(), rangeInHostElementPSI.getEndOffset());
       newDocumentText.append(shred.getSuffix());
     }
     // newDocumentText can be shorter if decode failed
@@ -723,12 +734,12 @@ public final class InjectionRegistrarImpl implements MultiHostRegistrar {
                   ContainerUtil.map(ContainerUtil.zip(oldPlace, placeInfos), pair -> {
                     PsiLanguageInjectionHost.Shred shred = pair.getFirst();
                     PlaceInfo info = pair.getSecond();
-                    TextRange rangeInDecodedPSI = info.rangeInDecodedPSI;
-                    TextRange rangeInHostElementPSI = info.rangeInHostElement;
+                    TextRange rangeInDecodedPSI = info.getRangeInDecodedPSI();
+                    TextRange rangeInHostElementPSI = info.getRangeInHostElement();
                     // now find the injection host in the newly committed file
                     FileASTNode root = hostPsiFile.getNode();
                     PsiLanguageInjectionHost newHost =
-                      findNewInjectionHost(hostPsiFile, root, root, info.host, info.newInjectionHostRange);
+                      findNewInjectionHost(hostPsiFile, root, root, info.getHost(), info.getNewInjectionHostRange());
                     ShredImpl newShred =
                       ((ShredImpl)shred).withRange(rangeInDecodedPSI, rangeInHostElementPSI, newHost);
                     return newShred;

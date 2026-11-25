@@ -3,6 +3,9 @@ package com.intellij.terminal.tests.reworked.frontend
 
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.application.ModalityState
+import com.intellij.openapi.application.asContextElement
+import com.intellij.openapi.application.impl.LaterInvocator
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.RegisterToolWindowTask
@@ -10,23 +13,36 @@ import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.terminal.frontend.toolwindow.TerminalTabsManagerListener
 import com.intellij.terminal.frontend.toolwindow.TerminalToolWindowTab
+import com.intellij.terminal.frontend.toolwindow.TerminalToolWindowTabBuilder
 import com.intellij.terminal.frontend.toolwindow.TerminalToolWindowTabsManager
 import com.intellij.terminal.frontend.toolwindow.getTerminalTab
 import com.intellij.terminal.frontend.toolwindow.impl.TerminalToolWindowTabsManagerImpl
+import com.intellij.terminal.frontend.toolwindow.impl.createTerminalTab
+import com.intellij.terminal.frontend.toolwindow.impl.shouldUseReworkedTerminal
 import com.intellij.terminal.frontend.view.TerminalView
+import com.intellij.terminal.tests.reworked.util.TerminalTestUtil.setTerminalEngineForTest
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.junit5.fixture.disposableFixture
 import com.intellij.testFramework.junit5.fixture.projectFixture
+import com.intellij.testFramework.replaceService
 import com.intellij.ui.content.ContentFactory
 import com.intellij.ui.content.ContentManager
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.future.await
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.job
+import kotlinx.coroutines.withContext
 import org.assertj.core.api.Assertions.assertThat
 import org.jetbrains.plugins.terminal.TerminalEmulatorType
+import org.jetbrains.plugins.terminal.TerminalEngine
 import org.jetbrains.plugins.terminal.TerminalToolWindowFactory
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
+import org.mockito.Answers
+import org.mockito.kotlin.doReturn
+import org.mockito.kotlin.mock
+import org.mockito.kotlin.whenever
 
 /**
  * Tests the tool-window tab management behavior of [TerminalToolWindowTabsManager]:
@@ -59,6 +75,57 @@ internal class TerminalToolWindowTabsManagerTest {
       assertThat(listener.viewsCreated).containsExactly(tab.view)
       assertThat(listener.tabsAdded).containsExactly(tab)
       assertThat(listener.tabsDetached).isEmpty()
+    }
+  }
+
+  @Test
+  fun `createTabAsync adds the tab after editor class preparation`() = timeoutRunBlocking(context = Dispatchers.EDT) {
+    withTerminalToolWindow { toolWindow, manager, listener ->
+      val tab = manager.createTabBuilder()
+        .tabName("Async tab")
+        .requestFocus(false)
+        .deferSessionStartUntilUiShown(true)
+        .createTabAsync()
+
+      assertThat(manager.tabs).containsExactly(tab)
+      assertThat(toolWindow.contentManager.contents.toList()).containsExactly(tab.content)
+      assertThat(listener.viewsCreated).containsExactly(tab.view)
+      assertThat(listener.tabsAdded).containsExactly(tab)
+    }
+  }
+
+  @Test
+  fun `createTerminalTab propagates a tab creation failure to the caller`() {
+    setTerminalEngineForTest(TerminalEngine.REWORKED, disposable)
+    assertThat(shouldUseReworkedTerminal()).isTrue()
+    val failure = IllegalStateException("Cannot create the test tab")
+    val builder = mock<TerminalToolWindowTabBuilder>(defaultAnswer = Answers.RETURNS_SELF)
+    timeoutRunBlocking { whenever(builder.createTabAsync()).thenThrow(failure) }
+    val manager = mock<TerminalToolWindowTabsManager> {
+      on { createTabBuilder() } doReturn builder
+    }
+    project.replaceService(TerminalToolWindowTabsManager::class.java, manager, disposable)
+
+    val thrown = assertThrows<IllegalStateException> {
+      timeoutRunBlocking { createTerminalTab(project) }
+    }
+    assertThat(thrown).hasMessage(failure.message)
+  }
+
+  @Test
+  fun `requestCreateTab completes in the modality of the request`() = timeoutRunBlocking(context = Dispatchers.EDT) {
+    withTerminalToolWindow { _, manager, listener ->
+      val modalEntity = Any()
+      LaterInvocator.enterModal(modalEntity)
+      try {
+        withContext(ModalityState.current().asContextElement()) {
+          val tab = manager.createTabBuilder().requestFocus(false).requestCreateTab().await()
+          assertThat(listener.tabsAdded).containsExactly(tab)
+        }
+      }
+      finally {
+        LaterInvocator.leaveModal(modalEntity)
+      }
     }
   }
 
@@ -218,7 +285,7 @@ internal class TerminalToolWindowTabsManagerTest {
    * Registers a fresh Terminal tool window, subscribes a [RecordingListener] and runs [body].
    */
   private suspend fun withTerminalToolWindow(
-    body: (toolWindow: ToolWindow, manager: TerminalToolWindowTabsManager, listener: RecordingListener) -> Unit,
+    body: suspend (toolWindow: ToolWindow, manager: TerminalToolWindowTabsManager, listener: RecordingListener) -> Unit,
   ) {
     val toolWindow = ToolWindowManager.getInstance(project)
       .registerToolWindow(RegisterToolWindowTask(id = TerminalToolWindowFactory.TOOL_WINDOW_ID))

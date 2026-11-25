@@ -9,6 +9,7 @@ import com.intellij.openapi.roots.ModuleRootManager
 import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.python.community.common.tools.ToolId
 import com.intellij.python.junit5Tests.framework.pyProjectFixture
+import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.junit5.fixture.extensionPointFixture
 import com.intellij.testFramework.junit5.fixture.projectFixture
@@ -28,6 +29,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.job
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -35,6 +38,7 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.coroutines.cancellation.CancellationException
 
 
 /**
@@ -56,6 +60,12 @@ internal class PySdkConfiguratorsCacheTest {
   /** When set, a probe blocks on it, so callers can be made to arrive while one is still running. */
   private var gate: CompletableDeferred<Unit>? = null
 
+  /** Completes when the first probe starts. */
+  private val probeStarted = CompletableDeferred<Unit>()
+
+  /** Completes when the coroutine of a probe is cancelled. */
+  private val probeCancelled = CompletableDeferred<Unit>()
+
   private val countingConfigurator by extensionPointFixture(PyProjectSdkConfigurationExtension.EP_NAME) {
     object : PyProjectSdkConfigurationExtension {
       override val toolId: ToolId = ToolId("counting-test-tool")
@@ -63,6 +73,10 @@ internal class PySdkConfiguratorsCacheTest {
 
       override suspend fun checkEnvironmentAndPrepareSdkCreator(pyProject: PyProject, venvs: List<PythonBinary>): CreateInterpreterInfo {
         calls.incrementAndGet()
+        probeStarted.complete(Unit)
+        currentCoroutineContext().job.invokeOnCompletion {
+          if (it is CancellationException) probeCancelled.complete(Unit)
+        }
         gate?.await()
         return CreateInterpreterInfo.ExistingEnv(PythonInfo(LanguageLevel.PYTHON312), "counting") { Result.localizedError("not used") }
       }
@@ -156,6 +170,44 @@ internal class PySdkConfiguratorsCacheTest {
       runBlocking { PyProjectSdkConfigurationExtension.findAllSortedCached(doomed) }
     }
     assertEquals(0, calls.get(), "a disposed module must not be probed")
+  }
+
+  /**
+   * The removal of a module cancels its running probe, so the tools of the probe stop for a module that is gone, and
+   * the probe does not keep the module.
+   */
+  @Test
+  fun testRemovedModuleCancelsItsProbe(): Unit = timeoutRunBlocking {
+    val pyProject = pyProject()
+    gate = CompletableDeferred()
+    val caller = async(Dispatchers.Default) { PyProjectSdkConfigurationExtension.findAllSortedCached(pyProject) }
+    probeStarted.await()
+
+    WriteAction.runAndWait<RuntimeException> { ModuleManager.getInstance(module.project).disposeModule(module) }
+
+    assertThrows<CancellationException> { runBlocking { caller.await() } }
+    probeCancelled.await()
+    assertEquals(1, calls.get())
+  }
+
+  /**
+   * An invalidation cancels the running probe, so its tool processes do not run on with an answer that is no longer
+   * true. The next caller starts a new probe.
+   */
+  @Test
+  fun testInvalidationCancelsTheRunningProbe(): Unit = timeoutRunBlocking {
+    val pyProject = pyProject()
+    gate = CompletableDeferred()
+    val caller = async(Dispatchers.Default) { PyProjectSdkConfigurationExtension.findAllSortedCached(pyProject) }
+    probeStarted.await()
+
+    PyProjectSdkConfigurationExtension.invalidateCached(pyProject)
+
+    assertThrows<CancellationException> { runBlocking { caller.await() } }
+    probeCancelled.await()
+    gate = null
+    PyProjectSdkConfigurationExtension.findAllSortedCached(pyProject)
+    assertEquals(2, calls.get(), "the next caller must start a new probe")
   }
 
   @Test

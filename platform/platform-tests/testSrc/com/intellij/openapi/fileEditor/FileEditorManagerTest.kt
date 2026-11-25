@@ -5,6 +5,7 @@ import com.intellij.ide.IdeBundle
 import com.intellij.ide.IdeEventQueue
 import com.intellij.ide.actions.OpenInRightSplitAction
 import com.intellij.ide.actions.Switcher
+import com.intellij.ide.dnd.LinuxDragAndDropSupport.uriListFlavor
 import com.intellij.ide.impl.OpenProjectTask
 import com.intellij.ide.ui.UISettings
 import com.intellij.ide.ui.UISettingsState
@@ -21,15 +22,21 @@ import com.intellij.openapi.application.UiWithModelAccess
 import com.intellij.openapi.application.WriteActionListener
 import com.intellij.openapi.application.backgroundWriteAction
 import com.intellij.openapi.application.readAction
+import com.intellij.openapi.application.runWriteAction
 import com.intellij.openapi.components.ExpandMacroToPathMap
 import com.intellij.openapi.components.service
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
+import com.intellij.openapi.editor.FileDropManager
 import com.intellij.openapi.editor.FoldRegion
 import com.intellij.openapi.editor.FoldingModel
+import com.intellij.openapi.extensions.DefaultPluginDescriptor
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.extensions.LoadingOrder
+import com.intellij.openapi.extensions.PluginDescriptor
+import com.intellij.openapi.extensions.PluginId
+import com.intellij.openapi.extensions.TechnologyFilter
 import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
 import com.intellij.openapi.fileEditor.ex.FileEditorProviderManager
 import com.intellij.openapi.fileEditor.ex.FileEditorWithProvider
@@ -63,6 +70,8 @@ import com.intellij.openapi.options.advanced.AdvancedSettingsImpl
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.util.awaitWithCheckCanceled
 import com.intellij.openapi.project.DumbAware
+import com.intellij.openapi.project.DumbService
+import com.intellij.openapi.project.IndexNotReadyException
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.ActionCallback
 import com.intellij.openapi.util.Disposer
@@ -101,6 +110,7 @@ import com.intellij.testFramework.BinaryLightVirtualFile
 import com.intellij.testFramework.DumbModeTestUtils
 import com.intellij.testFramework.EditorTestUtil
 import com.intellij.testFramework.HeavyPlatformTestCase
+import com.intellij.testFramework.IndexingTestUtil
 import com.intellij.testFramework.LightVirtualFile
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.VfsTestUtil
@@ -113,6 +123,7 @@ import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.junit5.TestDisposable
 import com.intellij.testFramework.junit5.fixture.fileEditorManagerFixture
 import com.intellij.testFramework.junit5.fixture.projectFixture
+import com.intellij.testFramework.registerOrReplaceServiceInstance
 import com.intellij.testFramework.replaceService
 import com.intellij.util.io.write
 import kotlinx.coroutines.CancellationException
@@ -155,6 +166,8 @@ import java.awt.AWTEvent
 import java.awt.Component
 import java.awt.EventQueue
 import java.awt.Window
+import java.awt.datatransfer.DataFlavor
+import java.awt.datatransfer.Transferable
 import java.awt.event.InputEvent
 import java.awt.event.KeyEvent
 import java.awt.event.MouseEvent
@@ -1496,16 +1509,91 @@ class FileEditorManagerTest {
       file
     }
 
-    manager.waitForAsyncUpdateOnDumbModeFinished()
+    manager.waitForAsyncUpdateOnProvidersChanged()
     executeSomeCoroutineTasksAndDispatchAllInvocationEvents(project)
     assertThat(manager.getAllEditorList(createdFile)).hasSize(2)
+  }
+
+  @Test
+  fun testProvidersUpdateInDumbModeKeepsDumbUnawareEditors(): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+    // a dumb-unaware provider opens no editor while the project indexes after its start
+    IndexingTestUtil.suspendUntilIndexesAreReady(project)
+    registerProvider(MockFileEditorProvider())
+    registerProvider(MyDumbAwareProvider())
+    val file = createTempFooBar()
+    assertThat(manager.openFile(file, false)).hasSize(2)
+
+    // an update in the dumb mode, as after a roots change: the open dumb-unaware provider still accepts the file, and its editor stays
+    DumbModeTestUtils.runInDumbModeSynchronously(project) {
+      manager.waitForAsyncUpdateOnProvidersChanged()
+      executeSomeCoroutineTasksAndDispatchAllInvocationEvents(project)
+      assertThat(manager.getAllEditorList(file)).hasSize(2)
+    }
+
+    // the end of the dumb mode and a later update add no second editor of a provider
+    manager.waitForAsyncUpdateOnProvidersChanged()
+    executeSomeCoroutineTasksAndDispatchAllInvocationEvents(project)
+    assertThat(manager.getAllEditorList(file)).hasSize(2)
+  }
+
+  @Test
+  fun testProvidersUpdateInDumbModeAsksNoDumbUnawareProvider(): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+    // a dumb-unaware provider opens no editor while the project indexes after its start
+    IndexingTestUtil.suspendUntilIndexesAreReady(project)
+    registerProvider(MyDumbAwareProvider())
+    // a dumb-unaware provider may need the indexes to accept a file; the open editor stays without the question
+    registerProvider(object : MockFileEditorProvider("needsIndexes", "needs indexes", FileEditorPolicy.PLACE_AFTER_DEFAULT_EDITOR) {
+      override fun accept(project: Project, file: VirtualFile): Boolean {
+        if (DumbService.isDumb(project)) {
+          throw IndexNotReadyException.create()
+        }
+        return true
+      }
+    })
+    val file = createTempFooBar()
+    assertThat(manager.openFile(file, false)).hasSize(2)
+
+    DumbModeTestUtils.runInDumbModeSynchronously(project) {
+      manager.waitForAsyncUpdateOnProvidersChanged()
+      executeSomeCoroutineTasksAndDispatchAllInvocationEvents(project)
+      assertThat(manager.getAllEditorList(file).map { it.name }).containsExactlyInAnyOrder(MockFileEditorProvider.DEFAULT_FILE_EDITOR_NAME, "needs indexes")
+    }
+  }
+
+  @Test
+  fun testProvidersUpdateInDumbModeFollowsTheTechOfADumbUnawareProvider(): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+    // a dumb-unaware provider opens no editor while the project indexes after its start
+    IndexingTestUtil.suspendUntilIndexesAreReady(project)
+    val filter = installTechnologyFilter()
+    registerProvider(MyDumbAwareProvider())
+    registerProvider(MockFileEditorProvider("ofTech", "of tech", FileEditorPolicy.PLACE_AFTER_DEFAULT_EDITOR), module = filter.module)
+    val file = createTempFooBar()
+    assertThat(manager.openFile(file, false)).hasSize(2)
+
+    DumbModeTestUtils.runInDumbModeSynchronously(project) {
+      // the module stops to apply in the dumb mode: the editor of its dumb-unaware provider is removed at once
+      filter.setBlocked(true)
+      manager.waitForAsyncUpdateOnProvidersChanged()
+      executeSomeCoroutineTasksAndDispatchAllInvocationEvents(project)
+      assertThat(manager.getAllEditorList(file).map { it.name }).containsExactly(MockFileEditorProvider.DEFAULT_FILE_EDITOR_NAME)
+
+      // the module applies again in the dumb mode: a dumb-unaware provider opens no editor before the dumb mode ends
+      filter.setBlocked(false)
+      manager.waitForAsyncUpdateOnProvidersChanged()
+      executeSomeCoroutineTasksAndDispatchAllInvocationEvents(project)
+      assertThat(manager.getAllEditorList(file).map { it.name }).containsExactly(MockFileEditorProvider.DEFAULT_FILE_EDITOR_NAME)
+    }
+
+    manager.waitForAsyncUpdateOnProvidersChanged()
+    executeSomeCoroutineTasksAndDispatchAllInvocationEvents(project)
+    assertThat(manager.getAllEditorList(file).map { it.name }).containsExactlyInAnyOrder(MockFileEditorProvider.DEFAULT_FILE_EDITOR_NAME, "of tech")
   }
 
   @Test
   fun testProviderUpdateSkipsCompositeClosedDuringLookup(): Unit = timeoutRunBlocking {
     val targetFile = getSourceFile("1.txt")
     val composite = manager.openFile(targetFile, FileEditorOpenOptions()) as EditorComposite
-    withContext(Dispatchers.EDT) { manager.waitForAsyncUpdateOnDumbModeFinished() }
+    withContext(Dispatchers.EDT) { manager.waitForAsyncUpdateOnProvidersChanged() }
     val started = CompletableDeferred<Unit>()
     val release = CountDownLatch(1)
     registerProvider(object : MockFileEditorProvider("late-provider") {
@@ -1520,7 +1608,7 @@ class FileEditorManagerTest {
         error("The composite closed before the provider lookup finished")
       }
     })
-    val update = async(Dispatchers.EDT) { manager.waitForAsyncUpdateOnDumbModeFinished() }
+    val update = async(Dispatchers.EDT) { manager.waitForAsyncUpdateOnProvidersChanged() }
     try {
       started.await()
       withContext(Dispatchers.EDT) { manager.closeFile(targetFile) }
@@ -1532,6 +1620,29 @@ class FileEditorManagerTest {
       release.countDown()
       update.cancelAndJoin()
     }
+  }
+
+  @Test
+  fun testEditorsOfOpenFilesFollowTheTechsOfTheProject(): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+    val filter = installTechnologyFilter()
+    // both dumb-aware: the dumb mode of a previous test must not decide which editors open
+    registerProvider(MyDumbAwareProvider())
+    registerProvider(MyDumbAwareProvider("ofTech", "of tech", FileEditorPolicy.PLACE_AFTER_DEFAULT_EDITOR), module = filter.module)
+    val file = createTempFooBar()
+    assertThat(manager.openFile(file, false)).hasSize(2)
+
+    // the module of the provider stops to apply: its editor is removed, the file stays open with the other one
+    filter.setBlocked(true)
+    manager.waitForAsyncUpdateOnProvidersChanged()
+    executeSomeCoroutineTasksAndDispatchAllInvocationEvents(project)
+    assertThat(manager.isFileOpen(file)).isTrue()
+    assertThat(manager.getAllEditorList(file).map { it.name }).containsExactly(MockFileEditorProvider.DEFAULT_FILE_EDITOR_NAME)
+
+    // the module applies again: the editor of its provider is added back
+    filter.setBlocked(false)
+    manager.waitForAsyncUpdateOnProvidersChanged()
+    executeSomeCoroutineTasksAndDispatchAllInvocationEvents(project)
+    assertThat(manager.getAllEditorList(file).map { it.name }).containsExactlyInAnyOrder(MockFileEditorProvider.DEFAULT_FILE_EDITOR_NAME, "of tech")
   }
 
   @Test
@@ -1607,7 +1718,7 @@ class FileEditorManagerTest {
       file
     }
 
-    manager.waitForAsyncUpdateOnDumbModeFinished()
+    manager.waitForAsyncUpdateOnProvidersChanged()
     executeSomeCoroutineTasksAndDispatchAllInvocationEvents(project)
     assertOpenedFileEditorsNames(file, "hide_others")
   }
@@ -1624,7 +1735,7 @@ class FileEditorManagerTest {
       file
     }
 
-    manager.waitForAsyncUpdateOnDumbModeFinished()
+    manager.waitForAsyncUpdateOnProvidersChanged()
     executeSomeCoroutineTasksAndDispatchAllInvocationEvents(project)
     assertOpenedFileEditorsNames(file, "hide_others")
     assertThat(manager.getSelectedEditor(file)?.name).isEqualTo("hide_others")
@@ -1689,6 +1800,28 @@ class FileEditorManagerTest {
   @Test
   fun testFileEditorOpenRequestUsesManagedMode() {
     assertThat(FileEditorOpenRequest.defaults().openMode).isEqualTo(FileEditorOpenMode.MANAGED)
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = [false, true])
+  fun testDropOpensFilesInTargetWindow(explicitWindow: Boolean): Unit = timeoutRunBlocking {
+    val first = getSourceFile("1.txt")
+    val last = getSourceFile("2.txt")
+    val target = withContext(Dispatchers.EDT) {
+      openSourceFile("Test.java")
+      val current = currentWindow()
+      if (explicitWindow) createVerticalSplitter(current).also { manager.currentWindow = current } else current
+    }
+    val drop = object : Transferable {
+      override fun getTransferDataFlavors() = arrayOf(uriListFlavor)
+      override fun isDataFlavorSupported(flavor: DataFlavor) = flavor == uriListFlavor
+      override fun getTransferData(flavor: DataFlavor) = listOf(first, last).joinToString("\r\n") { it.toNioPath().toUri().toASCIIString() }
+    }
+    project.service<FileDropManager>().handleDrop(drop, editor = null, editorWindowCandidate = target.takeIf { explicitWindow })
+    withContext(Dispatchers.EDT) {
+      assertThat(target.fileList).containsSubsequence(first, last)
+      assertThat(target.selectedFile).isEqualTo(last)
+    }
   }
 
   @ParameterizedTest
@@ -2647,11 +2780,23 @@ class FileEditorManagerTest {
     )
   }
 
-  private fun registerProvider(provider: FileEditorProvider) {
+  /** Registers [provider] as an extension; [module] is the module that declares it, see [TechnologyFilter.isApplicable]. */
+  private fun registerProvider(provider: FileEditorProvider, module: PluginDescriptor? = null) {
     val providerDisposable = Disposer.newDisposable()
     Disposer.register(disposable, providerDisposable)
     providerDisposables.add(providerDisposable)
-    FileEditorProviderBean.EP_NAME.point.registerExtension(FileEditorProviderBean(provider), providerDisposable)
+    val bean = FileEditorProviderBean(provider)
+    if (module != null) {
+      bean.pluginDescriptor = module
+    }
+    FileEditorProviderBean.EP_NAME.point.registerExtension(bean, providerDisposable)
+  }
+
+  /** Replaces the technology filter until the end of the test, see [TechnologyFilterForTest]. */
+  private fun installTechnologyFilter(): TechnologyFilterForTest {
+    val filter = TechnologyFilterForTest(project)
+    ApplicationManager.getApplication().registerOrReplaceServiceInstance(TechnologyFilter::class.java, filter, disposable)
+    return filter
   }
 
   private fun registerPreCloseCheck(check: VirtualFilePreCloseCheck) {
@@ -2953,5 +3098,28 @@ internal fun dispatchOpenInRightSplitGesture(disposable: Disposable, action: () 
   }
   finally {
     Disposer.dispose(dispatcherDisposable)
+  }
+}
+
+/**
+ * A [TechnologyFilter] that keeps [module] from [project] while it is blocked, see [setBlocked].
+ * A change publishes [TechnologyFilter.TOPIC] in a write action on the EDT, as the product filter does.
+ */
+private class TechnologyFilterForTest(private val project: Project) : TechnologyFilter {
+  val module: PluginDescriptor = DefaultPluginDescriptor(PluginId.getId("test.file.editor.tech"), FileEditorManagerTest::class.java.classLoader)
+
+  @Volatile
+  private var isBlocked = false
+
+  override fun isRestricted(project: Project): Boolean = isBlocked && project === this.project
+
+  override fun isApplicable(module: PluginDescriptor, project: Project): Boolean = !isRestricted(project) || module !== this.module
+
+  fun setBlocked(blocked: Boolean) {
+    isBlocked = blocked
+    val publisher = ApplicationManager.getApplication().messageBus.syncPublisher(TechnologyFilter.TOPIC)
+    runWriteAction {
+      publisher.applicabilityChanged(project)
+    }
   }
 }

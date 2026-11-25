@@ -1,16 +1,16 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.python.sdk.backend
 
+import com.intellij.execution.configuration.AbstractRunConfiguration
 import com.intellij.execution.target.RunConfigurationTargetEnvironmentAdjuster
-import com.intellij.util.PathMappingSettings
-import com.intellij.openapi.Disposable
 import com.intellij.execution.target.TargetedCommandLineBuilder
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.options.SettingsEditor
 import com.intellij.openapi.progress.runBlockingMaybeCancellable
-import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.vfs.VirtualFile
@@ -25,8 +25,10 @@ import com.intellij.python.sdk.backend.impl.buildUnavailableItem
 import com.intellij.python.sdk.backend.impl.recordedPythonInfo
 import com.intellij.python.sdk.backend.service.ActivatableEnvironmentService
 import com.intellij.python.sdk.common.PyInterpreterItem
+import com.intellij.util.PathMappingSettings
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.concurrency.annotations.RequiresBlockingContext
+import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.concurrency.annotations.RequiresReadLockAbsence
 import com.jetbrains.python.PyNames
 import com.jetbrains.python.PythonInfo
@@ -45,6 +47,7 @@ import com.jetbrains.python.sdk.readOnly.PythonSdkReadOnlyProvider
 import com.jetbrains.python.sdk.skeletonsPath
 import com.jetbrains.python.sdk.targetAdditionalData
 import com.jetbrains.python.target.PyTargetAwareAdditionalData
+import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.Nls
 import java.io.IOException
@@ -79,13 +82,14 @@ fun PythonInterpreter.findToolExecutable(tool: PyTool, executableName: String = 
   }
 
 /**
- * The [Sdk] behind this interpreter, for a call site that must reach an `Sdk` API.
+ * The [Sdk] behind this interpreter, only for the deprecated APIs that external plugins still call:
+ * `com.jetbrains.python.sdk.PythonSdkUtil.findPythonSdk`, `Project.pythonSdk` and `PythonRunParams.getSdk`. They
+ * return an `Sdk` by contract.
  *
- * Deliberately deprecated: it is the only way out, and every use of it is a use of the `Sdk` API that should be a
- * `PythonInterpreter` extension instead. Never put an `Sdk` in a UI list — lists hold
- * [com.intellij.python.sdk.common.PyInterpreterItem].
+ * Do not add a caller. Every other code uses the extensions of this file, and only this module reads the SDK.
  */
-@Deprecated("try to avoid Sdk API usage, use PythonInterpreter extensions instead", ReplaceWith("PythonInterpreterExt.kt"))
+@ApiStatus.Internal
+@Deprecated("Only for the deprecated APIs that return an Sdk to external plugins. Use PythonInterpreter extensions instead.")
 fun PythonInterpreter.getSdkAPI(): Sdk = sdk
 
 /**
@@ -228,18 +232,31 @@ fun PythonInterpreter.asItem(): PyInterpreterItem = buildItem()
 @Internal
 fun PythonInterpreterKey.asUnavailableItem(): PyInterpreterItem = buildUnavailableItem()
 
-/**
- * Every SDK as a UI list holds it, resolved off the EDT, in order.
- *
- * This is how a list of interpreters is built. The work is detecting each environment, which is local file reads that
- * [Sdk.pythonInterpreterAsync] caches per SDK — so the first list pays for it and later ones do not.
- */
-suspend fun Iterable<Sdk>.pyInterpreterItems(project: Project): List<PyInterpreterItem> =
-  mapNotNull { it.pythonInterpreterResultAsync(project).successOrNull?.asItem() }
-
 /** The flavor this interpreter was set up with. */
 val PythonInterpreter.flavor: PythonSdkFlavor<*>
   get() = sdk.pySdkAdditionalData.flavor
+
+/**
+ * Saves [TargetPythonInterpreter.targetConfiguration] after the user edited it in place, where the flow of this session
+ * keeps it: the target of the project in the interpreter library flow, see [replaceTarget], and the SDK data in the
+ * legacy flow. Then it requests an update of this interpreter.
+ */
+@Internal
+@RequiresEdt
+fun TargetPythonInterpreter.saveEditedTargetConfiguration() {
+  val data = sdk.targetAdditionalData
+  // The SDK data holds the edited configuration too: it keeps a serialized copy, which the legacy flow stores.
+  data?.notifyTargetEnvironmentConfigurationChanged()
+  if (isInterpreterLibraryFlowEnabled()) {
+    replaceTarget(project, targetConfiguration)
+  }
+  else if (data != null) {
+    val modificator = sdk.sdkModificator
+    modificator.sdkAdditionalData = data
+    ApplicationManager.getApplication().runWriteAction { modificator.commitChanges() }
+  }
+  PythonInterpreterUpdater.getInstance(project).request(this, PythonInterpreterUpdateRequest(packages = true, background = false))
+}
 
 /** The target data of this interpreter, or `null` for an interpreter that runs on no target. */
 val PythonInterpreter.targetAdditionalData: PyTargetAwareAdditionalData?
@@ -404,6 +421,16 @@ val PythonInterpreter.legacyTableSdkHome: String?
 @Internal
 fun PythonInterpreter.runConfigurationTargetAdjuster(): RunConfigurationTargetEnvironmentAdjuster? =
   RunConfigurationTargetEnvironmentAdjuster.Factory.findTargetEnvironmentRequestAdjuster(sdk)
+
+/**
+ * The run configuration UI of this adjuster for [runConfiguration], which reads the interpreter with [interpreter] each
+ * time. The platform UI reads an SDK, so this is where the interpreter gives it.
+ */
+@Internal
+fun RunConfigurationTargetEnvironmentAdjuster.createRunConfigurationUI(
+  runConfiguration: AbstractRunConfiguration,
+  interpreter: () -> PythonInterpreter?,
+): SettingsEditor<AbstractRunConfiguration>? = createAdditionalRunConfigurationUI(runConfiguration) { interpreter()?.sdk }
 
 /**
  * Sets the Python binary of this interpreter, and what its flavor needs, such as a conda activation, on

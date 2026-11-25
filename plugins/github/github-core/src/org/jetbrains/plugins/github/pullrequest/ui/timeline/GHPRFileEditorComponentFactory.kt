@@ -37,7 +37,6 @@ import com.intellij.openapi.util.text.HtmlChunk
 import com.intellij.ui.AnimatedIcon
 import com.intellij.ui.ColorUtil
 import com.intellij.ui.PopupHandler
-import com.intellij.ui.ScrollPaneFactory
 import com.intellij.ui.components.panels.ListLayout
 import com.intellij.ui.components.panels.Wrapper
 import com.intellij.util.IconUtil
@@ -151,9 +150,7 @@ internal class GHPRFileEditorComponentFactory(
       }
     }
 
-    val scrollPane = ScrollPaneFactory.createScrollPane(timelinePanel, true).apply {
-      isOpaque = false
-      viewport.isOpaque = false
+    val scrollPane = CodeReviewTimelineUIUtil.createTimelineScrollPane(timelinePanel).apply {
       verticalScrollBar.model.addChangeListener(object : ChangeListener {
         private var firstScroll = true
 
@@ -257,7 +254,7 @@ internal class GHPRFileEditorComponentFactory(
   private fun createMergedTimelineItem(detailsVm: GHPRDetailsTimelineViewModel): JComponent {
     return CodeReviewChatItemUIUtil.build(
       type = CodeReviewChatItemUIUtil.ComponentType.FULL,
-      iconProvider = { iconSize -> IconUtil.resizeSquared(GithubIcons.PullRequestMerged, iconSize) },
+      iconProvider = { iconSize -> IconUtil.resizeSquared(GithubIcons.PullRequestMergedTimeline, iconSize) },
       content = HorizontalListPanel(gap = 4).apply {
         add(SimpleHtmlPane(addBrowserListener = false).apply {
           addHyperlinkListener { e ->

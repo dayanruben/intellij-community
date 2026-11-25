@@ -1,6 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.debugger.engine.requests
 
+import com.intellij.debugger.engine.DebuggerUtils
 import com.intellij.debugger.impl.DebuggerUtilsAsync
 import com.intellij.debugger.impl.DebuggerUtilsEx
 import com.intellij.debugger.jdi.MethodBytecodeUtil
@@ -40,11 +41,22 @@ class EmulatedReturnValueWatcher(private val requestManager: EventRequestManager
 
   /** Each state owns its requests. A transition deletes them. */
   private sealed class State(val requests: List<EventRequest>) {
+    /** No capture runs. The watcher ignores late events. */
     object Idle : State(emptyList())
+
+    /** Waits for a callee entry or a base return breakpoint. */
     class FollowBase(entryRequest: EventRequest) : State(listOf(entryRequest))
-    object IgnoreCall : State(emptyList())
+
+    /** Waits for a return breakpoint of [callee] or of the base method. */
     class FollowCall(val callee: Method, returnBreakpointRequests: List<EventRequest>) : State(returnBreakpointRequests)
+
+    /** Waits for the exit of [callee] to record its return value. */
     class RecordCall(val callee: Method, exitRequest: EventRequest) : State(listOf(exitRequest))
+
+    /** Waits for a base return breakpoint ([CaptureScope.BASE_FRAME]). */
+    object IgnoreCall : State(emptyList())
+
+    /** Waits for the exit of the base method to record its return value and end the capture. */
     class RecordBase(exitRequest: EventRequest) : State(listOf(exitRequest))
   }
 
@@ -89,26 +101,25 @@ class EmulatedReturnValueWatcher(private val requestManager: EventRequestManager
     // A failure must not escape, because the event loop resumes the event set only after this function returns.
     failSafe({ "process $event" }) {
       when (val s = state) {
-        // No callee runs in FollowBase, so each entry is the entry of a callee, and each base return is at the base depth.
+        State.Idle -> Unit
+
+        // No callee runs here, so each entry is a direct callee and each breakpoint is at baseDepth.
         // A native or empty callee has no return breakpoint that can fire, so the capture waits for its exit.
-        is State.FollowBase if event is MethodEntryEvent && (event.method().isNative || event.method().returnsAt(event.location().codeIndex())) ->
+        is State.FollowBase if event is MethodEntryEvent &&
+          (event.method().isNative || event.method().returnsAt(event.location().codeIndex())) ->
           transitionTo(State.RecordCall(event.method(), newExitRequest()))
         is State.FollowBase if event is MethodEntryEvent -> {
           val callee = event.method()
           val requests =
             if (callee == baseMethod && baseReturnBreakpointRequests.isNotEmpty()) emptyList() else newReturnBreakpointRequests(callee)
 
-          transitionTo(State.FollowCall(event.method(), requests))
+          transitionTo(State.FollowCall(callee, requests))
         }
-
         is State.FollowBase if event is BreakpointEvent -> transitionTo(State.RecordBase(newExitRequest()))
-        // Callees run in IgnoreCall, so a recursive call of the base method can hit the base return breakpoint requests.
-        is State.IgnoreCall if event is BreakpointEvent && event.depth == baseDepth -> transitionTo(State.RecordBase(newExitRequest()))
-        is State.IgnoreCall if event is BreakpointEvent -> Unit
 
         is State.FollowCall if event is BreakpointEvent -> when (event.depth) {
-          // A void callee has no return value to record.
-          baseDepth + 1 if DebuggerUtilsEx.isVoid(s.callee) -> transitionTo(State.FollowBase(newEntryRequest()))
+          baseDepth + 1 if (DebuggerUtilsEx.isVoid(s.callee) || isJvmInternal(s.callee)) ->
+            transitionTo(State.FollowBase(newEntryRequest()))
           baseDepth + 1 -> transitionTo(State.RecordCall(s.callee, newExitRequest()))
           // The base frame returns, so an exception popped the callee.
           baseDepth -> transitionTo(State.RecordBase(newExitRequest()))
@@ -123,13 +134,14 @@ class EmulatedReturnValueWatcher(private val requestManager: EventRequestManager
         // A method that a native callee calls returns.
         is State.RecordCall if event is MethodExitEvent && s.callee.isNative -> Unit
 
+        // Callees run in IgnoreCall, so a recursive call of the base method can hit the base return breakpoint requests.
+        is State.IgnoreCall if event is BreakpointEvent && event.depth == baseDepth -> transitionTo(State.RecordBase(newExitRequest()))
+        is State.IgnoreCall if event is BreakpointEvent -> Unit
+
         is State.RecordBase if event is MethodExitEvent && event.method() == baseMethod -> {
           record(event)
           endCapture()
         }
-
-        // A late event after the capture stopped.
-        State.Idle -> Unit
 
         else -> warnUnexpected(event)
       }
@@ -172,21 +184,43 @@ class EmulatedReturnValueWatcher(private val requestManager: EventRequestManager
     val expected = when (val s = state) {
       State.Idle -> "no event"
       is State.FollowBase -> "a method entry or a return of $baseMethod"
-      State.IgnoreCall -> "a return of $baseMethod"
       is State.FollowCall -> "a return of ${s.callee} or of $baseMethod"
       is State.RecordCall -> "the exit of ${s.callee}"
+      State.IgnoreCall -> "a return of $baseMethod"
       is State.RecordBase -> "the exit of $baseMethod"
     }
     val method = (event as? LocatableEvent)?.location()?.method()
     fileLogger().warn("Unexpected $event of $method in the state ${state.javaClass.simpleName}, expected $expected")
   }
 
-  private fun deleteRequests(requests: List<EventRequest>) {
-    requests.forEach { DebuggerUtilsAsync.deleteEventRequest(requestManager, it) }
-  }
-
   private val LocatableEvent.depth: Int
     get() = thread().frameCount()
+
+  private fun returnLocationsOf(method: Method): Collection<Location> {
+    val cached = returnLocations[method]
+    // A HotSwap can move the return instructions. The redefined method keeps its ID, so it is equal to the old key.
+    // JDI makes a new Method instance for it, so the locations of another instance are stale.
+    if (cached != null && cached.firstOrNull()?.method() === method) return cached
+    return MethodBytecodeUtil.getMethodExitLocations(method).also { returnLocations[method] = it }
+  }
+
+  private fun Method.returnsAt(codeIndex: Long): Boolean = returnLocationsOf(this).any { it.codeIndex() == codeIndex }
+
+  /**
+   * Returns true for JVM-internal callees whose return values are noise.
+   * All matched methods are non-native, so [State.FollowCall] handles them.
+   * Requires both owner and method to be non-public in java.lang.invoke so public API overrides stay visible.
+   */
+  private fun isJvmInternal(method: Method): Boolean {
+    val owner = method.declaringType()
+    val ownerName = owner.name()
+    if (ownerName.startsWith("java.lang.invoke.")) return !owner.isPublic && !method.isPublic
+    if (ownerName == "sun.instrument.InstrumentationImpl") return method.name() == "transform"
+    if (method.name() == "loadClass" && method.signature() == "(Ljava/lang/String;)Ljava/lang/Class;") {
+      return DebuggerUtils.instanceOf(owner, "java.lang.ClassLoader")
+    }
+    return false
+  }
 
   private fun newEntryRequest(): EventRequest = requestManager.createMethodEntryRequest().register { addThreadFilter(thread) }
 
@@ -207,17 +241,6 @@ class EmulatedReturnValueWatcher(private val requestManager: EventRequestManager
     return requests
   }
 
-  private fun returnLocationsOf(method: Method): Collection<Location> {
-    val cached = returnLocations[method]
-    // A HotSwap can move the return instructions. The redefined method keeps its ID, so it is equal to the old key.
-    // JDI makes a new Method instance for it, so the locations of another instance are stale.
-    if (cached != null && cached.firstOrNull()?.method() === method) return cached
-    return MethodBytecodeUtil.getMethodExitLocations(method).also { returnLocations[method] = it }
-  }
-
-  /** Returns true if the method has a return instruction at the code index. */
-  private fun Method.returnsAt(codeIndex: Long): Boolean = returnLocationsOf(this).any { it.codeIndex() == codeIndex }
-
   /** Configures and enables a new request. On a failure, deletes it. */
   private inline fun <T : EventRequest> T.register(configure: T.() -> Unit): T {
     try {
@@ -233,4 +256,7 @@ class EmulatedReturnValueWatcher(private val requestManager: EventRequestManager
     return this
   }
 
+  private fun deleteRequests(requests: List<EventRequest>) {
+    requests.forEach { DebuggerUtilsAsync.deleteEventRequest(requestManager, it) }
+  }
 }

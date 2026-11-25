@@ -8,7 +8,6 @@ import com.intellij.python.sdk.backend.PythonInterpreterRegistry
 import com.intellij.python.sdk.backend.PythonInterpreterUpdateRequest
 import com.intellij.python.sdk.backend.PythonInterpreterUpdater
 import com.intellij.python.sdk.backend.addMockPythonInterpreter
-import com.intellij.python.sdk.backend.getSdkAPI
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.junit5.fixture.projectFixture
@@ -17,6 +16,8 @@ import com.jetbrains.python.allure.Subsystems
 import com.jetbrains.python.tools.sdkTools.PythonMockSdk
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import java.nio.file.Path
 
 /**
  * A background process asks for an update of an interpreter whenever something changes under its paths. Such an update
@@ -37,9 +38,7 @@ internal class PySdkUsageTest {
     val registry = PythonInterpreterRegistry.getInstance(project)
     val interpreter = registry.addMockPythonInterpreter(pyProject, PythonMockSdk.create())
     try {
-      @Suppress("DEPRECATION") // The snapshot checks an SDK.
-      val sdk = interpreter.getSdkAPI()
-      assertThat(EvoPyProjectModel.getInstance(project).snapshot().usesSdk(sdk)).isFalse()
+      assertThat(EvoPyProjectModel.getInstance(project).snapshot().interpreters).doesNotContain(interpreter)
     }
     finally {
       registry.remove(interpreter)
@@ -54,9 +53,7 @@ internal class PySdkUsageTest {
     val interpreter = registry.addMockPythonInterpreter(pyProject, PythonMockSdk.create())
     try {
       pyProject.setPythonInterpreter(interpreter)
-      @Suppress("DEPRECATION") // The snapshot checks an SDK.
-      val sdk = interpreter.getSdkAPI()
-      assertThat(EvoPyProjectModel.getInstance(project).snapshot().usesSdk(sdk)).isTrue()
+      assertThat(EvoPyProjectModel.getInstance(project).snapshot().interpreters).contains(interpreter)
     }
     finally {
       pyProject.setPythonInterpreter(null)
@@ -98,20 +95,19 @@ internal class PySdkUsageTest {
   }
 
   @Test
-  fun `an interpreter stops being in use when the Python project moves to another one`(): Unit = timeoutRunBlocking {
+  fun `an interpreter stops being in use when the Python project moves to another one`(@TempDir root: Path): Unit = timeoutRunBlocking {
     val project = projectFixture.get()
     val pyProject = pyProjectFixture.get()
     val registry = PythonInterpreterRegistry.getInstance(project)
-    val first = registry.addMockPythonInterpreter(pyProject, PythonMockSdk.create())
-    val second = registry.addMockPythonInterpreter(pyProject, PythonMockSdk.create())
+    // Two mock SDKs at one path are one interpreter, so each one has its own path.
+    val first = registry.addMockPythonInterpreter(pyProject, PythonMockSdk.create(root.resolve("first").toString()))
+    val second = registry.addMockPythonInterpreter(pyProject, PythonMockSdk.create(root.resolve("second").toString()))
     try {
       pyProject.setPythonInterpreter(first)
       pyProject.setPythonInterpreter(second)
       val snapshot = EvoPyProjectModel.getInstance(project).snapshot()
-      @Suppress("DEPRECATION") // The snapshot checks an SDK.
-      assertThat(snapshot.usesSdk(first.getSdkAPI())).isFalse()
-      @Suppress("DEPRECATION") // The snapshot checks an SDK.
-      assertThat(snapshot.usesSdk(second.getSdkAPI())).isTrue()
+      assertThat(snapshot.interpreters).doesNotContain(first)
+      assertThat(snapshot.interpreters).contains(second)
     }
     finally {
       pyProject.setPythonInterpreter(null)

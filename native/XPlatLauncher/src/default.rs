@@ -31,6 +31,9 @@ const IDE_CACHE_DIR_MACRO: &str = "%IDE_CACHE_DIR%";
 #[cfg(target_family = "unix")]
 const IDE_CACHE_DIR_MACRO: &str = "$IDE_CACHE_DIR";
 
+const DEV_MODE_JVM_OPTION_ARG: &str = "--dev-mode-jvm-option=";
+const DEV_LAUNCH_MARKER_NAME: &str = ".dev-launch";
+
 pub struct DefaultLaunchConfiguration {
     pub product_info: ProductInfo,
     pub launch_info: ProductInfoLaunchField,
@@ -38,6 +41,7 @@ pub struct DefaultLaunchConfiguration {
     pub vm_options_path: PathBuf,
     pub user_config_dir: PathBuf,
     pub user_caches_dir: PathBuf,
+    pub dev_mode_vm_options: Vec<String>,
     pub args: Vec<String>,
     pub launcher_base_name: String,
     pub env_var_base_name: String
@@ -57,8 +61,11 @@ impl LaunchConfiguration for DefaultLaunchConfiguration {
         vm_options.push(format!("-XX:ErrorFile={user_home_path}{slash}java_error_in_{}_%p.log", self.launcher_base_name));
         vm_options.push(format!("-XX:HeapDumpPath={user_home_path}{slash}java_error_in_{}.hprof", self.launcher_base_name));
 
-        // collecting JVM options from user and distribution files
+        // collecting VM options from user and distribution files
         self.collect_vm_options_from_files(&mut vm_options)?;
+
+        // appending dev mode VM options
+        vm_options.extend_from_slice(&self.dev_mode_vm_options);
 
         // appending product-specific VM options (non-overridable, so should come last)
         debug!("Appending product-specific VM options");
@@ -127,16 +134,15 @@ impl DefaultLaunchConfiguration {
         let launcher_base_name = Self::get_launcher_base_name(vm_options_rel_path);
         let env_var_base_name = product_launch_info.custom_env_var_base_name.unwrap_or(product_info.envVarBaseName.clone());
 
+        let dev_mode = product_info_file.with_file_name(DEV_LAUNCH_MARKER_NAME).is_file();
+        let (args, dev_mode_vm_options) = Self::split_dev_mode_jvm_options(args)?;
+        if !dev_mode_vm_options.is_empty() && !dev_mode {
+            bail!("Dev mode arguments are only allowed in the dev mode");
+        }
+
         let config = DefaultLaunchConfiguration {
-            product_info,
-            launch_info,
-            ide_home,
-            vm_options_path,
-            user_config_dir,
-            user_caches_dir,
-            args,
-            launcher_base_name,
-            env_var_base_name
+            product_info, launch_info, ide_home, vm_options_path, user_config_dir, user_caches_dir, dev_mode_vm_options, args,
+            launcher_base_name, env_var_base_name
         };
 
         Ok(config)
@@ -171,7 +177,8 @@ impl DefaultLaunchConfiguration {
     }
 
     /// Locates the Java runtime and returns a path to the standard launcher (`bin/java` or `bin\\java.exe`).
-    /// The lookup sequence is described in the [support article](https://intellij-support.jetbrains.com/hc/en-us/articles/206544879-Selecting-the-JDK-version-the-IDE-will-run-under).
+    /// The lookup sequence is described in the
+    /// [support article](https://intellij-support.jetbrains.com/hc/en-us/articles/206544879-Selecting-the-JDK-version-the-IDE-will-run-under).
     fn locate_runtime(&self) -> Result<PathBuf> {
         debug!("[1] Looking for runtime at product-specific environment variable");
         let product_env_var = self.env_var_base_name.to_owned() + "_JDK";
@@ -332,6 +339,22 @@ impl DefaultLaunchConfiguration {
         }
 
         bail!("User-editable config files not found");
+    }
+
+    fn split_dev_mode_jvm_options(args: Vec<String>) -> Result<(Vec<String>, Vec<String>)> {
+        let mut dev_mode_jvm_options = Vec::new();
+        let mut rest = Vec::with_capacity(args.len());
+        for arg in args.into_iter() {
+            if let Some(option) = arg.strip_prefix(DEV_MODE_JVM_OPTION_ARG) {
+                if option.trim().is_empty() {
+                    bail!("Malformed dev mode option: '{arg}'");
+                }
+                dev_mode_jvm_options.push(option.to_string());
+            } else {
+                rest.push(arg);
+            }
+        }
+        Ok((rest, dev_mode_jvm_options))
     }
 }
 

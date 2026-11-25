@@ -5,12 +5,14 @@ import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.Sdk
-import com.intellij.python.sdk.backend.PythonInterpreter
 import com.intellij.platform.ide.progress.runWithModalProgressBlocking
-import com.intellij.python.sdk.backend.pythonInterpreterResultAsync
+import com.intellij.python.pyproject.PyDependencyGroup
+import com.intellij.python.requirements.pyRequirement
+import com.intellij.python.sdk.backend.PythonInterpreter
 import com.intellij.util.concurrency.annotations.RequiresBlockingContext
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.jetbrains.python.PyBundle
+import com.jetbrains.python.errorProcessing.ErrorSink
 import com.jetbrains.python.errorProcessing.PyResult
 import com.jetbrains.python.errorProcessing.emit
 import com.jetbrains.python.getOrNull
@@ -18,14 +20,11 @@ import com.jetbrains.python.onFailure
 import com.jetbrains.python.packaging.PyRequirement
 import com.jetbrains.python.packaging.common.PythonPackage
 import com.jetbrains.python.packaging.common.PythonRepositoryPackageSpecification
-import com.intellij.python.pyproject.PyDependencyGroup
 import com.jetbrains.python.packaging.management.PyWorkspaceMember
 import com.jetbrains.python.packaging.management.PythonPackageInstallRequest
 import com.jetbrains.python.packaging.management.PythonPackageManager
 import com.jetbrains.python.packaging.management.findPackageSpecification
-import com.intellij.python.requirements.pyRequirement
 import com.jetbrains.python.statistics.PyPackagesUsageCollector
-import com.jetbrains.python.errorProcessing.ErrorSink
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.Nls
 
@@ -202,21 +201,5 @@ class PythonPackageManagerUI private constructor(
     fun forPackageManager(
       packageManager: PythonPackageManager,
     ): PythonPackageManagerUI = PythonPackageManagerUI(packageManager, ErrorSink())
-
-    /**
-     * Installs [packages] into the interpreter of [sdk], with a modal progress. For a Java caller on the EDT that holds
-     * only an [Sdk]. The interpreter is detected inside the progress.
-     */
-    @JvmStatic
-    @ApiStatus.Internal
-    @RequiresEdt
-    fun installPackagesWithModalProgressBlocking(project: Project, sdk: Sdk, vararg packages: String): List<PythonPackage>? {
-      val interpreter = runWithModalProgressBlocking(project, PyBundle.message("python.packaging.installing.packages")) {
-        val result = sdk.pythonInterpreterResultAsync(project)
-        result.errorOrNull?.let { ErrorSink().emit(it, project) }
-        result.successOrNull
-      } ?: return null
-      return forPythonInterpreter(interpreter).installPackagesWithModalProgressBlocking(*packages)
-    }
   }
 }

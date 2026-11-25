@@ -726,7 +726,6 @@
       <module fileurl="file://$PROJECT_DIR$/java/debugger/impl/compiler/intellij.java.debugger.impl.compiler.iml" filepath="$PROJECT_DIR$/java/debugger/impl/compiler/intellij.java.debugger.impl.compiler.iml" />
       <module fileurl="file://$PROJECT_DIR$/java/debugger/frontend/intellij.java.debugger.impl.frontend.iml" filepath="$PROJECT_DIR$/java/debugger/frontend/intellij.java.debugger.impl.frontend.iml" />
       <module fileurl="file://$PROJECT_DIR$/java/debugger/shared/intellij.java.debugger.impl.shared.iml" filepath="$PROJECT_DIR$/java/debugger/shared/intellij.java.debugger.impl.shared.iml" />
-      <module fileurl="file://$PROJECT_DIR$/java/debugger/impl/intellij.java.debugger.impl.tests.iml" filepath="$PROJECT_DIR$/java/debugger/impl/intellij.java.debugger.impl.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/java/debugger/jsp/intellij.java.debugger.jsp.iml" filepath="$PROJECT_DIR$/java/debugger/jsp/intellij.java.debugger.jsp.iml" />
       <module fileurl="file://$PROJECT_DIR$/java/debugger/jb-jdi/intellij.java.debugger.libraries.jb.jdi.iml" filepath="$PROJECT_DIR$/java/debugger/jb-jdi/intellij.java.debugger.libraries.jb.jdi.iml" />
       <module fileurl="file://$PROJECT_DIR$/java/debugger/memory-agent/intellij.java.debugger.memory.agent.iml" filepath="$PROJECT_DIR$/java/debugger/memory-agent/intellij.java.debugger.memory.agent.iml" />
@@ -1538,6 +1537,7 @@
       <module fileurl="file://$PROJECT_DIR$/plugins/performanceTesting/freezes/intellij.performanceTesting.freezes.iml" filepath="$PROJECT_DIR$/plugins/performanceTesting/freezes/intellij.performanceTesting.freezes.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/performanceTesting/frontend/intellij.performanceTesting.frontend.iml" filepath="$PROJECT_DIR$/plugins/performanceTesting/frontend/intellij.performanceTesting.frontend.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/performanceTesting/frontend-baseline/intellij.performanceTesting.frontend.baseline.iml" filepath="$PROJECT_DIR$/plugins/performanceTesting/frontend-baseline/intellij.performanceTesting.frontend.baseline.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/performanceTesting/lsp/intellij.performanceTesting.lsp.iml" filepath="$PROJECT_DIR$/plugins/performanceTesting/lsp/intellij.performanceTesting.lsp.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/performanceTesting/problemsView/intellij.performanceTesting.problemsView.iml" filepath="$PROJECT_DIR$/plugins/performanceTesting/problemsView/intellij.performanceTesting.problemsView.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/performanceTesting/rdct/intellij.performanceTesting.rdct.iml" filepath="$PROJECT_DIR$/plugins/performanceTesting/rdct/intellij.performanceTesting.rdct.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/performanceTesting/remote-driver/intellij.performanceTesting.remoteDriver.iml" filepath="$PROJECT_DIR$/plugins/performanceTesting/remote-driver/intellij.performanceTesting.remoteDriver.iml" />
@@ -1938,6 +1938,7 @@
       <module fileurl="file://$PROJECT_DIR$/platform/problemsView/core/intellij.platform.problemView.core.iml" filepath="$PROJECT_DIR$/platform/problemsView/core/intellij.platform.problemView.core.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/problemsView/frontend/intellij.platform.problemView.frontend.iml" filepath="$PROJECT_DIR$/platform/problemsView/frontend/intellij.platform.problemView.frontend.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/problemsView/plugin/intellij.platform.problemView.plugin.iml" filepath="$PROJECT_DIR$/platform/problemsView/plugin/intellij.platform.problemView.plugin.iml" />
+      <module fileurl="file://$PROJECT_DIR$/platform/problemsView/rpc.backend/intellij.platform.problemView.rpc.backend.iml" filepath="$PROJECT_DIR$/platform/problemsView/rpc.backend/intellij.platform.problemView.rpc.backend.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/problemsView/security/intellij.platform.problemView.security.iml" filepath="$PROJECT_DIR$/platform/problemsView/security/intellij.platform.problemView.security.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/problemsView/security/backend/intellij.platform.problemView.security.backend.iml" filepath="$PROJECT_DIR$/platform/problemsView/security/backend/intellij.platform.problemView.security.backend.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/problemsView/shared/intellij.platform.problemView.shared.iml" filepath="$PROJECT_DIR$/platform/problemsView/shared/intellij.platform.problemView.shared.iml" />

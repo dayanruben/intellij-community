@@ -13,7 +13,6 @@ import com.intellij.yaml.syntax.YamlSyntaxTokenTypes
 %implements FlexLexer
 %unicode
 %public
-%column
 
 %function advance
 %type SyntaxElementType
@@ -53,22 +52,107 @@ import com.intellij.yaml.syntax.YamlSyntaxTokenTypes
 
   //-------------------------------------------------------------------------------------------------------------------
 
-  fun isCleanState(): Boolean = yystate() == YYINITIAL
-    && braceCount == 0
-    && prevElementIndent == 0
-    && !possiblePlainTextScalarContinue
-    && !hasUnclosedQuote
+  /**
+   * Returns the state at the start of the next token.
+   * At a line start, the state holds all the fields that the lexer needs to restart.
+   * See [YamlLexerStates].
+   * The lexical state is tested first, because a state that is never restartable needs no read of the buffer.
+   */
+  fun packState(): Int {
+    val lexicalState = yystate()
+    if (!YamlLexerStates.isLineStartState(lexicalState) || hasUnclosedQuote || !isAtLineStart()) {
+      return YamlLexerStates.notRestartable(lexicalState)
+    }
+    return YamlLexerStates.pack(
+      lexicalState = lexicalState,
+      indent = prevElementIndent,
+      braceCount = braceCount,
+      possiblePlainTextScalarContinue = possiblePlainTextScalarContinue,
+      isLiteralBlockScalar = blockScalarType === YamlSyntaxTokenTypes.SCALAR_LIST,
+      returnsToBlock = returnState == BLOCK_STATE,
+    )
+  }
+
+  /** Sets all the fields from a [YamlLexerStates.isRestartable] state that [packState] returned. */
+  fun restoreState(state: Int) {
+    cleanMyState()
+    yybegin(YamlLexerStates.lexicalState(state))
+    prevElementIndent = YamlLexerStates.indent(state)
+    braceCount = YamlLexerStates.braceCount(state)
+    possiblePlainTextScalarContinue = YamlLexerStates.possiblePlainTextScalarContinue(state)
+    if (yystate() == BS_BODY_STATE) {
+      blockScalarType = if (YamlLexerStates.isLiteralBlockScalar(state)) YamlSyntaxTokenTypes.SCALAR_LIST else YamlSyntaxTokenTypes.SCALAR_TEXT
+      returnState = if (YamlLexerStates.returnsToBlock(state)) BLOCK_STATE else FLOW_STATE
+    }
+  }
+
+  private fun isAtLineStart(): Boolean = zzMarkedPos == 0 || zzBuffer[zzMarkedPos - 1] == '\n'
+
+  //-------------------------------------------------------------------------------------------------------------------
+
+  /** A buffer position with a known column. [column] scans back from the token start only up to this position. */
+  private var columnBasePos = 0
+
+  /** The buffer of [columnBasePos]. After a plain [reset] to another buffer, [column] ignores [columnBasePos]. */
+  private var columnBaseBuffer: CharSequence? = null
+
+  /** The column at [columnBasePos]. */
+  private var columnBase = 0
+
+  /**
+   * Returns the column of the current token start, as the `%column` option of JFlex counts it.
+   * The column is the number of chars after the last line break, or after the start of the lexing.
+   */
+  private fun column(): Int {
+    val pos = zzStartRead
+    val useBase = zzBuffer === columnBaseBuffer && pos >= columnBasePos
+    val stop = if (useBase) columnBasePos else 0
+    var i = pos
+    while (i > stop) {
+      val c = zzBuffer[i - 1]
+      if (isColumnReset(c)) return storeColumn(pos, pos - i)
+      i--
+    }
+    return storeColumn(pos, (if (useBase) columnBase else 0) + pos - stop)
+  }
+
+  private fun storeColumn(pos: Int, column: Int): Int {
+    columnBasePos = pos
+    columnBaseBuffer = zzBuffer
+    columnBase = column
+    return column
+  }
+
+  /** Returns true for the chars after which the `%column` option of JFlex starts a new column count. */
+  private fun isColumnReset(c: Char): Boolean = c == '\n' || c == '\r' || c == '\u000B' || c == '\u000C' || c == '\u0085' || c == '\u2028' || c == '\u2029'
+
+  /**
+   * Resets the scanner and keeps the column of the last token start for the new start, as the `%column` option of JFlex does.
+   * A plain [reset] does not keep the column.
+   */
+  fun resetKeepingColumn(buffer: CharSequence, start: Int, end: Int, initialState: Int) {
+    val column = column()
+    reset(buffer, start, end, initialState)
+    storeColumn(start, column)
+  }
 
   fun cleanMyState() {
     braceCount = 0
     blockScalarType = null
     hasUnclosedQuote = false
 
-    yycolumn = 0
+    storeColumn(zzStartRead, 0)
     returnState = YYINITIAL
 
     prepareForNewDocument()
     yybegin(YYINITIAL)
+  }
+
+  /** Resets the state for the next document. A quote without a closing quote stays, see [hasUnclosedQuote]. */
+  private fun cleanStateForNextDocument() {
+    val unclosedQuote = hasUnclosedQuote
+    cleanMyState()
+    hasUnclosedQuote = unclosedQuote
   }
 
   private fun prepareForNewDocument() {
@@ -104,7 +188,7 @@ import com.intellij.yaml.syntax.YamlSyntaxTokenTypes
    */
   private fun getStateAfterLineStart(indentLen: Int) = if (
       possiblePlainTextScalarContinue &&
-      yycolumn + indentLen > prevElementIndent
+      column() + indentLen > prevElementIndent
   ) {
       POSSIBLE_PLAIN_TEXT_STATE
   }
@@ -139,7 +223,7 @@ import com.intellij.yaml.syntax.YamlSyntaxTokenTypes
    * @return scalar key token
    */
   private fun processScalarKey(newReturnState: Int): SyntaxElementType {
-    prevElementIndent = yycolumn
+    prevElementIndent = column()
     returnState = newReturnState
     yybegin(KEY_MODE)
     return YamlSyntaxTokenTypes.SCALAR_KEY
@@ -190,7 +274,6 @@ ID =                            [^\n\-\ {}\[\]#][^\n{}\[\]>:#]*
 
 KEY_flow = {NS_PLAIN_ONE_LINE_flow}
 KEY_block = {NS_PLAIN_ONE_LINE_block}
-KEY_SUFIX = {WHITE_SPACE_CHAR}* ":"
 
 INJECTION =                     ("{{" {ID} "}"{0,2}) | ("%{" [^}\n]* "}"?)
 
@@ -308,7 +391,7 @@ C_B_BLOCK_HEADER = ( [:digit:]* ( "-" | "+" )? ) | ( ( "-" | "+" )? [:digit:]* )
   // Need to consider end of file after document range markers
   {EOL} /  ( "---" | "..." ) {NS_CHAR}  {  return YamlSyntaxTokenTypes.EOL }
   {EOL} / ( "---" | "..." ) {
-          cleanMyState()
+          cleanStateForNextDocument()
           return YamlSyntaxTokenTypes.EOL
           }
   {EOL} { return YamlSyntaxTokenTypes.EOL }
@@ -330,7 +413,7 @@ C_B_BLOCK_HEADER = ( [:digit:]* ( "-" | "+" )? ) | ( ( "-" | "+" )? [:digit:]* )
   // If there is non-space symbol after COLON then another rule will be applied
   // Better do not use suffix here because of possible EOF after the COLON
   ":" {
-        prevElementIndent = yycolumn
+        prevElementIndent = column()
         return YamlSyntaxTokenTypes.COLON
       }
 
@@ -371,7 +454,7 @@ C_B_BLOCK_HEADER = ( [:digit:]* ( "-" | "+" )? ) | ( ( "-" | "+" )? [:digit:]* )
       }
 
   "?" {
-        prevElementIndent = yycolumn
+        prevElementIndent = column()
         return YamlSyntaxTokenTypes.QUESTION
       } // do not move to another state
 
@@ -379,7 +462,7 @@ C_B_BLOCK_HEADER = ( [:digit:]* ( "-" | "+" )? ) | ( ( "-" | "+" )? [:digit:]* )
   // In this case, both the “-” indicator and the following spaces are considered to be part of the indentation of the nested collection.
   // See 8.2.1. Block Sequences http://www.yaml.org/spec/1.2/spec.html#id2797382
   "-" / ({WHITE_SPACE} | {EOL}) {
-        prevElementIndent = yycolumn
+        prevElementIndent = column()
         return YamlSyntaxTokenTypes.SEQUENCE_MARKER
       }
 
@@ -403,7 +486,11 @@ C_B_BLOCK_HEADER = ( [:digit:]* ( "-" | "+" )? ) | ( ( "-" | "+" )? [:digit:]* )
         return blockScalarType
       }
 
-  {STRING_SINGLE_LINE} | {DSTRING_SINGLE_LINE} / {KEY_SUFIX} {
+  {STRING_SINGLE_LINE} | {DSTRING_SINGLE_LINE} / ":" {
+        return processScalarKey()
+      }
+
+  {STRING_SINGLE_LINE} | {DSTRING_SINGLE_LINE} / {WHITE_SPACE} ":" {
         return processScalarKey()
       }
 
@@ -423,7 +510,11 @@ C_B_BLOCK_HEADER = ( [:digit:]* ( "-" | "+" )? ) | ( ( "-" | "+" )? [:digit:]* )
 }
 
 <BLOCK_STATE> {
-  {KEY_block} / {KEY_SUFIX} {
+  {KEY_block} / ":" {
+        return processScalarKey()
+      }
+
+  {KEY_block} / {WHITE_SPACE} ":" {
         return processScalarKey()
       }
 
@@ -436,7 +527,11 @@ C_B_BLOCK_HEADER = ( [:digit:]* ( "-" | "+" )? ) | ( ( "-" | "+" )? [:digit:]* )
 }
 
 <FLOW_STATE> {
-  {KEY_flow} / {KEY_SUFIX} {
+  {KEY_flow} / ":" {
+        return processScalarKey()
+      }
+
+  {KEY_flow} / {WHITE_SPACE} ":" {
         return processScalarKey()
       }
 
@@ -461,13 +556,23 @@ C_B_BLOCK_HEADER = ( [:digit:]* ( "-" | "+" )? ) | ( ( "-" | "+" )? [:digit:]* )
   // Better do not use suffix here because of possible EOF after the COLON
   ":" { goToState(BLOCK_STATE) }
 
-  {STRING_SINGLE_LINE} | {DSTRING_SINGLE_LINE} / {KEY_SUFIX} {
+  {STRING_SINGLE_LINE} | {DSTRING_SINGLE_LINE} / ":" {
         return processScalarKey(BLOCK_STATE)
       }
 
-  {KEY_block} / {KEY_SUFIX} {NS_PLAIN_SAFE_block} { return YamlSyntaxTokenTypes.TEXT }
+  {STRING_SINGLE_LINE} | {DSTRING_SINGLE_LINE} / {WHITE_SPACE} ":" {
+        return processScalarKey(BLOCK_STATE)
+      }
 
-  {KEY_block} / {KEY_SUFIX} {
+  {KEY_block} / ":" {NS_PLAIN_SAFE_block} { return YamlSyntaxTokenTypes.TEXT }
+
+  {KEY_block} / {WHITE_SPACE} ":" {NS_PLAIN_SAFE_block} { return YamlSyntaxTokenTypes.TEXT }
+
+  {KEY_block} / ":" {
+        return processScalarKey(BLOCK_STATE)
+      }
+
+  {KEY_block} / {WHITE_SPACE} ":" {
         return processScalarKey(BLOCK_STATE)
       }
 
@@ -541,7 +646,7 @@ C_B_BLOCK_HEADER = ( [:digit:]* ( "-" | "+" )? ) | ( ( "-" | "+" )? [:digit:]* )
   {WHITE_SPACE} { return getWhitespaceType() }
 
   [^ \n\t] {LINE}? {
-        require(yycolumn > prevElementIndent)
+        require(column() > prevElementIndent)
         return blockScalarType
       }
 

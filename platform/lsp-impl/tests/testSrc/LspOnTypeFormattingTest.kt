@@ -1,13 +1,18 @@
 package com.intellij.platform.lsp
 
+import com.intellij.application.options.CodeStyle
+import com.intellij.codeInsight.template.TemplateManager
+import com.intellij.codeInsight.template.impl.TemplateManagerImpl
 import com.intellij.openapi.actionSystem.IdeActions
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.fileTypes.PlainTextFileType
 import com.intellij.openapi.project.Project
 import com.intellij.platform.lsp.api.customization.LspCustomization
 import com.intellij.platform.lsp.api.customization.LspOnTypeFormattingSupport
 import com.intellij.platform.lsp.common.fakeLspIntegrationFixture
 import com.intellij.platform.lsp.impl.LspCoroutineScopeService
 import com.intellij.platform.testFramework.junit5.codeInsight.fixture.codeInsightFixture
+import com.intellij.psi.codeStyle.CodeStyleSettingsManager
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.junit5.TestApplication
@@ -26,6 +31,7 @@ import org.eclipse.lsp4j.Range
 import org.eclipse.lsp4j.Registration
 import org.eclipse.lsp4j.RegistrationParams
 import org.eclipse.lsp4j.TextEdit
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
@@ -73,6 +79,35 @@ class LspOnTypeFormattingTest {
 
       awaitLspJobs(project)
       codeInsightFixture.checkResult("  line1\n")
+    }
+
+    @Test
+    fun `on type formatting request has the indent size as its tab size`(): Unit = timeoutRunBlocking {
+      // before the file opens: its document keeps the indent options that it gets then
+      val settingsManager = CodeStyleSettingsManager.getInstance(project)
+      settingsManager.createTemporarySettings().getIndentOptions(PlainTextFileType.INSTANCE).apply {
+        INDENT_SIZE = 3
+        TAB_SIZE = 4
+        USE_TAB_CHARACTER = false
+      }
+      try {
+        val virtualFile = codeInsightFixture.configureByText("test_indent_size.txt", "line1<caret>").virtualFile
+        val serverSession = fakeLspIntegration.serverSession(virtualFile)
+        check(CodeStyle.getIndentOptions(project, virtualFile).INDENT_SIZE == 3) { "The temporary code style is not in effect" }
+        serverSession.expectRequest(serverSession.ON_TYPE_FORMATTING, {
+          it.textDocument.uri == serverSession.fileUri(virtualFile) && it.options.tabSize == 3 && it.options.isInsertSpaces
+        }) { listOf(TextEdit(Range(Position(0, 0), Position(0, 0)), "   ")) }
+
+        withContext(Dispatchers.EDT) {
+          codeInsightFixture.performEditorAction(IdeActions.ACTION_EDITOR_ENTER)
+        }
+
+        awaitLspJobs(project)
+        codeInsightFixture.checkResult("   line1\n")
+      }
+      finally {
+        settingsManager.dropTemporarySettings()
+      }
     }
 
     @Test
@@ -167,21 +202,29 @@ class LspOnTypeFormattingTest {
 
     @Test
     fun `on type formatting skipped when live template is active`(): Unit = timeoutRunBlocking {
-      val virtualFile =
-        codeInsightFixture.configureByText("test_completion.txt", "Test()<caret>").virtualFile
+      val virtualFile = codeInsightFixture.configureByText("test_live_template.txt", "<caret>").virtualFile
       val serverSession = fakeLspIntegration.serverSession(virtualFile)
 
-      serverSession.expectRequest(serverSession.ON_TYPE_FORMATTING, {
+      val requestDeferred = serverSession.expectRequest(serverSession.ON_TYPE_FORMATTING, {
         it.textDocument.uri == serverSession.fileUri(virtualFile) && it.ch in triggerCharacters
       }) { listOf(TextEdit(Range(Position(0, 0), Position(0, 0)), "\t")) }
 
       withContext(Dispatchers.EDT) {
+        // In a unit test, a template ends right after it starts, unless template testing is on.
+        TemplateManagerImpl.setTemplateTesting(codeInsightFixture.testRootDisposable)
+        val templateManager = TemplateManager.getInstance(project)
+        val template = templateManager.createTemplate("", "", "Test(\$ARG\$)")
+        template.addVariable("ARG", "", "", true)
+        templateManager.startTemplate(codeInsightFixture.editor, template)
+        assertNotNull(templateManager.getActiveTemplate(codeInsightFixture.editor), "The live template should be active")
         codeInsightFixture.type(";")
-        codeInsightFixture.type("sout")
-        codeInsightFixture.performEditorAction(IdeActions.ACTION_EXPAND_LIVE_TEMPLATE_CUSTOM)
+        PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue()
       }
+
       awaitLspJobs(project)
-      codeInsightFixture.checkResult("Test();sout")
+      codeInsightFixture.checkResult("Test(;)")
+      assertTrue { requestDeferred.isActive }
+      requestDeferred.cancel()
     }
 
     @Test
@@ -210,11 +253,17 @@ class LspOnTypeFormattingTest {
       val virtualFile = codeInsightFixture.configureByText("test_trigger.txt", "<caret>").virtualFile
       val serverSession = fakeLspIntegration.serverSession(virtualFile)
       val times = 5
-      repeat(times) {
+      val fileUri = serverSession.fileUri(virtualFile)
+      // The client skips the request of a character when the next character is typed before the request is sent.
+      // So the requests of the first characters are optional, and the request of the last character must come.
+      val earlierRequests = List(times - 1) {
         serverSession.expectRequest(serverSession.ON_TYPE_FORMATTING, {
-          it.textDocument.uri == serverSession.fileUri(virtualFile) && it.ch in triggerCharacters
+          it.textDocument.uri == fileUri && it.ch in triggerCharacters && it.position.character < times
         }) { listOf(TextEdit(Range(Position(0, 0), Position(0, 0)), "\t")) }
       }
+      serverSession.expectRequest(serverSession.ON_TYPE_FORMATTING, {
+        it.textDocument.uri == fileUri && it.ch in triggerCharacters && it.position.character == times
+      }) { listOf(TextEdit(Range(Position(0, 0), Position(0, 0)), "\t")) }
 
       withContext(Dispatchers.EDT) {
         repeat(times) {
@@ -223,6 +272,7 @@ class LspOnTypeFormattingTest {
         PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue()
       }
       awaitLspJobs(project)
+      earlierRequests.forEach { it.cancel() }
       codeInsightFixture.checkResult("\t;;;;;")
     }
 

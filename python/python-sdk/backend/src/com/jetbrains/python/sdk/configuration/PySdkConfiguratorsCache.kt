@@ -1,21 +1,22 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.sdk.configuration
 
-import com.jetbrains.python.sdk.PythonInterpreterListener
-import com.intellij.python.sdk.backend.PythonInterpreter
 import com.github.benmanes.caffeine.cache.AsyncCache
 import com.github.benmanes.caffeine.cache.Caffeine
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.readAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.module.Module
+import com.intellij.openapi.project.ModuleListener
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.Disposer
+import com.intellij.python.pytools.backend.getOrLoad
+import com.intellij.python.sdk.backend.PythonInterpreter
 import com.intellij.serviceContainer.AlreadyDisposedException
-import com.intellij.openapi.application.ApplicationManager
 import com.jetbrains.python.PythonBinary
 import com.jetbrains.python.PythonPluginDisposable
 import com.jetbrains.python.project.PyProject
-import com.intellij.python.pytools.backend.getOrLoad
+import com.jetbrains.python.sdk.PythonInterpreterListener
 import kotlinx.coroutines.CoroutineScope
 import org.jetbrains.annotations.ApiStatus
 import java.util.concurrent.TimeUnit
@@ -54,54 +55,49 @@ private val TTL = 20.seconds
  */
 @Service(Service.Level.PROJECT)
 internal class PySdkConfiguratorsCache(private val project: Project, private val scope: CoroutineScope) {
-  init {
-    // An SDK appearing is the one event that makes every answer here obsolete at once: with an SDK the
-    // project needs no configuring, and until then the options are what the probes found. PythonPluginDisposable
-    // parents the connection so it goes away on plugin unload.
-    ApplicationManager.getApplication().messageBus.connect(PythonPluginDisposable.getInstance(project)).subscribe(PythonInterpreterListener.TOPIC, object : PythonInterpreterListener {
-      override fun moduleInterpreterChanged(module: Module, previous: PythonInterpreter?, current: PythonInterpreter?) {
-        // PythonInterpreterListener fires on the application bus, so this is told about every open project's modules.
-        // Dropping another project's entry would be someone else's cache to clear (cf. PY-91324).
-        if (module.project == project) invalidate(module)
-      }
-    })
-  }
-
-  // Keyed by the module a project resides on, and not by the project itself: the module is the [Disposable] the entry
-  // is registered on, and the one identity `PythonInterpreterListener` reports a change for.
+  // Keyed by the module that a project resides on: the one identity that `PythonInterpreterListener` and
+  // `ModuleListener` report a change for. Declared above `init`, because the listeners of `init` read it.
   private val cache: AsyncCache<Module, PyProjectConfigurators> = Caffeine.newBuilder()
     .expireAfterWrite(TTL.inWholeSeconds, TimeUnit.SECONDS)
     .buildAsync()
 
-  /**
-   * The cached answer for [pyProject], probing only if no live or recent one exists.
-   *
-   * The callers that arrive together while a project opens share a single probe rather than each starting one.
-   * The load runs on this service's scope, so whichever caller happened to trigger it can be cancelled without
-   * killing it for the rest (see [getOrLoad]).
-   */
-  suspend fun get(pyProject: PyProject): PyProjectConfigurators =
-    cache.getOrLoad(pyProject.residesOnModule, scope) { key ->
-      // Break the strong reference chain from a cached value to a disposed module: the options hold
-      // creator closures that capture the project (and WillInstallTool holds a pathPersister that does
-      // too), and a project holds its module, which would otherwise keep a closed project alive until
-      // the TTL ran out.
-      //
-      // Registering is also how a disposed module is recognized, in one step that cannot race: the automatic
-      // configuration walks every project on a scope of its own and a project can close under it, so a caller can
-      // arrive with a module that has just gone. Such a module is not probed — that would run every configurator's
-      // tool for something that no longer exists — and the refusal is the cancellation the rest of that walk already
-      // handles, rather than the IncorrectOperationException plain `register` raises (PY-91964).
-      @Suppress("IncorrectParentDisposable")
-      if (!Disposer.tryRegister(key) { invalidate(key) }) {
-        throw AlreadyDisposedException("Module $key is disposed, its configurators are not probed")
+  init {
+    val disposable = PythonPluginDisposable.getInstance(project)
+    // An SDK appearing is the one event that makes every answer here obsolete at once: with an SDK the
+    // project needs no configuring, and until then the options are what the probes found.
+    val applicationBus = ApplicationManager.getApplication().messageBus
+    applicationBus.connect(disposable).subscribe(PythonInterpreterListener.TOPIC, object : PythonInterpreterListener {
+      override fun moduleInterpreterChanged(module: Module, previous: PythonInterpreter?, current: PythonInterpreter?) {
+        // PythonInterpreterListener fires on the application bus, so the cache of each open project hears it.
+        if (module.project == project) cancel(module)
+      }
+    })
+    // ModuleListener fires in the write action that removes or unloads the module, before the module is disposed.
+    project.messageBus.connect(disposable).subscribe(ModuleListener.TOPIC, object : ModuleListener {
+      override fun moduleRemoved(project: Project, module: Module) {
+        cancel(module)
+      }
+    })
+  }
+
+  private suspend fun load(pyProject: PyProject): PyProjectConfigurators =
+    cache.getOrLoad(pyProject.residesOnModule, scope) { module ->
+      // The automatic configuration walks every project on a scope of its own, and a project can close under it. A
+      // disposed module is not probed: that would run the tool of each configurator for something that is gone. The
+      // read action and the write action of moduleRemoved() exclude each other. So either moduleRemoved() cancels
+      // this load, or the check sees the disposed module.
+      if (readAction { module.isDisposed }) {
+        throw AlreadyDisposedException("Module $module is disposed, its configurators are not probed")
       }
       probe(pyProject)
     }
 
-  /** Drops [module]'s entry, for a caller that has just changed what a probe would find (installing a tool). */
-  fun invalidate(module: Module) {
-    cache.synchronous().invalidate(module)
+  /**
+   * Removes the entry of [module] and cancels its future. The cancel of a `scope.future {}` future also cancels its
+   * coroutine, so the tool processes of the probe stop.
+   */
+  private fun cancel(module: Module) {
+    cache.asMap().remove(module)?.cancel(true)
   }
 
   private suspend fun probe(pyProject: PyProject): PyProjectConfigurators {
@@ -110,6 +106,26 @@ internal class PySdkConfiguratorsCache(private val project: Project, private val
   }
 
   companion object {
-    fun getInstance(project: Project): PySdkConfiguratorsCache = project.service()
+    /**
+     * The cached answer for [pyProject], probing only if no running or recent probe exists.
+     *
+     * The callers that arrive together while a project opens share a single probe rather than each starting one.
+     * The probe runs on the scope of the cache, so a cancelled caller stops to wait, and the probe continues for the
+     * rest (see [getOrLoad]).
+     *
+     * A module that is disposed before the call gives [AlreadyDisposedException]. A removal of the module or an
+     * [invalidate] during the probe gives a plain [kotlin.coroutines.cancellation.CancellationException]. Both are
+     * cancellations, and a caller must not tell them apart by the type.
+     */
+    suspend fun get(pyProject: PyProject): PyProjectConfigurators =
+      pyProject.residesOnModule.project.service<PySdkConfiguratorsCache>().load(pyProject)
+
+    /**
+     * Drops the answer for [pyProject], for a caller that has just changed what a probe finds (a tool install). A
+     * running probe is cancelled, so its tool processes stop.
+     */
+    fun invalidate(pyProject: PyProject) {
+      pyProject.residesOnModule.project.service<PySdkConfiguratorsCache>().cancel(pyProject.residesOnModule)
+    }
   }
 }

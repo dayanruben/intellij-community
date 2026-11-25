@@ -5,6 +5,7 @@ import com.intellij.ide.actions.searcheverywhere.EssentialContributor
 import com.intellij.ide.actions.searcheverywhere.SearchEverywhereContributor
 import com.intellij.ide.actions.searcheverywhere.SearchEverywhereHeader
 import com.intellij.ide.actions.searcheverywhere.SearchEverywhereManagerImpl
+import com.intellij.ide.actions.searcheverywhere.SearchEverywhereMlContributorReplacement
 import com.intellij.ide.actions.searcheverywhere.TabsCustomizationStrategy
 import com.intellij.ide.plugins.PluginManager
 import com.intellij.openapi.Disposable
@@ -36,7 +37,8 @@ import org.jetbrains.annotations.Nls
 class SeProvidersHolder(
   private val allTabProviders: Map<SeProviderId, SeLocalItemDataProvider>,
   private val separateTabProviders: Map<SeProviderId, SeLocalItemDataProvider>,
-  val legacyContributors: SeLegacyContributors
+  val legacyContributors: SeLegacyContributors,
+  private val searchProjectHolders: SeSearchProjectHolders? = null,
 ) : Disposable {
   fun adaptedAllTabProviders(withPresentation: Boolean): Set<SeProviderId> =
     allTabProviders.values.mapNotNull { it.takeIf { it.isAdapted && (it.isAdaptedWithPresentation == withPresentation) }?.id }.toSet()
@@ -57,6 +59,7 @@ class SeProvidersHolder(
     separateTabProviders.values.forEach { Disposer.dispose(it) }
     legacyContributors.allTab.values.forEach { Disposer.dispose(it) }
     legacyContributors.separateTab.values.forEach { Disposer.dispose(it) }
+    searchProjectHolders?.let { Disposer.dispose(it) }
   }
 
   fun getLegacyContributor(providerId: SeProviderId, isAllTab: Boolean): SearchEverywhereContributor<Any>? {
@@ -79,10 +82,35 @@ class SeProvidersHolder(
       logLabel: String,
       withAdaptedLegacyContributors: Boolean,
     ): SeProvidersHolder {
+      // The providers of an id that the product names search every search project of the popup, see [SeSearchProjects].
+      val searchProjects = project?.let { SeSearchProjectsProvider.find(it) }
+      return initialize(initEvent, project, session, logLabel, withAdaptedLegacyContributors, searchProjects)
+    }
+
+    /**
+     * The holder of one search [project] for [SeSearchProjectHolders]. The popup asks its providers directly.
+     * So it asks no [SeSearchProjectsProvider], and it creates no contributor of another project and no holder of its own.
+     */
+    suspend fun initializeSearchProject(
+      initEvent: AnActionEvent,
+      project: Project,
+      session: SeSession,
+      logLabel: String,
+    ): SeProvidersHolder =
+      initialize(initEvent, project, session, logLabel, withAdaptedLegacyContributors = false, searchProjects = null)
+
+    private suspend fun initialize(
+      initEvent: AnActionEvent,
+      project: Project?,
+      session: SeSession,
+      logLabel: String,
+      withAdaptedLegacyContributors: Boolean,
+      searchProjects: SeSearchProjects?,
+    ): SeProvidersHolder {
       val legacyContributors = mutableMapOf<SeProviderId, SearchEverywhereContributor<Any>>()
       val separateTabLegacyContributors = mutableMapOf<SeProviderId, SearchEverywhereContributor<Any>>()
 
-      initializeLegacyContributors(initEvent, project, legacyContributors, separateTabLegacyContributors)
+      initializeLegacyContributors(initEvent, project, searchProjects, legacyContributors, separateTabLegacyContributors)
 
       val dataContext = initEvent.dataContext
 
@@ -90,6 +118,14 @@ class SeProvidersHolder(
       val separateTabProviders = mutableMapOf<SeProviderId, SeLocalItemDataProvider>()
       val initializationGuard = SeProviderInitializationGuard.getInstance()
       val openingId = session.id
+
+      val searchProjectHolders = searchProjects?.createHolders(initEvent, session)
+      val searchedProviderIds = searchProjects?.providerIds.orEmpty()
+
+      fun dataProvider(provider: SeItemsProvider, isAllTab: Boolean): SeLocalItemDataProvider {
+        val holders = searchProjectHolders.takeIf { SeProviderId(provider.id) in searchedProviderIds }
+        return SeLocalItemDataProvider(provider, session, logLabel, holders, isAllTab)
+      }
 
       SeItemsProviderFactory.EP_NAME.extensionList.forEach { providerFactory ->
         val provider: SeItemsProvider?
@@ -130,11 +166,11 @@ class SeProvidersHolder(
         }
 
         provider?.let {
-          allTabProviders[SeProviderId(it.id)] = SeLocalItemDataProvider(it, session, logLabel)
+          allTabProviders[SeProviderId(it.id)] = dataProvider(it, isAllTab = true)
         }
 
         separateTabProvider?.let {
-          separateTabProviders[SeProviderId(it.id)] = SeLocalItemDataProvider(it, session, logLabel)
+          separateTabProviders[SeProviderId(it.id)] = dataProvider(it, isAllTab = false)
         }
       }
 
@@ -148,7 +184,8 @@ class SeProvidersHolder(
 
       return SeProvidersHolder(allTabProviders,
                                separateTabProviders,
-                               SeLegacyContributors(legacyContributors, separateTabLegacyContributors))
+                               SeLegacyContributors(legacyContributors, separateTabLegacyContributors),
+                               searchProjectHolders)
     }
 
     private fun createAdaptedProvidersIfNecessary(legacyContributors: Map<SeProviderId, SearchEverywhereContributor<Any>>,
@@ -161,31 +198,66 @@ class SeProvidersHolder(
       }
     }
 
+    /**
+     * Creates the legacy contributors of [project] into [allContributors] and [separateTabContributors].
+     *
+     * Both steps run in one EDT block. A replacement of a separate tab contributor reads the event that
+     * [SearchEverywhereManagerImpl.createContributors] saves in [SearchEverywhereMlContributorReplacement]. The holders
+     * of several search projects initialize at the same time, and none can save its own event between the two steps.
+     *
+     * A contributor of an id of [searchProjects] that [project] lacks, but another search project has, is created too.
+     * It finds nothing in [project], and the popup asks the other projects through it, see [SeLocalItemDataProvider].
+     */
     private suspend fun initializeLegacyContributors(
       initEvent: AnActionEvent,
       project: Project?,
+      searchProjects: SeSearchProjects?,
       allContributors: MutableMap<SeProviderId, SearchEverywhereContributor<Any>>,
       separateTabContributors: MutableMap<SeProviderId, SearchEverywhereContributor<Any>>,
     ) {
       withContext(Dispatchers.EDT) {
         SearchEverywhereManagerImpl.createContributors(initEvent, project, true, false)
-      }.filterIsInstance<SearchEverywhereContributor<Any>>().forEach {
-        allContributors[SeProviderId(it.searchProviderId)] = it
-      }
+          .filterIsInstance<SearchEverywhereContributor<Any>>()
+          .forEach { allContributors[SeProviderId(it.searchProviderId)] = it }
 
-      // From com.intellij.ide.actions.searcheverywhere.SearchEverywhereHeader.createTabs
-      (runCatching {
-        withContext(Dispatchers.EDT) {
+        if (project != null && searchProjects != null) {
+          addContributorsOfOtherProjects(initEvent, project, searchProjects, allContributors)
+        }
+
+        // From com.intellij.ide.actions.searcheverywhere.SearchEverywhereHeader.createTabs
+        (runCatching {
           TabsCustomizationStrategy.getInstance().getSeparateTabContributors(allContributors.values.toList())
             .filterIsInstance<SearchEverywhereContributor<Any>>()
             .associateBy { SeProviderId(it.searchProviderId) }
+        }.getOrHandleException { t ->
+          Logger.getInstance(SearchEverywhereHeader::class.java).error(t)
+        } ?: allContributors.filter { it.value.isShownInSeparateTab }).forEach {
+          separateTabContributors[it.key] = it.value
         }
-      }.getOrHandleException { t ->
-        Logger.getInstance(SearchEverywhereHeader::class.java).error(t)
-      } ?: allContributors.filter { it.value.isShownInSeparateTab }).forEach {
-        separateTabContributors[it.key] = it.value
       }
     }
+  }
+}
+
+/**
+ * Adds to [contributors] the contributor of each id of [searchProjects] that [project] lacks and another search project
+ * has. The factory of such a contributor is not available in [project], so the popup created none.
+ */
+private fun addContributorsOfOtherProjects(
+  initEvent: AnActionEvent,
+  project: Project,
+  searchProjects: SeSearchProjects,
+  contributors: MutableMap<SeProviderId, SearchEverywhereContributor<Any>>,
+) {
+  val otherProjects = searchProjects.projects.filter { it !== project && !it.isDisposed }
+  if (otherProjects.isEmpty() || searchProjects.providerIds.all { it in contributors }) return
+  for (factory in SearchEverywhereContributor.EP_NAME.extensionList) {
+    if (factory.isAvailable(project, true) || otherProjects.none { factory.isAvailable(it, true) }) continue
+    @Suppress("UNCHECKED_CAST")
+    val contributor = factory.createContributor(initEvent) as SearchEverywhereContributor<Any>
+    val id = SeProviderId(contributor.searchProviderId)
+    if (id in searchProjects.providerIds && id !in contributors) contributors[id] = contributor
+    else Disposer.dispose(contributor)
   }
 }
 

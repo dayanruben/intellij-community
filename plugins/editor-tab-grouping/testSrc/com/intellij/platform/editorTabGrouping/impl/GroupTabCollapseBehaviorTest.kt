@@ -4,7 +4,9 @@ package com.intellij.platform.editorTabGrouping.impl
 import com.intellij.ide.ui.UISettings
 import com.intellij.mock.MockProjectEx
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.ActionPlaces
+import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.fileEditor.FileEditorManagerListener
@@ -21,6 +23,7 @@ import com.intellij.ui.tabs.impl.TabLabel.ActionsPosition
 import com.intellij.ui.tabs.impl.TabListOptions
 import java.awt.Dimension
 import javax.swing.JLabel
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -525,6 +528,106 @@ class GroupTabCollapseBehaviorTest {
       assertEquals(listOf(false), hiddenStates)
       assertEquals(listOf("Alpha (2)", "gamma"), tabs.visibleLabelTexts())
       assertFalse(tabs.collapseAnimationForTest().isRunning)
+    }
+  }
+
+  @Test
+  fun `a new tab in the selected group changes no group and starts no animation`(): Unit = timeoutRunBlocking {
+    withContext(Dispatchers.EDT) {
+      val tabs = makeTabsWithAlphaGroup()
+      val animation = tabs.collapseAnimationForTest()
+      tabs.select(tabs.tabByText("beta1"), false)
+      tabs.select(tabs.tabByText("alpha1"), false)
+      animation.finishNow()
+      tabs.doLayout()
+      assertEquals(listOf("alpha1", "alpha2", "alpha3", "Beta (2)"), tabs.visibleLabelTexts())
+      val added = tab("alpha4", "/project/Alpha/Alpha4.kt")
+      val gate = CompletableDeferred<Unit>()
+      tabs.resolutionGate = gate
+
+      // The editor window adds the tab and selects it. The group of the tab resolves later.
+      tabs.addTabSilently(added, tabs.tabCount)
+      tabs.select(added, false)
+      assertEquals(listOf("alpha1", "alpha2", "alpha3", "Beta (2)", "alpha4"), tabs.visibleLabelTexts())
+      assertFalse(animation.isRunning)
+      gate.complete(Unit)
+      tabs.awaitGroupResolution()
+
+      assertEquals(listOf("alpha1", "alpha2", "alpha3", "alpha4", "Beta (2)"), tabs.visibleLabelTexts())
+      assertFalse(animation.isRunning)
+    }
+  }
+
+  @Test
+  fun `a new tab in a collapsed group expands the group with an animation`(): Unit = timeoutRunBlocking {
+    withContext(Dispatchers.EDT) {
+      val tabs = makeTabsWithAlphaGroup()
+      val animation = tabs.collapseAnimationForTest()
+      tabs.select(tabs.tabByText("beta1"), false)
+      animation.finishNow()
+      tabs.doLayout()
+      val added = tab("alpha4", "/project/Alpha/Alpha4.kt")
+      val gate = CompletableDeferred<Unit>()
+      tabs.resolutionGate = gate
+
+      tabs.addTabSilently(added, tabs.tabCount)
+      tabs.select(added, false)
+      gate.complete(Unit)
+      tabs.awaitGroupResolution()
+
+      assertEquals(listOf("alpha1", "alpha2", "alpha3", "alpha4", "Beta (2)"), tabs.visibleLabelTexts())
+      assertTrue(animation.isRunning)
+    }
+  }
+
+  @Test
+  fun `a removed tab changes the groups without an animation`(): Unit = timeoutRunBlocking {
+    withContext(Dispatchers.EDT) {
+      val tabs = makeTabsWithAlphaGroup()
+      val animation = tabs.collapseAnimationForTest()
+      tabs.select(tabs.tabByText("beta1"), false)
+      animation.finishNow()
+      tabs.doLayout()
+
+      tabs.removeTab(tabs.tabByText("alpha3"))
+      tabs.removeTab(tabs.tabByText("alpha2"))
+
+      assertEquals(listOf("beta1", "beta2", "alpha1"), tabs.visibleLabelTexts())
+      assertFalse(animation.isRunning)
+    }
+  }
+
+  @Test
+  fun `the popup of a group tab has no close actions`(): Unit = timeoutRunBlocking {
+    withContext(Dispatchers.EDT) {
+      val tabs = makeTabsWithAlphaGroup()
+      val closeGroup = ActionManager.getInstance().getAction("CloseEditorsGroup")
+      val other = DefaultActionGroup()
+      tabs.setPopupGroup(DefaultActionGroup(closeGroup, other), ActionPlaces.EDITOR_TAB_POPUP, false)
+      val beta1 = tabs.tabByText("beta1")
+      tabs.select(beta1, false)
+
+      tabs.popupInfo = tabs.collapsedGroupTabForTest(isPinned = false, groupKey = "/project/Alpha")
+      assertEquals(listOf<AnAction>(other), tabs.popupGroup!!.getChildren(null).toList())
+
+      tabs.popupInfo = beta1
+      assertEquals(listOf(closeGroup, other), tabs.popupGroup!!.getChildren(null).toList())
+    }
+  }
+
+  @Test
+  fun `the tooltip of a group tab lists the tabs of the group under the group name`(): Unit = timeoutRunBlocking {
+    withContext(Dispatchers.EDT) {
+      val tabs = makeTabsWithAlphaGroup()
+      tabs.select(tabs.tabByText("beta1"), false)
+      val groupTab = tabs.collapsedGroupTabForTest(isPinned = false, groupKey = "/project/Alpha")!!
+      assertEquals("Tab Group: Alpha<br/>alpha1<br/>alpha2<br/>alpha3", groupTab.tabLabel!!.toolTipText)
+
+      tabs.tabByText("alpha2").setText("renamed")
+      assertEquals("Tab Group: Alpha<br/>alpha1<br/>renamed<br/>alpha3", groupTab.tabLabel!!.toolTipText)
+
+      tabs.select(groupTab, false)
+      assertEquals("Tab Group: Alpha", groupTab.tabLabel!!.toolTipText)
     }
   }
 

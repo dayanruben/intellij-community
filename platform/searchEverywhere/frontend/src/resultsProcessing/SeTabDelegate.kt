@@ -36,6 +36,7 @@ import com.intellij.platform.searchEverywhere.frontend.SeFrontendItemDataProvide
 import com.intellij.platform.searchEverywhere.frontend.SeFrontendOnlyItemsProviderFactory
 import com.intellij.platform.searchEverywhere.frontend.SeFrontendService
 import com.intellij.platform.searchEverywhere.frontend.SeSeparateTabOnlyItemsProviderFactory
+import com.intellij.platform.searchEverywhere.frontend.SeTabsCustomizer
 import com.intellij.platform.searchEverywhere.frontend.tabs.target.SeTargetsFilterEditor
 import com.intellij.platform.searchEverywhere.impl.SeFindToolWindowManager
 import com.intellij.platform.searchEverywhere.impl.SeRemoteApi
@@ -150,17 +151,17 @@ class SeTabDelegate(
     }
   }
 
+  /**
+   * Whether the tab shows the scope control of the platform. A tab that names its [tabId] also asks the product,
+   * see [SeTabsCustomizer.isScopeFilterEnabled].
+   */
   @ApiStatus.Internal
-  fun shouldHaveScopesFilter(): Boolean =
-    // The welcome-screen project has no source, so a scope filter has no meaning.
-    // An empty list makes every tab drop its scope filter action.
-    project != null && !WelcomeScreenProjectProvider.isWelcomeScreenProject(project) &&
-    // we don't want scopes in ijLight to simplify UI: all the default scopes are equivalent to each other in ijLight
-    !IdeProductMode.isLight
+  fun shouldHaveScopesFilter(tabId: String? = null): Boolean =
+    offersScopes(project) && (tabId == null || SeTabsCustomizer.getInstance().isScopeFilterEnabled(tabId, project))
 
   @ApiStatus.Internal
-  suspend fun getSearchScopesInfos(): List<SearchScopesInfo> {
-    if (!shouldHaveScopesFilter()) return emptyList()
+  suspend fun getSearchScopesInfos(tabId: String? = null): List<SearchScopesInfo> {
+    if (!shouldHaveScopesFilter(tabId)) return emptyList()
     return providers.getValue().getSearchScopesInfos()
   }
 
@@ -184,7 +185,7 @@ class SeTabDelegate(
   ): SeFilterEditor =
     SeTargetsFilterEditor(project,
                           tabId,
-                          getSearchScopesInfos().firstOrNull(),
+                          getSearchScopesInfos(tabId).firstOrNull(),
                           getTypeVisibilityStates(),
                           hasPreviewAction = hasPreviewAction,
                           persistScopeIfAvailable = persistScopeIfAvailable)
@@ -401,6 +402,19 @@ class SeTabDelegate(
   }
 
   companion object {
+    /**
+     * Whether a popup of [project] offers scopes: the scope chooser of a tab, and the switch between the project and
+     * every place. A product that gives a tab its own scope control asks it for the switch, see
+     * `SeTabsCustomizer.customizeFilterEditor`.
+     */
+    @ApiStatus.Internal
+    fun offersScopes(project: Project?): Boolean =
+      // The welcome-screen project has no source, so a scope filter has no meaning.
+      // An empty list makes every tab drop its scope filter action.
+      project != null && !WelcomeScreenProjectProvider.isWelcomeScreenProject(project) &&
+      // we don't want scopes in ijLight to simplify UI: all the default scopes are equivalent to each other in ijLight
+      !IdeProductMode.isLight
+
     suspend fun create(
       project: Project?,
       session: SeSession,

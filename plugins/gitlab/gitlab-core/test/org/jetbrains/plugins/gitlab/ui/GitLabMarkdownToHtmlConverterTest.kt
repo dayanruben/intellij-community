@@ -93,6 +93,23 @@ class GitLabMarkdownToHtmlConverterTest {
   }
 
   @Test
+  fun `test file link to a network path keeps only its text`() {
+    val parsed = convertToHtml("""
+        [link](//host/share/a.txt)
+      """.trimIndent())
+
+    // Windows reads the path as a UNC path, other systems as a local path
+    assertThat(parsed).doesNotContain("$OPEN_FILE_LINK_PREFIX//", "$OPEN_FILE_LINK_PREFIX\\\\")
+  }
+
+  @Test
+  fun `test raw html file link to a network path keeps only its text`() {
+    val parsed = convertToHtml("""<a href="$OPEN_FILE_LINK_PREFIX//host/share/a.txt">link</a>""")
+
+    assertThat(parsed).isEqualTo("<body><p>link</p></body>")
+  }
+
+  @Test
   fun `test uploads files link rendering`() {
     val parsed = convertToHtml("""
         [link](/uploads/a/b/c.jpg) some text
@@ -116,7 +133,17 @@ class GitLabMarkdownToHtmlConverterTest {
         ![link](/uploads/a/b/c.jpg)
       """.trimIndent())
 
-    assertThat(parsed).isEqualTo("""<body><p><p $P_CLASS><a href="$WEB_BASE/uploads/a/b/c.jpg"><img src="$IMAGES_API_BASE/uploads/a/b/c.jpg" alt="link" title="link" /></a></p></p></body>""")
+    assertThat(parsed).isEqualTo("""<body><p $P_CLASS><a href="$WEB_BASE/uploads/a/b/c.jpg"><img src="$IMAGES_API_BASE/uploads/a/b/c.jpg" alt="link" title="link"></a></p></body>""")
+  }
+
+  @Test
+  fun `test paragraph of images renders a block for each image`() {
+    val parsed = convertToHtml("""
+        ![a](/uploads/a.jpg) ![b](/uploads/b.jpg){width=10}
+      """.trimIndent())
+
+    assertThat(parsed).isEqualTo("""<body><p $P_CLASS><a href="$WEB_BASE/uploads/a.jpg"><img src="$IMAGES_API_BASE/uploads/a.jpg" alt="a" title="a"></a></p>""" +
+                                 """<p $P_CLASS><a href="$WEB_BASE/uploads/b.jpg"><img src="$IMAGES_API_BASE/uploads/b.jpg" alt="b" title="b"></a></p></body>""")
   }
 
   @Test
@@ -125,7 +152,7 @@ class GitLabMarkdownToHtmlConverterTest {
         ![link](/uploads/a/b/c.jpg){width=10}
       """.trimIndent())
 
-    assertThat(parsed).isEqualTo("""<body><p><p $P_CLASS><a href="$WEB_BASE/uploads/a/b/c.jpg"><img src="$IMAGES_API_BASE/uploads/a/b/c.jpg" alt="link" title="link" /></a></p></p></body>""")
+    assertThat(parsed).isEqualTo("""<body><p $P_CLASS><a href="$WEB_BASE/uploads/a/b/c.jpg"><img src="$IMAGES_API_BASE/uploads/a/b/c.jpg" alt="link" title="link"></a></p></body>""")
   }
 
   @Test
@@ -134,7 +161,7 @@ class GitLabMarkdownToHtmlConverterTest {
         ![link](/uploads/a/b/c.jpg){width=10%}
       """.trimIndent())
 
-    assertThat(parsed).isEqualTo("""<body><p><p $P_CLASS><a href="$WEB_BASE/uploads/a/b/c.jpg"><img src="$IMAGES_API_BASE/uploads/a/b/c.jpg" alt="link" title="link" /></a></p></p></body>""")
+    assertThat(parsed).isEqualTo("""<body><p $P_CLASS><a href="$WEB_BASE/uploads/a/b/c.jpg"><img src="$IMAGES_API_BASE/uploads/a/b/c.jpg" alt="link" title="link"></a></p></body>""")
   }
 
   @Test
@@ -143,7 +170,7 @@ class GitLabMarkdownToHtmlConverterTest {
         ![link](/uploads/a/b/c.jpg){width=10 height=10}
       """.trimIndent())
 
-    assertThat(parsed).isEqualTo("""<body><p><p $P_CLASS><a href="$WEB_BASE/uploads/a/b/c.jpg"><img src="$IMAGES_API_BASE/uploads/a/b/c.jpg" alt="link" title="link" /></a></p></p></body>""")
+    assertThat(parsed).isEqualTo("""<body><p $P_CLASS><a href="$WEB_BASE/uploads/a/b/c.jpg"><img src="$IMAGES_API_BASE/uploads/a/b/c.jpg" alt="link" title="link"></a></p></body>""")
   }
 
   @Test
@@ -152,7 +179,7 @@ class GitLabMarkdownToHtmlConverterTest {
         ![link](/uploads/a/b/c.jpg){width=10% height=10%}
       """.trimIndent())
 
-    assertThat(parsed).isEqualTo("""<body><p><p $P_CLASS><a href="$WEB_BASE/uploads/a/b/c.jpg"><img src="$IMAGES_API_BASE/uploads/a/b/c.jpg" alt="link" title="link" /></a></p></p></body>""")
+    assertThat(parsed).isEqualTo("""<body><p $P_CLASS><a href="$WEB_BASE/uploads/a/b/c.jpg"><img src="$IMAGES_API_BASE/uploads/a/b/c.jpg" alt="link" title="link"></a></p></body>""")
   }
 
   @Test
@@ -161,7 +188,7 @@ class GitLabMarkdownToHtmlConverterTest {
         ![link](/uploads/a/b/c.jpg){width=10 height=10 other=123 other2=123}
       """.trimIndent())
 
-    assertThat(parsed).isEqualTo("""<body><p><p $P_CLASS><a href="$WEB_BASE/uploads/a/b/c.jpg"><img src="$IMAGES_API_BASE/uploads/a/b/c.jpg" alt="link" title="link" /></a></p></p></body>""")
+    assertThat(parsed).isEqualTo("""<body><p $P_CLASS><a href="$WEB_BASE/uploads/a/b/c.jpg"><img src="$IMAGES_API_BASE/uploads/a/b/c.jpg" alt="link" title="link"></a></p></body>""")
   }
 
   @Test
@@ -170,7 +197,7 @@ class GitLabMarkdownToHtmlConverterTest {
         ![link](/uploads/a/b/c.jpg){width=10% height=10% other=123% other2=123%}
       """.trimIndent())
 
-    assertThat(parsed).isEqualTo("""<body><p><p $P_CLASS><a href="$WEB_BASE/uploads/a/b/c.jpg"><img src="$IMAGES_API_BASE/uploads/a/b/c.jpg" alt="link" title="link" /></a></p></p></body>""")
+    assertThat(parsed).isEqualTo("""<body><p $P_CLASS><a href="$WEB_BASE/uploads/a/b/c.jpg"><img src="$IMAGES_API_BASE/uploads/a/b/c.jpg" alt="link" title="link"></a></p></body>""")
   }
 
   @Test
@@ -179,7 +206,7 @@ class GitLabMarkdownToHtmlConverterTest {
         ![link](/uploads/a/b/c.jpg){width=10 height=10% other=123 other2=123%}
       """.trimIndent())
 
-    assertThat(parsed).isEqualTo("""<body><p><p $P_CLASS><a href="$WEB_BASE/uploads/a/b/c.jpg"><img src="$IMAGES_API_BASE/uploads/a/b/c.jpg" alt="link" title="link" /></a></p></p></body>""")
+    assertThat(parsed).isEqualTo("""<body><p $P_CLASS><a href="$WEB_BASE/uploads/a/b/c.jpg"><img src="$IMAGES_API_BASE/uploads/a/b/c.jpg" alt="link" title="link"></a></p></body>""")
   }
 
   @Test
@@ -188,7 +215,7 @@ class GitLabMarkdownToHtmlConverterTest {
         ![link](/uploads/a/b/c.jpg){width="10" height="10"}
       """.trimIndent())
 
-    assertThat(parsed).isEqualTo("""<body><p><p $P_CLASS><a href="$WEB_BASE/uploads/a/b/c.jpg"><img src="$IMAGES_API_BASE/uploads/a/b/c.jpg" alt="link" title="link" /></a></p></p></body>""")
+    assertThat(parsed).isEqualTo("""<body><p $P_CLASS><a href="$WEB_BASE/uploads/a/b/c.jpg"><img src="$IMAGES_API_BASE/uploads/a/b/c.jpg" alt="link" title="link"></a></p></body>""")
   }
 
   @Test
@@ -197,7 +224,7 @@ class GitLabMarkdownToHtmlConverterTest {
         ![link](/uploads/a/b/c.jpg){width="10" height="10"} some text
       """.trimIndent())
 
-    assertThat(parsed).isEqualTo("""<body><p><p $P_CLASS><a href="$WEB_BASE/uploads/a/b/c.jpg"><img src="$IMAGES_API_BASE/uploads/a/b/c.jpg" alt="link" title="link" /></a></p> some text</p></body>""")
+    assertThat(parsed).isEqualTo("""<body><p><a href="$WEB_BASE/uploads/a/b/c.jpg"><img src="$IMAGES_API_BASE/uploads/a/b/c.jpg" alt="link" title="link"></a> some text</p></body>""")
   }
 
   @Test
@@ -206,7 +233,7 @@ class GitLabMarkdownToHtmlConverterTest {
         ![link](/uploads/a/b/c.jpg){width=10 height=10% other=123 other2=123%} some text
       """.trimIndent())
 
-    assertThat(parsed).isEqualTo("""<body><p><p $P_CLASS><a href="$WEB_BASE/uploads/a/b/c.jpg"><img src="$IMAGES_API_BASE/uploads/a/b/c.jpg" alt="link" title="link" /></a></p> some text</p></body>""")
+    assertThat(parsed).isEqualTo("""<body><p><a href="$WEB_BASE/uploads/a/b/c.jpg"><img src="$IMAGES_API_BASE/uploads/a/b/c.jpg" alt="link" title="link"></a> some text</p></body>""")
   }
 
   @Test
@@ -215,7 +242,7 @@ class GitLabMarkdownToHtmlConverterTest {
         ![link](/uploads/a/b/c.jpg){width=10 height=10} {here is the additional section}
       """.trimIndent())
 
-    assertThat(parsed).isEqualTo("""<body><p><p $P_CLASS><a href="$WEB_BASE/uploads/a/b/c.jpg"><img src="$IMAGES_API_BASE/uploads/a/b/c.jpg" alt="link" title="link" /></a></p> {here is the additional section}</p></body>""")
+    assertThat(parsed).isEqualTo("""<body><p><a href="$WEB_BASE/uploads/a/b/c.jpg"><img src="$IMAGES_API_BASE/uploads/a/b/c.jpg" alt="link" title="link"></a> {here is the additional section}</p></body>""")
   }
 
   @Test
@@ -224,7 +251,7 @@ class GitLabMarkdownToHtmlConverterTest {
         ![link](/uploads/a/b/c.jpg){width=10 height=10}immediate text
       """.trimIndent())
 
-    assertThat(parsed).isEqualTo("""<body><p><p $P_CLASS><a href="$WEB_BASE/uploads/a/b/c.jpg"><img src="$IMAGES_API_BASE/uploads/a/b/c.jpg" alt="link" title="link" /></a></p>immediate text</p></body>""")
+    assertThat(parsed).isEqualTo("""<body><p><a href="$WEB_BASE/uploads/a/b/c.jpg"><img src="$IMAGES_API_BASE/uploads/a/b/c.jpg" alt="link" title="link"></a>immediate text</p></body>""")
   }
 
   @Test
@@ -233,7 +260,7 @@ class GitLabMarkdownToHtmlConverterTest {
         ![link](/uploads/a/b/c.jpg){width=10 height=10}{here is the additional section}
       """.trimIndent())
 
-    assertThat(parsed).isEqualTo("""<body><p><p $P_CLASS><a href="$WEB_BASE/uploads/a/b/c.jpg"><img src="$IMAGES_API_BASE/uploads/a/b/c.jpg" alt="link" title="link" /></a></p>{here is the additional section}</p></body>""")
+    assertThat(parsed).isEqualTo("""<body><p><a href="$WEB_BASE/uploads/a/b/c.jpg"><img src="$IMAGES_API_BASE/uploads/a/b/c.jpg" alt="link" title="link"></a>{here is the additional section}</p></body>""")
   }
 
   @Test
@@ -243,7 +270,7 @@ class GitLabMarkdownToHtmlConverterTest {
         The picture ![image][link]
       """.trimIndent())
 
-    assertThat(parsed).isEqualTo("""<body><p>The picture <p $P_CLASS><a href="http://url"><img src="http://url" alt="image" title="label" /></a></p></p></body>""")
+    assertThat(parsed).isEqualTo("""<body><p>The picture <a href="http://url"><img src="http://url" alt="image" title="label"></a></p></body>""")
   }
 
   @Test
@@ -253,7 +280,7 @@ class GitLabMarkdownToHtmlConverterTest {
         The picture ![image][link]{width=10 height=10}
       """.trimIndent())
 
-    assertThat(parsed).isEqualTo("""<body><p>The picture <p $P_CLASS><a href="http://url"><img src="http://url" alt="image" title="label" /></a></p></p></body>""")
+    assertThat(parsed).isEqualTo("""<body><p>The picture <a href="http://url"><img src="http://url" alt="image" title="label"></a></p></body>""")
   }
 
   @Test
@@ -263,7 +290,7 @@ class GitLabMarkdownToHtmlConverterTest {
         The picture ![image][link]{width=10 height=10}immediate text
       """.trimIndent())
 
-    assertThat(parsed).isEqualTo("""<body><p>The picture <p $P_CLASS><a href="http://url"><img src="http://url" alt="image" title="label" /></a></p>immediate text</p></body>""")
+    assertThat(parsed).isEqualTo("""<body><p>The picture <a href="http://url"><img src="http://url" alt="image" title="label"></a>immediate text</p></body>""")
   }
 
   @Test
@@ -273,7 +300,7 @@ class GitLabMarkdownToHtmlConverterTest {
         The picture ![image][link] some text
       """.trimIndent())
 
-    assertThat(parsed).isEqualTo("""<body><p>The picture <p $P_CLASS><a href="http://url"><img src="http://url" alt="image" title="label" /></a></p> some text</p></body>""")
+    assertThat(parsed).isEqualTo("""<body><p>The picture <a href="http://url"><img src="http://url" alt="image" title="label"></a> some text</p></body>""")
   }
 
   @Test
@@ -283,7 +310,7 @@ class GitLabMarkdownToHtmlConverterTest {
         The picture ![image][link]{width=10 height=10} some text
       """.trimIndent())
 
-    assertThat(parsed).isEqualTo("""<body><p>The picture <p $P_CLASS><a href="http://url"><img src="http://url" alt="image" title="label" /></a></p> some text</p></body>""")
+    assertThat(parsed).isEqualTo("""<body><p>The picture <a href="http://url"><img src="http://url" alt="image" title="label"></a> some text</p></body>""")
   }
 
 
@@ -540,6 +567,13 @@ class GitLabMarkdownToHtmlConverterTest {
     assertThat(parsed).isEqualTo(
       """<body><p>Test <strong>bold</strong> <em>italic</em> <strike>crossed</strike> and <strike><em><strong>all together</strong></em></strike></p></body>"""
     )
+  }
+
+  // https://youtrack.jetbrains.com/issue/IJPL-256021
+  @Test
+  fun `test raw html that loads a resource is removed`() {
+    val parsed = convertToHtml("""<div style="background-image:url(file:////10.0.0.1/S/a.png)">badge</div>""")
+    assertThat(parsed).isEqualTo("<body><div>badge</div>\n</body>")
   }
 
   private fun convertToHtml(markdownSource: String): @NlsSafe String {

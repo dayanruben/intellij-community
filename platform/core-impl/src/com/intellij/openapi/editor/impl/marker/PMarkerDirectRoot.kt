@@ -10,6 +10,7 @@ import com.intellij.util.ObjectUtilsRt
 import com.intellij.util.Processor
 import com.intellij.util.containers.ConcurrentLongLongMap
 import com.intellij.util.containers.Java11Shim
+import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap
 import org.jetbrains.annotations.TestOnly
 import java.util.ArrayDeque
 import java.util.IdentityHashMap
@@ -153,6 +154,27 @@ class PMarkerDirectRoot private constructor(
       result = editor.insert(result, entry)
     }
     editor.finish(result, resolutionUpdate = insertionResolutionUpdate())
+  }
+
+  /** Builds a tree from sorted entries whose ranges and handles have already been checked. */
+  internal fun buildFromSortedEntries(entries: List<MarkerEntry>): PMarkerDirectRoot = keepingRootAlive {
+    check(isEmpty())
+    if (entries.isEmpty()) return@keepingRootAlive this
+    val editor = Editor()
+    val result = editor.finish(editor.build(entries, 0, entries.size))
+    val resolutions = Long2LongOpenHashMap(entries.size)
+    resolutions.defaultReturnValue(PMarkerResolution.UNRESOLVED)
+    for (entry in entries) {
+      resolutions.put(entry.handle.id, TextRangeScalarUtil.toScalarRange(entry.nodeStart, entry.nodeEnd))
+    }
+    result.cachedResolutions = ResolutionCache(-1, PMarkerResolution.UNRESOLVED, resolutions)
+    result
+  }
+
+  internal fun checkNewHandle(handle: SnapshotMarkerReference<*>) {
+    val existing = state(handle)
+    require(existing == null || existing is PMarkerValidNode && !isValid(handle)) { "The marker already exists" }
+    assert(!isRemoved(handle)) { "The marker handle must not be reused" }
   }
 
   private fun insertionResolutionUpdate(): PMarkerResolutionUpdate =
@@ -412,9 +434,10 @@ class PMarkerDirectRoot private constructor(
       val [before, fromStart] = editor.split(root, start, false)
       val [middle, after] = editor.split(fromStart, end, true)
       val updatedBefore = editor.updateBefore(before, start, transform)
-      val rebuilt = editor.rebuild(middle, transform)
+      val rebuilt = editor.rebuild(middle, transform, minStart = start, maxStart = start + length)
       result = editor.join(editor.join(updatedBefore, rebuilt), editor.shift(after, length - (end - start)))
     }
+    result = editor.insertRelocated(result)
     if (start == end && patch.moveOffset() != start) {
       val moveStart = patch.moveOffset()
       val moved = ArrayList<MarkerEntry>()
@@ -593,20 +616,24 @@ class PMarkerDirectRoot private constructor(
   private data class Frame(val node: PMarkerNode, val delta: Int)
 
   /** Stores the first resolution directly and allocates a map for other marker IDs. Metadata changes share this cache. */
-  private class ResolutionCache(private val firstId: Long, private val firstResolution: Long) {
+  private class ResolutionCache(
+    private val firstId: Long,
+    private val firstResolution: Long,
+    private val completeResolutions: Long2LongOpenHashMap? = null,
+  ) {
     /**
      * A full traversal sets this flag after it caches every valid marker's absolute offsets and completes normally.
      * The volatile write publishes those offsets, so later traversals and lookups can skip cache writes.
      * Metadata changes preserve this flag. Changes to marker offsets or membership use a new cache.
      */
     @Volatile
-    var allMarkersCached: Boolean = false
+    var allMarkersCached: Boolean = completeResolutions != null
 
     @Volatile
     private var additionalResolutions: ConcurrentLongLongMap? = null
 
     operator fun get(id: Long): Long =
-      if (id == firstId) firstResolution else additionalResolutions?.get(id) ?: PMarkerResolution.UNRESOLVED
+      if (id == firstId) firstResolution else completeResolutions?.get(id) ?: additionalResolutions?.get(id) ?: PMarkerResolution.UNRESOLVED
 
     fun put(id: Long, resolution: Long) {
       if (id == firstId || allMarkersCached) return
@@ -691,6 +718,12 @@ class PMarkerDirectRoot private constructor(
     var firstChangedEnd: Int = Int.MAX_VALUE
       private set
 
+    /**
+     * Holds entries that need new positions in the tree. Their offsets refer to the edited document.
+     * The list is null until [deferRelocation] adds the first entry.
+     */
+    private var relocatedEntries: ArrayList<MarkerEntry>? = null
+
     /** Reuses an unchanged node or creates a node in this editor's version. */
     fun make(
       entry: MarkerEntry,
@@ -724,11 +757,7 @@ class PMarkerDirectRoot private constructor(
      */
     fun insert(root: PMarkerNode?, entry: MarkerEntry): PMarkerNode {
       require(entry.nodeStart >= 0 && entry.nodeEnd >= entry.nodeStart) { "The marker range is invalid" }
-      val handle = entry.handle
-      var existing = state(handle)
-      if (existing is PMarkerValidNode && !isValid(handle)) existing = null
-      require(existing == null) { "The marker already exists" }
-      assert(!isRemoved(handle)) { "The marker handle must not be reused" }
+      checkNewHandle(entry.handle)
       return insertNode(root, entry)
     }
 
@@ -847,7 +876,7 @@ class PMarkerDirectRoot private constructor(
       return make(left.entry, left.left, right, source = left)
     }
 
-    /** Transforms markers around an edit that has no marker starts in its range and preserves their order. */
+    /** Transforms markers around the edit and defers entries whose starts change. */
     fun updateOutsideStarts(
       initial: PMarkerNode?,
       start: Int,
@@ -860,37 +889,60 @@ class PMarkerDirectRoot private constructor(
       val node = push(initial)
       val left = updateOutsideStarts(node.left, start, end, delta, transform)
       val right = updateOutsideStarts(node.right, start, end, delta, transform)
-      val entry = if (node.entry.nodeStart > end) node.entry.shifted(delta)
-      else {
-        val result = transform.transform(node.entry)
-        if (!result.isValid) return join(left, right)
-        check(result.startOffset == node.entry.nodeStart) { "An edit changed a marker start before the edit" }
-        result.applyTo(node.entry)
+      val entry = node.entry
+      if (entry.nodeStart > end) return join(left, entry.shifted(delta), right, node)
+      val result = transform.transform(entry)
+      if (!result.isValid) return join(left, right)
+      val updated = result.applyTo(entry)
+      if (updated.nodeStart != entry.nodeStart) {
+        deferRelocation(updated)
+        return join(left, right)
       }
-      return join(left, entry, right, node)
+      return join(left, updated, right, node)
     }
 
-    /**
-     * Transforms the prefix whose markers start before [start], skipping subtrees that end before the edit.
-     * A valid result must preserve each marker's start offset.
-     */
+    /** Transforms the prefix whose markers start before [start], skipping subtrees that end before the edit. */
     fun updateBefore(initial: PMarkerNode?, start: Int, transform: MarkerTransformer): PMarkerNode? =
       updateOutsideStarts(initial, start, Int.MAX_VALUE, 0, transform)
 
-    /** Transforms a subtree and builds a balanced tree from valid results, sorting them when their order changes. */
-    fun rebuild(node: PMarkerNode?, transform: MarkerTransformer): PMarkerNode? {
+    /**
+     * Builds a balanced tree from valid transformed entries with starts in the inclusive range from [minStart] to [maxStart].
+     * Defers valid entries with starts outside that range.
+     */
+    fun rebuild(node: PMarkerNode?, transform: MarkerTransformer, minStart: Int = 0, maxStart: Int = Int.MAX_VALUE): PMarkerNode? {
       if (node == null) return null
       val valid = ArrayList<MarkerEntry>()
       processAll(node, 0) { storedEntry, delta ->
         val entry = storedEntry.shifted(delta)
         val result = transform.transform(entry)
-        if (result.isValid) valid.add(result.applyTo(entry))
+        if (result.isValid) {
+          val updated = result.applyTo(entry)
+          if (updated.nodeStart in minStart..maxStart) valid.add(updated)
+          else deferRelocation(updated)
+        }
         true
       }
       if ((1 until valid.size).any { compare(valid[it - 1], valid[it]) > 0 }) {
         valid.sortWith { first, second -> compare(first, second) }
       }
       return build(valid, 0, valid.size)
+    }
+
+    /** Queues a valid transformed [entry] for [insertRelocated]. */
+    private fun deferRelocation(entry: MarkerEntry) {
+      val entries = relocatedEntries ?: ArrayList<MarkerEntry>().also { relocatedEntries = it }
+      entries.add(entry)
+    }
+
+    /**
+     * Inserts each deferred entry into [initial] by its new start offset and handle ID.
+     * Call once after the edit updates and joins the remaining subtrees.
+     */
+    fun insertRelocated(initial: PMarkerNode?): PMarkerNode? {
+      val entries = relocatedEntries ?: return initial
+      var node = initial
+      for (entry in entries) node = insertNode(node, entry)
+      return node
     }
 
     /** Builds a balanced tree from entries sorted by start offset and handle ID in `[from, to)`. */

@@ -1,4 +1,6 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+@file:OptIn(LowLevelLocalMachineAccess::class)
+
 package com.intellij.openapi.updateSettings.impl.productMigration
 
 import com.intellij.diagnostic.rethrowControlFlowException
@@ -18,6 +20,8 @@ import com.intellij.openapi.util.io.NioFiles
 import com.intellij.util.SystemProperties
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.io.sha256Hex
+import com.intellij.util.system.LowLevelLocalMachineAccess
+import com.intellij.util.system.OS
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.Nls
 import java.io.IOException
@@ -30,7 +34,8 @@ import kotlin.io.path.listDirectoryEntries
 
 private val LOG = logger<MigrationInstallException>()
 
-private const val DOWNLOAD_FILE_NAME = "distribution.dmg"
+private const val MAC_DOWNLOAD_FILE_NAME = "distribution.dmg"
+private const val WINDOWS_DOWNLOAD_FILE_NAME = "distribution.exe"
 private const val PROCESS_TIMEOUT_MS = 30 * 60 * 1000
 private const val DETACH_TIMEOUT_MS = 60 * 1000
 private const val CODESIGN_DISPLAY_TIMEOUT_MS = 60 * 1000
@@ -38,7 +43,7 @@ private const val CODESIGN_DISPLAY_TIMEOUT_MS = 60 * 1000
 private const val CODESIGN = "/usr/bin/codesign"
 private const val CODESIGN_INVALID = 1
 private const val CODESIGN_REQUIREMENT_FAILED = 3
-private const val ALLOW_UNSIGNED_PROPERTY = "ide.update.migration.allow.unsigned"
+internal const val ALLOW_UNSIGNED_PROPERTY: String = "ide.update.migration.allow.unsigned"
 private const val TEAM_ID_PREFIX = "TeamIdentifier="
 private val TEAM_ID = Regex("[A-Z0-9]{10}")
 
@@ -80,6 +85,13 @@ fun <T> withMigrationWorkDir(workDir: Path, action: (Path) -> T): T {
   }
 }
 
+/** The name of the downloaded file in the work folder. Windows starts the file, so the name has the file type of [os]. */
+@ApiStatus.Internal
+fun migrationDownloadFileName(os: OS = OS.CURRENT): String = when (os) {
+  OS.Windows -> WINDOWS_DOWNLOAD_FILE_NAME
+  OS.macOS, OS.Linux, OS.FreeBSD, OS.OHOS, OS.Other -> MAC_DOWNLOAD_FILE_NAME
+}
+
 /** Downloads [url] into [workDir] and returns the file. Its SHA-256 must match the checksum file `<url>.sha256`, which loads first. */
 @ApiStatus.Internal
 @RequiresBackgroundThread
@@ -106,7 +118,7 @@ fun downloadAndVerify(
   val expected = parseSha256File(checksumText) ?: throw checksumError("invalid checksum file ${checksumUrl}", cause = null)
 
   indicator.text = IdeBundle.message("updates.migration.progress.download")
-  val target = workDir.resolve(DOWNLOAD_FILE_NAME)
+  val target = workDir.resolve(migrationDownloadFileName())
   LOG.info("downloading ${url}")
   try {
     connectToAllowedUrl(url, isAllowedUrl, isAllowedFinalUrl) { it.saveToFile(target, indicator, true) }
@@ -130,11 +142,18 @@ fun downloadAndVerify(
   return target
 }
 
-/** Downloads and verifies the file of [distribution], installs it into `~/Applications`, and returns the installed application. */
+/**
+ * Downloads and verifies the file of [distribution], installs it for the current user, and returns the installed application.
+ * macOS gets the application in `~/Applications`. Windows gets it in the folder for the programs of the user.
+ */
 @RequiresBackgroundThread
 internal fun installMigrationDistribution(distribution: DistributionInfo, indicator: ProgressIndicator): Path {
   return withMigrationWorkDir(PathManager.getTempDir().resolve("migration-update")) { workDir ->
-    installMacApp(downloadAndVerify(distribution.fileUrl, workDir, indicator), distribution.product, indicator)
+    when (OS.CURRENT) {
+      OS.macOS -> installMacApp(downloadAndVerify(distribution.fileUrl, workDir, indicator), distribution.product, indicator)
+      OS.Windows -> installWindowsDistribution(distribution, workDir, indicator)
+      OS.Linux, OS.FreeBSD, OS.OHOS, OS.Other -> throw installError("no install of the distribution for ${OS.CURRENT}")
+    }
   }
 }
 
@@ -267,7 +286,7 @@ private fun macCodeSatisfies(app: Path, requirement: String, indicator: Progress
       LOG.info("${app} fails the signature check: exit code ${output.exitCode}, ${output.stderr.trim()}")
       false
     }
-    else -> throw commandError(command, output)
+    else -> throw commandError(command.commandLineString, output)
   }
 }
 
@@ -284,7 +303,7 @@ private fun runningAppBundle(): Path? {
 private fun runCommand(command: GeneralCommandLine, indicator: ProgressIndicator) {
   val output = runProcess(command, indicator)
   if (output.exitCode != 0) {
-    throw commandError(command, output)
+    throw commandError(command.commandLineString, output)
   }
 }
 
@@ -292,23 +311,32 @@ private fun runCommand(command: GeneralCommandLine, indicator: ProgressIndicator
 private fun runProcess(command: GeneralCommandLine, indicator: ProgressIndicator): ProcessOutput {
   val commandLine = command.commandLineString
   LOG.info("running ${commandLine}")
-  val output = try {
-    CapturingProcessHandler(command).runProcessWithProgressIndicator(indicator, PROCESS_TIMEOUT_MS)
+  val handler = try {
+    CapturingProcessHandler(command)
   }
   catch (e: ExecutionException) {
     throw installError("cannot run ${commandLine}: ${e.message}", e)
   }
+  return runProcess(handler, commandLine, indicator, PROCESS_TIMEOUT_MS)
+}
+
+/**
+ * Waits for the process of [handler]. A cancel of [indicator] and the time limit end the process tree.
+ * The time limit gives the usual install error. It does not check the exit code.
+ */
+internal fun runProcess(handler: CapturingProcessHandler, commandLine: String, indicator: ProgressIndicator, timeoutMs: Int): ProcessOutput {
+  val output = handler.runProcessWithProgressIndicator(indicator, timeoutMs)
   if (output.isCancelled) {
     throw ProcessCanceledException()
   }
   if (output.isTimeout) {
-    throw commandError(command, output)
+    throw commandError(commandLine, output)
   }
   return output
 }
 
-private fun commandError(command: GeneralCommandLine, output: ProcessOutput): MigrationInstallException =
-  installError("${command.commandLineString} failed: exit code ${output.exitCode}, timeout ${output.isTimeout}, ${output.stderr.trim()}")
+private fun commandError(commandLine: String, output: ProcessOutput): MigrationInstallException =
+  installError("${commandLine} failed: exit code ${output.exitCode}, timeout ${output.isTimeout}, ${output.stderr.trim()}")
 
 private fun detach(mountPoint: Path) {
   try {
@@ -324,7 +352,7 @@ private fun detach(mountPoint: Path) {
   }
 }
 
-private fun deleteLogged(path: Path) {
+internal fun deleteLogged(path: Path) {
   try {
     NioFiles.deleteRecursively(path)
   }
@@ -336,5 +364,5 @@ private fun deleteLogged(path: Path) {
 private fun checksumError(logMessage: String, cause: Throwable?): MigrationInstallException =
   MigrationInstallException(IdeBundle.message("updates.migration.error.checksum"), logMessage, cause)
 
-private fun installError(reason: String, cause: Throwable? = null): MigrationInstallException =
+internal fun installError(reason: String, cause: Throwable? = null): MigrationInstallException =
   MigrationInstallException(IdeBundle.message("updates.migration.error.install"), reason, cause)

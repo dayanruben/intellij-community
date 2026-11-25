@@ -8,19 +8,19 @@ import com.intellij.codeInsight.intention.IntentionAction
 import com.intellij.codeInspection.LocalInspectionTool
 import com.intellij.codeInspection.ex.InspectionProfileImpl
 import com.intellij.lang.annotation.HighlightSeverity
+import com.intellij.lang.injection.InjectedLanguageManager
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.WriteAction
 import com.intellij.openapi.application.WriteIntentReadAction
 import com.intellij.openapi.application.runReadActionBlocking
-import com.intellij.openapi.application.runWriteAction
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.impl.EditorHistoryManager
-import com.intellij.openapi.roots.OrderRootType
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.RecursionManager
+import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.vfs.StandardFileSystems
@@ -29,11 +29,12 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
+import com.intellij.psi.PsiLanguageInjectionHost
+import com.intellij.psi.PsiWhiteSpace
 import com.intellij.psi.impl.source.PsiFileImpl
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.util.findParentOfType
 import com.intellij.python.sdk.backend.PythonInterpreterDetails
-import com.intellij.python.sdk.backend.getSdkAPI
 import com.intellij.python.sdk.backend.skeletonsPath
 import com.intellij.testFramework.IndexingTestUtil
 import com.intellij.testFramework.IndexingTestUtil.Companion.waitUntilIndexesAreReady
@@ -230,7 +231,7 @@ abstract class PyCodeInsightTestCase {
     val enableWarnings: Boolean = true,
     val enableWeakWarnings: Boolean = true,
     val enableInfos: Boolean = false,
-    val languageLevel: LanguageLevel = LanguageLevel.PYTHON315,
+    val languageLevel: LanguageLevel = LanguageLevel.PYTHON316,
     val assertRecursionPrevention: Boolean = true,
     val assertSdkRootsNotParsed: Boolean = true,
     val enablePyAnyType: Boolean = true,
@@ -247,18 +248,10 @@ abstract class PyCodeInsightTestCase {
     val destination: String,
   )
 
+  /** A test data directory that the test adds to the paths of the interpreter, so it is a class root of it. */
   annotation class SdkRoot(
     val path: String,
-    val type: OrderRootTypeEnum,
   )
-
-  enum class OrderRootTypeEnum(val orderRootType: OrderRootType) {
-    CLASSES(OrderRootType.CLASSES),
-    SOURCES(OrderRootType.SOURCES),
-
-    @Suppress("unused")
-    DOCUMENTATION(OrderRootType.DOCUMENTATION);
-  }
 
   /** Default inspections to be enabled in tests. Override if required. */
   open val defaultInspections: Set<Class<out LocalInspectionTool>> = setOf(
@@ -446,32 +439,18 @@ abstract class PyCodeInsightTestCase {
     val interpreter = findPythonInterpreterForTests(myFixture.module)!!
     val roots = additionalSdkRoots.map { sdkRoot ->
       val absPath = PythonTestUtil.getTestDataPath() + "/" + sdkRoot.path
-      val testDataDir = StandardFileSystems.local().findFileByPath(absPath) ?: fail("Could not find additional SDK root at $absPath")
-      sdkRoot to testDataDir
+      StandardFileSystems.local().findFileByPath(absPath) ?: fail("Could not find additional SDK root at $absPath")
     }
     // A class root is a path that the user added to the interpreter, as in the interpreter settings: the roots of the
     // interpreter follow its facts, so a class root that the test wrote into the SDK goes with the next refresh.
     val details = PythonInterpreterDetails.getInstance(myFixture.project)
     val addedPaths = details.facts(interpreter).addedPaths.toMutableList()
-    for ([_, root] in roots.filter { it.first.type == OrderRootTypeEnum.CLASSES }) {
+    for (root in roots) {
       if (addElseRemove) addedPaths.add(root.toNioPath()) else addedPaths.remove(root.toNioPath())
     }
     writeAddedPathsForTests(myFixture.project, interpreter, addedPaths)
 
-    val otherRoots = roots.filter { it.first.type != OrderRootTypeEnum.CLASSES }
-    if (otherRoots.isNotEmpty()) {
-      @Suppress("DEPRECATION")
-      val sdk = interpreter.getSdkAPI()
-      runWriteAction {
-        val modificator = sdk.getSdkModificator()
-        for ([sdkRoot, root] in otherRoots) {
-          if (addElseRemove) modificator.addRoot(root, sdkRoot.type.orderRootType)
-          else modificator.removeRoot(root, sdkRoot.type.orderRootType)
-        }
-        modificator.commitChanges()
-      }
-    }
-    // A module reads the roots of its interpreter from its interpreter library, which copies them from the SDK.
+    // A module reads the roots of its interpreter from its interpreter library, which the sync builds from the facts.
     syncPythonInterpreterLibraries()
     IndexingTestUtil.waitUntilIndexesAreReadyInAllOpenedProjects()
   }
@@ -885,7 +864,9 @@ abstract class PyCodeInsightTestCase {
   }
 
   private fun createActualAssertionsForNonInspections(expectedAssertion: PyTestAssertion): PyTestAssertion {
-    val element = PsiTreeUtil.getParentOfType(myFixture.file.findElementAt(expectedAssertion.codeOffsetStart), PsiElement::class.java)
+    val injectionManager = InjectedLanguageManager.getInstance(myFixture.project)
+    val leaf = findInjectedLeaf(expectedAssertion) ?: myFixture.file.findElementAt(expectedAssertion.codeOffsetStart)
+    val element = PsiTreeUtil.getParentOfType(leaf, PsiElement::class.java)
     if (element == null) {
       val msg = if (expectedAssertion.isInlineAssertion())
         "No element found in line ${expectedAssertion.codeLineStart}"
@@ -896,9 +877,11 @@ abstract class PyCodeInsightTestCase {
       return actualAssertion
     }
 
+    fun hostRange(element: PsiElement): TextRange = injectionManager.injectedToHost(element, element.textRange)
+
     var parent: PsiElement = element
     if (expectedAssertion.codeColumnEnd > 0) {
-      while (parent.textRange.endOffset < expectedAssertion.codeOffsetStart - expectedAssertion.codeColumnStart + expectedAssertion.codeColumnEnd) {
+      while (hostRange(parent).endOffset < expectedAssertion.codeOffsetStart - expectedAssertion.codeColumnStart + expectedAssertion.codeColumnEnd) {
         parent = parent.parent ?: break
       }
     }
@@ -926,6 +909,23 @@ abstract class PyCodeInsightTestCase {
     val fixmeContent = if (expectedAssertion.fixmeContent == actualContent) "You fixed it!" else expectedAssertion.fixmeContent
     val actualAssertion = expectedAssertion.withContent(actualContent, fixmeContent)
     return actualAssertion
+  }
+
+  /**
+   * Returns the leaf of an injected fragment at the marker. For an inline assertion, returns the first leaf of a fragment
+   * on the line when the line starts inside an injection host, as a line of a doctest does. An assertion there checks the
+   * element of the fragment, not the host string.
+   */
+  private fun findInjectedLeaf(expectedAssertion: PyTestAssertion): PsiElement? {
+    val injectionManager = InjectedLanguageManager.getInstance(myFixture.project)
+    val file = myFixture.file
+    if (!expectedAssertion.isInlineAssertion()) return injectionManager.findInjectedElementAt(file, expectedAssertion.codeOffsetStart)
+    val lineStart = file.findElementAt(expectedAssertion.codeOffsetStart)
+    if (PsiTreeUtil.getParentOfType(lineStart, PsiLanguageInjectionHost::class.java, false) == null) return null
+    val lineEnd = file.fileDocument.getLineEndOffset(expectedAssertion.codeLineStart)
+    return (expectedAssertion.codeOffsetStart until lineEnd).firstNotNullOfOrNull { offset ->
+      injectionManager.findInjectedElementAt(file, offset)?.takeIf { it !is PsiWhiteSpace }
+    }
   }
 
   /** Asserts the declared or inferred type of a given typable element. */

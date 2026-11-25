@@ -1365,7 +1365,7 @@ class PyInferenceMiscTypeTest : PyCodeInsightTestCase() {
               return 42
           finally:
               return "str"
-      #       ^^^^^^^^^^^^ ERROR Python version 3.15 does not support 'return' inside 'finally' clause
+      #       ^^^^^^^^^^^^ ERROR Python version 3.16 does not support 'return' inside 'finally' clause
 
           return True
 
@@ -1380,7 +1380,7 @@ class PyInferenceMiscTypeTest : PyCodeInsightTestCase() {
               return 42
           finally:
               return "foo"
-      #       ^^^^^^^^^^^^ ERROR Python version 3.15 does not support 'return' inside 'finally' clause
+      #       ^^^^^^^^^^^^ ERROR Python version 3.16 does not support 'return' inside 'finally' clause
       expr = f()
       #└ TYPE Literal["foo"]
       """.trimIndent())
@@ -1393,7 +1393,7 @@ class PyInferenceMiscTypeTest : PyCodeInsightTestCase() {
           finally:
               if p:
                   return "foo"
-      #           ^^^^^^^^^^^^ ERROR Python version 3.15 does not support 'return' inside 'finally' clause
+      #           ^^^^^^^^^^^^ ERROR Python version 3.16 does not support 'return' inside 'finally' clause
       expr = f()
       #│       └ WARNING Parameter 'p' unfilled
       #└ TYPE Literal["foo", 42]
@@ -1747,7 +1747,7 @@ class PyInferenceMiscTypeTest : PyCodeInsightTestCase() {
 
     @Test
     @TestFor(issues = ["PY-92230"])
-    @TestCaseOptions(additionalSdkRoots = [SdkRoot("types/unannotatedStubFunction", OrderRootTypeEnum.CLASSES)])
+    @TestCaseOptions(additionalSdkRoots = [SdkRoot("types/unannotatedStubFunction")])
     fun `structural type through unannotated stub function does not parse the stub`() = test("""
       import unannotated_stub
 
@@ -2907,7 +2907,7 @@ class PyInferenceMiscTypeTest : PyCodeInsightTestCase() {
         """.trimIndent())
 
     @Test
-    @TestFor(issues = ["PY-85200"])
+    @TestFor(issues = ["PY-85200", "PY-94105"])
     fun `descriptor re-exported through a type-checking guard keeps the return type of its __get__`() = test(
       """
       from cache_api import cached_property
@@ -2919,7 +2919,7 @@ class PyInferenceMiscTypeTest : PyCodeInsightTestCase() {
 
       def f(h: Holder):
           expr = h.value
-      #   └ TYPE Unknown FIXME int # PY-94105
+      #   └ TYPE int
       """.trimIndent(),
       // Flattened mirror of `propcache`'s own chain, which is what `yarl.URL.query` is decorated with:
       //   propcache.api          -> from ._helpers import cached_property
@@ -3501,7 +3501,7 @@ class PyInferenceMiscTypeTest : PyCodeInsightTestCase() {
     fun `backtick repr expression`() = test("""
       a = 1
       expr = `a`
-      #      ^^^ ERROR Python version 3.15 does not support backquotes, use repr() instead
+      #      ^^^ ERROR Python version 3.16 does not support backquotes, use repr() instead
       #      └ TYPE Unknown
       """.trimIndent())
 

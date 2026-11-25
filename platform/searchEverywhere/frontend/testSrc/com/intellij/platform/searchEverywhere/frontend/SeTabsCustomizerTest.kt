@@ -2,13 +2,22 @@
 package com.intellij.platform.searchEverywhere.frontend
 
 import com.intellij.ide.actions.searcheverywhere.SearchHistoryList
+import com.intellij.ide.rpc.rpcId
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.actionSystem.AnAction
+import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.readAction
+import com.intellij.openapi.project.Project
+import com.intellij.platform.scopes.SearchScopesInfo
+import com.intellij.platform.searchEverywhere.SeFilterState
 import com.intellij.platform.searchEverywhere.SeItemData
 import com.intellij.platform.searchEverywhere.SeParams
 import com.intellij.platform.searchEverywhere.SePreviewInfo
 import com.intellij.platform.searchEverywhere.SeResultEvent
 import com.intellij.platform.searchEverywhere.SeSessionImpl
+import com.intellij.platform.searchEverywhere.frontend.resultsProcessing.SeTabDelegate
 import com.intellij.platform.searchEverywhere.frontend.vm.SeDummyTabVm
 import com.intellij.platform.searchEverywhere.frontend.vm.SePopupVm
 import com.intellij.platform.searchEverywhere.frontend.vm.SeTabsModel
@@ -18,13 +27,19 @@ import com.intellij.platform.util.coroutines.childScope
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.junit5.TestDisposable
+import com.intellij.testFramework.junit5.fixture.projectFixture
 import com.intellij.testFramework.replaceService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertSame
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.util.UUID
@@ -36,6 +51,8 @@ import java.util.UUID
  */
 @TestApplication
 class SeTabsCustomizerTest {
+  private val projectFixture = projectFixture()
+
   @TestDisposable
   lateinit var disposable: Disposable
 
@@ -75,6 +92,40 @@ class SeTabsCustomizerTest {
     }
   }
 
+  @Test
+  fun `customizer replaces the filter editor of a tab`(): Unit = timeoutRunBlocking {
+    val popupScope = childScope("SeTabsCustomizerTest")
+    try {
+      val editorOfTab = TestFilterEditor(emptyList())
+      val vm = createPopupVm(popupScope, listOf(TestTab(FILTERED_ID, 300, editorOfTab), TestTab("a", 200, editorOfTab)))
+      val filtered = vm.tabsModel.sortedTabVms.single { it.tabId == FILTERED_ID }
+      val plain = vm.tabsModel.sortedTabVms.single { it.tabId == "a" }
+
+      val editor = filtered.filterEditor.getValue()
+
+      assertSame(TestTabsCustomizer.autoToggleAction, editor?.getHeaderActions()?.single(), "the popup shows the editor of the customizer")
+      assertSame(TestTabsCustomizer.autoToggleAction, filtered.getAutoToggleAction(), "the auto toggle comes from the shown editor")
+      assertSame(editorOfTab, plain.filterEditor.getValue(), "a tab that the customizer leaves keeps its editor")
+    }
+    finally {
+      popupScope.cancel()
+    }
+  }
+
+  @Test
+  fun `customizer turns off the scope control of a tab`(): Unit = timeoutRunBlocking {
+    val project = projectFixture.get()
+    val dataContextId = readAction { DataContext.EMPTY_CONTEXT.rpcId() }
+    // The answer needs no provider of the delegate, so the scope of the delegate does not run.
+    val delegateScope = childScope("SeTabsCustomizerTest").also { it.cancel() }
+    val delegate = SeTabDelegate(project, SeSessionImpl(UUID.randomUUID().toString()), "Test", emptyList(), dataContextId, delegateScope)
+
+    assertFalse(delegate.shouldHaveScopesFilter(UNSCOPED_ID), "the customizer turns off the scope control of its tab")
+    assertEquals(emptyList<SearchScopesInfo>(), delegate.getSearchScopesInfos(UNSCOPED_ID), "a tab without the scope control gets no scopes")
+    assertTrue(delegate.shouldHaveScopesFilter("a"), "a tab that the customizer leaves keeps the scope control")
+    assertTrue(delegate.shouldHaveScopesFilter(), "a tab that names no id does not ask the customizer")
+  }
+
   private fun createPopupVm(
     scope: CoroutineScope,
     tabs: List<SeTab>,
@@ -105,6 +156,8 @@ class SeTabsCustomizerTest {
     const val RENAMED_ID = "renamed"
     const val HIDDEN_ID = "hidden"
     const val MOVED_ID = "moved"
+    const val FILTERED_ID = "filtered"
+    const val UNSCOPED_ID = "unscoped"
 
     /** [MOVED_ID] goes first with its new priority, [RENAMED_ID] gets its new name, and [HIDDEN_ID] is not there. */
     val EXPECTED_TABS = listOf("$MOVED_ID:$MOVED_ID:1000", "a:a:300", "$RENAMED_ID:Renamed:200")
@@ -117,13 +170,32 @@ class SeTabsCustomizerTest {
       HIDDEN_ID -> null
       else -> info
     }
+
+    override fun isScopeFilterEnabled(tabId: String, project: Project?): Boolean = tabId != UNSCOPED_ID
+
+    override fun customizeFilterEditor(tabId: String, project: Project?, editor: SeFilterEditor, coroutineScope: CoroutineScope): SeFilterEditor =
+      if (tabId == FILTERED_ID) TestFilterEditor(listOf(autoToggleAction)) else editor
+
+    companion object {
+      val autoToggleAction: AnAction = TestAutoToggleAction()
+    }
   }
 
-  private class TestTab(override val id: String, override val priority: Int) : SeTab {
+  private class TestAutoToggleAction : AnAction(), AutoToggleAction {
+    override fun actionPerformed(e: AnActionEvent) {}
+    override fun autoToggle(everywhere: Boolean): Boolean = false
+  }
+
+  private class TestFilterEditor(private val headerActions: List<AnAction>) : SeFilterEditor {
+    override val resultFlow: StateFlow<SeFilterState> = MutableStateFlow(SeFilterState.Empty)
+    override fun getHeaderActions(): List<AnAction> = headerActions
+  }
+
+  private class TestTab(override val id: String, override val priority: Int, private val filterEditor: SeFilterEditor? = null) : SeTab {
     override val name: String get() = id
 
     override fun getItems(params: SeParams): Flow<SeResultEvent> = emptyFlow()
-    override suspend fun getFilterEditor(): SeFilterEditor? = null
+    override suspend fun getFilterEditor(): SeFilterEditor? = filterEditor
     override suspend fun itemSelected(item: SeItemData, modifiers: Int, searchText: String): Boolean = false
     override suspend fun canBeShownInFindResults(): Boolean = false
     override suspend fun performExtendedAction(item: SeItemData): Boolean = false

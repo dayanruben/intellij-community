@@ -19,10 +19,12 @@ class ProjectLeakDetectorTest {
   @Test
   fun testBuildReportFormatsEntries() {
     val leaks = listOf(
-      LeakInfo(LeakKind.PROJECT, "com.example.FooProject", 0x1234, "Project Foo", "created in test", null, "root -> Foo"),
-      LeakInfo(LeakKind.EDITOR, "com.example.BarEditor", 0xabcd, "Editor Bar", null, 12_345L, "root -> Bar"),
+      LeakInfo(LeakKind.PROJECT, "com.example.FooProject", 0x1234, "Project Foo", "created in test", null,
+               listOf(step(" (root)", "com.example.Root"))),
+      LeakInfo(LeakKind.EDITOR, "com.example.BarEditor", 0xabcd, "Editor Bar", null, 12_345L,
+               listOf(step(" (root)", "com.example.Root"))),
     )
-    val report = LeakDetectionRunner.getInstance().reporter().buildReport (leaks)
+    val report = LeakDetectionRunner.getInstance().reporter().buildInteractiveReport(leaks)
     assertTrue(report.contains("2 leaked instance(s)"))
     assertTrue(report.contains("com.example.FooProject@1234"))
     assertTrue(report.contains("retained for: 12345 ms after disposal"))
@@ -31,17 +33,17 @@ class ProjectLeakDetectorTest {
 
   @Test
   fun testBuildReportSquashesStructurallyEqualPaths() {
-    // Two editors retained through the same chain, differing only by identity hashes and an array index: they must be
+    // Two editors retained through the same chain, differing only by field values and an array index: they must be
     // squashed into a single entry whose reference path is printed once.
     val leaks = listOf(
       LeakInfo(LeakKind.EDITOR, "com.example.BarEditor", 0xaaaa, "Editor A", null, 100L,
-               "via 'com.example.Tracker.field'; Value: 'com.example.Tracker@1111' of class com.example.Tracker\n" +
-               "via '[1]'; Value: 'x' of class [Ljava.lang.Object;"),
+               listOf(step("com.example.Tracker.field", "com.example.Tracker", "com.example.Tracker@1111"),
+                      step("[1]", "[Ljava.lang.Object;"))),
       LeakInfo(LeakKind.EDITOR, "com.example.BarEditor", 0xbbbb, "Editor B", null, 200L,
-               "via 'com.example.Tracker.field'; Value: 'com.example.Tracker@2222' of class com.example.Tracker\n" +
-               "via '[2]'; Value: 'x' of class [Ljava.lang.Object;"),
+               listOf(step("com.example.Tracker.field", "com.example.Tracker", "com.example.Tracker@2222"),
+                      step("[2]", "[Ljava.lang.Object;"))),
     )
-    val report = LeakDetectionRunner.getInstance().reporter().buildReport(leaks)
+    val report = LeakDetectionRunner.getInstance().reporter().buildInteractiveReport(leaks)
 
     assertTrue(report.contains("2 leaked instance(s) in 1 distinct retention path(s)"), report)
     assertTrue(report.contains("2 instances sharing this path"), report)
@@ -55,10 +57,12 @@ class ProjectLeakDetectorTest {
   fun testBuildReportKeepsDistinctPathsSeparate() {
     // Same class but genuinely different reference paths must not be squashed.
     val leaks = listOf(
-      LeakInfo(LeakKind.EDITOR, "com.example.BarEditor", 0xaaaa, "Editor A", null, 100L, "via 'com.example.One.a'; Value: 'x' of class com.example.One"),
-      LeakInfo(LeakKind.EDITOR, "com.example.BarEditor", 0xbbbb, "Editor B", null, 200L, "via 'com.example.Two.b'; Value: 'y' of class com.example.Two"),
+      LeakInfo(LeakKind.EDITOR, "com.example.BarEditor", 0xaaaa, "Editor A", null, 100L,
+               listOf(step("com.example.One.a", "com.example.One"))),
+      LeakInfo(LeakKind.EDITOR, "com.example.BarEditor", 0xbbbb, "Editor B", null, 200L,
+               listOf(step("com.example.Two.b", "com.example.Two"))),
     )
-    val report = LeakDetectionRunner.getInstance().reporter().buildReport(leaks)
+    val report = LeakDetectionRunner.getInstance().reporter().buildInteractiveReport(leaks)
 
     assertFalse(report.contains("distinct retention path(s)"), report)
     assertTrue(report.contains("com.example.BarEditor@aaaa"), report)
@@ -114,23 +118,89 @@ class ProjectLeakDetectorTest {
   @Test
   fun testBuildReportContainsDisposerParentChain() {
     val leak = LeakInfo(LeakKind.PROJECT, "com.example.FooProject", 0x1234, "Project Foo", null, null,
-                        "via 'com.example.Holder.project'", "  Foo (com.example.Foo)\n    <- ROOT")
-    val report = LeakDetectionRunner.getInstance().reporter().buildReport(listOf(leak))
+                        listOf(step("com.example.Holder.project", "com.example.FooProject")),
+                        listOf(ObjectRendering("com.example.Foo", "Foo")))
+    val report = LeakDetectionRunner.getInstance().reporter().buildInteractiveReport(listOf(leak))
 
     assertTrue(report.contains("  Disposer parent chain:\n    Foo (com.example.Foo)\n      <- ROOT"), report)
   }
 
+  @Suppress("RAW_SCOPE_CREATION")
   @Test
   fun testSameLeakIsSelectedForReportOnce() {
     val service = IdleLeakDetectionService(CoroutineScope(EmptyCoroutineContext))
-    val first = LeakInfo(LeakKind.EDITOR, "com.example.BarEditor", 0xaaaa, "Editor A", null, 100L, "via 'com.example.Tracker@1111'")
+    val first = LeakInfo(LeakKind.EDITOR, "com.example.BarEditor", 0xaaaa, "Editor A", null, 100L,
+                         listOf(step("com.example.Holder.tracker", "com.example.Tracker", "com.example.Tracker@1111")))
     // Differs only by the identity hash, so it has the same signature.
-    val same = first.copy(identityHashCode = 0xbbbb, referencePath = "via 'com.example.Tracker@2222'")
-    val other = first.copy(referencePath = "via 'com.example.Other@1111'")
+    val same = first.copy(identityHashCode = 0xbbbb,
+                          referencePath = listOf(step("com.example.Holder.tracker", "com.example.Tracker", "com.example.Tracker@2222")))
+    val other = first.copy(referencePath = listOf(step("com.example.Holder.tracker", "com.example.Other")))
 
     assertEquals(listOf(listOf(first, same)), service.selectNotReported(listOf(first, same)))
     assertEquals(listOf(listOf(other)), service.selectNotReported(listOf(same, other)))
     assertEquals(emptyList<List<LeakInfo>>(), service.selectNotReported(listOf(first, same, other)))
+  }
+
+  @Test
+  fun testLeakSignatureIgnoresFieldValues() {
+    val first = LeakInfo(LeakKind.EDITOR, "com.example.BarEditor", 0xaaaa, "Editor A", null, 100L,
+                         listOf(step("com.example.Holder.editor", "com.example.Editor", "EditorImpl[/AirPrompt-1176a009.md]"),
+                                step("com.example.Draft\$\$Lambda/0x00001c0005d5f000.arg\$1", "com.example.Project", "Project(name=secret)"),
+                                step(" (root)", "com.example.Root")))
+    val second = first.copy(referencePath = listOf(
+      step("com.example.Holder.editor", "com.example.Editor", "EditorImpl[/AirPrompt-94b19292.md]"),
+      step("com.example.Draft\$\$Lambda/0x00001c0005971800.arg\$1", "com.example.Project", "Project(name=other)"),
+      step(" (root)", "com.example.Root")))
+    val other = first.copy(referencePath = listOf(step("com.example.Holder.other", "com.example.Editor")) + first.referencePath.drop(1))
+
+    assertEquals(leakSignature(first), leakSignature(second))
+    assertFalse(leakSignature(first) == leakSignature(other))
+  }
+
+  private val leakedProject = LeakInfo(LeakKind.PROJECT,
+                                       "com.intellij.openapi.project.impl.ProjectImpl",
+                                       0x1234,
+                                       "Project(name=matterhorn-secret, containerState=DISPOSE_COMPLETED)",
+                                       "created by matterhorn-secret",
+                                       null,
+                                       listOf(step("com.example.Frame.title", "java.lang.String", "matterhorn-secret – Foo.kt"),
+                                              ReferenceStep(" (root)", ObjectRendering("com.example.Holder", "x"), "Holder of matterhorn-secret")),
+                                       listOf(ObjectRendering("com.intellij.openapi.project.impl.ProjectImpl",
+                                                              "Project(name=matterhorn-secret, containerState=DISPOSE_COMPLETED)")))
+
+  @Test
+  fun testMaskedReportHasOnlyTypes() {
+    val report = LeakDetectionRunner.getInstance().reporter().buildIdleReport(listOf(leakedProject))
+
+    assertFalse(report.contains("matterhorn-secret"), report)
+    assertTrue(report.contains("  reference path:\n" +
+                               "    via 'com.example.Frame.title' of class java.lang.String\n" +
+                               "    via ' (root)' of class com.example.Holder\n"), report)
+    assertTrue(report.contains("  Disposer parent chain:\n" +
+                               "    com.intellij.openapi.project.impl.ProjectImpl\n" +
+                               "      <- ROOT"), report)
+  }
+
+  @Test
+  fun testIdleReportHasOnlyLeakEntries() {
+    val report = LeakDetectionRunner.getInstance().reporter().buildIdleReport(listOf(leakedProject))
+
+    assertTrue(report.startsWith("Project leak detection found 1 leaked instance(s)"), report)
+    assertFalse(report.contains("# IDE:"), report)
+    assertFalse(report.contains("```"), report)
+    assertFalse(report.contains("matterhorn-secret"), report)
+  }
+
+  @Test
+  fun testUnmaskedReportHasValues() {
+    val report = LeakDetectionRunner.getInstance().reporter().buildInteractiveReport(listOf(leakedProject))
+
+    assertTrue(report.contains("  instance: Project(name=matterhorn-secret, containerState=DISPOSE_COMPLETED)"), report)
+    assertTrue(report.contains("    via 'com.example.Frame.title'; Value: 'matterhorn-secret – Foo.kt' of class java.lang.String\n" +
+                               "    via ' (root)'; Value: 'x' of class com.example.Holder\n" +
+                               "     (from Holder of matterhorn-secret)"), report)
+    assertTrue(report.contains("    Project(name=matterhorn-secret, containerState=DISPOSE_COMPLETED) (com.intellij.openapi.project.impl.ProjectImpl)"),
+               report)
   }
 
   @Test
@@ -192,6 +262,9 @@ class ProjectLeakDetectorTest {
       Thread.currentThread().contextClassLoader = previous
     }
   }
+
+  private fun step(field: String, className: String, text: String = "x"): ReferenceStep =
+    ReferenceStep(field, ObjectRendering(className, text))
 
   companion object {
     @JvmStatic

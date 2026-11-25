@@ -47,8 +47,9 @@ import java.nio.file.Path
  *
  * Only a native interpreter has a detected [PythonEnvironment], see [NativePythonInterpreter.environmentResult].
  *
- * Get one with [Sdk.pythonInterpreterResult]. Ask [getPythonInfo] what the interpreter is, and why it cannot be used when it
- * cannot.
+ * Only this module builds one, with [Sdk.pythonInterpreterResult]: the registry, see [PythonInterpreterRegistry], and the
+ * test support, see `buildInterpreterForTests`. Ask [getPythonInfo] what the interpreter is, and why it cannot be used
+ * when it cannot.
  */
 sealed class PythonInterpreter {
   /**
@@ -64,12 +65,17 @@ sealed class PythonInterpreter {
    */
   abstract val ownerDir: Path
 
-  /** The project whose registry built this interpreter. */
+  /**
+   * The project whose registry built this interpreter.
+   *
+   * The interpreter holds a strong reference to [project]. Do not keep an interpreter after its project closes. A cache
+   * that holds something for an interpreter must end with [lifetime], or live in a holder of [project].
+   */
   val project: Project
 
   /**
-   * The SDK of this interpreter. The registry replaces it when it adopts an existing SDK. Code outside this module
-   * reaches it through the deprecated [getSdkAPI], so the SDK can be removed later.
+   * The SDK of this interpreter. The registry replaces it when it adopts an existing SDK. Code outside this module uses
+   * the extensions in `PythonInterpreterExt.kt`. Only the deprecated APIs for external plugins reach it, see [getSdkAPI].
    */
   internal var sdk: Sdk
 
@@ -179,7 +185,7 @@ class TargetPythonInterpreter internal constructor(
 // Off until PY-93940.
 @RequiresReadLockAbsence(generateAssertion = false)
 @RequiresBlockingContext
-fun Sdk.pythonInterpreterResult(project: Project, forceRefresh: Boolean = false): PyResult<PythonInterpreter> =
+internal fun Sdk.pythonInterpreterResult(project: Project, forceRefresh: Boolean = false): PyResult<PythonInterpreter> =
   buildPythonInterpreter(project, forceRefresh)
 
 /** The body of [pythonInterpreterResult]. It does file I/O, so it runs on a background thread. */
@@ -238,18 +244,17 @@ internal suspend fun Sdk.pythonInterpreterOfKey(project: Project, key: PythonInt
 }
 
 /**
- * [Sdk.pythonInterpreterResult] for a caller that can suspend. This is the main entry point.
+ * [Sdk.pythonInterpreterResult] for a caller that can suspend.
  *
  * The detection runs on [Dispatchers.IO] and caches its result per SDK, so only the first call pays for the file
  * reads. It takes no lock and never touches the EDT.
  *
  * @param forceRefresh re-detect even if a cached result already exists.
  */
-suspend fun Sdk.pythonInterpreterResultAsync(project: Project, forceRefresh: Boolean = false): PyResult<PythonInterpreter> =
+internal suspend fun Sdk.pythonInterpreterResultAsync(project: Project, forceRefresh: Boolean = false): PyResult<PythonInterpreter> =
   withContext(Dispatchers.IO) {
     this@pythonInterpreterResultAsync.buildPythonInterpreter(project, forceRefresh)
   }
-
 
 /**
  * The [FileSystem] of the machine that this interpreter runs on: the Eel machine of [NativePythonInterpreter.pythonBinary],
@@ -278,18 +283,6 @@ suspend fun PythonInterpreter.createMapper(console: PathMappingSettings): PyRemo
 @RequiresReadLockAbsence(generateAssertion = false)
 @RequiresBlockingContext
 @Throws(InvalidSdkException::class)
-fun Sdk.pythonInterpreterOrThrow(project: Project, forceRefresh: Boolean = false): PythonInterpreter =
+internal fun Sdk.pythonInterpreterOrThrow(project: Project, forceRefresh: Boolean = false): PythonInterpreter =
   pythonInterpreterResult(project, forceRefresh).getOr { throw InvalidSdkException(it.error.message) }
-
-/**
- * The interpreter of this SDK, for a caller that does not handle a broken SDK yet. It throws [InvalidSdkException] for
- * an SDK that names no interpreter.
- */
-@Deprecated("Handle a broken SDK", ReplaceWith("pythonInterpreterResult(project, forceRefresh)"))
-@RequiresBackgroundThread(generateAssertion = false)
-// Off until PY-93940.
-@RequiresReadLockAbsence(generateAssertion = false)
-@RequiresBlockingContext
-@Throws(InvalidSdkException::class)
-fun Sdk.pythonInterpreter(project: Project, forceRefresh: Boolean = false): PythonInterpreter = pythonInterpreterOrThrow(project, forceRefresh)
 

@@ -11,6 +11,7 @@ import com.intellij.execution.target.loadTargetConfiguration
 import com.intellij.execution.target.saveTargetBasedSdkAdditionalData
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.projectRoots.Sdk
+import com.intellij.openapi.util.JDOMUtil
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.remote.RemoteSdkProperties
 import com.intellij.remote.RemoteSdkPropertiesHolder
@@ -22,6 +23,7 @@ import com.jetbrains.python.sdk.flavors.UnixPythonSdkFlavor
 import org.jdom.Element
 import org.jetbrains.annotations.ApiStatus
 import java.nio.file.Path
+import java.util.concurrent.ConcurrentHashMap
 
 internal const val PYCHARM_HELPERS: String = ".pycharm_helpers"
 
@@ -72,7 +74,9 @@ open class PyTargetAwareAdditionalData private constructor(
   @ApiStatus.Internal
   constructor(additionalData: PythonSdkAdditionalData, targetEnvironmentConfiguration: TargetEnvironmentConfiguration? = null) : this(
     additionalData.flavorAndData, additionalData.workingDirectory, targetEnvironmentConfiguration, additionalData.requirementsFile
-  )
+  ) {
+    copyUnresolvedFlavor(additionalData)
+  }
 
   override fun save(rootElement: Element) { // store "interpreter paths" (i.e. `PYTHONPATH` elements)
     super.save(rootElement) // store `INTERPRETER_PATH`, `HELPERS_PATH`, etc
@@ -102,6 +106,7 @@ open class PyTargetAwareAdditionalData private constructor(
     targetEnvironmentConfiguration = null
 
     super.load(element) // load `INTERPRETER_PATH`, `HELPERS_PATH`, etc
+    replaceStoredUnknownFlavor(PyFlavorAndData(PyFlavorData.Empty, UnixPythonSdkFlavor.getInstance()))
     b.load(element) // the state that contains information of the target, as for now the target configuration is embedded into the additional data
     val loadedConfiguration = loadTargetConfiguration(element) // add Python language runtime for the loaded configuration
     if (loadedConfiguration != null) {
@@ -113,6 +118,32 @@ open class PyTargetAwareAdditionalData private constructor(
     }
 
     targetEnvironmentConfiguration = loadedConfiguration
+    if (loadedConfiguration != null) {
+      askForMigrationIfSaveChanges(element)
+    }
+  }
+
+  /**
+   * Asks for a migration when [save] does not write [element] again without a change. It logs the changed lines once per stored form,
+   * because the bridge of an SDK builds a new copy of this data at each reload.
+   *
+   * A target type can write a value that changes at each save, such as a timestamp. Then each load asks for a migration again, and
+   * the migration writes the SDK table again at each load.
+   */
+  private fun askForMigrationIfSaveChanges(element: Element) {
+    val stored = JDOMUtil.write(element)
+    val saved = JDOMUtil.write(Element(element.name).also { save(it) })
+    if (stored == saved) return
+
+    markMigrationRequired()
+    if (!loggedStoredForms.add(stored.hashCode())) return
+    val storedLines = stored.lines()
+    val savedLines = saved.lines()
+    val start = storedLines.zip(savedLines).takeWhile { (a, b) -> a == b }.size
+    val end = storedLines.drop(start).asReversed().zip(savedLines.drop(start).asReversed()).takeWhile { (a, b) -> a == b }.size
+    LOG.info("The data of the target SDK $interpreterPath needs a migration. " +
+             "Stored:\n${storedLines.subList(start, storedLines.size - end).joinToString("\n")}\n" +
+             "Saved:\n${savedLines.subList(start, savedLines.size - end).joinToString("\n")}")
   }
 
   /**
@@ -144,6 +175,7 @@ open class PyTargetAwareAdditionalData private constructor(
 
   companion object {
     private val LOG = logger<PyTargetAwareAdditionalData>()
+    private val loggedStoredForms: MutableSet<Int> = ConcurrentHashMap.newKeySet()
 
     /**
      * [local, remote] mapping for paths added by user

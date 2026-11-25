@@ -111,6 +111,8 @@ private val IGNORED_FIELDS = setOf(
   "com.intellij.testFramework.HeavyPlatformTestCase.myEditorListenerTracker",
   "com.intellij.testFramework.HeavyPlatformTestCase.myProject",
 
+  "org.mockito.internal.util.MockUtil.defaultMockMaker", // mocks
+
   "com.intellij.testFramework.junit5.showcase.JUnit5ModuleFixtureTest.seenModule", // can be disposed
   "com.intellij.platform.testFramework.junit5.codeInsight.fixture.CodeInsightModuleFixtureTest.previousModule",
 
@@ -185,18 +187,22 @@ private fun doTestWorkspaceModelLeak(unitTestProject: Project? = null, testClass
     var projects: Set<Project> = emptySet()
     try {
       runInEdtAndWait {
-        LeakHunter.tryClearingNonReachableObjects()
         projects = collectAllNonDisposedProjects(unitTestProject)
 
-        val expectedStorages: Set<EntityStorage> = run {
-          val realStorages = mutableListOf<EntityStorage>()
-
+        fun collectSnapshots(): List<EntityStorage> = buildList {
           for (project in projects) {
-            realStorages += project.collectEntityStorages()
+            addAll(project.collectEntityStorages())
           }
-          realStorages += GlobalWorkspaceModel.getInstancesBlocking().map { it.currentSnapshot }
+          addAll(GlobalWorkspaceModel.getInstancesBlocking().map { it.currentSnapshot })
+        }
 
-          IdentityHashMap(realStorages.associateWith { Unit }).keys
+        val expectedStorages = Collections.newSetFromMap(IdentityHashMap<EntityStorage, Boolean>())
+        expectedStorages.addAll(collectSnapshots())
+
+        fun isLeak(storage: EntityStorage): Boolean {
+          if (storage in expectedStorages || storage in reportedStorages) return false
+          expectedStorages.addAll(collectSnapshots())
+          return storage !in expectedStorages
         }
 
         val newLeaks = mutableListOf<EntityStorage>()
@@ -204,7 +210,7 @@ private fun doTestWorkspaceModelLeak(unitTestProject: Project? = null, testClass
         LeakHunter.processLeaks(
           LeakHunter.allRoots(),
           EntityStorage::class.java,
-          { it !in expectedStorages && it !in reportedStorages },
+          ::isLeak,
           null,
           shouldExamineField,
         ) { storage, backLink ->

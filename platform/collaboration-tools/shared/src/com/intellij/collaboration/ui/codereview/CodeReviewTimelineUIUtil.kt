@@ -2,10 +2,13 @@
 package com.intellij.collaboration.ui.codereview
 
 import com.intellij.collaboration.ui.SimpleHtmlPane
+import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.text.HtmlBuilder
 import com.intellij.openapi.util.text.HtmlChunk
 import com.intellij.ui.ColorUtil
+import com.intellij.ui.JBColor
+import com.intellij.ui.ScrollPaneFactory
 import com.intellij.util.text.DateFormatUtil
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.StyleSheetUtil
@@ -13,6 +16,7 @@ import com.intellij.util.ui.UIUtil
 import org.jetbrains.annotations.Nls
 import java.util.Date
 import javax.swing.JComponent
+import javax.swing.JScrollPane
 import javax.swing.border.Border
 
 object CodeReviewTimelineUIUtil {
@@ -27,13 +31,13 @@ object CodeReviewTimelineUIUtil {
   val ITEM_BORDER: Border get() = JBUI.Borders.empty(ITEM_HOR_PADDING, ITEM_VERT_PADDING)
 
   object Thread {
-    const val DIFF_TEXT_GAP = 8
+    const val DIFF_TEXT_GAP: Int = 8
 
     object Replies {
       object ActionsFolded {
-        const val VERTICAL_PADDING = 8
-        const val HORIZONTAL_GAP = 8
-        const val HORIZONTAL_GROUP_GAP = 14
+        const val VERTICAL_PADDING: Int = 8
+        const val HORIZONTAL_GAP: Int = 8
+        const val HORIZONTAL_GROUP_GAP: Int = 14
       }
     }
   }
@@ -60,4 +64,15 @@ object CodeReviewTimelineUIUtil {
 
     return builder.toString()
   }
+
+  fun createTimelineScrollPane(timelinePanel: JComponent): JScrollPane =
+    ScrollPaneFactory.createScrollPane(timelinePanel, true).apply {
+      horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
+      isOpaque = false
+      viewport.isOpaque = true
+      viewport.background = JBColor.lazy {
+        val scheme = EditorColorsManager.getInstance().globalScheme
+        scheme.defaultBackground
+      }
+    }
 }
