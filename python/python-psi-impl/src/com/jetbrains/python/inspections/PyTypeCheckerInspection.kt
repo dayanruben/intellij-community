@@ -9,6 +9,7 @@ import com.intellij.codeInspection.options.OptPane
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.Ref
+import com.intellij.openapi.util.registry.Registry
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiElementVisitor
 import com.intellij.psi.util.PsiTreeUtil
@@ -1661,11 +1662,46 @@ open class PyTypeCheckerInspection : PyInspection() {
     ): Boolean {
       if (calleesResults.isEmpty() || calleesResults.any { (mapping, results) -> isMatched(results, mapping) }) return false
 
-      // When there is only ONE arity-complete candidate — where the report would otherwise collapse to a single
-      // "expected …, got …" message that hides that the callee is overloaded — also list any NEAR-MISS overload:
-      // an incomplete one that merely lacks a required argument (so the reader sees the fuller overload the call
-      // was closest to). Near misses are rendered only, so they are analyzed with their type-check side effects
-      // suppressed (see [analyzeCallee]); candidates keep declaration order.
+      if (!Registry.`is`("python.type.checker.overload.report.all.candidates", true)) {
+        reportMatchingCandidates(callSite, calleesResults, allMappings)
+        return true
+      }
+
+      // The report lists every candidate in declaration order, also the ones that do not take this number of
+      // arguments. Past [MAX_REPORTED_CANDIDATES], it keeps the candidates that take this number of arguments and fills
+      // the free places with the others. Only the shown candidates are analyzed. The ones that do not take the
+      // arguments are rendered only, so their type-check side effects are suppressed (see [analyzeCallee]).
+      val candidates = allMappings.filter { it.callableType != null }
+      val chosen = if (candidates.size <= MAX_REPORTED_CANDIDATES) candidates
+      else {
+        val free = (MAX_REPORTED_CANDIDATES - candidates.count { it.isComplete }).coerceAtLeast(0)
+        val others = candidates.filter { !it.isComplete }.take(free).toSet()
+        candidates.filter { it.isComplete || it in others }
+      }
+      val shown = chosen.mapNotNull { mapping ->
+        if (mapping.isComplete) calleesResults.firstOrNull { it.first === mapping }?.second
+        else analyzeCallee(mapping, reportProblems = false)
+      }
+
+      PyTypeCheckerInspectionProblemRegistrar
+        .registerProblem(
+          holder, callSite, shown, myTypeEvalContext,
+          ProblemHighlightType.GENERIC_ERROR_OR_WARNING,
+          hiddenCandidates = candidates.size - chosen.size,
+        )
+      return true
+    }
+
+    /**
+     * Reports only the candidates that take this number of arguments. When there is only one of them, the report also
+     * lists each near miss: a candidate that only lacks a required argument. A near miss is rendered only, so its
+     * type-check side effects are suppressed (see [analyzeCallee]).
+     */
+    private fun reportMatchingCandidates(
+      callSite: PyElement,
+      calleesResults: List<Pair<PyArgumentsMapping, AnalyzeCalleeResults>>,
+      allMappings: List<PyArgumentsMapping>,
+    ) {
       val reportResults =
         if (calleesResults.size != 1) calleesResults.map { it.second }
         else allMappings.mapNotNull { mapping ->
@@ -1678,11 +1714,7 @@ open class PyTypeCheckerInspection : PyInspection() {
         }
 
       PyTypeCheckerInspectionProblemRegistrar
-        .registerProblem(
-          holder, callSite, reportResults, myTypeEvalContext,
-          ProblemHighlightType.GENERIC_ERROR_OR_WARNING
-        )
-      return true
+        .registerProblem(holder, callSite, reportResults, myTypeEvalContext, ProblemHighlightType.GENERIC_ERROR_OR_WARNING)
     }
 
     private fun reportArgumentTypeMismatch(callSite: PyElement, argumentsMappings: List<PyArgumentsMapping>): Boolean {
@@ -2024,7 +2056,7 @@ open class PyTypeCheckerInspection : PyInspection() {
         }
         else {
           val substitutionsCopy = substitutions.addToCopy() // avoid pollution during match call
-          val matched = matchParameterAndArgument(expected, actual, argument, substitutionsCopy)
+          val matched = matchParameterAndArgument(expected, actual, argument, substitutionsCopy, reportProblems)
           val actualPromoted = if (matched) actual else {
             // fallback/promotion approach: only worth trying if the plain match failed
             val promoted = promoteToLiteral(argument, expected, myTypeEvalContext, substitutions)
@@ -2097,6 +2129,7 @@ open class PyTypeCheckerInspection : PyInspection() {
         unfilledPositionalVarargs,
         // The required parameters this call leaves unfilled (arity mismatch); optional ones are excluded by the mapping.
         mapping.unmappedParameters,
+        mapping.unmappedArguments,
       )
     }
 
@@ -2376,6 +2409,9 @@ open class PyTypeCheckerInspection : PyInspection() {
     /** The required parameters left unfilled by this call (arity mismatch), so the overload report can show them
      *  as wholly missing. Empty for a complete mapping; optional (defaulted) parameters are never listed here. */
     val unfilledRegularParameters: List<PyCallableParameter> = emptyList(),
+    /** The arguments that this callee has no parameter for (arity mismatch), so the overload report can show a gap
+     *  for each one. Empty for a complete mapping. */
+    val unmappedArguments: List<PyExpression> = emptyList(),
   )
 
   internal class PyCalleeResults(
@@ -2410,5 +2446,8 @@ open class PyTypeCheckerInspection : PyInspection() {
     private const val STRICT_UNION_COMBINATION_LIMIT: Int = 16
 
     private const val SUPPORTS_KEYS_AND_GET_ITEM_QNAME: String = "_typeshed.$SUPPORTS_KEYS_AND_GET_ITEM"
+
+    /** The number of candidates that a "no overload matches" report lists in full. */
+    private const val MAX_REPORTED_CANDIDATES: Int = 6
   }
 }

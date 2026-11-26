@@ -3444,6 +3444,16 @@ public abstract class K2IntentionTestGenerated extends AbstractK2IntentionTest {
             runTest("../../../idea/tests/testData/intentions/addWhenRemainingBranches/emptyWhen.kt");
         }
 
+        @TestMetadata("multilineEntry.kt")
+        public void testMultilineEntry() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/addWhenRemainingBranches/multilineEntry.kt");
+        }
+
+        @TestMetadata("multilineEntryWithoutLineBreak.kt")
+        public void testMultilineEntryWithoutLineBreak() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/addWhenRemainingBranches/multilineEntryWithoutLineBreak.kt");
+        }
+
         @TestMetadata("noElse.kt")
         public void testNoElse() throws Exception {
             runTest("../../../idea/tests/testData/intentions/addWhenRemainingBranches/noElse.kt");
@@ -16136,6 +16146,11 @@ public abstract class K2IntentionTestGenerated extends AbstractK2IntentionTest {
         public static class ReceiverToContextParameter extends AbstractK2IntentionTest {
             private void runTest(String testDataFilePath) throws Exception {
                 KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+            }
+
+            @TestMetadata("anonymousFunction.kt")
+            public void testAnonymousFunction() throws Exception {
+                runTest("../../../idea/tests/testData/intentions/contextParameters/receiverToContextParameter/anonymousFunction.kt");
             }
 
             @TestMetadata("argumentPosition.kt")

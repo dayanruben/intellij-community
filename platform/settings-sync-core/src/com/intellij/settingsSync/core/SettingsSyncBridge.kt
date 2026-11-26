@@ -16,6 +16,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -497,7 +498,10 @@ class SettingsSyncBridge(
               is SyncSettingsEvent.DeleteServerData -> {
                 mergeAndPushAfterProcessingEvents = false
                 stopSyncingAndRollback(previousState)
-                deleteServerData(event.afterDeleting)
+                withContext(NonCancellable) {
+                  // Keep the IO switch separate so it returns to this non-cancellable context.
+                  deleteServerData(event.afterDeleting)
+                }
               }
               SyncSettingsEvent.DeletedOnCloud -> {
                 mergeAndPushAfterProcessingEvents = false
@@ -524,10 +528,13 @@ class SettingsSyncBridge(
     }
   }
 
-  private fun deleteServerData(afterDeleting: (DeleteServerDataResult) -> Unit) {
-    val userData = RemoteCommunicatorHolder.getCurrentUserData()
-                   ?: return afterDeleting(DeleteServerDataResult.Error("No user data"))
-    afterDeleting(removeRemoteData(userData))
+  private suspend fun deleteServerData(afterDeleting: (DeleteServerDataResult) -> Unit) {
+    val result = withLockHolderStage("remote communicator call") {
+      val userData = RemoteCommunicatorHolder.getCurrentUserData()
+                     ?: return@withLockHolderStage DeleteServerDataResult.Error("No user data")
+      withContext(Dispatchers.IO) { removeRemoteData(userData) }
+    }
+    afterDeleting(result)
   }
 
   private suspend fun checkServer() {

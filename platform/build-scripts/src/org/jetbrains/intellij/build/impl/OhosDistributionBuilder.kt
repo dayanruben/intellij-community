@@ -211,11 +211,13 @@ internal class OhosDistributionBuilder(
 
       // there is no splash window on OHOS; overrides -Dsplash=true from product-info.json
       "-Dnosplash=true",
+      // Skiko has no OHOS natives, so the IDE must not preload them
+      "-Dskiko.preload.native.lib=false",
+      // libghostty-vt has no OHOS natives, so the reworked terminal uses the JediTerm emulator
+      "-Dterminal.use.ghostty.emulator=false",
       "-Dsun.awt.disablegrab=true",
       "-Dapple.laf.useScreenMenuBar=true",
       "-DjbScreenMenuBar.enabled=true",
-      // the merged title bar (custom window header), without an IDE-side registry default
-      "-Dide.linux.hide.native.title=true",
       "-Djavax.xml.parsers.SAXParserFactory=com.sun.org.apache.xerces.internal.jaxp.SAXParserFactoryImpl",
       // TODO this is not something the IDE decides, it should likely be reported by JBR (FileSystem.getRootDirectories)
       "-Didea.ohos.sandbox.roots=/storage/Users/currentUser;/data/storage/el2/base;/data/storage/el1/bundle;/data/service/hnp",

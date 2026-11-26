@@ -19,6 +19,8 @@ import org.jetbrains.kotlin.idea.codeinsight.api.applicable.extensions.KotlinEqu
 import org.jetbrains.kotlin.idea.codeinsight.utils.KotlinEqualsHashCodeToStringSymbolUtils.findEqualsMethodForClass
 import org.jetbrains.kotlin.idea.codeinsight.utils.KotlinEqualsHashCodeToStringSymbolUtils.findHashCodeMethodForClass
 import org.jetbrains.kotlin.idea.codeinsight.utils.KotlinEqualsHashCodeToStringSymbolUtils.getPropertiesToUseInGeneratedMember
+import org.jetbrains.kotlin.idea.codeinsight.utils.ValueClassMemberGenerationUtils.isFullValueClass
+import org.jetbrains.kotlin.idea.codeinsight.utils.ValueClassMemberGenerationUtils.isInlineValueClassWithCustomEquals
 import org.jetbrains.kotlin.idea.core.insertMembersAfterAndReformat
 import org.jetbrains.kotlin.idea.k2.codeinsight.generate.GenerateEqualsAndHashCodeUtils.confirmMemberRewrite
 import org.jetbrains.kotlin.idea.k2.codeinsight.generate.GenerateEqualsAndHashCodeUtils.generateEquals
@@ -50,6 +52,7 @@ class KotlinGenerateEqualsAndHashcodeAction : KotlinGenerateMemberActionBase<Inf
                 && !targetClass.isAnnotation()
                 && !targetClass.isInterface()
                 && !targetClass.isInline()
+                && (!targetClass.isValue() || targetClass.isFullValueClass() || targetClass.isInlineValueClassWithCustomEquals())
     }
 
     override fun invoke(project: Project, editor: Editor, file: PsiFile) {
@@ -135,7 +138,7 @@ class KotlinGenerateEqualsAndHashcodeAction : KotlinGenerateMemberActionBase<Inf
         val prototypes = ArrayList<KtDeclaration>(2)
 
         analyzeInModalWindow(targetClass, KotlinBundle.message("fix.change.signature.prepare")) {
-            prototypes.addIfNotNull(generateEquals(info))
+            prototypes.addAll(generateEquals(info))
             prototypes.addIfNotNull(generateHashCode(info))
         }
 

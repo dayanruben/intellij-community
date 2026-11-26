@@ -9,6 +9,8 @@ import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.extensions.ExtensionPointListener
 import com.intellij.openapi.extensions.PluginDescriptor
+import com.intellij.openapi.extensions.TechnologyAwareExtensionPointName
+import com.intellij.openapi.extensions.TechnologyFilter
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.progress.ProgressManager
@@ -39,6 +41,7 @@ import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.concurrency.annotations.RequiresReadLock
 import com.intellij.util.containers.ContainerUtil
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.jetbrains.annotations.ApiStatus
@@ -47,6 +50,17 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
 private val logger = logger<LspClientManagerImpl>()
+
+/** The providers applicable to a project: the ones whose module applies to the project, see [TechnologyFilter]. */
+private val TECH_AWARE_INTEGRATION_PROVIDERS = TechnologyAwareExtensionPointName(LspIntegrationProvider.EP_NAME)
+
+@Suppress("DEPRECATION")
+private val TECH_AWARE_SERVER_SUPPORT_PROVIDERS = TechnologyAwareExtensionPointName(LspServerSupportProvider.EP_NAME)
+
+/** The providers that apply to [project], in the order of [LspIntegrationProvider.getAllExtensions]. */
+internal fun getApplicableProviders(project: Project): Sequence<LspIntegrationProvider> =
+  TECH_AWARE_INTEGRATION_PROVIDERS.lazySequence(project) + TECH_AWARE_SERVER_SUPPORT_PROVIDERS.lazySequence(project)
+
 private const val MAX_LSP_CLIENTS = 10
 
 /**
@@ -82,6 +96,13 @@ class LspClientManagerImpl internal constructor(private val project: Project, in
    * A string key is required: a `Class` key would retain the classloader of an unloaded plugin.
    */
   private val lastStopStamps = ConcurrentHashMap<String, Long>()
+
+  /**
+   * The unfinished [start] of each provider class. A later start of the class cancels the earlier one, and [stopClients] cancels it.
+   * An entry leaves the map when its job completes, so the `Class` key does not retain the classloader of an unloaded plugin.
+   */
+  private val startJobs = ConcurrentHashMap<Class<out LspIntegrationProvider>, Job>()
+
   @TestOnly
   private val lsp4jServerWrappers = ContainerUtil.createLockFreeCopyOnWriteList<Lsp4jServerWrapper>()
 
@@ -137,14 +158,29 @@ class LspClientManagerImpl internal constructor(private val project: Project, in
   private fun startIfNeeded(providerClass: Class<out LspIntegrationProvider>) {
     if (!TrustedProjects.isProjectTrusted(project)) return
 
-    val provider = LspIntegrationProvider.getAllExtensions().firstOrNull { it.javaClass == providerClass }
+    val ep = LspIntegrationProvider.lazyExtensions().firstOrNull { it.implementationClassName == providerClass.name }
+    if (ep == null) {
+      logger.error(providerClass.name + " is not loaded")
+      return
+    }
+
+    if (!TechnologyFilter.getInstance().isApplicable(ep.pluginDescriptor, project)) {
+      return
+    }
+
+    val provider = ep.instance
     if (provider == null) {
       logger.error(providerClass.name + " is not loaded")
       return
     }
 
+    start(provider)
+  }
+
+  private fun start(provider: LspIntegrationProvider) {
+    val providerClass = provider.javaClass
     val requestStamp = startRequestStamp()
-    cs.launch {
+    val job = cs.launch(start = CoroutineStart.LAZY) {
       val descriptorsToStart = readAction {
         val clients = getClients(providerClass)
         val descriptorsToStart = mutableListOf<LspClientDescriptor>()
@@ -178,10 +214,38 @@ class LspClientManagerImpl internal constructor(private val project: Project, in
 
       descriptorsToStart.forEach { ensureStarted(providerClass, it, requestStamp) }
     }
+    // the job is lazy, so the completion handler cannot run before the put and leave the entry
+    startJobs.put(providerClass, job)?.cancel()
+    job.invokeOnCompletion { startJobs.remove(providerClass, job) }
+    job.start()
+  }
+
+  /** `false` when [providerClass] is the class of an extension that does not apply to the project, see [TechnologyFilter]. */
+  private fun isApplicable(providerClass: Class<out LspIntegrationProvider>): Boolean {
+    val filter = TechnologyFilter.getInstance()
+    if (!filter.isRestricted(project)) return true
+    val ep = LspIntegrationProvider.lazyExtensions().firstOrNull { it.implementationClassName == providerClass.name } ?: return true
+    return filter.isApplicable(ep.pluginDescriptor, project)
   }
 
   private fun callFileOpened(provider: LspIntegrationProvider, file: VirtualFile, starter: LspStarterImpl): Unit =
     provider.fileOpened(project, file, starter)
+
+  /**
+   * The clients follow the techs of the project and the loaded plugins alike: a provider that is applicable (its tech got enabled, or its
+   * plugin got loaded) starts its clients for the open files, and the clients of a provider whose tech got disabled are stopped.
+   */
+  private fun onProvidersChanged() {
+    for (ep in LspIntegrationProvider.lazyExtensions()) {
+      if (TechnologyFilter.getInstance().isApplicable(ep.pluginDescriptor, project)) {
+        startIfNeeded(ep.implementationClass ?: continue)
+      }
+      else {
+        // the class of a provider of a disabled tech is not loaded for that: only a provider that started a client has one to stop
+        stopClients(ep.implementationClassName ?: continue)
+      }
+    }
+  }
 
 
   override fun ensureClientStarted(providerClass: Class<out LspIntegrationProvider>, descriptor: LspClientDescriptor) {
@@ -223,6 +287,8 @@ class LspClientManagerImpl internal constructor(private val project: Project, in
         }
 
         writeAction {
+          // the write lock orders the check with a tech change, see onProvidersChanged
+          if (!isApplicable(providerClass)) return@writeAction
           val client = synchronized(startStopLock) {
             if (requestStamp != null && lastStopStamp(providerClass, descriptor) > requestStamp) {
               return@writeAction
@@ -253,10 +319,16 @@ class LspClientManagerImpl internal constructor(private val project: Project, in
     maxOf(lastStopStamps.getOrDefault(providerClass.name, 0L),
           lastStopStamps.getOrDefault(getServerId(providerClass, descriptor), 0L))
 
-  override fun stopClients(providerClass: Class<out LspIntegrationProvider>) {
+  override fun stopClients(providerClass: Class<out LspIntegrationProvider>): Unit = stopClients(providerClass.name)
+
+  /** The same as [stopClients] with a class, by the class name: the clients, if any, know the class, so the caller need not load it. */
+  private fun stopClients(providerClassName: String) {
+    for ((startedClass, job) in startJobs) {
+      if (startedClass.name == providerClassName) job.cancel()
+    }
     val clients = synchronized(startStopLock) {
-      lastStopStamps[providerClass.name] = stopClock.incrementAndGet()
-      getClients(providerClass)
+      lastStopStamps[providerClassName] = stopClock.incrementAndGet()
+      lspClients.filter { it.providerClass.name == providerClassName }
     }
     clients.forEach { stopRunningServer(it) }
   }
@@ -374,13 +446,11 @@ class LspClientManagerImpl internal constructor(private val project: Project, in
   }
 
   private fun addExtensionPointListener() {
+    // a removed provider stops its clients right away, while its plugin is still loaded; the recompute below has no instance for that
     LspIntegrationProvider.EP_NAME.point.addExtensionPointListener(
       cs,
       false,
       object : ExtensionPointListener<LspIntegrationProvider> {
-        override fun extensionAdded(extension: LspIntegrationProvider, pluginDescriptor: PluginDescriptor): Unit =
-          startClientsIfNeeded(extension.javaClass)
-
         override fun extensionRemoved(extension: LspIntegrationProvider, pluginDescriptor: PluginDescriptor): Unit =
           stopClients(extension.javaClass)
       },
@@ -390,13 +460,17 @@ class LspClientManagerImpl internal constructor(private val project: Project, in
       cs,
       false,
       object : ExtensionPointListener<LspServerSupportProvider> {
-        override fun extensionAdded(extension: LspServerSupportProvider, pluginDescriptor: PluginDescriptor): Unit =
-          startIfNeeded(extension.javaClass)
-
         override fun extensionRemoved(extension: LspServerSupportProvider, pluginDescriptor: PluginDescriptor): Unit =
           stopClients(extension.javaClass)
       },
     )
+    // an added provider and a tech change of the project go through one recompute, see onProvidersChanged
+    TECH_AWARE_INTEGRATION_PROVIDERS.addChangeListener(cs) { changedProject ->
+      if (changedProject == null || changedProject === project) onProvidersChanged()
+    }
+    TECH_AWARE_SERVER_SUPPORT_PROVIDERS.addChangeListener(cs) { changedProject ->
+      if (changedProject == null || changedProject === project) onProvidersChanged()
+    }
   }
 
   private fun addWorkspaceModelListener() {

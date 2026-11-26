@@ -1,3 +1,4 @@
+load("@community//build:jps_module.bzl", "jps_module")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//build:compiler-options.bzl", "create_kotlinc_options")
 
@@ -49,6 +50,7 @@ jvm_library(
         "//plugins/kotlin/base/scripting/scripting.scratch.definition",
         "//plugins/kotlin/base/analysis-api/analysis-api-utils:kotlin-base-analysis-utils",
         "//plugins/kotlin/base/facet",
+        "//plugins/kotlin/base/facet-model",
         "//plugins/kotlin/base/code-insight",
         "//plugins/kotlin/base/jps",
         "//plugins/kotlin/base/external-build-system:kotlin-base-externalSystem",
@@ -210,6 +212,7 @@ jvm_library(
         "//plugins/kotlin/base/scripting/scripting.scratch.definition",
         "//plugins/kotlin/base/analysis-api/analysis-api-utils:kotlin-base-analysis-utils",
         "//plugins/kotlin/base/facet",
+        "//plugins/kotlin/base/facet-model",
         "//plugins/kotlin/base/code-insight",
         "//plugins/kotlin/base/jps",
         "//plugins/kotlin/base/external-build-system:kotlin-base-externalSystem",
@@ -365,10 +368,9 @@ jvm_library(
 ### auto-generated section `build intellij.kotlin.plugin.community.main` end
 
 ### auto-generated section `iml intellij.kotlin.plugin.community.main` start
-exports_files(
-    [
-        "intellij.kotlin.plugin.community.main.iml",
-    ],
-    visibility = ["//visibility:public"],
+jps_module(
+    name = "intellij.kotlin.plugin.community.main",
+    resources = False,
+    target = "kotlin-plugin-community-main",
 )
 ### auto-generated section `iml intellij.kotlin.plugin.community.main` end

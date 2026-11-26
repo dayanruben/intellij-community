@@ -59,7 +59,7 @@ private const val NS_APPLICATION_ACTIVATION_POLICY_ACCESSORY = 1L
 internal class MigrationRedirectJobs(val redirect: Deferred<MigrationRedirect?>, val job: Job)
 
 /**
- * After the migration, a start of the old IDE on macOS shows the redirect window, or starts the Unified IDE directly.
+ * After the migration, a start of the old IDE on macOS or Windows shows the redirect window, or starts the Unified IDE directly.
  * Both come before the application exists. A close of the window exits the process with the exit code 0.
  * A successful start of the Unified IDE exits the process. When that start fails, the usual start continues.
  * Until then, a later start of the old IDE goes to the Unified IDE too.
@@ -76,7 +76,7 @@ internal fun scheduleMigrationRedirect(
   appInfoDeferred: Deferred<ApplicationInfoEx>,
 ): MigrationRedirectJobs {
   val redirectDeferred = scope.async(CoroutineName("migration redirect decision")) {
-    if (OS.CURRENT != OS.macOS || isHeadless || AppMode.isRemoteDevHost() || configImportNeededDeferred.await()) {
+    if (!hasMigrationRedirect(OS.CURRENT) || isHeadless || AppMode.isRemoteDevHost() || configImportNeededDeferred.await()) {
       return@async null
     }
     // a second start gives its arguments to the running IDE and exits while the directories are locked
@@ -119,8 +119,10 @@ internal fun scheduleMigrationRedirect(
 
     val sourceProduct = appInfoDeferred.await().build.productCode
     val arguments = migrationRedirectArguments(args)
-    // Finder and the Dock give the files and the URLs of a start with no arguments as Apple events
-    val openRequests = if (arguments.isEmpty()) {
+    // Finder and the Dock give the files and the URLs of a start with no arguments as Apple events.
+    // Another OS gives them only as arguments, and it has no Dock icon.
+    val isMac = OS.CURRENT == OS.macOS
+    val openRequests = if (isMac && arguments.isEmpty()) {
       span("migration redirect events") {
         collectOpenRequests(initAwtToolkitJob)
       }
@@ -129,7 +131,7 @@ internal fun scheduleMigrationRedirect(
     val exitCode = try {
       span("migration redirect launch") {
         launchMigrationRedirect(redirect, sourceProduct, arguments + (openRequests?.toArguments() ?: emptyList()),
-                                onStart = { hideDockIcon(initAwtToolkitJob) })
+                                onStart = { if (isMac) hideDockIcon(initAwtToolkitJob) })
       }
     }
     catch (e: Throwable) {
@@ -145,6 +147,12 @@ internal fun scheduleMigrationRedirect(
     exitProcess(exitCode)
   }
   return MigrationRedirectJobs(redirectDeferred, job)
+}
+
+/** The systems where the migration installs the Unified IDE, so a start of the old IDE can go to it. */
+private fun hasMigrationRedirect(os: OS): Boolean = when (os) {
+  OS.macOS, OS.Windows -> true
+  OS.Linux, OS.FreeBSD, OS.OHOS, OS.Other -> false
 }
 
 /**

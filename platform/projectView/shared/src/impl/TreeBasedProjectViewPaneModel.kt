@@ -175,7 +175,6 @@ abstract class TreeBasedProjectViewPaneModel<T : ProjectViewNodeUserObject>(over
   
   protected open suspend fun describeSelectInTargets(builder: ProjectViewPaneDescriptorBuilder) {
     builder.addSelectInTarget(
-      id = id().idString,
       presentableName = presentableName(),
       weight = order().toFloat(),
     )
@@ -398,6 +397,13 @@ abstract class TreeBasedProjectViewPaneModel<T : ProjectViewNodeUserObject>(over
       isHideEmptyMiddlePackages = ProjectViewPaneSettingsService.getInstance(project)
         .isOptionSelected(ProjectViewPaneOption.HideEmptyMiddlePackages),
     )
+  }
+
+  /** The same check as the default [computeSelectTarget] does first. It does not use the tree. */
+  @RequiresReadLock
+  override fun canSelect(request: SelectInRequest): Boolean = when (request) {
+    is SelectByContext -> canSelectContext(request.context)
+    is SelectByEditor -> true
   }
 
   override suspend fun findNodeForSelectIn(selectInRequest: SelectInRequest): ProjectViewNodePath? {

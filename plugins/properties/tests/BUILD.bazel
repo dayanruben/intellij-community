@@ -1,6 +1,7 @@
+load("@community//build:jps_module.bzl", "jps_module")
 load("@community//build:tests-options.bzl", "jps_test")
-load("@jps_dynamic_deps_community//:targets.bzl", "BAZEL_TARGETS_JSON_COMMUNITY")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//build:bazel_targets_json.bzl", "BAZEL_TARGETS_JSON_COMMUNITY")
 
 jps_test(
     name = "tests_test",
@@ -98,15 +99,15 @@ jvm_library(
         "//platform/testFramework/junit5",
         "//platform/testFramework/junit5/codeInsight",
         "//libraries/junit6",
+        "//libraries/junit6-params",
     ],
 )
 ### auto-generated section `build intellij.properties.tests` end
 
 ### auto-generated section `iml intellij.properties.tests` start
-exports_files(
-    [
-        "intellij.properties.tests.iml",
-    ],
-    visibility = ["//visibility:public"],
+jps_module(
+    name = "intellij.properties.tests",
+    resources = False,
+    target = "tests_test_lib",
 )
 ### auto-generated section `iml intellij.properties.tests` end

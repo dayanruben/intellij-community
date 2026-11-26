@@ -29,6 +29,8 @@ import com.intellij.util.io.HttpRequests
 import com.intellij.util.io.write
 import com.intellij.util.lang.JavaVersion
 import com.intellij.util.system.CpuArch
+import com.intellij.util.system.LowLevelLocalMachineAccess
+import com.intellij.util.system.OS
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -90,6 +92,7 @@ data class JdkItem(
   /** there are some JdkList items that are not shown in the downloader but suggested for JdkAuto **/
   val isVisibleOnUI: Boolean,
   val isPreview: Boolean,
+  val isEol: Boolean = false,
 
   val jdkMajorVersion: Int,
   @NlsSafe
@@ -310,10 +313,12 @@ data class JdkPredicate(
       return JdkPredicate(buildNumber, platform)
     }
 
-    val currentOS: String = when {
-      SystemInfo.isWindows -> "windows"
-      SystemInfo.isMac -> "macOS"
-      SystemInfo.isLinux -> "linux"
+    @OptIn(LowLevelLocalMachineAccess::class)
+    val currentOS: String = when (OS.CURRENT) {
+      OS.Windows -> "windows"
+      OS.macOS -> "macOS"
+      OS.Linux -> "linux"
+      OS.OHOS -> "harmonyos"
       else -> error("Unsupported OS")
     }
 
@@ -482,6 +487,7 @@ object JdkListParser {
         isDefaultItem = item["default"]?.let { filters.testPredicate(it) == true } ?: false,
         isVisibleOnUI = item["listed"]?.let { filters.testPredicate(it) == true } ?: true,
         isPreview = item["preview"]?.let { filters.testPredicate(it) == true } ?: false,
+        isEol = item["eol"]?.let { filters.testPredicate(it) == true } ?: false,
 
         jdkMajorVersion = (item["jdk_version_major"] as? JsonPrimitive)?.intOrNull ?: return emptyList(),
         jdkVersion = (pkg["version"] as? JsonPrimitive)?.contentOrNull ?: (item["jdk_version"] as? JsonPrimitive)?.contentOrNull

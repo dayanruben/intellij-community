@@ -102,7 +102,6 @@ import com.intellij.openapi.roots.ModuleRootEvent
 import com.intellij.openapi.roots.ModuleRootListener
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.EmptyRunnable
-import com.intellij.openapi.util.Iconable
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.ModificationTracker
 import com.intellij.openapi.util.Pair
@@ -139,7 +138,6 @@ import com.intellij.ui.docking.DockManager
 import com.intellij.ui.docking.impl.DockManagerImpl
 import com.intellij.ui.tabs.TabInfo
 import com.intellij.util.ExceptionUtil
-import com.intellij.util.IconUtil
 import com.intellij.util.ObjectUtils
 import com.intellij.util.StartupUiGate
 import com.intellij.util.application
@@ -205,6 +203,7 @@ import java.beans.PropertyChangeListener
 import java.util.EventListener
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.atomic.LongAdder
@@ -846,22 +845,9 @@ open class FileEditorManagerImpl(
     }
   }
 
-  /**
-   * Updates tab icon for the specified `file`. The `file`
-   * should be opened in the myEditor, otherwise the method throws an assertion.
-   */
-  /**
-   * Updates tab icon for the specified `file`. The `file`
-   * should be opened in the myEditor, otherwise the method throws an assertion.
-   */
-  protected fun updateFileIcon(file: VirtualFile, immediately: Boolean = false) {
+  private fun updateFileIcon(file: VirtualFile) {
     for (splitters in getAllSplitters()) {
-      if (immediately) {
-        splitters.updateFileIconImmediately(file = file, icon = IconUtil.computeFileIcon(file, Iconable.ICON_FLAG_READ_STATUS, project))
-      }
-      else {
-        splitters.scheduleUpdateFileIcon(file)
-      }
+      splitters.scheduleUpdateFileIcon(file)
     }
   }
 
@@ -2441,8 +2427,19 @@ open class FileEditorManagerImpl(
    * Gets events from FileTypeManager and updates icons on tabs
    */
   private inner class MyFileTypeListener : FileTypeListener {
-    @RequiresEdt
+    private val updateIconsScheduled: AtomicBoolean = AtomicBoolean()
+
     override fun fileTypesChanged(event: FileTypeEvent) {
+      if (updateIconsScheduled.compareAndSet(false, true)) {
+        coroutineScope.launch(Dispatchers.EDT + ModalityState.defaultModalityState().asContextElement()) {
+          updateIconsScheduled.set(false)
+          updateIcons()
+        }
+      }
+    }
+
+    @RequiresEdt
+    private fun updateIcons() {
       for (file in openedFiles.asReversed()) {
         updateFileIcon(file)
       }

@@ -304,9 +304,11 @@ fn failures_are_collected_and_the_log_path_is_relativized() {
     );
     assert_eq!((result.status, result.exit_code), (RunStatus::Fail, exit::TEST_FAILED));
     assert_eq!(
-        result.failures.iter().map(|failure| failure.name.as_str()).collect::<Vec<_>>(),
+        result.failures.iter().map(|failure| failure.case.name.as_str()).collect::<Vec<_>>(),
         ["b"]
     );
+    // The rerun hint names the target that ran the case.
+    assert_eq!(result.failures[0].label, "//p:t");
     assert_eq!(
         result.targets[0].log_path.as_deref(),
         Some("out/bazel-testlogs/plugins/air/x/t/test.log")
@@ -800,6 +802,7 @@ fn a_shard_that_timed_out_is_a_shard_timeout_and_not_a_failure_of_its_last_test(
             }),
             test_result_event(&AttemptSpec {
                 shard: 2,
+                duration_ms: 2_500,
                 ..at("//p:t", "/exec/testlogs/p/t/s2/test.xml")
             }),
         ],
@@ -818,7 +821,7 @@ fn a_shard_that_timed_out_is_a_shard_timeout_and_not_a_failure_of_its_last_test(
         }]
     );
     assert_eq!(
-        result.failures.iter().map(|failure| failure.name.as_str()).collect::<Vec<_>>(),
+        result.failures.iter().map(|failure| failure.case.name.as_str()).collect::<Vec<_>>(),
         ["b"]
     );
     assert_eq!((result.targets[0].tests, result.targets[0].failed), (4, 1));
@@ -828,6 +831,8 @@ fn a_shard_that_timed_out_is_a_shard_timeout_and_not_a_failure_of_its_last_test(
         [TargetTiming {
             label: "//p:t".to_owned(),
             class_seconds: [("com.a.BarTest".to_owned(), 250.0), ("com.a.FooTest".to_owned(), 0.5)].into(),
+            // the shard that passed gives the fixed seconds, and the shard that timed out gives none
+            fixed_seconds: Some(2.0),
         }]
     );
 }
@@ -839,7 +844,7 @@ fn an_interrupted_test_of_a_shard_that_did_not_time_out_is_a_failure() {
     assert_eq!((result.status, result.exit_code), (RunStatus::Fail, exit::TEST_FAILED));
     assert_eq!(result.timeouts, []);
     assert_eq!(
-        result.failures.iter().map(|failure| failure.name.as_str()).collect::<Vec<_>>(),
+        result.failures.iter().map(|failure| failure.case.name.as_str()).collect::<Vec<_>>(),
         ["a close stops the row"]
     );
 }
@@ -858,4 +863,106 @@ fn a_shard_timeout_without_an_interrupted_test_still_fails_the_run() {
     assert_eq!(result.timeouts.len(), 1);
     assert_eq!(result.timeouts[0].interrupted, Vec::<String>::new());
     assert_eq!(result.failures, []);
+}
+
+fn timed_report(suites: &[(&str, f64)]) -> String {
+    let body: String = suites
+        .iter()
+        .map(|(name, seconds)| format!(r#"<testsuite name="{name}" tests="1" time="{seconds}"/>"#))
+        .collect();
+    format!("<testsuites>{body}</testsuites>")
+}
+
+/// The fixed seconds of a shard are its wall time less its class seconds, and the target takes the median of its shards.
+#[test]
+fn the_fixed_seconds_of_a_target_are_the_median_of_its_shards() {
+    let fake = FakeRuntime::new([]);
+    fake.put_absolute("/exec/t/shard_1/test.xml", &timed_report(&[("com.A", 30.0)]));
+    fake.put_absolute("/exec/t/shard_2/test.xml", &timed_report(&[("com.B", 50.0)]));
+    let shard = |shard: i64, duration_ms: u64, xml: &'static str| {
+        test_result_event(&AttemptSpec {
+            shard,
+            duration_ms,
+            ..at("//p:t", xml)
+        })
+    };
+    let bep = bep_of(
+        &fake,
+        &[
+            shard(1, 38_000, "/exec/t/shard_1/test.xml"),
+            shard(2, 62_000, "/exec/t/shard_2/test.xml"),
+        ],
+    );
+    let result = collect_results(&fake, &bep, 70_000, 0, "");
+
+    assert_eq!(
+        (result.targets[0].fixed_ms, result.targets[0].test_ms),
+        (Some(10_000), Some(80_000))
+    );
+    assert_eq!(result.timings[0].fixed_seconds, Some(10.0));
+}
+
+/// A cached shard ran in another run, and a failed shard can have stopped early: neither gives a fixed cost.
+#[test]
+fn a_cached_or_failed_shard_gives_no_fixed_seconds() {
+    let fake = FakeRuntime::new([]);
+    fake.put_absolute("/exec/t/test.xml", &timed_report(&[("com.A", 30.0)]));
+    for spec in [
+        AttemptSpec {
+            cached: true,
+            duration_ms: 40_000,
+            ..at("//p:t", "/exec/t/test.xml")
+        },
+        AttemptSpec {
+            status: "FAILED",
+            duration_ms: 40_000,
+            ..at("//p:t", "/exec/t/test.xml")
+        },
+    ] {
+        let bep = bep_of(&fake, &[test_result_event(&spec)]);
+        let result = collect_results(&fake, &bep, 40_000, 0, "");
+        assert_eq!((result.targets[0].fixed_ms, result.targets[0].test_ms), (None, None), "{spec:?}");
+        assert!(result.timings.iter().all(|timing| timing.fixed_seconds.is_none()));
+    }
+}
+
+/// The class seconds can exceed the wall time of the shard by rounding, and a cost is never below zero.
+#[test]
+fn class_seconds_above_the_wall_time_give_a_fixed_cost_of_zero() {
+    let fake = FakeRuntime::new([]);
+    fake.put_absolute("/exec/t/test.xml", &timed_report(&[("com.A", 30.5)]));
+    let bep = bep_of(
+        &fake,
+        &[test_result_event(&AttemptSpec {
+            duration_ms: 30_000,
+            ..at("//p:t", "/exec/t/test.xml")
+        })],
+    );
+    let result = collect_results(&fake, &bep, 30_000, 0, "");
+    assert_eq!(result.targets[0].fixed_ms, Some(0));
+    assert_eq!(result.timings[0].fixed_seconds, Some(0.0));
+}
+
+/// The suite of a class lasts until its nested classes end, so a nested class with a recorded outer class counts once.
+#[test]
+fn a_nested_class_counts_once_in_the_class_seconds_of_a_shard() {
+    let fake = FakeRuntime::new([]);
+    fake.put_absolute(
+        "/exec/t/test.xml",
+        &timed_report(&[
+            ("com.A", 20.0),
+            ("com.A$Inner", 15.0),
+            ("com.A$Inner$Deep", 5.0),
+            ("com.B$Only", 4.0),
+        ]),
+    );
+    let bep = bep_of(
+        &fake,
+        &[test_result_event(&AttemptSpec {
+            duration_ms: 30_000,
+            ..at("//p:t", "/exec/t/test.xml")
+        })],
+    );
+    let result = collect_results(&fake, &bep, 30_000, 0, "");
+    assert_eq!((result.targets[0].fixed_ms, result.targets[0].test_ms), (Some(6_000), Some(24_000)));
 }

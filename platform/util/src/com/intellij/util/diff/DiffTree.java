@@ -38,6 +38,20 @@ public final class DiffTree<OldNode, NewNode> {
   private int myMatchedOldEnd;
   private int myMatchedShift;
 
+  /**
+   * The first {@code myEqualPrefix} chars of the old root text and of the new root text are equal.
+   * The diff extends this prefix only when a node asks for it, and then by at least one chunk.
+   * So it reads each char at most once, and at most one chunk more than the nodes ask for.
+   * {@code myPrefixEnded} is true when the compare found a mismatch or the end of a text.
+   */
+  private int myEqualPrefix;
+  private boolean myPrefixEnded;
+
+  /** The last {@code myEqualSuffix} chars of the old root text and of the new root text are equal. */
+  private int myEqualSuffix;
+  private boolean mySuffixEnded;
+  private final int myOldRootLength;
+
   private DiffTree(@NotNull FlyweightCapableTreeStructure<OldNode> oldTree,
                    @NotNull FlyweightCapableTreeStructure<NewNode> newTree,
                    @NotNull ShallowNodeComparator<? super OldNode, ? super NewNode> comparator,
@@ -49,6 +63,8 @@ public final class DiffTree<OldNode, NewNode> {
     myOldTreeStart = oldTree.getStartOffset(oldTree.getRoot());
     myNewText = newTree.toString(newTree.getRoot());
     myNewTreeStart = newTree.getStartOffset(newTree.getRoot());
+    myOldRootLength = oldTree.getEndOffset(oldTree.getRoot()) - myOldTreeStart;
+    assert oldText.length() == myOldRootLength : "old text length " + oldText.length() + " != old root length " + myOldRootLength;
   }
 
   /**
@@ -58,7 +74,7 @@ public final class DiffTree<OldNode, NewNode> {
    * @param newTree the tree representing the new state
    * @param comparator the comparator used to determine equality between nodes
    * @param consumer the consumer to report changes detected during the diff operation
-   * @param oldText the textual content of the old tree state, used for comparison purposes
+   * @param oldText the text of the old root, from its start offset to its end offset
    */
   public static <OldNode, NewNode> void diff(@NotNull FlyweightCapableTreeStructure<OldNode> oldTree,
                                              @NotNull FlyweightCapableTreeStructure<NewNode> newTree,
@@ -66,7 +82,7 @@ public final class DiffTree<OldNode, NewNode> {
                                              @NotNull DiffTreeChangeBuilder<? super OldNode, ? super NewNode> consumer,
                                              @NotNull CharSequence oldText) {
     DiffTree<OldNode, NewNode> tree = new DiffTree<>(oldTree, newTree, comparator, oldText);
-    tree.build(oldTree.getRoot(), newTree.getRoot(), 0, consumer);
+    tree.build(oldTree.getRoot(), newTree.getRoot(), 0, consumer, 0, 0);
   }
 
   private enum CompareResult {
@@ -80,7 +96,12 @@ public final class DiffTree<OldNode, NewNode> {
     TYPE_ONLY,
 
     /** 100% different */
-    NOT_EQUAL,
+    NOT_EQUAL;
+
+    /** The constants go from the best match to the worst. */
+    boolean isBetterThan(@NotNull CompareResult other) {
+      return ordinal() < other.ordinal();
+    }
   }
 
   private static @NotNull <OldNode, NewNode> DiffTreeChangeBuilder<OldNode, NewNode> emptyConsumer() {
@@ -99,10 +120,16 @@ public final class DiffTree<OldNode, NewNode> {
     public void nodeInserted(@NotNull Object oldParent, @NotNull Object newNode, int pos) { }
   };
 
+  /**
+   * @param oldStart the start of {@code oldNode} from the old root start, or -1 if it is not known
+   * @param newStart the start of {@code newNode} from the new root start, or -1 if it is not known
+   */
   private @NotNull CompareResult build(@NotNull OldNode oldNode,
                                        @NotNull NewNode newNode,
                                        int level,
-                                       @NotNull DiffTreeChangeBuilder<? super OldNode, ? super NewNode> consumer) {
+                                       @NotNull DiffTreeChangeBuilder<? super OldNode, ? super NewNode> consumer,
+                                       int oldStart,
+                                       int newStart) {
     if (level == myNewChildrenLists.size()) {
       myNewChildrenLists.add(new Ref<>());
       myOldChildrenLists.add(new Ref<>());
@@ -132,10 +159,11 @@ public final class DiffTree<OldNode, NewNode> {
     }
     else {
       int minSize = Math.min(oldChildrenSize, newChildrenSize);
-      int suffixLength = match(oldChildren, oldChildrenSize - 1, newChildren, newChildrenSize - 1, level, -1, minSize);
+      int suffixLength = match(oldNode, oldChildren, oldChildrenSize - 1, oldStart, newNode, newChildren, newChildrenSize - 1, newStart,
+                               level, -1, minSize);
       // for equal size old and new children we have to compare one element less because it was already checked in (unsuccessful) suffix match
       int maxPrefixLength = minSize - suffixLength - (oldChildrenSize == newChildrenSize && suffixLength < minSize ? 1 : 0);
-      int prefixLength = match(oldChildren, 0, newChildren, 0, level, 1, maxPrefixLength);
+      int prefixLength = match(oldNode, oldChildren, 0, oldStart, newNode, newChildren, 0, newStart, level, 1, maxPrefixLength);
 
       if (oldChildrenSize == newChildrenSize && suffixLength + prefixLength == oldChildrenSize) {
         result = CompareResult.EQUAL;
@@ -152,7 +180,7 @@ public final class DiffTree<OldNode, NewNode> {
                                                                      newChildrenSize - suffixLength);
           if (vicinityMatch.hasStartMatch()) {
             if (vicinityMatch == ThreeElementMatchResult.DRILL_DOWN_START_MATCH) {
-              build(oldChildren[oldIndex], newChildren[newIndex], level + 1, consumer);
+              build(oldChildren[oldIndex], newChildren[newIndex], level + 1, consumer, -1, -1);
             }
             else if (vicinityMatch == ThreeElementMatchResult.REPLACE_START) {
               consumer.nodeReplaced(oldChildren[oldIndex], newChildren[newIndex]);
@@ -228,8 +256,11 @@ public final class DiffTree<OldNode, NewNode> {
     OldNode oldChild3 = oldIndex < oldLimit - 2 ? oldChildren[oldIndex + 2] : null;
     NewNode newChild3 = newIndex < newLimit - 2 ? newChildren[newIndex + 2] : null;
 
-    if (looksEqual(oldChild1, newChild3) != CompareResult.NOT_EQUAL) return ThreeElementMatchResult.SKIP_NEW_2;
-    if (looksEqual(oldChild3, newChild1) != CompareResult.NOT_EQUAL) return ThreeElementMatchResult.SKIP_OLD_2;
+    // a skip of two children needs a better match than the match of the third children
+    CompareResult c13 = looksEqual(oldChild1, newChild3);
+    if (c13 != CompareResult.NOT_EQUAL && c13.isBetterThan(looksEqual(oldChild3, newChild3))) return ThreeElementMatchResult.SKIP_NEW_2;
+    CompareResult c31 = looksEqual(oldChild3, newChild1);
+    if (c31 != CompareResult.NOT_EQUAL && c31.isBetterThan(looksEqual(oldChild3, newChild3))) return ThreeElementMatchResult.SKIP_OLD_2;
 
     return ThreeElementMatchResult.NO_MATCH;
   }
@@ -277,7 +308,7 @@ public final class DiffTree<OldNode, NewNode> {
       if (c == CompareResult.NOT_EQUAL) break;
 
       if (c == CompareResult.DRILL_DOWN_NEEDED) {
-        build(oldLastChild, newLastChild, level + 1, consumer);
+        build(oldLastChild, newLastChild, level + 1, consumer, -1, -1);
       }
       else if (c == CompareResult.TYPE_ONLY) {
         consumer.nodeReplaced(oldLastChild, newLastChild);
@@ -290,24 +321,67 @@ public final class DiffTree<OldNode, NewNode> {
   /**
    * tries to match as many nodes as possible from the beginning (if step=1) of from the end (if step =-1)
    * returns number of nodes matched
+   * <p>
+   * The offsets of a child come from the offsets of the parent or of an earlier child and the lengths of the children between them.
+   * The structure computes an offset with a walk up to the root, so a match reads it only when it knows no offset yet.
+   * When the offsets of a child are known and its range is equal in both texts, the comparator does not compare the texts again.
    */
-  private int match(OldNode[] oldChildren,
+  private int match(@NotNull OldNode oldParent,
+                    OldNode[] oldChildren,
                     int oldIndex,
+                    int oldParentStart,
+                    @NotNull NewNode newParent,
                     NewNode[] newChildren,
                     int newIndex,
+                    int newParentStart,
                     int level,
                     int step, // 1 if we go from the start to the end; -1 if we go from the end to the start
                     int maxLength) {
+    // the child at cursorDelta starts (if step=1) or ends (if step=-1) at oldCursor and newCursor
+    int cursorDelta = Integer.MIN_VALUE;
+    int oldCursor = 0;
+    int newCursor = 0;
+    if (oldParentStart >= 0 && newParentStart >= 0) {
+      cursorDelta = 0;
+      oldCursor = step > 0 ? oldParentStart : oldParentStart + myOldTree.getTextLength(oldParent);
+      newCursor = step > 0 ? newParentStart : newParentStart + myNewTree.getTextLength(newParent);
+    }
     int delta = 0;
     while (delta != maxLength * step) {
       OldNode oldChild = oldChildren[oldIndex + delta];
       NewNode newChild = newChildren[newIndex + delta];
 
-      CompareResult c11 = looksEqual(oldChild, newChild);
-
-      if (c11 == CompareResult.DRILL_DOWN_NEEDED) {
-        c11 = drillDownIfTextMatches(oldChild, newChild, level);
-        assert c11 != CompareResult.DRILL_DOWN_NEEDED;
+      CompareResult c11 = null;
+      if (cursorDelta == Integer.MIN_VALUE) {
+        c11 = looksEqual(oldChild, newChild);
+        if (c11 == CompareResult.DRILL_DOWN_NEEDED) {
+          cursorDelta = delta;
+          oldCursor = (step > 0 ? myOldTree.getStartOffset(oldChild) : myOldTree.getEndOffset(oldChild)) - myOldTreeStart;
+          newCursor = (step > 0 ? myNewTree.getStartOffset(newChild) : myNewTree.getEndOffset(newChild)) - myNewTreeStart;
+        }
+      }
+      if (cursorDelta != Integer.MIN_VALUE) {
+        while (cursorDelta != delta) {
+          oldCursor += step * myOldTree.getTextLength(oldChildren[oldIndex + cursorDelta]);
+          newCursor += step * myNewTree.getTextLength(newChildren[newIndex + cursorDelta]);
+          cursorDelta += step;
+        }
+        int oldLength = myOldTree.getTextLength(oldChild);
+        int newLength = myNewTree.getTextLength(newChild);
+        int oldStart = step > 0 ? oldCursor : oldCursor - oldLength;
+        int newStart = step > 0 ? newCursor : newCursor - newLength;
+        if (c11 == null) {
+          c11 = looksEqual(oldChild, newChild, oldLength == newLength && isTextEqual(oldStart, oldStart + oldLength, newStart));
+        }
+        if (c11 == CompareResult.DRILL_DOWN_NEEDED) {
+          if (step < 0 && newStart != oldStart && haveSameStart(oldParent, oldParentStart, newParent, newParentStart) &&
+              isInEqualPrefix(Math.min(oldStart + oldLength, newStart + newLength))) {
+            // the prefix match keeps the child at the same offset
+            break;
+          }
+          c11 = drillDownIfTextMatches(oldChild, oldStart, oldLength, newChild, newStart, newLength, level);
+          assert c11 != CompareResult.DRILL_DOWN_NEEDED;
+        }
       }
       if (c11 != CompareResult.EQUAL) {
         break;
@@ -321,14 +395,17 @@ public final class DiffTree<OldNode, NewNode> {
    * Compares the children of two nodes only if the nodes have the same text.
    * When the texts match, the comparison goes all the way down.
    */
-  private @NotNull CompareResult drillDownIfTextMatches(@NotNull OldNode oldChild, @NotNull NewNode newChild, int level) {
-    int oldStart = myOldTree.getStartOffset(oldChild) - myOldTreeStart;
-    int oldEnd = myOldTree.getEndOffset(oldChild) - myOldTreeStart;
-    int newStart = myNewTree.getStartOffset(newChild) - myNewTreeStart;
-    int newEnd = myNewTree.getEndOffset(newChild) - myNewTreeStart;
-    if (oldEnd - oldStart != newEnd - newStart) return CompareResult.NOT_EQUAL;
-    if (oldStart >= myMatchedOldStart && oldEnd <= myMatchedOldEnd && newStart - oldStart == myMatchedShift) {
-      return build(oldChild, newChild, level + 1, emptyConsumer());
+  private @NotNull CompareResult drillDownIfTextMatches(@NotNull OldNode oldChild,
+                                                       int oldStart,
+                                                       int oldLength,
+                                                       @NotNull NewNode newChild,
+                                                       int newStart,
+                                                       int newLength,
+                                                       int level) {
+    if (oldLength != newLength) return CompareResult.NOT_EQUAL;
+    int oldEnd = oldStart + oldLength;
+    if (isTextEqual(oldStart, oldEnd, newStart)) {
+      return build(oldChild, newChild, level + 1, emptyConsumer(), oldStart, newStart);
     }
     if (!regionMatches(oldStart, newStart, oldEnd - oldStart)) return CompareResult.NOT_EQUAL;
 
@@ -339,12 +416,101 @@ public final class DiffTree<OldNode, NewNode> {
     myMatchedOldEnd = oldEnd;
     myMatchedShift = newStart - oldStart;
     try {
-      return build(oldChild, newChild, level + 1, emptyConsumer());
+      return build(oldChild, newChild, level + 1, emptyConsumer(), oldStart, newStart);
     }
     finally {
       myMatchedOldStart = outerStart;
       myMatchedOldEnd = outerEnd;
       myMatchedShift = outerShift;
+    }
+  }
+
+  /**
+   * Returns true if the old text from {@code oldStart} to {@code oldEnd} is known to be equal to the new text at {@code newStart},
+   * without a compare of the texts of this range.
+   */
+  private boolean isTextEqual(int oldStart, int oldEnd, int newStart) {
+    return oldStart >= myMatchedOldStart && oldEnd <= myMatchedOldEnd && newStart - oldStart == myMatchedShift ||
+           isInEqualPrefix(oldStart, oldEnd, newStart) ||
+           isInEqualSuffix(oldStart, oldEnd, newStart);
+  }
+
+  /**
+   * Returns true if the old and the new parent start at the same offset.
+   * Only then can the prefix match keep a child at its offset. A negative start is not known yet.
+   */
+  private boolean haveSameStart(@NotNull OldNode oldParent, int oldParentStart, @NotNull NewNode newParent, int newParentStart) {
+    int oldStart = oldParentStart >= 0 ? oldParentStart : myOldTree.getStartOffset(oldParent) - myOldTreeStart;
+    int newStart = newParentStart >= 0 ? newParentStart : myNewTree.getStartOffset(newParent) - myNewTreeStart;
+    return oldStart == newStart;
+  }
+
+  /**
+   * Returns true if the node from {@code oldStart} to {@code oldEnd} has no shift and is in the equal prefix of the root texts.
+   * Extends the equal prefix past {@code oldEnd} if necessary.
+   */
+  private boolean isInEqualPrefix(int oldStart, int oldEnd, int newStart) {
+    return newStart == oldStart && isInEqualPrefix(oldEnd);
+  }
+
+  /**
+   * Returns true if the text up to {@code end} is in the equal prefix of the root texts.
+   * Extends the equal prefix past {@code end} if necessary.
+   */
+  private boolean isInEqualPrefix(int end) {
+    if (end > myEqualPrefix && !myPrefixEnded) {
+      int textEnd = Math.min(myOldRootLength, myNewText.length());
+      int limit = Math.min(Math.max(end, myEqualPrefix + CHUNK_LENGTH), textEnd);
+      myEqualPrefix += matchingLength(myEqualPrefix, myEqualPrefix, limit - myEqualPrefix, 1);
+      if (myEqualPrefix < limit || limit == textEnd) myPrefixEnded = true;
+    }
+    return end <= myEqualPrefix;
+  }
+
+  /**
+   * Returns true if the node from {@code oldStart} to {@code oldEnd} has the shift of the root end and is in the equal suffix of the root texts.
+   * Extends the equal suffix past {@code oldStart} if necessary.
+   */
+  private boolean isInEqualSuffix(int oldStart, int oldEnd, int newStart) {
+    int shift = myNewText.length() - myOldRootLength;
+    if (newStart - oldStart != shift) return false;
+    int needed = myOldRootLength - oldStart;
+    if (needed > myEqualSuffix && !mySuffixEnded) {
+      int textEnd = Math.min(myOldRootLength, myNewText.length());
+      int limit = Math.min(Math.max(needed, myEqualSuffix + CHUNK_LENGTH), textEnd);
+      myEqualSuffix += matchingLength(myOldRootLength - myEqualSuffix, myNewText.length() - myEqualSuffix, limit - myEqualSuffix, -1);
+      if (myEqualSuffix < limit || limit == textEnd) mySuffixEnded = true;
+    }
+    return needed <= myEqualSuffix;
+  }
+
+  /**
+   * Returns how many chars are equal, from {@code oldOffset} and {@code newOffset} forward if {@code step} is 1,
+   * or from the chars before {@code oldOffset} and {@code newOffset} backward if {@code step} is -1.
+   * Compares at most {@code length} chars, in chunks.
+   */
+  private int matchingLength(int oldOffset, int newOffset, int length, int step) {
+    ensureChunks();
+    int matched = 0;
+    while (matched < length) {
+      int chunkLength = Math.min(CHUNK_LENGTH, length - matched);
+      int oldChunkStart = step > 0 ? oldOffset + matched : oldOffset - matched - chunkLength;
+      int newChunkStart = step > 0 ? newOffset + matched : newOffset - matched - chunkLength;
+      CharArrayUtil.getChars(myOldText, myOldChunk, oldChunkStart, 0, chunkLength);
+      CharArrayUtil.getChars(myNewText, myNewChunk, newChunkStart, 0, chunkLength);
+      for (int i = 0; i < chunkLength; i++) {
+        int index = step > 0 ? i : chunkLength - 1 - i;
+        if (myOldChunk[index] != myNewChunk[index]) return matched + i;
+      }
+      matched += chunkLength;
+    }
+    return matched;
+  }
+
+  private void ensureChunks() {
+    if (myOldChunk == null) {
+      myOldChunk = new char[CHUNK_LENGTH];
+      myNewChunk = new char[CHUNK_LENGTH];
     }
   }
 
@@ -356,10 +522,7 @@ public final class DiffTree<OldNode, NewNode> {
     if (length < MIN_CHUNKED_LENGTH) {
       return CharArrayUtil.regionMatches(myOldText, oldStart, oldStart + length, myNewText, newStart, newStart + length);
     }
-    if (myOldChunk == null) {
-      myOldChunk = new char[CHUNK_LENGTH];
-      myNewChunk = new char[CHUNK_LENGTH];
-    }
+    ensureChunks();
     for (int offset = 0; offset < length; offset += CHUNK_LENGTH) {
       int chunkLength = Math.min(CHUNK_LENGTH, length - offset);
       CharArrayUtil.getChars(myOldText, myOldChunk, oldStart + offset, 0, chunkLength);
@@ -373,8 +536,17 @@ public final class DiffTree<OldNode, NewNode> {
 
   private @NotNull CompareResult looksEqual(@Nullable OldNode oldChild1,
                                             @Nullable NewNode newChild1) {
+    return looksEqual(oldChild1, newChild1, false);
+  }
+
+  /**
+   * @param textEqual true if the old child and the new child are known to have the same text
+   */
+  private @NotNull CompareResult looksEqual(@Nullable OldNode oldChild1,
+                                            @Nullable NewNode newChild1,
+                                            boolean textEqual) {
     if (oldChild1 == null || newChild1 == null || !myComparator.typesEqual(oldChild1, newChild1)) return CompareResult.NOT_EQUAL;
-    ThreeState ret = myComparator.deepEqual(oldChild1, newChild1);
+    ThreeState ret = textEqual ? myComparator.deepEqualWithEqualText(oldChild1, newChild1) : myComparator.deepEqual(oldChild1, newChild1);
     if (ret == ThreeState.YES) return CompareResult.EQUAL;
     if (ret == ThreeState.UNSURE) return CompareResult.DRILL_DOWN_NEEDED;
     return CompareResult.TYPE_ONLY;

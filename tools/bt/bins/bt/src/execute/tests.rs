@@ -3,8 +3,8 @@ use serde_json::json;
 
 use super::*;
 use bt_core::fake::{
-    AttemptSpec, FakeRuntime, LANES_FILE, REPO_ROOT, area_files, attempt, bep_lines, build_bazel_text, case, failing, flow_catalog_tree,
-    lanes, loading_failure_events, refusal, suite, suite_xml, test_result_event,
+    AttemptSpec, CaseSpec, FakeRuntime, LANES_FILE, REPO_ROOT, area_files, attempt, bep_lines, build_bazel_text, case, failing,
+    flow_catalog_tree, lanes, loading_failure_events, refusal, suite, suite_xml, test_result_event,
 };
 use bt_core::runtime::SpawnResult;
 
@@ -16,8 +16,11 @@ fn with_areas(fake: FakeRuntime) -> FakeRuntime {
     fake
 }
 
+/// The Air tree, where `bazel query` finds no test target until a test names some with [`tree_has`].
 fn fake_air_tree() -> FakeRuntime {
-    with_areas(bt_core::fake::fake_air_tree())
+    let fake = with_areas(bt_core::fake::fake_air_tree());
+    tree_has(&fake, &[]);
+    fake
 }
 
 const CLASS_TIME_BUDGET_FILE: &str = "plugins/air/tests/integration/class-time-budget.tsv";
@@ -123,21 +126,22 @@ fn dry_run_on_a_lane_prints_the_lane_flags() {
     );
 }
 
-/// The excluded targets are compiled first, in their own spawn, so `--lane fast` still answers whether they build.
-/// Order matters: a compile break must not cost a whole lane run first.
+/// The excluded targets are compiled after the query of the groups and before the first test, in their own spawn, so
+/// `--lane fast` still answers whether they build. Order matters: a compile break must not cost a whole lane run first.
 #[test]
 fn the_fast_lane_builds_the_excluded_targets_before_it_runs_anything() {
     let fake = fake_air_tree();
     run(&["--lane", "fast"], &fake);
     let spawned = fake.spawned();
-    assert_eq!(spawned.len(), 2, "{spawned:?}");
-    let first = spawned[0].join(" ");
-    assert!(first.contains(" build "), "{first}");
+    assert_eq!(spawned.len(), 3, "{spawned:?}");
+    assert!(spawned[0].join(" ").contains(" query "), "{:?}", spawned[0]);
+    let build = spawned[1].join(" ");
+    assert!(build.contains(" build "), "{build}");
     assert!(
-        first.contains("//plugins/air/frontend/llm:air-frontend-llm-tests_test_lib"),
-        "{first}"
+        build.contains("//plugins/air/frontend/llm:air-frontend-llm-tests_test_lib"),
+        "{build}"
     );
-    assert!(spawned[1].join(" ").contains(" test "), "{:?}", spawned[1]);
+    assert!(spawned[2].join(" ").contains(" test "), "{:?}", spawned[2]);
 }
 
 /// A target that does not compile is the answer, not a footnote after a green lane.
@@ -147,7 +151,10 @@ fn a_failed_excluded_build_stops_the_lane_and_reports_build_failed() {
     spawn_answers(&fake, 1, "ERROR: ui_test does not compile");
     let outcome = run(&["--lane", "fast"], &fake);
     assert_eq!(outcome.exit_code, exit::BUILD_FAILED, "{}", outcome.text);
-    assert_eq!(fake.spawned().len(), 1, "the lane ran anyway");
+    assert!(
+        !fake.spawned().iter().any(|argv| argv.join(" ").contains(" test ")),
+        "the lane ran anyway"
+    );
     assert!(
         fake.state().stderr.join("\n").contains("ui_test does not compile"),
         "bazel's own words are the only evidence of a failed build"
@@ -242,7 +249,7 @@ fn the_bep_file_is_deleted_after_a_dry_run_and_after_a_failed_excluded_build() {
     spawn_answers(&fake, 1, "ERROR: ui_test does not compile");
     let outcome = run(&["--lane", "fast"], &fake);
     assert_eq!(outcome.exit_code, exit::BUILD_FAILED, "{}", outcome.text);
-    assert_eq!(fake.state().removed, [BEP_PATH], "after a failed excluded build");
+    assert!(fake.state().removed.contains(&BEP_PATH.to_owned()), "after a failed excluded build");
 }
 
 /// A lane parallelises across its targets already, so the shard plan gives each target its own count.
@@ -338,6 +345,8 @@ fn a_lane_run_records_the_class_times_of_the_targets_that_passed() {
                 &format!("class\t{CORE_LABEL}\tcom.A\t72.000"),
                 &format!("class\t{CORE_LABEL}\tcom.A$Inner\t2.000"),
                 &format!("class\t{CORE_LABEL}\tcom.B\t30.000"),
+                // the fake shards report no wall time, so their class seconds leave no fixed seconds
+                &format!("fixed\t{CORE_LABEL}\t0.000"),
                 "",
             ]
             .join("\n")
@@ -475,8 +484,9 @@ fn tree_has(fake: &FakeRuntime, labels: &[&str]) {
     query_answers(fake, 0, labels);
 }
 
-/// `bazel query` exits with `exit_code` and writes these labels.
+/// `bazel query` exits with `exit_code` and writes these labels, in place of an answer that the test gave before.
 fn query_answers(fake: &FakeRuntime, exit_code: i32, labels: &[&str]) {
+    fake.state().spawn_rules.retain(|(text, _)| text != " query ");
     fake.state().spawn_rules.push((
         " query ".to_owned(),
         SpawnResult {
@@ -631,13 +641,15 @@ fn a_plan_target_that_the_tree_does_not_have_runs_in_no_invocation() {
         &[
             &format!("--query_file={TREE_QUERY_PATH}"),
             &format!("--output_file={TREE_TARGETS_PATH}"),
-            "--output=label",
+            "--output=label_kind",
             "--keep_going",
         ],
     );
     assert_eq!(
         fake.state().files.get(TREE_QUERY_PATH).map(String::as_str),
-        Some(r#"tests(set() + "//plugins/air/..." + "@community//tools/bt/..." + "@community//tools/vm/...")"#)
+        Some(
+            r#"let t = tests(set() + "//plugins/air/..." + "@community//tools/bt/..." + "@community//tools/vm/...") in $t except attr(tags, "\bmanual\b", $t)"#
+        )
     );
     let tests = test_commands(&fake);
     assert_eq!(tests.len(), 3, "{tests:#?}");
@@ -713,7 +725,9 @@ fn a_test_invocation_without_a_verdict_is_infra_with_the_tail_of_bazel() {
 #[test]
 #[should_panic(expected = "a bazel query without a spawn rule")]
 fn an_unscripted_query_fails_the_test() {
-    run(&["--lane", "fast"], &stale_plan_tree());
+    let fake = stale_plan_tree();
+    fake.state().spawn_rules.retain(|(text, _)| text != " query ");
+    run(&["--lane", "fast"], &fake);
 }
 
 /// A plan whose heavy and single-shard targets are all gone from the tree leaves one invocation, with no exclusion.
@@ -789,22 +803,57 @@ fn a_dry_run_runs_no_query_and_marks_its_groups_unchecked() {
     assert_mentions(&line_of(&text, "single  "), &[SINGLE_LABEL, GONE_SINGLE_LABEL]);
     assert_eq!(
         line_of(&text, "note    "),
-        "note    unchecked groups: the run keeps only the heavy and single targets that bazel query finds in the tree"
+        "note    unchecked groups: the run keeps only the heavy and single targets that bazel query finds in the tree, and adds each Rust test target to single"
     );
     assert!(
-        !dry_run(&["--lane", "fast"]).contains("note    "),
+        !dry_run(&["--lane", "fast", "--shards", "3"]).contains("note    "),
         "a run without groups has no note"
     );
 }
 
-/// The query runs only for a plan that names a covered heavy or single-shard target.
+/// A Rust test target runs with one shard, also when the plan records it as heavy or has no record of it.
 #[test]
-fn a_plan_without_a_heavy_or_a_single_shard_target_runs_no_query() {
+fn a_rust_test_target_runs_in_the_single_shard_invocation() {
+    const RUST_LABEL: &str = "//plugins/air/tests/architecture-gate:air-docs-model_test";
+    const NEW_RUST_LABEL: &str = "@community//tools/bt/crates/bt-core:bt-core_test";
     let fake = fake_air_tree();
-    fake.put_absolute(SHARD_PLAN, &format!("default\t2\nclass\t{OTHER_LABEL}\tcom.B\t120.000\n"));
+    fake.put_absolute(
+        SHARD_PLAN,
+        &format!("default\t2\nclass\t{RUST_LABEL}\tcom.R\t530.000\nclass\t{OTHER_LABEL}\tcom.B\t120.000\n"),
+    );
+    tree_has(
+        &fake,
+        &[
+            &format!("_rust_test_junit_test rule {RUST_LABEL}"),
+            &format!("rust_test rule {NEW_RUST_LABEL}"),
+            &format!("java_test rule {OTHER_LABEL}"),
+        ],
+    );
     run(&["--lane", "fast"], &fake);
+    let tests = test_commands(&fake);
+    assert_eq!(tests.len(), 2, "{tests:#?}");
+    assert!(
+        tests[0].contains("forced=2") && tests[0].ends_with(&format!("-- -{RUST_LABEL} -{NEW_RUST_LABEL}")),
+        "{}",
+        tests[0]
+    );
+    assert!(
+        tests[1].contains("forced=1") && tests[1].ends_with(&format!("{RUST_LABEL} {NEW_RUST_LABEL}")),
+        "{}",
+        tests[1]
+    );
+}
+
+/// An explicit shard count wins: the run asks no query and keeps one invocation for the Rust test targets too.
+#[test]
+fn an_explicit_shard_count_runs_no_query() {
+    let fake = fake_air_tree();
+    run(&["--lane", "fast", "--shards", "3"], &fake);
     let spawned: Vec<String> = fake.spawned().iter().map(|argv| argv.join(" ")).collect();
     assert!(!spawned.iter().any(|command| command.contains(" query ")), "{spawned:#?}");
+    let tests = test_commands(&fake);
+    assert_eq!(tests.len(), 1, "{tests:#?}");
+    assert!(tests[0].contains("forced=3"), "{}", tests[0]);
 }
 
 /// The invocations read as one run: disjoint targets, one verdict, one plan update.
@@ -1038,6 +1087,7 @@ fn a_run_records_the_class_times_in_the_shared_plan_and_in_the_checkout_copy() {
         &format!("class\t{OTHER_LABEL}\tcom.B\t120.000"),
         &format!("target\t{CORE_LABEL}\t1"),
         &format!("class\t{CORE_LABEL}\tcom.air.RecordedTest\t40.000"),
+        &format!("fixed\t{CORE_LABEL}\t0.000"),
         &format!("target\t{OLD_LABEL}\t1"),
         &format!("class\t{OLD_LABEL}\tcom.Old\t7.000"),
         "",
@@ -1240,7 +1290,7 @@ fn a_directory_that_does_not_exist_fails_before_bazel_is_spawned() {
     assert_eq!(fake.spawned(), Vec::<Vec<String>>::new());
 }
 
-fn green_run(cases: Vec<bt_core::fake::CaseSpec>) -> FakeRuntime {
+fn green_run(cases: Vec<CaseSpec>) -> FakeRuntime {
     let fake = fake_air_tree();
     fake.put_absolute(XML_PATH, &suite_xml(&suite("AgentThreadIdentityTest", cases)));
     fake.put_absolute(
@@ -1513,42 +1563,82 @@ fn the_bep_file_is_deleted_even_when_the_run_blows_up() {
     assert_eq!(exploding.0.state().removed, [BEP_PATH]);
 }
 
-/// The digest of a run whose one test failed under the given name.
-fn failed_run(name: &str) -> String {
-    let fake = fake_air_tree();
+/// The FQN of the class of the cases of [`failed_run`].
+const FAILED_CLASS: &str = "com.intellij.air.shared.core.AgentThreadIdentityTest";
+
+/// The digest of a run in `fake` whose one test failed under the given class and name. A class without a dot is a
+/// module path of libtest, whose wrapper names the suite by the label of the target.
+fn failed_run_in(fake: &FakeRuntime, class_name: &str, name: &str) -> String {
     one_attempt(
-        &fake,
+        fake,
         "FAILED",
         &suite_xml(&suite(
-            "AgentThreadIdentityTest",
-            vec![failing(name, "E", "boom", "\tat com.intellij.air.X.y(X.kt:1)")],
+            if class_name.contains('.') { FAILED_CLASS } else { CORE_LABEL },
+            vec![CaseSpec {
+                class_name: class_name.to_owned(),
+                ..failing(name, "E", "boom", "\tat com.intellij.air.X.y(X.kt:1)")
+            }],
         )),
     );
-    spawn_answers(&fake, 3, "");
-    run(&["AgentThreadIdentityTest"], &fake).text
+    spawn_answers(fake, 3, "");
+    run(&["AgentThreadIdentityTest"], fake).text
 }
 
-/// The selector the digest's rerun hint carries, unquoted. Parsed out of the rendered digest rather than taken from
-/// [`rerun_selector`], because the defect this covers was in the rendering: bare single quotes around a name that
-/// holds an apostrophe.
-fn rerun_line(digest: &str) -> String {
-    const PREFIX: &str = "rerun  ./community/tools/bt.cmd ";
-    let quoted = digest
+/// The digest of a run in an ultimate checkout whose one test of [`FAILED_CLASS`] failed under the given name.
+fn failed_run(name: &str) -> String {
+    let fake = fake_air_tree();
+    fake.put("community/MODULE.bazel", "");
+    failed_run_in(&fake, FAILED_CLASS, name)
+}
+
+/// The words of the digest's rerun hint after the wrapper, unquoted. Parsed out of the rendered digest rather than
+/// taken from [`rerun_command`], because the defect this covers was in the rendering: bare single quotes around a name
+/// that holds an apostrophe.
+fn rerun_line(digest: &str) -> Vec<String> {
+    let command = digest
         .lines()
-        .find_map(|line| line.strip_prefix(PREFIX))
+        .find_map(|line| line.strip_prefix("rerun  "))
         .unwrap_or_else(|| panic!("no rerun hint in:\n{digest}"));
-    let inner = quoted
-        .strip_prefix('\'')
-        .and_then(|rest| rest.strip_suffix('\''))
-        .unwrap_or_else(|| panic!("the hint is not one quoted word: {quoted}"));
-    inner.replace(r"'\''", "'")
+    let (_, quoted) = command
+        .split_once(' ')
+        .unwrap_or_else(|| panic!("no words after the wrapper: {command}"));
+    shell_words(quoted)
+}
+
+/// The words of a command line that quotes each word as [`posix_shell_quote`] does, or holds a bare word.
+fn shell_words(line: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut rest = line;
+    while !rest.is_empty() {
+        let mut word = String::new();
+        while let Some(char) = rest.chars().next()
+            && char != ' '
+        {
+            if let Some(quoted) = rest.strip_prefix('\'') {
+                let end = quoted.find('\'').unwrap_or_else(|| panic!("an unclosed quote in {line}"));
+                word.push_str(&quoted[..end]);
+                rest = &quoted[end + 1..];
+            } else if let Some(escaped) = rest.strip_prefix("\\'") {
+                word.push('\'');
+                rest = escaped;
+            } else {
+                word.push(char);
+                rest = &rest[char.len_utf8()..];
+            }
+        }
+        words.push(word);
+        rest = rest.trim_start_matches(' ');
+    }
+    words
 }
 
 #[test]
-fn a_rerun_hint_names_the_first_failure() {
+fn a_rerun_hint_names_the_target_and_the_filter_of_the_first_failure() {
     assert_mentions(
         &failed_run("broken"),
-        &["rerun  ./community/tools/bt.cmd 'AgentThreadIdentityTest#broken'"],
+        &[&format!(
+            "rerun  ./community/tools/bt.cmd '{CORE_LABEL}' --filter 'com.intellij.air.shared.core.AgentThreadIdentityTest#broken'"
+        )],
     );
 }
 
@@ -1558,24 +1648,53 @@ fn a_rerun_hint_names_the_first_failure() {
 fn a_rerun_hint_quotes_an_apostrophe_in_the_method_name() {
     assert_mentions(
         &failed_run("the client's token is not logged"),
-        &[r"rerun  ./community/tools/bt.cmd 'AgentThreadIdentityTest#the client'\''s token is not logged'"],
+        &[r"--filter 'com.intellij.air.shared.core.AgentThreadIdentityTest#the client'\''s token is not logged'"],
     );
 }
 
 /// A dynamic test reaches test.xml under its display name, which names no method. The class rerun is the one that
-/// works, so the hint is the class.
+/// works, so the filter is the class.
 #[test]
 fn a_rerun_hint_falls_back_to_the_class_for_a_display_name() {
     for name in ["[1] value=x", "template.[1] value=x", "a/b", "holds; a semicolon"] {
-        assert_eq!(rerun_line(&failed_run(name)), "AgentThreadIdentityTest", "{name:?}");
+        assert_eq!(rerun_line(&failed_run(name)), [CORE_LABEL, "--filter", FAILED_CLASS], "{name:?}");
     }
 }
 
-/// The hint and the selector parser are one grammar, not two. Every hint this tool prints has to be something the
-/// parser reads back, or the one command a reader copies after a failure refuses at exit 2.
+/// The libtest wrapper writes the module path of a Rust test as its class. The hint names the path, which the
+/// selector parser refused when the hint was a selector.
 #[test]
-fn every_rerun_hint_round_trips_through_the_selector_parser() {
-    for name in [
+fn a_rerun_hint_of_a_libtest_failure_names_the_path_of_the_test() {
+    let fake = fake_air_tree();
+    for (class_name, want) in [
+        ("agent_home::tests", "agent_home::tests::reads_the_home"),
+        ("crate", "crate::reads_the_home"),
+        ("tests", "tests::reads_the_home"),
+    ] {
+        assert_eq!(
+            rerun_line(&failed_run_in(&fake, class_name, "reads_the_home")),
+            [CORE_LABEL, "--filter", want],
+            "{class_name}"
+        );
+    }
+}
+
+/// A community checkout runs `./tools/bt.cmd`, and the hint names that path.
+#[test]
+fn a_rerun_hint_in_a_community_checkout_names_its_own_wrapper() {
+    let digest = failed_run_in(&fake_air_tree(), FAILED_CLASS, "broken");
+    assert!(
+        digest.contains(&format!("rerun  ./tools/bt.cmd '{CORE_LABEL}' --filter ")),
+        "{digest}"
+    );
+}
+
+/// The hint and the command line parser are one grammar, not two. Every hint this tool prints has to be something
+/// bt runs as it stands, or the one command a reader copies after a failure refuses at exit 2. The run takes the
+/// filter as it is: no note, and no accio call.
+#[test]
+fn every_rerun_hint_runs_as_it_stands() {
+    let names = [
         "broken",
         "the client's token is not logged",
         "a name with spaces",
@@ -1584,10 +1703,24 @@ fn every_rerun_hint_round_trips_through_the_selector_parser() {
         "holds; a semicolon",
         "<init>",
         "a/b",
-    ] {
-        let hint = rerun_line(&failed_run(name));
-        let selector = Selector::classify(&hint).unwrap_or_else(|failure| panic!("the hint for {name:?} does not parse: {failure:?}"));
-        assert_eq!(selector.kind, SelectorKind::SimpleName, "{name:?}");
+    ];
+    let hints = names
+        .iter()
+        .map(|name| (FAILED_CLASS, *name))
+        .chain([
+            ("agent_home::tests", "reads_the_home"),
+            ("crate", "reads_the_home"),
+            ("tests", "reads_the_home"),
+        ])
+        .map(|(class_name, name)| (name, rerun_line(&failed_run_in(&fake_air_tree(), class_name, name))));
+    for (name, hint) in hints {
+        let fake = fake_air_tree();
+        let mut argv: Vec<&str> = hint.iter().map(String::as_str).collect();
+        argv.push("--dry-run");
+        let outcome = execute(argv.clone(), &fake).unwrap_or_else(|failure| panic!("the hint for {name:?} refused: {failure:?}"));
+        assert_mentions(&outcome.text, &[&format!("--test_filter={}", hint[2])]);
+        assert!(!outcome.text.contains("note "), "{name:?}: {}", outcome.text);
+        assert!(fake.spawned().is_empty(), "{name:?}: {:?}", fake.spawned());
     }
 }
 

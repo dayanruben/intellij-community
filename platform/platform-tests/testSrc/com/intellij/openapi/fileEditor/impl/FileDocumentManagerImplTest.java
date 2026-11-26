@@ -7,6 +7,7 @@ import com.intellij.mock.MockVirtualFile;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
+import com.intellij.openapi.application.ex.ApplicationManagerEx;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.EditorFactory;
@@ -36,7 +37,6 @@ import com.intellij.testFramework.LightVirtualFile;
 import com.intellij.testFramework.PlatformTestUtil;
 import com.intellij.testFramework.common.ThreadUtil;
 import com.intellij.util.ArrayUtil;
-import com.intellij.util.ConcurrencyUtil;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.LocalTimeCounter;
 import com.intellij.util.MemoryDumpHelper;
@@ -65,19 +65,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class FileDocumentManagerImplTest extends HeavyPlatformTestCase {
   private FileDocumentManagerImpl myDocumentManager;
   private Boolean myAskReloadFromDiskResult;
+  private VirtualFile myConflictDialogFile;
 
   @Override
   protected void setUp() throws Exception {
     super.setUp();
     myAskReloadFromDiskResult = null;
+    myConflictDialogFile = null;
     FileDocumentManagerImpl impl = (FileDocumentManagerImpl)FileDocumentManager.getInstance();
     impl.setAskReloadFromDisk(getTestRootDisposable(), new MemoryDiskConflictResolver() {
       @Override
@@ -86,6 +86,7 @@ public class FileDocumentManagerImplTest extends HeavyPlatformTestCase {
           fail();
           return new DialogResult(false, false);
         }
+        myConflictDialogFile = file;
         return new DialogResult(myAskReloadFromDiskResult.booleanValue(), false);
       }
     });
@@ -95,6 +96,7 @@ public class FileDocumentManagerImplTest extends HeavyPlatformTestCase {
   @Override
   protected void tearDown() throws Exception {
     myAskReloadFromDiskResult = null;
+    myConflictDialogFile = null;
     myDocumentManager = null;
     super.tearDown();
   }
@@ -180,6 +182,25 @@ public class FileDocumentManagerImplTest extends HeavyPlatformTestCase {
       "Hard-bound documents must not leave a strong file key in myDocumentCache",
       myDocumentManager.getDocumentFromCacheInTests(file)
     );
+  }
+
+  public void testRegisterDocumentFiresBindingEventOnlyWhenBindingChanges() {
+    LightVirtualFile file = new LightVirtualFile("light.txt", "test");
+    LightVirtualFile otherFile = new LightVirtualFile("other.txt", "test");
+    Document document = EditorFactory.getInstance().createDocument("test");
+    List<VirtualFile> oldFiles = new ArrayList<>();
+    ApplicationManager.getApplication().getMessageBus().connect(getTestRootDisposable())
+      .subscribe(FileDocumentBindingListener.TOPIC, (doc, oldFile, newFile) -> {
+        if (doc == document) oldFiles.add(oldFile);
+      });
+
+    FileDocumentManagerBase.registerDocument(document, file);
+    FileDocumentManagerBase.registerDocument(document, file);
+    assertEquals(Collections.singletonList(null), oldFiles);
+
+    FileDocumentManagerBase.registerDocument(document, otherFile);
+    assertEquals(Arrays.asList(null, file), oldFiles);
+    assertSame(document, myDocumentManager.getCachedDocument(otherFile));
   }
 
   public void testGetUnsavedDocuments_NoDocuments() {
@@ -506,19 +527,45 @@ public class FileDocumentManagerImplTest extends HeavyPlatformTestCase {
   }
 
   public void testContentChanged_reloadChangedDocument() throws Exception {
+    checkReloadChangedDocument();
+  }
+
+  public void testContentChanged_reloadChangedDocumentWhileWriteActionIsPending() throws Exception {
+    Future<?> writeAction = startPendingBackgroundWriteAction();
+    checkReloadChangedDocument();
+    PlatformTestUtil.waitForFuture(writeAction);
+  }
+
+  private void checkReloadChangedDocument() throws IOException {
     final VirtualFile file = createFile();
     final Document document = myDocumentManager.getDocument(file);
     assertNotNull(file.toString(), document);
     WriteCommandAction.runWriteCommandAction(myProject, () -> document.insertString(0, "zzz"));
 
-
     myAskReloadFromDiskResult = Boolean.TRUE;
     setFileText(file, "xxx");
-    UIUtil.dispatchAllInvocationEvents();
+    PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue();
 
     assertEquals("xxx", document.getText());
     assertEquals(file.getModificationStamp(), document.getModificationStamp());
     assertEquals(0, myDocumentManager.getUnsavedDocuments().length);
+  }
+
+  /**
+   * Starts a write action on a pooled thread and returns when the write action is pending.
+   * The write action stays pending while the test holds the write-intent lock.
+   * A pending write action blocks the write-intent runnables of the event queue and new read actions.
+   */
+  private static @NotNull Future<?> startPendingBackgroundWriteAction() {
+    Future<?> writeAction = ApplicationManager.getApplication().executeOnPooledThread(
+      () -> ApplicationManager.getApplication().runWriteAction(() -> { }));
+    long start = System.currentTimeMillis();
+    while (!ApplicationManagerEx.getApplicationEx().isWriteActionPending()) {
+      assertFalse("the write action ran before it was pending", writeAction.isDone());
+      assertTrue("the write action is not pending after 10 seconds", System.currentTimeMillis() - start < 10_000);
+      TimeoutUtil.sleep(1);
+    }
+    return writeAction;
   }
 
   public void testContentChanged_DoNotReloadChangedDocument() throws Exception {
@@ -531,8 +578,9 @@ public class FileDocumentManagerImplTest extends HeavyPlatformTestCase {
     long oldDocumentStamp = document.getModificationStamp();
 
     setBinaryContent(file, "xxx".getBytes(StandardCharsets.UTF_8));
-    UIUtil.dispatchAllInvocationEvents();
+    PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue();
 
+    assertSame("Expected a conflict dialog for the changed file", file, myConflictDialogFile);
     assertEquals("old test", document.getText());
     assertEquals(oldDocumentStamp, document.getModificationStamp());
   }
@@ -605,6 +653,7 @@ public class FileDocumentManagerImplTest extends HeavyPlatformTestCase {
     changeOnDisk(file, "first\nsecond\nTHIRD\n");
     PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue();
 
+    assertSame("Expected a conflict dialog for the changed file", file, myConflictDialogFile);
     // the user was asked and kept the memory version. A merge that ran anyway would throw, and leave the disk
     // version in a document that is no longer unsaved
     assertEquals("first\nSECOND\nthird\n", document.getText());
@@ -1219,6 +1268,13 @@ public class FileDocumentManagerImplTest extends HeavyPlatformTestCase {
     }
   }
 
+  public void testGetFileFromConcurrentlyCreatedDocumentWhileWriteActionIsPending() throws Exception {
+    VirtualFile file = createFile("a.txt", "a");
+    Future<?> writeAction = startPendingBackgroundWriteAction();
+    checkDocumentFiles(List.of(file));
+    PlatformTestUtil.waitForFuture(writeAction);
+  }
+
   public void testDropAllUnsavedDocuments() throws Exception {
     VirtualFile file = createFile("test.txt", "unedited");
     Document document = myDocumentManager.getDocument(file);
@@ -1315,9 +1371,11 @@ public class FileDocumentManagerImplTest extends HeavyPlatformTestCase {
     }
 
     try {
-      ConcurrencyUtil.getAll(20, TimeUnit.SECONDS, futures);
+      for (Future<?> future : futures) {
+        PlatformTestUtil.waitForFuture(future, 20_000);
+      }
     }
-    catch (TimeoutException e) {
+    catch (AssertionError e) {
       ThreadUtil.printThreadDump();
       throw e;
     }

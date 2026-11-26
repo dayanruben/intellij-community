@@ -6,7 +6,6 @@ import com.intellij.gradle.codeInsight.kotlin.testFramework.checkGradleScriptHig
 import com.intellij.gradle.codeInsight.kotlin.testFramework.checkGradleScriptIntention
 import com.intellij.gradle.codeInsight.kotlin.testFramework.checkNoGradleScriptIntentions
 import com.intellij.gradle.codeInsight.kotlin.testFramework.disableBuiltInKotlinHighlighters
-import com.intellij.gradle.codeInsight.kotlin.testFramework.fixtures.customConfigurationsAndVersionCatalogsGradleCodeInsightFixture
 import com.intellij.gradle.codeInsight.kotlin.testFramework.fixtures.customConfigurationsGradleCodeInsightFixture
 import com.intellij.gradle.codeInsight.kotlin.testFramework.isMissingDeprecationAnnotationAddedToKotlinDsl
 import com.intellij.gradle.testFramework.annotations.AllGradleVersionsSource
@@ -18,8 +17,6 @@ import com.intellij.gradle.testFramework.projectInfo.simpleSettingsFile
 import com.intellij.gradle.testFramework.util.KOTLIN_DSL_SCRIPTS_MODEL_IMPORT_SUPPORTED_VERSIONS
 import com.intellij.gradle.testFramework.util.VERSION_CATALOGS_SUPPORTED_VERSIONS
 import org.gradle.util.GradleVersion
-import org.jetbrains.kotlin.idea.framework.KotlinSdkType
-import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
@@ -27,11 +24,6 @@ import org.junit.jupiter.params.ParameterizedClass
 
 @GradleImmutableProjectTestApplication
 class KotlinAvoidDuplicateDependenciesInspectionTest {
-
-  @AfterEach
-  fun tearDown() {
-    KotlinSdkType.removeKotlinSdkInTests()
-  }
 
   @Nested
   @ParameterizedClass
@@ -755,7 +747,7 @@ class KotlinAvoidDuplicateDependenciesInspectionTest {
   @TargetVersions(VERSION_CATALOGS_SUPPORTED_VERSIONS)
   inner class VersionCatalogs(private val gradleVersion: GradleVersion) {
 
-    private val codeInsightFixture by customConfigurationsAndVersionCatalogsGradleCodeInsightFixture(gradleVersion)
+    private val codeInsightFixture by customConfigurationsGradleCodeInsightFixture(gradleVersion)
 
     @BeforeEach
     fun setUp() {

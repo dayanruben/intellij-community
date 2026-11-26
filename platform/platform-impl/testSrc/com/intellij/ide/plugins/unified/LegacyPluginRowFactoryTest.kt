@@ -6,6 +6,7 @@ import com.intellij.icons.AllIcons
 import com.intellij.ide.plugins.InstalledPluginsState
 import com.intellij.ide.plugins.ListPluginModel
 import com.intellij.ide.plugins.PluginInfoProvider
+import com.intellij.ide.plugins.PluginManagerConfigurable
 import com.intellij.ide.plugins.PluginsGroupType
 import com.intellij.ide.plugins.TagPanel
 import com.intellij.ide.plugins.newui.BaselinePanel
@@ -67,10 +68,13 @@ import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
 import java.awt.BorderLayout
+import java.awt.Color
 import java.awt.Component
 import java.awt.Container
 import java.awt.event.FocusEvent
+import java.awt.event.InputEvent
 import java.awt.event.KeyEvent
+import java.awt.event.MouseEvent
 import java.util.concurrent.CompletableFuture
 import javax.swing.JButton
 import javax.swing.JComponent
@@ -79,6 +83,7 @@ import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.JTabbedPane
 import javax.swing.JProgressBar
+import javax.swing.UIManager
 import kotlin.math.abs
 
 @TestApplication
@@ -182,6 +187,9 @@ internal class LegacyPluginRowFactoryTest {
   @Test
   fun `unified host uses secondary plugin action buttons`(): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
     val host = LegacyPluginUiHost(parentScope = this, operationScope = this)
+    val borderKey = "Plugins.List.Button.borderColor"
+    val rowBorderColor = Color.WHITE
+    val previousBorder = UIManager.put(borderKey, rowBorderColor)
     try {
       val searchListener = LinkListener<Any> { _, _ -> }
       val listModel = ListPluginModel()
@@ -251,9 +259,9 @@ internal class LegacyPluginRowFactoryTest {
       factory.rowsRendered(bindings)
 
       val rows = bindings.associate { it.occurrenceId.pluginId to (it.row as LegacyPluginRow) }
-      assertSecondaryStyle(checkNotNull(rows.getValue(marketplacePluginId).component.myInstallButton))
-      assertSecondaryStyle(checkNotNull(rows.getValue(updatePluginId).component.myUpdateButton))
-      assertSecondaryStyle(checkNotNull(rows.getValue(restartPluginId).component.myRestartButton))
+      assertSecondaryStyle(checkNotNull(rows.getValue(marketplacePluginId).component.myInstallButton), rowBorderColor)
+      assertSecondaryStyle(checkNotNull(rows.getValue(updatePluginId).component.myUpdateButton), rowBorderColor)
+      assertSecondaryStyle(checkNotNull(rows.getValue(restartPluginId).component.myRestartButton), rowBorderColor)
 
       val details = host.createDetails(searchListener, marketplace = true)
       assertThat(details.useSecondaryButtons).isTrue()
@@ -261,6 +269,7 @@ internal class LegacyPluginRowFactoryTest {
       reconciler.close()
     }
     finally {
+      UIManager.put(borderKey, previousBorder)
       host.dispose(closeSession = false)
     }
   }
@@ -511,6 +520,7 @@ internal class LegacyPluginRowFactoryTest {
         assertThat(unifiedTabs.tabs.map { it.text }).allMatch(String::isNotBlank)
         assertThat(unifiedTabs.presentation.showBorder).isTrue()
         assertThat(unifiedTabs.getDecoration().labelInsets).isEqualTo(JBUI.insets(10, 8))
+        assertThat(unifiedTabs.background).isSameAs(PluginManagerConfigurable.MAIN_BG_COLOR)
         legacyTabs.setBounds(0, 0, JBUI.scale(800), JBUI.scale(600))
         unifiedTabs.setBounds(0, 0, JBUI.scale(800), JBUI.scale(600))
         legacyTabs.doLayout()
@@ -950,6 +960,32 @@ internal class LegacyPluginRowFactoryTest {
         host.dispose(closeSession = false)
       }
     }
+
+  @Test
+  fun `primary mouse press selects the plugin before release`(): Unit = timeoutRunBlocking {
+    val pluginId = PluginId.getId("mouse.press.plugin")
+    val selectionChanges = ArrayList<List<PluginOccurrenceId>>()
+    withContext(Dispatchers.UiWithModelAccess) {
+      val host = LegacyPluginUiHost(parentScope = this, operationScope = this)
+      try {
+        val plugin = PluginNodeModelBuilderFactory.createBuilder(pluginId).setName("Mouse Press Plugin").build()
+        val item = PluginItemState(pluginId, plugin.name, modelHandle = PluginItemModelHandle(plugin))
+        val section = PluginSectionState(PluginSectionId.Installed, items = listOf(item))
+        val factory = LegacyPluginRowFactory(host, ListPluginModel(), { _, _ -> }, onSelectionChanged = selectionChanges::add)
+        factory.createReconciler { _, _ -> }.use { reconciler ->
+          val binding = reconciler.reconcile(listOf(factory.specification(section, item))).single()
+          factory.rowsRendered(listOf(binding))
+          val row = binding.row.component
+          val press = MouseEvent(row, MouseEvent.MOUSE_PRESSED, 0, InputEvent.BUTTON1_DOWN_MASK, 1, 1, 1, false, MouseEvent.BUTTON1)
+          row.dispatchEvent(press)
+        }
+      }
+      finally {
+        host.dispose(closeSession = false)
+      }
+    }
+    assertThat(selectionChanges).containsExactly(listOf(PluginOccurrenceId(PluginSectionId.Installed, pluginId)))
+  }
 
   @Test
   fun `Enter invokes the primary action without selecting the plugin`(): Unit =
@@ -1972,12 +2008,12 @@ internal class LegacyPluginRowFactoryTest {
     return result
   }
 
-  private fun assertSecondaryStyle(button: JButton) {
+  private fun assertSecondaryStyle(button: JButton, borderColor: Color) {
     assertThat(button.getClientProperty("JButton.textColor")).isNull()
     assertThat(button.getClientProperty("JButton.focusedTextColor")).isNull()
     assertThat(button.getClientProperty("JButton.backgroundColor")).isNull()
     assertThat(button.getClientProperty("JButton.focusedBackgroundColor")).isNull()
-    assertThat(button.getClientProperty("JButton.borderColor")).isNull()
+    assertThat(button.getClientProperty("JButton.borderColor")).isEqualTo(borderColor)
     assertThat(button.getClientProperty("JButton.focusedBorderColor")).isNull()
   }
 

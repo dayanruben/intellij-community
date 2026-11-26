@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:OptIn(ExperimentalAtomicApi::class)
 @file:Suppress("DestructuringDeclaration")
 
@@ -192,7 +192,6 @@ private class LegacyBackendProjectViewPaneModel(
     if (addSelectInTargetDescriptors) {
       val selectInTarget = legacyPaneManager.selectInTarget
       addSelectInTarget(
-        id = legacyPaneManager.id, // For the PV it's the same as selectInTarget.minorViewId, but that one is declared nullable.
         presentableName = selectInTarget.toString(),
         weight = selectInTarget.weight
       )
@@ -288,6 +287,13 @@ private class LegacyBackendProjectViewPaneModel(
     }
   }
 
+  /** The same check as the Select In target of the legacy pane. */
+  @RequiresReadLock
+  override fun canSelect(request: SelectInRequest): Boolean = when (request) {
+    is SelectByContext -> legacyPaneManager.selectInTarget.canSelect(request.context)
+    is SelectByEditor -> true
+  }
+
   override suspend fun findNodeForSelectIn(selectInRequest: SelectInRequest): ProjectViewNodePath? {
     return when (selectInRequest) {
       is SelectByContext -> {
@@ -302,7 +308,7 @@ private class LegacyBackendProjectViewPaneModel(
   private suspend fun findNodeForContext(selectByContext: SelectByContext): ProjectViewNodePath? {
     val target = legacyPaneManager.selectInTarget
     val context = selectByContext.context
-    if (!readAction { target.canSelect(context) }) return null
+    if (!readAction { canSelect(selectByContext) }) return null
     return selectAndGetPath {
       LOG.debug { "[$id] Selecting using the context $context" }
       target.selectIn(context, false) // requestFocus doesn't matter because it's backend code

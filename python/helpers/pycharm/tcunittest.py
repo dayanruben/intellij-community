@@ -1,6 +1,7 @@
 import os
+import re
 import traceback, sys
-from unittest import TestResult
+from unittest import TestCase, TestResult
 import datetime
 
 from tcmessages import TeamcityServiceMessages
@@ -35,6 +36,27 @@ def smart_str(s):
     return s.encode(encoding, errors)
   else:
     return s
+
+
+_CLASS_LEVEL_ERROR_DESCRIPTION = re.compile(r"^(?P<method>\w+) \((?P<parent>.+)\)$")
+
+
+def class_level_error_suite(test, protocol):
+  """
+  Gives the suite, the location and the suite location of an error in a method of a class or a module.
+  Examples of such methods are ``setUpClass`` and ``setUpModule``. unittest reports such an error with an
+  object that is not a ``TestCase``. Its description is the method name and the id of the class or the module,
+  for example ``setUpClass (app.tests.FooTests)``. unittest gives the class or the module only in this description.
+  The suite is the class or the module, and both locations point to it. Gives None for any other test.
+  """
+  if isinstance(test, TestCase):
+    return None
+  match = _CLASS_LEVEL_ERROR_DESCRIPTION.match(str(test))
+  if not match:
+    return None
+  suite = match.group("parent")
+  location = protocol + suite
+  return suite, location, location
 
 
 class TeamcityTestResult(TestResult):
@@ -97,7 +119,7 @@ class TeamcityTestResult(TestResult):
       return test._testMethodName
     else:
       test_name = str(test)
-      whitespace_index = test_name.index(" ")
+      whitespace_index = test_name.find(" ")
       if whitespace_index != -1:
         test_name = test_name[:whitespace_index]
       return test_name

@@ -4,12 +4,9 @@ package com.intellij.gradle.codeInsight.kotlin.backend.tests.integration.inspect
 import com.intellij.codeInsight.intention.IntentionActionDelegate
 import com.intellij.codeInsight.intention.PriorityAction
 import com.intellij.gradle.codeInsight.kotlin.testFramework.configureGradleScript
+import com.intellij.gradle.codeInsight.kotlin.testFramework.fixtures.customConfigurationsGradleCodeInsightFixture
 import com.intellij.gradle.testFramework.annotations.BaseGradleVersionSource
 import com.intellij.gradle.testFramework.fixtures.application.GradleImmutableProjectTestApplication
-import com.intellij.gradle.testFramework.fixtures.gradleCodeInsightFixture
-import com.intellij.gradle.testFramework.projectInfo.buildFile
-import com.intellij.gradle.testFramework.projectInfo.directory
-import com.intellij.gradle.testFramework.projectInfo.simpleSettingsFile
 import com.intellij.gradle.testFramework.util.getProjectFile
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.VfsTestUtil
@@ -17,9 +14,7 @@ import com.intellij.testFramework.runInEdtAndWait
 import org.assertj.core.api.Assertions.assertThat
 import org.gradle.util.GradleVersion
 import org.jetbrains.kotlin.idea.core.script.modules.KotlinScriptEntityProvider
-import org.jetbrains.kotlin.idea.framework.KotlinSdkType
 import org.jetbrains.plugins.gradle.util.GradleConstants.KOTLIN_DSL_SCRIPT_NAME
-import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedClass
@@ -29,24 +24,11 @@ import org.junit.jupiter.params.ParameterizedClass
 @BaseGradleVersionSource
 class KotlinGradlePropertyMethodCallQuickFixTest(gradleVersion: GradleVersion) {
 
-  private val codeInsightFixture by gradleCodeInsightFixture(gradleVersion, "kotlin-plugin-project") {
-    simpleSettingsFile()
-    buildFile {
-      withKotlinJvmPlugin()
-      withJUnit()
-    }
-    directory("src/main/kotlin")
-    directory("src/test/kotlin")
-  }
+  private val codeInsightFixture by customConfigurationsGradleCodeInsightFixture(gradleVersion)
 
   @BeforeEach
   fun setUp() {
     VfsTestUtil.syncRefresh()
-  }
-
-  @AfterEach
-  fun tearDown() {
-    KotlinSdkType.removeKotlinSdkInTests()
   }
 
   @Test

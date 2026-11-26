@@ -10,10 +10,13 @@
 //!   [`PLANNED_SHARDS`]. A target without a record stays here.
 //! - A target whose recorded seconds want one shard is a single-shard target. The third invocation names these targets
 //!   ([`Groups::single`]) and forces [`SINGLE_SHARDS`].
+//! - A Rust test target is a single-shard target, whatever its record says. libtest runs the tests of one process in
+//!   parallel threads, and each shard pays the shared setup of the target again.
 //!
 //! A plan entry is a hint, because the plan keeps the targets of each branch that ran in the repository. A target that
 //! the current tree does not have fails each invocation that names it, also as a negative pattern. So
 //! [`ShardPlan::groups`] names only the targets that `bazel query` finds for the patterns of the run ([`TreeTargets`]).
+//! The same query gives the rule kind of each target, and so the Rust test targets.
 //!
 //! Each invocation passes the plan file to each test in [`SHARD_PLAN_ENV`]. The JUnit runner (`ShardFilter` of
 //! `community/platform/testFramework/bootstrap`) reads the line of its own target. A shard at or above the planned
@@ -103,6 +106,8 @@ const SECONDS_PER_SHARD: f64 = 90.0;
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ShardPlan {
     targets: BTreeMap<String, BTreeMap<String, f64>>,
+    /// The fixed seconds of a shard of each target, see [`TargetTiming::fixed_seconds`].
+    fixed: BTreeMap<String, f64>,
 }
 
 /// The targets of a planned run that run in an invocation of their own, each group in the order of the labels.
@@ -117,6 +122,10 @@ pub struct Groups {
     pub gone: Vec<String>,
 }
 
+/// The rule kinds of the Rust test targets: `rust_test` of rules_rust and the JUnit wrapper of
+/// `community/build/rust-tools/rust_test_junit.bzl`.
+const RUST_TEST_KINDS: [&str; 2] = ["rust_test", "_rust_test_junit_test"];
+
 /// The test targets that the target patterns of a run name in the current tree, as `bazel query` answers them.
 ///
 /// A query names a target of another repository by the apparent name of the repository, such as `@community//x:t`. The
@@ -125,12 +134,15 @@ pub struct Groups {
 pub struct TreeTargets {
     /// The repository, the package and the name of each target.
     targets: BTreeSet<(String, String, String)>,
+    /// The label of each Rust test target as the query names it, by its repository, package and name.
+    rust_tests: BTreeMap<(String, String, String), String>,
 }
 
 impl TreeTargets {
     /// The query expression of the test targets that the target patterns name, in their order. A negative pattern
     /// removes what the patterns before it name, as in `bazel test`. Each pattern is in quotes, because the canonical
-    /// name of a repository holds the operator `+`.
+    /// name of a repository holds the operator `+`. The expression leaves out a target with the tag `manual`, because a
+    /// pattern of `bazel test` leaves it out, and an invocation that names it would run it.
     pub fn query(patterns: &[String]) -> String {
         let mut expression = String::from("set()");
         for pattern in patterns {
@@ -140,21 +152,39 @@ impl TreeTargets {
             };
             let _ = write!(expression, " {operator} \"{pattern}\"");
         }
-        format!("tests({expression})")
+        format!(r#"let t = tests({expression}) in $t except attr(tags, "\bmanual\b", $t)"#)
     }
 
-    /// Reads the answer of the query, one label a line. A line that is no label is skipped.
+    /// Reads the answer of the query in the `label_kind` output, `<kind> rule <label>` a line. A line with only a label
+    /// is a target of an unknown kind. A line that is no label is skipped.
     pub fn parse(lines: impl IntoIterator<Item = String>) -> Self {
-        let targets = lines
-            .into_iter()
-            .filter_map(|line| split_label(line.trim()).map(|label| label.key()))
-            .collect();
-        Self { targets }
+        let mut tree = Self::default();
+        for line in lines {
+            let words: Vec<&str> = line.split_whitespace().collect();
+            let (kind, label) = match words[..] {
+                [kind, "rule", label] => (Some(kind), label),
+                [label] => (None, label),
+                _ => continue,
+            };
+            let Some(key) = split_label(label).map(|label| label.key()) else {
+                continue;
+            };
+            if kind.is_some_and(|kind| RUST_TEST_KINDS.contains(&kind)) {
+                tree.rust_tests.insert(key.clone(), label.to_owned());
+            }
+            tree.targets.insert(key);
+        }
+        tree
     }
 
     /// Whether the tree has the target with this label.
     pub fn has(&self, label: &str) -> bool {
         split_label(label).is_some_and(|label| self.targets.contains(&label.key()))
+    }
+
+    /// Whether the target with this label is a Rust test target of the tree.
+    pub fn is_rust_test(&self, label: &str) -> bool {
+        split_label(label).is_some_and(|label| self.rust_tests.contains_key(&label.key()))
     }
 }
 
@@ -165,10 +195,18 @@ impl ShardPlan {
         let mut plan = Self::default();
         for line in text.lines() {
             let fields: Vec<&str> = line.split('\t').collect();
-            if let ["class", label, class, seconds] = fields[..]
-                && let Ok(seconds) = seconds.parse::<f64>()
-            {
-                plan.targets.entry(label.to_owned()).or_default().insert(class.to_owned(), seconds);
+            match fields[..] {
+                ["class", label, class, seconds] => {
+                    if let Ok(seconds) = seconds.parse::<f64>() {
+                        plan.targets.entry(label.to_owned()).or_default().insert(class.to_owned(), seconds);
+                    }
+                }
+                ["fixed", label, seconds] => {
+                    if let Ok(seconds) = seconds.parse::<f64>() {
+                        plan.fixed.insert(label.to_owned(), seconds);
+                    }
+                }
+                _ => {}
             }
         }
         plan
@@ -183,15 +221,26 @@ impl ShardPlan {
         for (label, classes) in &other.targets {
             if !self.targets.contains_key(label) {
                 self.targets.insert(label.clone(), classes.clone());
+                if let Some(fixed) = other.fixed.get(label) {
+                    self.fixed.insert(label.clone(), *fixed);
+                }
                 added = true;
             }
         }
         added
     }
 
-    /// Replaces the class times of the target of a finished run.
+    /// Replaces the class times of the target of a finished run, and its fixed seconds when the run measured them.
     pub fn record(&mut self, timing: &TargetTiming) {
         self.targets.insert(timing.label.clone(), timing.class_seconds.clone());
+        if let Some(fixed) = timing.fixed_seconds {
+            self.fixed.insert(timing.label.clone(), fixed);
+        }
+    }
+
+    /// The recorded fixed seconds of a shard of the target with this label.
+    pub fn fixed_of(&self, label: &str) -> Option<f64> {
+        self.fixed.get(label).copied()
     }
 
     /// Raises the class times of a target with a shard timeout to the times of this run, when the raise makes it a heavy
@@ -226,34 +275,34 @@ impl ShardPlan {
     }
 
     /// The heavy and the single-shard targets of the plan that the target patterns of a run cover and that the current
-    /// tree has.
+    /// tree has, and each Rust test target of the tree as a single-shard target.
     ///
     /// `tree` gives the test targets of the patterns in the current tree, `None` for a query without an answer, or the
-    /// error that stops the run. This function calls it only when the plan names a covered heavy or single-shard target,
-    /// so a run without such a target costs no query. Without an answer, no target is in a group or gone.
+    /// error that stops the run. Without an answer, no target is in a group or gone. A Rust test target can have no
+    /// record, so each call asks for the tree.
     pub fn groups<E>(&self, patterns: &[String], tree: impl FnOnce() -> Result<Option<TreeTargets>, E>) -> Result<Groups, E> {
         let unchecked = self.unchecked_groups(patterns);
-        if unchecked.heavy.is_empty() && unchecked.single.is_empty() {
-            return Ok(unchecked);
-        }
         let Some(tree) = tree()? else {
             return Ok(Groups::default());
         };
         let mut groups = Groups::default();
         for (labels, kept) in [(unchecked.heavy, &mut groups.heavy), (unchecked.single, &mut groups.single)] {
             for label in labels {
-                if tree.has(&label) {
-                    kept.push(label);
-                } else {
+                if !tree.has(&label) {
                     groups.gone.push(label);
+                } else if !tree.is_rust_test(&label) {
+                    kept.push(label);
                 }
             }
         }
+        groups.single.extend(tree.rust_tests.values().cloned());
+        groups.single.sort();
         Ok(groups)
     }
 
     /// The heavy and the single-shard targets of the plan that the target patterns of a run cover, without a check
-    /// against the current tree. A dry run shows them, because it starts no bazel command.
+    /// against the current tree. A dry run shows them, because it starts no bazel command. So a dry run cannot see the
+    /// Rust test targets that [`Self::groups`] adds.
     pub fn unchecked_groups(&self, patterns: &[String]) -> Groups {
         Groups {
             heavy: self.heavy_targets(patterns),
@@ -293,6 +342,9 @@ impl ShardPlan {
             let _ = writeln!(text, "target\t{label}\t{}", self.shards_of(label));
             for (class, seconds) in classes {
                 let _ = writeln!(text, "class\t{label}\t{class}\t{seconds:.3}");
+            }
+            if let Some(fixed) = self.fixed.get(label) {
+                let _ = writeln!(text, "fixed\t{label}\t{fixed:.3}");
             }
         }
         text

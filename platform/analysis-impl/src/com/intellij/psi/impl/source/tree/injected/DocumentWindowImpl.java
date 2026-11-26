@@ -5,6 +5,7 @@ package com.intellij.psi.impl.source.tree.injected;
 import com.intellij.injected.editor.DocumentWindow;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorFactory;
 import com.intellij.openapi.editor.LogicalPosition;
@@ -15,6 +16,8 @@ import com.intellij.openapi.editor.ex.EditReadOnlyListener;
 import com.intellij.openapi.editor.ex.LineIterator;
 import com.intellij.openapi.editor.ex.RangeMarkerEx;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
+import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.ModificationTracker;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.ProperTextRange;
 import com.intellij.openapi.util.Segment;
@@ -22,8 +25,13 @@ import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.UserDataHolderBase;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiLanguageInjectionHost;
+import com.intellij.psi.SmartPsiElementPointer;
 import com.intellij.psi.impl.PsiManagerEx;
+import com.intellij.psi.util.CachedValue;
+import com.intellij.psi.util.CachedValueProvider;
+import com.intellij.psi.util.CachedValuesManager;
 import com.intellij.psi.util.ReadActionCache;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.ObjectUtils;
@@ -47,6 +55,7 @@ public final class DocumentWindowImpl extends UserDataHolderBase implements Disp
   private final DocumentEx myDelegate;
   private final boolean myOneLine;
   private Place myShreds; // guarded by myLock
+  private CachedValue<Boolean> myShredsValidity; // guarded by myLock, checks the shreds of myShreds
   private final int myPrefixLineCount;
   private final int mySuffixLineCount;
   private final Object myLock = new Object();
@@ -58,6 +67,7 @@ public final class DocumentWindowImpl extends UserDataHolderBase implements Disp
     myOneLine = ContainerUtil.and(shreds, s->((ShredImpl)s).isOneLine());
     synchronized (myLock) {
       myShreds = shreds;
+      myShredsValidity = createShredsValidity(shreds, delegate);
     }
     myPrefixLineCount = Math.max(1, 1 + StringUtil.countNewLines(shreds.get(0).getPrefix()));
     mySuffixLineCount = Math.max(1, 1 + StringUtil.countNewLines(shreds.get(shreds.size()- 1).getSuffix()));
@@ -874,24 +884,33 @@ public final class DocumentWindowImpl extends UserDataHolderBase implements Disp
   @Override
   public boolean isValid() {
     Place shreds;
+    CachedValue<Boolean> shredsValidity;
     synchronized (myLock) {
       shreds = myShreds; // assumption: myShreds list is immutable
+      shredsValidity = myShredsValidity;
     }
-    return ReadActionCache.getInstance().allowInWriteAction(
-      () -> {
-        // can grab PsiLock in SmartPsiPointer.restore()
-        // will check the 0th element manually (to avoid getting .getHost() twice)
-        for (int i = 1; i < shreds.size(); i++) {
-          PsiLanguageInjectionHost.Shred shred = shreds.get(i);
-          if (!shred.isValid()) return false;
-        }
+    return ReadActionCache.getInstance().allowInWriteAction(() -> {
+      // can grab PsiLock in SmartPsiPointer.restore()
+      if (!shredsValidity.getValue()) return false;
+      Project project = shreds.getHostPointer().getProject();
+      if (project.isDisposed()) return false;
+      VirtualFile virtualFile = FileDocumentManager.getInstance().getFile(this);
+      return virtualFile != null && PsiManagerEx.getInstanceEx(project).getFileManager().findCachedViewProvider(virtualFile) != null;
+    });
+  }
 
-        PsiLanguageInjectionHost.Shred firstShred = shreds.get(0);
-        PsiLanguageInjectionHost host = firstShred.getHost();
-        if (host == null || firstShred.getHostRangeMarker() == null) return false;
-        VirtualFile virtualFile = FileDocumentManager.getInstance().getFile(this);
-        return virtualFile != null && ((PsiManagerEx)host.getManager()).getFileManager().findCachedViewProvider(virtualFile) != null;
-      });
+  /**
+   * Checks every shred of {@code shreds}.
+   * Keeps the result until the host file or {@code hostDocument} changes.
+   * A change of {@code hostDocument} can make a host range marker invalid before the commit.
+   */
+  private static @NotNull CachedValue<Boolean> createShredsValidity(@NotNull Place shreds, @NotNull Document hostDocument) {
+    SmartPsiElementPointer<PsiLanguageInjectionHost> hostPointer = shreds.getHostPointer();
+    return CachedValuesManager.getManager(hostPointer.getProject()).createCachedValue(() -> {
+      PsiFile hostFile = hostPointer.getContainingFile();
+      if (hostFile == null) return CachedValueProvider.Result.create(false, ModificationTracker.EVER_CHANGED);
+      return CachedValueProvider.Result.create(shreds.isValid(), hostFile, hostDocument);
+    }, false);
   }
 
   @Override
@@ -923,6 +942,7 @@ public final class DocumentWindowImpl extends UserDataHolderBase implements Disp
     synchronized (myLock) {
       myShreds.dispose();
       myShreds = shreds;
+      myShredsValidity = createShredsValidity(shreds, myDelegate);
     }
   }
 

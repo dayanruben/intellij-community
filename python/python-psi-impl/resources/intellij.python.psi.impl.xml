@@ -1,6 +1,6 @@
 <idea-plugin visibility="public">
-  <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
   <dependencies>
+    <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
     <plugin id="org.toml.lang"/>
     <module name="intellij.libraries.fastutil"/>
     <module name="intellij.libraries.gson"/>
@@ -43,8 +43,8 @@
     <module name="intellij.python.requirements.backend"/>
     <module name="intellij.python.sdk.backend"/>
     <module name="intellij.toml.core"/>
+    <!-- endregion -->
   </dependencies>
-  <!-- endregion -->
 
   <extensionPoints>
     <extensionPoint qualifiedName="Pythonid.documentationLinkProvider"
@@ -235,6 +235,7 @@
     <annotator language="Python" implementationClass="com.jetbrains.python.validation.UnsupportedFeatures"/>
 
     <daemon.changeLocalityDetector implementation="com.jetbrains.python.inspections.PyChangeLocalityDetector"/>
+    <inspection.basicVisitor class="com.jetbrains.python.psi.PyElementVisitor"/>
 
     <statistics.applicationUsagesCollector implementation="com.jetbrains.python.psi.types.PyTypeEvaluationAggregatesCollector"/>
 
@@ -1006,6 +1007,8 @@
                  description="Use a process worker pool for skeleton generation to avoid process creation overhead"/>
     <registryKey key="python.type.checker.diff.tooltip" defaultValue="true"
                  description="Show a structural side-by-side type diff in type-mismatch inspection tooltips (otherwise the plain message tooltip is shown)"/>
+    <registryKey key="python.type.checker.overload.report.all.candidates" defaultValue="true"
+                 description="List also the overloads that take a different number of arguments in the 'No overload matches' report"/>
 
     <virtualFileCustomDataProvider implementation="com.jetbrains.python.formatter.PyCodeStyleSettingsProvider"/>
     <projectSettings service="com.jetbrains.python.findUsages.PyFindUsagesOptions"/>

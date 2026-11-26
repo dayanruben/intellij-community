@@ -5,14 +5,15 @@ package com.intellij.psi.impl;
 import com.intellij.lang.ASTNode;
 import com.intellij.lang.FileASTNode;
 import com.intellij.lang.Language;
+import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ex.ApplicationManagerEx;
 import com.intellij.openapi.diagnostic.Attachment;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.PlainTextLanguage;
 import com.intellij.openapi.progress.ProgressIndicator;
-import com.intellij.openapi.util.Couple;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.TextRange;
@@ -114,34 +115,33 @@ public final class BlockSupportImpl extends BlockSupport {
     @NotNull CharSequence lastCommittedText) {
     PsiFileImpl fileImpl = (PsiFileImpl)file;
 
-    Couple<ASTNode> rawReparseResult = findReparseableNodeAndReparseIt(fileImpl, oldFileNode, changedPsiRange, newFileText);
-    if (rawReparseResult == null) {
+    NodeReparse.Replaced replaced = reparseIncrementally(fileImpl, oldFileNode, changedPsiRange, newFileText);
+    if (replaced == null) {
       return makeFullParse(fileImpl, oldFileNode, newFileText, indicator, lastCommittedText);
     }
-    ASTNode oldRoot = rawReparseResult.first;
-    ASTNode newRoot = rawReparseResult.second;
+    ASTNode oldRoot = replaced.getOldNode();
+    ASTNode newRoot = replaced.getNewNode();
     DiffLog diffLog = mergeTrees(fileImpl, oldRoot, newRoot, indicator, lastCommittedText);
     return new ReparseResult(diffLog, oldRoot, newRoot);
   }
 
 
   /**
-   * Finds the deepest AST node that can be reparsed incrementally, tries reparsing it, and returns the result as a pair
-   * of this node and the corresponding new node, or null if reparse can't be performed.
+   * Finds the deepest AST node that can be reparsed incrementally, tries reparsing it, and returns the old node and the new node.
    *
    * @param file            the PsiFile being reparsed with the new underlying AST
    * @param oldFileNode     the old AST node of the file
    * @param changedPsiRange the changed range in the file
    * @param newFileText     new file text
    *
-   * @return Pair (old reparseable node, new replacement node)
-   *         or {@code null} if reparse can't be done.
+   * @return the old reparseable node and the new replacement node, or {@code null} if reparse can't be done.
    */
+  @ApiStatus.Internal
   @VisibleForTesting
-  public static @Nullable Couple<ASTNode> findReparseableNodeAndReparseIt(@NotNull PsiFileImpl file,
-                                                                          @NotNull FileASTNode oldFileNode,
-                                                                          @NotNull TextRange changedPsiRange,
-                                                                          @NotNull CharSequence newFileText) {
+  public static @Nullable NodeReparse.Replaced reparseIncrementally(@NotNull PsiFileImpl file,
+                                                                     @NotNull FileASTNode oldFileNode,
+                                                                     @NotNull TextRange changedPsiRange,
+                                                                     @NotNull CharSequence newFileText) {
     if (isTooDeep(file)) {
       return null;
     }
@@ -161,18 +161,18 @@ public final class BlockSupportImpl extends BlockSupport {
     if (startLeafType instanceof IReparseableLeafElementType &&
         startLeafRange.getEndOffset() == changedPsiRange.getEndOffset() &&
         (!isTemplateFile || startLeafType instanceof OuterLanguageElementType)) {
-      Couple<ASTNode> reparseResult = reparser.reparseNode(leafAtStart);
-      if (reparseResult != null && reparseResult.first != null) {
-        return reparseResult;
+      NodeReparse reparseResult = reparser.reparseNode(leafAtStart);
+      if (reparseResult instanceof NodeReparse.Replaced) {
+        return (NodeReparse.Replaced)reparseResult;
       }
     }
     IElementType endLeafType = PsiUtilCore.getElementType(leafAtEnd);
     if (endLeafType instanceof IReparseableLeafElementType &&
         endLeafRange.getStartOffset() == changedPsiRange.getStartOffset() &&
         (!isTemplateFile || endLeafType instanceof OuterLanguageElementType)) {
-      Couple<ASTNode> reparseResult = reparser.reparseNode(leafAtEnd);
-      if (reparseResult != null && reparseResult.first != null) {
-        return reparseResult;
+      NodeReparse reparseResult = reparser.reparseNode(leafAtEnd);
+      if (reparseResult instanceof NodeReparse.Replaced) {
+        return (NodeReparse.Replaced)reparseResult;
       }
     }
 
@@ -180,16 +180,40 @@ public final class BlockSupportImpl extends BlockSupport {
       if (isTemplateFile && !(PsiUtilCore.getElementType(node) instanceof OuterLanguageElementType)) {
         return null;
       }
-      Couple<ASTNode> couple = reparser.reparseNode(node);
-      if (couple != null) {
-        if (couple.first == null) {
-          return null;
-        }
-        return couple;
+      NodeReparse nodeResult = reparser.reparseNode(node);
+      if (nodeResult != null) {
+        return nodeResult instanceof NodeReparse.Replaced ? (NodeReparse.Replaced)nodeResult : null;
       }
       node = node.getTreeParent();
     }
     return null;
+  }
+
+  /**
+   * Parses {@code newFileText} as a copy of {@code fileImpl} without PSI events.
+   * The full reparse merges the result into the old tree.
+   */
+  static @NotNull ASTNode parseFileCopy(@NotNull PsiFileImpl fileImpl, @NotNull FileASTNode oldFileNode, @NotNull CharSequence newFileText) {
+    FileViewProvider viewProvider = fileImpl.getViewProvider();
+    viewProvider.getLanguages();
+    VirtualFile virtualFile = viewProvider.getVirtualFile();
+    FileType fileType = virtualFile.getFileType();
+    String fileName = fileImpl.getName();
+    LightVirtualFile lightFile = new LightVirtualFile(fileName, fileType, newFileText, virtualFile.getCharset(),
+                                                      viewProvider.getModificationStamp());
+    lightFile.setOriginalFile(virtualFile);
+
+    FileViewProvider providerCopy = PsiVersioningService.createVersionedPsiElements(oldFileNode, () -> viewProvider.createCopy(lightFile));
+    if (providerCopy.supportsSendingPsiEvents()) {
+      throw new AssertionError("Copied view provider must not correspond to real file for reparse to deliver correct events: " + viewProvider);
+    }
+    providerCopy.getLanguages();
+    SingleRootFileViewProvider.doNotCheckFileSizeLimit(lightFile); // optimization: do not convert file contents to bytes to determine if we should codeinsight it
+    PsiFileImpl newFile = getFileCopy(fileImpl, providerCopy);
+
+    newFile.setOriginalFile(fileImpl);
+
+    return PsiVersioningService.createVersionedPsiElements(oldFileNode, () -> newFile.getNode());
   }
 
   private static @Nullable ASTNode tryReparseNode(@NotNull IReparseableElementTypeBase reparseable,
@@ -269,25 +293,7 @@ public final class BlockSupportImpl extends BlockSupport {
       return new ReparseResult(diffLog, oldFileNode, holderElement);
     }
     FileViewProvider viewProvider = fileImpl.getViewProvider();
-    viewProvider.getLanguages();
-    VirtualFile virtualFile = viewProvider.getVirtualFile();
-    FileType fileType = virtualFile.getFileType();
-    String fileName = fileImpl.getName();
-    LightVirtualFile lightFile = new LightVirtualFile(fileName, fileType, newFileText, virtualFile.getCharset(),
-                                                      viewProvider.getModificationStamp());
-    lightFile.setOriginalFile(virtualFile);
-
-    FileViewProvider providerCopy = PsiVersioningService.createVersionedPsiElements(oldFileNode, () -> viewProvider.createCopy(lightFile));
-    if (providerCopy.supportsSendingPsiEvents()) {
-      throw new AssertionError("Copied view provider must not corerspond to real file for reparse to deliver correct events: " + viewProvider);
-    }
-    providerCopy.getLanguages();
-    SingleRootFileViewProvider.doNotCheckFileSizeLimit(lightFile); // optimization: do not convert file contents to bytes to determine if we should codeinsight it
-    PsiFileImpl newFile = getFileCopy(fileImpl, providerCopy);
-
-    newFile.setOriginalFile(fileImpl);
-
-    ASTNode newFileElement = PsiVersioningService.createVersionedPsiElements(oldFileNode, () -> newFile.getNode());
+    ASTNode newFileElement = parseFileCopy(fileImpl, oldFileNode, newFileText);
     if (lastCommittedText.length() != oldFileNode.getTextLength()) {
       Document docCachedByFile = PsiDocumentManager.getInstance(fileImpl.getProject()).getCachedDocument(fileImpl);
       Document docByViewProvider = viewProvider.getDocument();
@@ -394,7 +400,38 @@ public final class BlockSupportImpl extends BlockSupport {
                                    @NotNull FlyweightCapableTreeStructure<T> newTreeStructure,
                                    @NotNull ProgressIndicator indicator,
                                    @NotNull CharSequence lastCommittedText) {
-    DiffTree.diff(createInterruptibleASTStructure(oldRoot, indicator), newTreeStructure, comparator, builder, lastCommittedText);
+    ASTStructure oldTreeStructure = createInterruptibleASTStructure(oldRoot, indicator);
+    CharSequence oldRootText = getOldRootText(oldRoot, oldTreeStructure, lastCommittedText);
+    DiffTree.diff(oldTreeStructure, newTreeStructure, comparator, builder, oldRootText);
+  }
+
+  /**
+   * Returns the text of {@code oldRoot} in {@code lastCommittedText}, which is the text of the file or of the root.
+   * {@link DiffTree} trusts this text and does not compare the leaf texts in a range that it knows is equal.
+   * So this method checks the text against the old tree, and returns the text of the tree if they differ.
+   * The check compares the lengths. In the unit test mode, except in a stress test, it also compares the chars.
+   */
+  private static @NotNull CharSequence getOldRootText(@NotNull ASTNode oldRoot,
+                                                      @NotNull ASTStructure oldTreeStructure,
+                                                      @NotNull CharSequence lastCommittedText) {
+    int oldRootStart = oldTreeStructure.getStartOffset(oldRoot);
+    int oldRootEnd = oldTreeStructure.getEndOffset(oldRoot);
+    int oldRootLength = oldRootEnd - oldRootStart;
+    CharSequence text = oldRootLength == lastCommittedText.length() ? lastCommittedText
+                        : oldRootEnd <= lastCommittedText.length() ? lastCommittedText.subSequence(oldRootStart, oldRootEnd)
+                        : null;
+    if (text != null && (!isFullTextCheckEnabled() || ((TreeElement)oldRoot).textMatches(text))) {
+      return text;
+    }
+    LOG.error("The last committed text does not match the old tree: old root " + oldRoot.getElementType() +
+              " from " + oldRootStart + " to " + oldRootEnd + ", last committed text length " + lastCommittedText.length() +
+              (text == null ? "" : ", the same length but other chars"));
+    return oldRoot.getText();
+  }
+
+  private static boolean isFullTextCheckEnabled() {
+    Application application = ApplicationManager.getApplication();
+    return application != null && application.isUnitTestMode() && !ApplicationManagerEx.isInStressTest();
   }
 
   private static @NotNull ASTStructure createInterruptibleASTStructure(@NotNull ASTNode oldRoot, @NotNull ProgressIndicator indicator) {
@@ -444,10 +481,10 @@ public final class BlockSupportImpl extends BlockSupport {
 
     /**
      * @return {@code null} means "try reparsing parent"
-     *         {@code Pair(null, null)} means "reparsing failed, stop trying to reparse"
-     *         {@code Pair(!null, !null)} means "reparsing succeeded"
+     *         {@link NodeReparse.Stop} means "reparsing failed, stop trying to reparse"
+     *         other values mean "reparsing succeeded"
      */
-    @Nullable Couple<ASTNode> reparseNode(@NotNull ASTNode node) {
+    @Nullable NodeReparse reparseNode(@NotNull ASTNode node) {
       IElementType elementType = node.getElementType();
       if (!(elementType instanceof IReparseableElementTypeBase || elementType instanceof IReparseableLeafElementType)) {
         return null;
@@ -466,7 +503,7 @@ public final class BlockSupportImpl extends BlockSupport {
       int end = start + textRange.getLength() + myLengthShift;
       if (end > myNewFileText.length()) {
         reportInconsistentLength(myFile, myNewFileText, node, start, end);
-        return Couple.of(null, null);
+        return NodeReparse.Stop.INSTANCE;
       }
 
       CharSequence newTextStr = myNewFileText.subSequence(start, end);
@@ -492,7 +529,7 @@ public final class BlockSupportImpl extends BlockSupport {
         LOG.error("Inconsistent reparse: " + details + " type=" + elementType);
       }
 
-      return Couple.of(node, newNode);
+      return new NodeReparse.Replaced(node, newNode);
     }
   }
 }

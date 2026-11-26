@@ -1,3 +1,4 @@
+load("@community//build:jps_module.bzl", "jps_module")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//build:compiler-options.bzl", "create_kotlinc_options")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
@@ -31,8 +32,6 @@ jvm_library(
             "src/**/*.kt",
             "src/**/*.java",
             "src/**/*.form",
-            "gen/**/*.kt",
-            "gen/**/*.java",
         ],
         allow_empty = True,
     ),
@@ -43,6 +42,7 @@ jvm_library(
         ["resources/**/*"],
     ),
     visibility = ["//visibility:public"],
+    exports = ["//plugins/kotlin/base/facet-model"],
     runtime_deps = ["//plugins/kotlin/base/project-model"],
     deps = [
         # do not sort,
@@ -75,16 +75,15 @@ jvm_library(
         "//platform/backend/workspace",
         "//platform/ide-core",
         "//libraries/gson",
+        "//plugins/kotlin/base/facet-model",
     ],
 )
 ### auto-generated section `build intellij.kotlin.base.facet` end
 
 ### auto-generated section `iml intellij.kotlin.base.facet` start
-exports_files(
-    [
-        "intellij.kotlin.base.facet.iml",
-        "resources/intellij.kotlin.base.facet.xml",
-    ],
-    visibility = ["//visibility:public"],
+jps_module(
+    name = "intellij.kotlin.base.facet",
+    descriptors = ["resources/intellij.kotlin.base.facet.xml"],
+    target = "facet",
 )
 ### auto-generated section `iml intellij.kotlin.base.facet` end

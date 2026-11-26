@@ -17,6 +17,7 @@ import com.intellij.ide.plugins.newui.PluginModelAsyncOperationsExecutor
 import com.intellij.ide.plugins.newui.PluginModelEvent
 import com.intellij.ide.plugins.newui.PluginPriceService
 import com.intellij.ide.plugins.newui.PluginSource
+import com.intellij.ide.plugins.newui.PluginUiModel
 import com.intellij.ide.plugins.newui.PluginUpdatesEvent
 import com.intellij.ide.plugins.newui.PluginUpdatesService
 import com.intellij.ide.plugins.newui.SearchQueryParser
@@ -65,6 +66,7 @@ import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.actionSystem.DataSink
 import com.intellij.openapi.actionSystem.PlatformDataKeys
 import com.intellij.openapi.actionSystem.UiDataProvider
+import com.intellij.openapi.actionSystem.impl.ActionButton
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.impl.ApplicationInfoImpl.DEFAULT_PLUGINS_HOST
 import com.intellij.openapi.diagnostic.Logger
@@ -98,10 +100,13 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.awt.BorderLayout
+import java.awt.Component
 import java.awt.Container
 import java.awt.Dimension
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
+import java.awt.event.ContainerAdapter
+import java.awt.event.ContainerEvent
 import java.util.concurrent.CancellationException
 import java.util.function.Consumer
 import javax.swing.JComponent
@@ -260,6 +265,7 @@ internal class UnifiedPluginsPageSession @RequiresEdt constructor(
       ::selectOccurrences,
       onKeyboardNavigation = { occurrenceId -> view.revealKeyboardSelection(occurrenceId) },
       onSelectAllRequested = ::selectAllDisplayed,
+      onKeyboardControlFocus = { component -> view.focusKeyboardControl(component) },
     )
     val detailsPresenter = LegacyPluginDetailsPresenter(host, searchListener)
     view = UnifiedPluginsPageView(
@@ -370,6 +376,7 @@ internal class UnifiedPluginsPageSession @RequiresEdt constructor(
     controller.showProgressIndicator(false)
     controller.showResetAction(false)
     controller.setCenterComponentGap(JBUI.scale(if (isStandaloneConfigurable) 13 else -2))
+    if (isStandaloneConfigurable) headerComponent.border = JBUI.Borders.emptyBottom(6)
     host.setTopController(controller)
     return headerComponent
   }
@@ -601,7 +608,7 @@ internal class UnifiedPluginsPageSession @RequiresEdt constructor(
             actions.group,
             IdeBundle.message("plugin.manager.tooltip"),
             AllIcons.General.GearPlain,
-          ),
+          ).also(::makeToolbarButtonsFocusable),
           GridBagConstraints().apply {
             gridx = 2
             gridy = 0
@@ -617,18 +624,31 @@ internal class UnifiedPluginsPageSession @RequiresEdt constructor(
     }
   }
 
+  /** Includes the gear in the Tab order, including after a toolbar update replaces the button. */
+  private fun makeToolbarButtonsFocusable(toolbar: Container) {
+    fun makeFocusable(component: Component) {
+      if (component is ActionButton) component.isFocusable = true
+      if (component is Container) component.components.forEach(::makeFocusable)
+    }
+    makeFocusable(toolbar)
+    toolbar.addContainerListener(object : ContainerAdapter() {
+      override fun componentAdded(event: ContainerEvent) = makeFocusable(event.child)
+    })
+  }
+
   private fun createContentComponent(): JComponent {
     val copyProvider = object : CopyProvider {
       override fun performCopy(dataContext: DataContext) {
-        val item = selectedItem() ?: return
-        val model = item.modelHandle?.model ?: return
-        val text = String.format("%s (%s)", model.name, model.version)
+        val text = selectedModels().joinToString("\n") { model ->
+          "${model.name} (${model.pluginId.idString}, ${model.version})"
+        }
+        if (text.isEmpty()) return
         CopyPasteManager.getInstance().setContents(TextTransferable(text as String?))
       }
 
       override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
 
-      override fun isCopyEnabled(dataContext: DataContext): Boolean = selectedItem()?.modelHandle != null
+      override fun isCopyEnabled(dataContext: DataContext): Boolean = selectedModels().any()
 
       override fun isCopyVisible(dataContext: DataContext): Boolean = true
     }
@@ -844,11 +864,12 @@ internal class UnifiedPluginsPageSession @RequiresEdt constructor(
     return controller.selectAndRevealOccurrences(compatibleOccurrences)
   }
 
-  private fun selectedItem() = controller.state.value.selectedOccurrence?.let { selectedOccurrence ->
-    controller.state.value.sections
-      .firstOrNull { it.id == selectedOccurrence.sectionId }
-      ?.items
-      ?.firstOrNull { it.pluginId == selectedOccurrence.pluginId }
+  private fun selectedModels(): Sequence<PluginUiModel> {
+    val state = controller.state.value
+    return state.selectedOccurrences.asSequence().mapNotNull { (sectionId, pluginId) ->
+      val section = state.sections.firstOrNull { it.id == sectionId }
+      section?.items?.firstOrNull { it.pluginId == pluginId }?.modelHandle?.model
+    }
   }
 }
 

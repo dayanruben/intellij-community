@@ -145,6 +145,16 @@ internal val DEFAULT_CUSTOM_MODULES: Map<String, CustomModuleDescription> = list
 ).associateBy { it.moduleName }
 
 /**
+ * The rules_jvm modules of the bytecode instrumentation. Their BUILD files are hand-written. The converter lists
+ * their .iml files in the project model and generates no targets for them, as for the jvm-inc-builder modules.
+ * The `imls` attribute of each `jps_modules` call names the .iml file of each of them that .idea/modules.xml
+ * registers, see [checkJpsModulesCall].
+ */
+internal val RULES_JVM_INSTRUMENTATION_MODULES: Set<String> = setOf(
+  "instrumentation-core",
+)
+
+/**
  * The modules whose jar holds a gzip member of each `.xml` entry of their provided module libraries, see
  * `gzip_resources.bzl`. A provided library stays off the runtime class path, and no packer merges it.
  */
@@ -411,6 +421,7 @@ internal class BazelBuildFileGenerator(
           .contains(lib.target.container)
       },
       fileToUpdater = fileToUpdater,
+      libraryContainers = listOfNotNull(communityLibraries, ultimateLibraries),
     )
 
     for (updater in fileToUpdater.values) {
@@ -463,6 +474,11 @@ internal class BazelBuildFileGenerator(
         continue
       }
 
+      if (module.name in RULES_JVM_INSTRUMENTATION_MODULES) {
+        skippedModules.add(descriptor)
+        continue
+      }
+
       if (descriptor.isCommunity) {
         community.add(descriptor)
       }
@@ -509,6 +525,8 @@ internal class BazelBuildFileGenerator(
     val moduleBuildFiles: Map<Path, BazelFileUpdater>,
     val moduleTargets: List<ModuleTargets>,
     val generatedBuildFileDirs: Set<Path>,
+    /** The modules of each generated BUILD file directory, in the order of the run. */
+    val moduleNamesByBuildFileDir: Map<Path, List<String>>,
   )
 
   private fun validateCustomModules(list: ModuleList) {
@@ -545,6 +563,10 @@ internal class BazelBuildFileGenerator(
     val fileToUpdater = LinkedHashMap<Path, BazelFileUpdater>()
     // bazel build file -> (bzlFile (for import) -> already imported symbols)
     val existingLoads = mutableMapOf<Path, MutableMap<String, MutableSet<String>>>()
+    val moduleLibraries = localLibraries.values.groupBy { it.target.moduleLibraryModuleName }
+    val modulesByBuildFileDir = LinkedHashMap<Path, MutableList<String>>()
+    // The files that each package exports: by hand, and by the records of the modules that the run wrote before.
+    val exportedFilesByBuildFileDir = HashMap<Path, MutableSet<String>>()
 
     fun getOrCreateFileUpdater(module: ModuleDescriptor): BazelFileUpdater {
       val fileUpdater = fileToUpdater.computeIfAbsent(module.bazelBuildFileDir) {
@@ -568,9 +590,31 @@ internal class BazelBuildFileGenerator(
         val buildSectionName = "build ${module.module.name}"
         val buildSectionSkipped = fileUpdater.isSectionSkipped(buildSectionName)
 
+        modulesByBuildFileDir.computeIfAbsent(module.bazelBuildFileDir) { ArrayList() }.add(module.module.name)
+        val imlSectionName = "iml ${module.module.name}"
         val imlTargetsBazel = BuildFile()
-        imlTargetsBazel.exportFile(module.imlFile.relativeTo(module.bazelBuildFileDir).invariantSeparatorsPathString)
-        exportDescriptorFiles(module = module, buildFile = imlTargetsBazel, alreadyExported = fileUpdater.handWrittenExportedFiles())
+        if (fileUpdater.isSectionSkipped(imlSectionName)) {
+          // The `jps_modules` repository rule names the targets of the record of each module, so a hand-written section
+          // must declare the record.
+          check(handWrittenRecordPattern(module.module.name).containsMatchIn(fileUpdater.content().orEmpty())) {
+            "${module.bazelBuildFile} skips the section `$imlSectionName`, but declares no `jps_module(name = \"${module.module.name}\", ...)` record"
+          }
+        }
+        else {
+          val packageExportedFiles = exportedFilesByBuildFileDir.computeIfAbsent(module.bazelBuildFileDir) {
+            HashSet(fileUpdater.handWrittenExportedFiles())
+          }
+          packageExportedFiles += imlTargetsBazel.generateJpsModuleRecord(
+            module = module,
+            targets = moduleBuildTargets,
+            customModules = customModules.keys,
+            moduleLibraries = moduleLibraries.get(module.module.name).orEmpty(),
+            exportedFiles = exportedDescriptorFiles(module = module, alreadyExported = packageExportedFiles),
+            packageExportedFiles = packageExportedFiles,
+            communityRoot = communityRoot,
+            ultimateRoot = ultimateRoot,
+          )
+        }
 
         val testTargetsBazel = BuildFile()
         testTargetsBazel.generateTestTargets(module, list, starterTestTargets.get(module.module.name))
@@ -595,7 +639,11 @@ internal class BazelBuildFileGenerator(
           generatePluginSection(module, list, manuallyWrittenAttributes, fileUpdater, ::collectLoadStatements, existingLoadSymbols)
         }
 
-        fileUpdater.insertAutoGeneratedSection(sectionName = "iml ${module.module.name}", autoGeneratedContent = imlTargetsBazel.render())
+        collectLoadStatements(imlTargetsBazel.loadStatements)
+        fileUpdater.insertAutoGeneratedSection(
+          sectionName = imlSectionName,
+          autoGeneratedContent = imlTargetsBazel.render(existingLoads = existingLoadSymbols),
+        )
 
         // `plugin-model-tool` writes the `dev ${module.module.name}` section, and this run never touches it.
 
@@ -609,6 +657,11 @@ internal class BazelBuildFileGenerator(
         }
         fileUpdater.appendLoadSymbols(existingLoadSymbols)
       }
+    }
+
+    for ((dir, moduleNames) in modulesByBuildFileDir) {
+      val fileUpdater = fileToUpdater.getValue(dir)
+      checkJpsModuleRecordNames(buildFile = dir.resolve("BUILD.bazel"), content = fileUpdater.content().orEmpty(), moduleNames = moduleNames)
     }
 
     val generatedBuildFileDirs = fileToUpdater.keys.toSet()
@@ -626,6 +679,7 @@ internal class BazelBuildFileGenerator(
       moduleBuildFiles = fileToUpdater.mapValues { it.value },
       moduleTargets = targetsPerModule,
       generatedBuildFileDirs = generatedBuildFileDirs,
+      moduleNamesByBuildFileDir = modulesByBuildFileDir,
     )
   }
 
@@ -731,6 +785,8 @@ internal class BazelBuildFileGenerator(
 
   internal data class ModuleTargets(
     val moduleDescriptor: ModuleDescriptor,
+    /** The label of the one library target of the module, the `jvm_library` or the `ij_plugin_module`. */
+    val target: String,
     val productionTargets: List<String>,
     val productionJars: List<String>,
     val testTargets: List<String>,
@@ -998,6 +1054,7 @@ internal class BazelBuildFileGenerator(
     val jars = listOf(getJarLocation(targetLabel))
     return ModuleTargets(
       moduleDescriptor = moduleDescriptor,
+      target = targets.single(),
       productionTargets = (if (moduleDescriptor.isTestModule) emptyList() else targets) + customModule?.additionalProductionTargets.orEmpty(),
       productionJars = (if (moduleDescriptor.isTestModule) emptyList() else jars) + customModule?.additionalProductionJars.orEmpty(),
       testTargets = if (moduleDescriptor.isTestModule) targets else emptyList(),
@@ -1904,7 +1961,7 @@ private const val IJ_PLUGIN_DIST_DIRECTORY_SUFFIX = "_dist"
 private fun compileExcludeSortKey(pattern: String): String = pattern.lowercase().replace('/', '{')
 
 /**
- * Exports every XML under this module's production resource roots: content module descriptors,
+ * The files to export: every XML under this module's production resource roots, content module descriptors,
  * `META-INF/plugin.xml`, and the fragments those `xi:include`.
  *
  * The whole tree, not the root and its `META-INF/`. A reference beginning with `/` is taken verbatim
@@ -1916,7 +1973,7 @@ private fun compileExcludeSortKey(pattern: String): String = pattern.lowercase()
  * convention probe name is materialized into the project model tree - and keeping the two rules independent is what
  * makes them unable to disagree: this side only has to be wide enough.
  */
-private fun exportDescriptorFiles(module: ModuleDescriptor, buildFile: BuildFile, alreadyExported: Set<String>) {
+internal fun exportedDescriptorFiles(module: ModuleDescriptor, alreadyExported: Set<String>): Set<String> {
   val exported = TreeSet<String>()
   for (resource in module.resources) {
     if (!resource.root.isDirectory()) {
@@ -1952,7 +2009,5 @@ private fun exportDescriptorFiles(module: ModuleDescriptor, buildFile: BuildFile
     }
   }
 
-  for (path in exported) {
-    buildFile.exportFile(path)
-  }
+  return exported
 }

@@ -2513,7 +2513,6 @@ class PyTypeAnnotationTest : PyCodeInsightTestCase() {
 
   @Test
   @TestFor(issues = ["PY-92893"])
-  @TestCaseOptions(assertRecursionPrevention = false)
   fun `new-style default that refers to itself`() = test("""
     class Itself[T = T]: ...
     #                └ WARNING Default type of type parameter 'T' refers to itself
@@ -2523,6 +2522,15 @@ class PyTypeAnnotationTest : PyCodeInsightTestCase() {
     #                └ WARNING Default type of type parameter 'T' refers to itself
     type AItself[T = T] = list[T]
     #                └ WARNING Default type of type parameter 'T' refers to itself
+    x: Itself
+    print(x)
+    #     └ TYPE Itself[T]
+    y: SelfNested
+    print(y)
+    #     └ TYPE SelfNested[list[T]]
+    z: AItself
+    print(z)
+    #     └ TYPE list[T]
     """.trimIndent())
 
   @Test
@@ -2534,22 +2542,49 @@ class PyTypeAnnotationTest : PyCodeInsightTestCase() {
     #                ^^ WARNING Default type of this type parameter refers to one or more type variables that are out of scope
     type ALater[S2 = S1, S1 = str] = tuple[S1, S2]
     #                ^^ WARNING Default type of this type parameter refers to one or more type variables that are out of scope
+    x: Later
+    print(x)
+    #     └ TYPE Later[str, str]
+    y: ALater
+    print(y)
+    #     └ TYPE tuple[str, str]
     """.trimIndent())
 
   @Test
   @TestFor(issues = ["PY-92893"])
-  @TestCaseOptions(assertRecursionPrevention = false)
   fun `new-style defaults that refer to each other`() = test("""
     class Mutual[T = U, U = T]: ...
     #                └ WARNING Default type of this type parameter refers to one or more type variables that are out of scope
+    x: Mutual
+    print(x)
+    #     └ TYPE Mutual[T, T]
     """.trimIndent())
 
   @Test
   @TestFor(issues = ["PY-92893"])
-  @TestCaseOptions(assertRecursionPrevention = false)
   fun `new-style bound that refers to its own type parameter`() = test("""
     class SelfBound[T: T]: ...
     #                  └ ERROR Generic types are not allowed inside constraints and bounds of type parameters
+    x: SelfBound[int]
+    """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-94318"])
+  fun `new-style bound that refers to a later type parameter`() = test("""
+    class LaterBound[T: U, U]: ...
+    #                   └ ERROR Generic types are not allowed inside constraints and bounds of type parameters
+    x: LaterBound[int, str]
+    print(x)
+    #     └ TYPE LaterBound[int, str]
+    """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-94318"])
+  fun `new-style bounds that refer to each other`() = test("""
+    class MutualBound[T: U, U: T]: ...
+    #                    │     └ ERROR Generic types are not allowed inside constraints and bounds of type parameters
+    #                    └ ERROR Generic types are not allowed inside constraints and bounds of type parameters
+    x: MutualBound[int, str]
     """.trimIndent())
 
   @Test
@@ -2562,6 +2597,54 @@ class PyTypeAnnotationTest : PyCodeInsightTestCase() {
     class TsLater[*Ts = *tuple[T, ...], T = int]: ...
     #                          │        ^^^^^^^ ERROR TypeVar with a default value cannot follow TypeVarTuple
     #                          └ WARNING Default type of this type parameter refers to one or more type variables that are out of scope
+    x: Nested
+    print(x)
+    #     └ TYPE Nested[list[str], str]
+    y: PLater
+    print(y)
+    #     └ TYPE PLater[[int], int]
+    z: TsLater
+    print(z)
+    #     └ TYPE TsLater[*tuple[int, ...], int]
+    """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-94318"])
+  fun `new-style quoted default or bound that refers to its own or a later type parameter`() = test("""
+    class QItself[T = "T"]: ...
+    #                 ^^^ WARNING FIXME Default type of type parameter 'T' refers to itself
+    class QSelfNested[T = "list[T]"]: ...
+    #                     ^^^^^^^^^ WARNING FIXME Default type of type parameter 'T' refers to itself
+    class QLater[S2 = "S1", S1 = str]: ...
+    #                 ^^^^ WARNING FIXME Default type of this type parameter refers to one or more type variables that are out of scope
+    class QMutual[T = "U", U = "T"]: ...
+    #                 ^^^ WARNING FIXME Default type of this type parameter refers to one or more type variables that are out of scope
+    class QSelfBound[T: "T"]: ...
+    #                   ^^^ ERROR FIXME Generic types are not allowed inside constraints and bounds of type parameters
+    class QLaterBound[T: "U", U]: ...
+    #                    ^^^ ERROR FIXME Generic types are not allowed inside constraints and bounds of type parameters
+    class QEarlier[S1 = str, S2 = "list[S1]"]: ...
+    a: QItself
+    print(a)
+    #     └ TYPE QItself[T]
+    b: QSelfNested
+    print(b)
+    #     └ TYPE QSelfNested[list[T]]
+    c: QLater
+    print(c)
+    #     └ TYPE QLater[str, str]
+    d: QMutual
+    print(d)
+    #     └ TYPE QMutual[T, T]
+    e: QSelfBound[int]
+    print(e)
+    #     └ TYPE QSelfBound[int]
+    g: QLaterBound[int, str]
+    print(g)
+    #     └ TYPE QLaterBound[int, str]
+    h: QEarlier
+    print(h)
+    #     └ TYPE QEarlier[str, list[str]]
     """.trimIndent())
 
   @Test
@@ -2572,6 +2655,58 @@ class PyTypeAnnotationTest : PyCodeInsightTestCase() {
     class TsOk[T = int, *Ts = *tuple[T, ...]]: ...
     def f_ok[S1 = str, S2 = S1](): ...
     type AOk[S1 = str, S2 = S1] = tuple[S1, S2]
+    """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-94318"])
+  fun `new-style ParamSpec default that refers to another type parameter`() = test("""
+    from typing import Callable
+
+    class PSelf[**P = P]: ...
+    #                 └ WARNING Default type of type parameter 'P' refers to itself
+    class PLaterParamSpec[**P1 = P2, **P2 = [int]]: ...
+    #                            ^^ WARNING Default type of this type parameter refers to one or more type variables that are out of scope
+    class PEarlier[**P1 = [int], **P2 = P1]: ...
+    class PEarlierTypeVar[T = int, **P = [T, str]]: ...
+    type APEarlier[**P1 = [int], **P2 = P1] = Callable[P2, None]
+    a: PSelf
+    print(a)
+    #     └ TYPE PSelf[**P]
+    b: PLaterParamSpec
+    print(b)
+    #     └ TYPE PLaterParamSpec[[int], [int]]
+    c: PEarlier
+    print(c)
+    #     └ TYPE PEarlier[[int], [int]]
+    d: PEarlierTypeVar
+    print(d)
+    #     └ TYPE PEarlierTypeVar[int, [int, str]]
+    e: APEarlier
+    print(e)
+    #     └ TYPE (int) -> None
+    """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-94318"])
+  fun `new-style TypeVarTuple default that refers to another type parameter`() = test("""
+    class TsSelf[*Ts = *Ts]: ...
+    #                   ^^ WARNING Default type of type parameter 'Ts' refers to itself
+    class TsSelfNested[*Ts = *tuple[*Ts]]: ...
+    #                                ^^ WARNING Default type of type parameter 'Ts' refers to itself
+    class TsEarlier[T = int, *Ts = *tuple[T, str]]: ...
+    type ATsEarlier[T = int, *Ts = *tuple[T, str]] = tuple[*Ts]
+    a: TsSelf
+    print(a)
+    #     └ TYPE TsSelf[*Ts]
+    b: TsSelfNested
+    print(b)
+    #     └ TYPE TsSelfNested[*Ts]
+    c: TsEarlier
+    print(c)
+    #     └ TYPE TsEarlier[int, int, str]
+    d: ATsEarlier
+    print(d)
+    #     └ TYPE tuple[int, str]
     """.trimIndent())
 
   @Test

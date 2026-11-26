@@ -32,19 +32,30 @@ fun parseUpdateData(
 ): Product? = parseUpdateData(JDOMUtil.load(text), productCode)
 
 fun parseUpdateData(node: Element, productCode: String = ApplicationInfo.getInstance().build.productCode): Product? =
+  parseUpdateData(node, productCode, PatchInfo.OS_SUFFIX)
+
+/**
+ * Parses the update data for the OS [distributionOs]: a `<distribution>` element gives the file of this OS.
+ * The value is an `os` value of the element, for example `mac`. A test gives it, because its machine has another OS.
+ */
+@Internal
+fun parseUpdateData(node: Element, productCode: String, distributionOs: String): Product? =
   node.getChildren("product")
     .find { it.getChildren("code").any { code -> code.value.trim() == productCode } }
-    ?.let { Product(it, productCode) }
+    ?.let { Product(it, productCode, distributionOs) }
 
-class Product internal constructor(node: Element, private val productCode: String) {
+class Product internal constructor(node: Element, private val productCode: String, distributionOs: String) {
   val name: @NlsSafe String = node.getMandatoryAttributeValue("name")
-  val channels: List<UpdateChannel> = node.getChildren("channel").map { UpdateChannel(it, productCode) }
+  val channels: List<UpdateChannel> = node.getChildren("channel").map { UpdateChannel(it, productCode, distributionOs) }
   val disableMachineId: Boolean = node.getAttributeValue("disableMachineId", "false") == "true"
 
   override fun toString(): String = productCode
 }
 
-class UpdateChannel @Internal constructor(node: Element, productCode: String) {
+class UpdateChannel @Internal constructor(node: Element, productCode: String, distributionOs: String) {
+  @Internal
+  constructor(node: Element, productCode: String) : this(node, productCode, PatchInfo.OS_SUFFIX)
+
   enum class Licensing { EAP, RELEASE; }
 
   val id: String = node.getMandatoryAttributeValue("id")
@@ -52,12 +63,12 @@ class UpdateChannel @Internal constructor(node: Element, productCode: String) {
   val licensing: Licensing = if (node.getAttributeValue("licensing") == "eap") Licensing.EAP else Licensing.RELEASE
   val evalDays: Int = node.getAttributeValue("evalDays")?.toInt() ?: 30
   val url: String? = node.getAttributeValue("url")
-  val builds: List<BuildInfo> = node.getChildren("build").map { BuildInfo(it, productCode) }
+  val builds: List<BuildInfo> = node.getChildren("build").map { BuildInfo(it, productCode, distributionOs) }
 
   override fun toString(): String = id
 }
 
-class BuildInfo internal constructor(node: Element, productCode: String) {
+class BuildInfo internal constructor(node: Element, productCode: String, distributionOs: String) {
   val number: BuildNumber = parseBuildNumber(node.getMandatoryAttributeValue("fullNumber", "number"), productCode)
   val apiVersion: BuildNumber = node.getAttributeValue("apiVersion")?.let { BuildNumber.fromStringWithProductCode(it, number.productCode) } ?: number
   val version: String = node.getAttributeValue("version") ?: ""
@@ -68,7 +79,7 @@ class BuildInfo internal constructor(node: Element, productCode: String) {
   val patches: List<PatchInfo> = node.getChildren("patch").map(::PatchInfo)
   val downloadUrl: String? = node.getChildren("button").find { it.getAttributeValue("download") != null }?.getMandatoryAttributeValue("url")
   @Internal
-  val distribution: DistributionInfo? = node.getChild("distribution")?.let { parseDistribution(it) }
+  val distribution: DistributionInfo? = node.getChild("distribution")?.let { parseDistribution(it, distributionOs) }
 
   private fun parseBuildNumber(value: String, productCode: String): BuildNumber {
     val buildNumber = BuildNumber.fromString(value)!!
@@ -106,7 +117,8 @@ class PatchInfo internal constructor(node: Element) {
 @Internal
 class DistributionInfo(val product: String, val manifestUrl: String, val fileUrl: String)
 
-private const val MIGRATION_OS = "mac"
+// the `os` values of the systems where the IDE can install and start the distribution: macOS and Windows
+private val MIGRATION_OS = setOf("mac", "win")
 private val ARCH_SUFFIX: String by lazy { distributionArchSuffix() }
 
 /**
@@ -132,7 +144,7 @@ fun distributionArchSuffix(
 }
 
 /**
- * Returns `null` when [isMigrationDisabled] is true, when the element is not valid, when [os] is not macOS,
+ * Returns `null` when [isMigrationDisabled] is true, when the element is not valid, when [os] is not macOS or Windows,
  * or when the element has no file for [os] and [arch].
  * The update then works as if the element did not exist.
  */
@@ -149,7 +161,7 @@ fun parseDistribution(
   }
 
   if (isMigrationDisabled) return null
-  if (os != MIGRATION_OS) return invalid("the migration works only on macOS")
+  if (os !in MIGRATION_OS) return invalid("the migration works only on macOS and Windows")
   val product = node.getAttributeValue("product")?.takeIf { it.isNotBlank() } ?: return invalid("no 'product'")
   val manifestUrl = node.getAttributeValue("manifest")?.takeIf { it.isNotBlank() } ?: return invalid("no 'manifest'")
   val fileUrl = node.getChildren("file")

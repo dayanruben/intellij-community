@@ -11,6 +11,7 @@ import com.intellij.ide.plugins.PluginManagerConfigurable
 import com.intellij.ide.plugins.api.PluginDto
 import com.intellij.ide.plugins.newui.ListPluginComponent
 import com.intellij.ide.ui.LafManager
+import com.intellij.ide.ui.ShowingContainer
 import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.ex.ActionUtil
@@ -50,13 +51,16 @@ import org.junit.jupiter.api.Timeout
 import java.awt.Color
 import java.awt.Component
 import java.awt.Container
+import java.awt.DefaultKeyboardFocusManager
 import java.awt.Insets
+import java.awt.KeyboardFocusManager
 import java.awt.Point
 import java.awt.Rectangle
 import java.awt.event.ActionEvent
 import java.awt.event.ContainerAdapter
 import java.awt.event.ContainerEvent
 import java.awt.event.FocusEvent
+import java.awt.event.InputEvent
 import java.awt.event.KeyEvent
 import java.awt.event.MouseEvent
 import java.awt.image.BufferedImage
@@ -66,7 +70,9 @@ import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.RepaintManager
+import javax.swing.SwingConstants
 import javax.swing.SwingUtilities
+import javax.swing.JTextField
 import javax.swing.JToggleButton
 import javax.swing.KeyStroke
 
@@ -87,14 +93,14 @@ internal class UnifiedPluginsPageViewTest {
   }
 
   @Test
-  fun `default split gives the list half of narrow widths and one eleventh of extra width`(): Unit = timeoutRunBlocking(context = Dispatchers.UI) {
+  fun `default split caps the list at 350 scaled pixels`(): Unit = timeoutRunBlocking(context = Dispatchers.UI) {
     val properties = PropertiesComponent.getInstance()
     val previousProportion = properties.getValue(SPLIT_PROPORTION_PROPERTY)
     try {
       properties.unsetValue(SPLIT_PROPORTION_PROPERTY)
       val splitter = createView().component as OnePixelSplitter
 
-      for ((width, expectedListWidth) in listOf(600 to 300, 700 to 350, 1800 to 450)) {
+      for ((width, expectedListWidth) in listOf(600 to 300, 700 to 350, 1800 to 350)) {
         splitter.setSize(JBUI.scale(width), JBUI.scale(320))
         splitter.doLayout()
         assertThat(splitter.firstComponent.width)
@@ -262,6 +268,8 @@ internal class UnifiedPluginsPageViewTest {
     assertThat(loadingLabel.text).isEmpty()
     assertThat(loadingLabel.accessibleContext.accessibleName)
       .isEqualTo(IdeBundle.message("plugins.configurable.section.loading", IdeBundle.message("plugin.manager.tab.installed")))
+    assertThat(componentsOfType(installedComponent, JToggleButton::class.java))
+      .anyMatch { it.accessibleContext.accessibleName == IdeBundle.message("plugins.configurable.show.more") }
   }
 
   @Test
@@ -279,6 +287,8 @@ internal class UnifiedPluginsPageViewTest {
     )
     val countLabel = componentsOfType(installedList.parent, JBLabel::class.java).single { it.text == expectedCount }
     assertThat(countLabel.accessibleContext.accessibleName).isEqualTo(expectedCount)
+    assertThat(componentsOfType(installedList.parent, JToggleButton::class.java))
+      .anyMatch { it.accessibleContext.accessibleName == IdeBundle.message("plugins.configurable.show.more") }
   }
 
   @Test
@@ -308,14 +318,15 @@ internal class UnifiedPluginsPageViewTest {
     val view = createView(onExpansionChanged = { id, expanded -> expansionChanges.add(id to expanded) })
     view.render(controller.state.value)
 
-    val installedList = sectionList(view, IdeBundle.message("plugin.manager.tab.installed"))
-    val headerButton = componentsOfType(installedList.parent, JToggleButton::class.java).single()
+    val title = IdeBundle.message("plugin.manager.tab.installed")
+    val installedList = sectionList(view, title)
+    val header = sectionHeader(view, title)
+    val headerButton = componentsOfType(header, JToggleButton::class.java).single()
     val expansionTextLabel = componentsOfType(headerButton, JBLabel::class.java)
       .single { it.text == IdeBundle.message("plugins.configurable.show.more") }
     val expansionChevronLabel = componentsOfType(headerButton, JBLabel::class.java)
       .single { it.icon === AllIcons.General.ChevronDown }
     val expansionControl = expansionTextLabel.parent as JComponent
-    val header = sectionHeader(view, IdeBundle.message("plugin.manager.tab.installed"))
     header.setSize(JBUI.scale(320), JBUI.scale(40))
     layoutRecursively(header)
     assertThat(installedList.model.size).isEqualTo(PluginSectionState.COLLAPSED_ITEM_LIMIT)
@@ -345,6 +356,81 @@ internal class UnifiedPluginsPageViewTest {
   }
 
   @Test
+  fun `section header reveals Show more on hover and keyboard focus`(): Unit = timeoutRunBlocking(context = Dispatchers.UI) {
+    val controller = UnifiedPluginsPageController(listOf(section(PluginSectionId.Installed, itemCount = 5)))
+    createView().use { view ->
+      view.render(controller.state.value)
+      val header = sectionHeader(view, IdeBundle.message("plugin.manager.tab.installed"))
+      val button = componentsOfType(header, JToggleButton::class.java).single()
+      val control = componentsOfType(button, JBLabel::class.java)
+        .single { it.text == IdeBundle.message("plugins.configurable.show.more") }
+        .parent as JComponent
+
+      fun expansionControlPainted(): Boolean {
+        header.setSize(JBUI.scale(320), JBUI.scale(40))
+        layoutRecursively(header)
+        val image = paintedImage(control)
+        return image.getRGB(0, 0, image.width, image.height, null, 0, image.width).any { it ushr 24 != 0 }
+      }
+
+      assertThat(expansionControlPainted()).isFalse()
+
+      button.model.isRollover = true
+      assertThat(expansionControlPainted()).isTrue()
+      button.model.isRollover = false
+
+      button.focusListeners.forEach { it.focusGained(FocusEvent(button, FocusEvent.FOCUS_GAINED)) }
+      assertThat(expansionControlPainted()).isTrue()
+      button.focusListeners.forEach { it.focusLost(FocusEvent(button, FocusEvent.FOCUS_LOST)) }
+      assertThat(expansionControlPainted()).isFalse()
+
+      controller.setSectionExpanded(PluginSectionId.Installed, true)
+      view.render(controller.state.value)
+      assertThat(expansionControlPainted()).isTrue()
+    }
+  }
+
+  @Test
+  fun `section footer expands and collapses a plugin preview`(): Unit = timeoutRunBlocking(context = Dispatchers.UI) {
+    val controller = UnifiedPluginsPageController(listOf(section(PluginSectionId.Installed, itemCount = 5)))
+    lateinit var view: UnifiedPluginsPageView
+    view = createView(onExpansionChanged = { id, expanded ->
+      controller.setSectionExpanded(id, expanded)
+      view.render(controller.state.value)
+    })
+    view.use {
+      view.render(controller.state.value)
+      val title = IdeBundle.message("plugin.manager.tab.installed")
+      val list = sectionList(view, title)
+      val headerButton = componentsOfType(sectionHeader(view, title), JToggleButton::class.java).single()
+      val footerButton = componentsOfType(list.parent, JToggleButton::class.java).single { it !== headerButton }
+      val footerRow = footerButton.parent as JComponent
+      val showMoreText = IdeBundle.message("plugins.configurable.show.hidden.row", 2)
+      val label = componentsOfType(footerButton, JBLabel::class.java).single()
+      assertThat(footerRow.isVisible).isTrue()
+      assertThat(footerRow.preferredSize.height).isEqualTo(JBUI.scale(24))
+      assertThat((footerRow.parent as JComponent).insets.top).isEqualTo(JBUI.scale(4))
+      assertThat(footerButton.accessibleContext.accessibleName).isEqualTo(showMoreText)
+      assertThat(label.foreground).isEqualTo(UIUtil.getContextHelpForeground())
+      assertThat(label.icon).isSameAs(AllIcons.General.ChevronDown)
+      assertThat(label.horizontalTextPosition).isEqualTo(SwingConstants.LEADING)
+
+      footerButton.doClick()
+
+      assertThat(list.model.size).isEqualTo(5)
+      assertThat(footerRow.isVisible).isTrue()
+      assertThat(footerButton.accessibleContext.accessibleName).isEqualTo(IdeBundle.message("plugins.configurable.show.less"))
+      assertThat(footerButton.accessibleContext.accessibleStateSet.contains(AccessibleState.EXPANDED)).isTrue()
+      assertThat(label.icon).isSameAs(AllIcons.General.ChevronUp)
+
+      footerButton.doClick()
+
+      assertThat(list.model.size).isEqualTo(PluginSectionState.COLLAPSED_ITEM_LIMIT)
+      assertThat(footerButton.accessibleContext.accessibleName).isEqualTo(showMoreText)
+    }
+  }
+
+  @Test
   fun `expandable section header supports mouse keyboard hover and focus`(): Unit = timeoutRunBlocking(context = Dispatchers.UI) {
     val expansionChanges = ArrayList<Pair<PluginSectionId, Boolean>>()
     val controller = UnifiedPluginsPageController(listOf(section(PluginSectionId.Installed, itemCount = 5)))
@@ -366,14 +452,14 @@ internal class UnifiedPluginsPageViewTest {
     headerButton.model.isRollover = true
     val image = paintedImage(header)
     val hoverX = header.width / 2
-    val hoverY = JBUI.scale(7 + 2)
+    val hoverY = JBUI.scale(8 + 2)
     val hoverColor = ColorUtil.alphaBlending(ListPluginComponent.HOVER_COLOR, PluginManagerConfigurable.MAIN_BG_COLOR)
     assertThat((header as SelectablePanel).selectionColor).isEqualTo(hoverColor)
     assertThat(Color(image.getRGB(hoverX, hoverY), true).rgb).isEqualTo(hoverColor.rgb)
-    assertThat(Color(image.getRGB(hoverX, JBUI.scale(7) - 1), true).rgb).isNotEqualTo(hoverColor.rgb)
-    assertThat(Color(image.getRGB(hoverX, header.height - JBUI.scale(3) + 1), true).rgb)
+    assertThat(Color(image.getRGB(hoverX, JBUI.scale(8) - 1), true).rgb).isNotEqualTo(hoverColor.rgb)
+    assertThat(Color(image.getRGB(hoverX, header.height - JBUI.scale(4) + 1), true).rgb)
       .isNotEqualTo(hoverColor.rgb)
-    assertThat(header.height - JBUI.scale(7) - JBUI.scale(3)).isEqualTo(JBUI.scale(30))
+    assertThat(header.height - JBUI.scale(8) - JBUI.scale(4)).isEqualTo(JBUI.scale(28))
     assertThat(Color(image.getRGB(0, header.height / 2), true).rgb).isNotEqualTo(hoverColor.rgb)
 
     headerButton.model.isRollover = false
@@ -382,15 +468,13 @@ internal class UnifiedPluginsPageViewTest {
     headerButton.focusListeners.forEach { it.focusGained(FocusEvent(headerButton, FocusEvent.FOCUS_GAINED)) }
     val focusedImage = paintedImage(header)
     val focusColor = JBUI.CurrentTheme.ActionButton.focusedBorder()
-    val focusTop = JBUI.scale(7)
+    val focusTop = JBUI.scale(8)
     val focusGap = JBUI.scale(1)
-    val focusWidth = JBUI.scale(2)
-    assertThat(header.selectionColor).isNull()
+    assertThat(header.selectionColor).isEqualTo(hoverColor)
+    assertThat(headerButton.border).isSameAs(contentBorder)
     assertThat(headerButton.border.getBorderInsets(headerButton)).isEqualTo(contentInsets)
-    assertThat(Color(focusedImage.getRGB(hoverX, focusTop), true).rgb).isNotEqualTo(focusColor.rgb)
-    assertThat(Color(focusedImage.getRGB(hoverX, focusTop + focusGap), true).rgb).isEqualTo(focusColor.rgb)
-    assertThat(Color(focusedImage.getRGB(hoverX, focusTop + focusGap + focusWidth - 1), true).rgb).isEqualTo(focusColor.rgb)
-    assertThat(Color(focusedImage.getRGB(hoverX, focusTop + focusGap + focusWidth), true).rgb).isNotEqualTo(focusColor.rgb)
+    assertThat(Color(focusedImage.getRGB(hoverX, hoverY), true).rgb).isEqualTo(hoverColor.rgb)
+    assertThat(Color(focusedImage.getRGB(hoverX, focusTop + focusGap), true).rgb).isNotEqualTo(focusColor.rgb)
 
     headerButton.focusListeners.forEach { it.focusLost(FocusEvent(headerButton, FocusEvent.FOCUS_LOST)) }
     assertThat(header.selectionColor).isNull()
@@ -436,6 +520,36 @@ internal class UnifiedPluginsPageViewTest {
   }
 
   @Test
+  fun `Right expands a section header and Left collapses it`(): Unit = timeoutRunBlocking(context = Dispatchers.UI) {
+    val installed = PluginSectionId.Installed
+    val controller = UnifiedPluginsPageController(listOf(section(installed, itemCount = 5)))
+    lateinit var view: UnifiedPluginsPageView
+    view = createView(onExpansionChanged = { id, expanded ->
+      controller.setSectionExpanded(id, expanded)
+      view.render(controller.state.value)
+    })
+    view.use {
+      view.render(controller.state.value)
+      val header = sectionHeader(view, IdeBundle.message("plugin.manager.tab.installed"))
+      val button = componentsOfType(header, JToggleButton::class.java).single()
+      fun press(keyCode: Int) {
+        val event = KeyEvent(button, KeyEvent.KEY_PRESSED, 0, 0, keyCode, KeyEvent.CHAR_UNDEFINED)
+        button.keyListeners.forEach { it.keyPressed(event) }
+        assertThat(event.isConsumed).isTrue()
+      }
+
+      press(KeyEvent.VK_LEFT)
+      assertThat(button.isSelected).isFalse()
+      press(KeyEvent.VK_RIGHT)
+      assertThat(button.isSelected).isTrue()
+      press(KeyEvent.VK_RIGHT)
+      assertThat(button.isSelected).isTrue()
+      press(KeyEvent.VK_LEFT)
+      assertThat(button.isSelected).isFalse()
+    }
+  }
+
+  @Test
   fun `Marketplace link uses section hover and focus and opens from the full row`(@TestDisposable disposable: Disposable) {
     assertThat(LoadingState.COMPONENTS_LOADED.isOccurred).isTrue()
     val openedUrls = ArrayList<String>()
@@ -447,16 +561,21 @@ internal class UnifiedPluginsPageViewTest {
     ApplicationManager.getApplication().replaceService(BrowserLauncher::class.java, launcher, disposable)
 
     timeoutRunBlocking(context = Dispatchers.UI) {
-      val controller = UnifiedPluginsPageController(listOf(section(PluginSectionId.Suggested, itemCount = 5)))
+      val controller = UnifiedPluginsPageController(
+        listOf(section(PluginSectionId.Installed, itemCount = 5), section(PluginSectionId.Suggested, itemCount = 5))
+      )
       createView().use { view ->
         view.render(controller.state.value, showMarketplaceLink = true)
         prepareForScrolling(view)
 
         val link = componentsOfType(view.component, ActionLink::class.java).single()
         val footer = link.parent as SelectablePanel
-        val header = sectionHeader(view, IdeBundle.message("plugins.configurable.suggested")) as SelectablePanel
-        assertThat(footer.selectionArc).isEqualTo(header.selectionArc)
-        assertThat(footer.selectionInsets).isEqualTo(header.selectionInsets)
+        val expansionRow = componentsOfType(view.component, JToggleButton::class.java)
+          .single { it.accessibleContext.accessibleName == IdeBundle.message("plugins.configurable.show.hidden.row", 2) }
+          .parent as SelectablePanel
+        assertThat(footer.height).isEqualTo(expansionRow.height)
+        assertThat(footer.selectionArc).isEqualTo(expansionRow.selectionArc)
+        assertThat(footer.selectionInsets).isEqualTo(expansionRow.selectionInsets)
         assertThat(link.foreground).isEqualTo(UIUtil.getContextHelpForeground())
 
         val x = footer.width - JBUI.scale(20)
@@ -579,12 +698,20 @@ internal class UnifiedPluginsPageViewTest {
     val actionRight = SwingUtilities.convertPoint(expansionControl, Point(expansionControl.width, 0), scrollPane.viewport).x
     assertThat(actionRight).isLessThanOrEqualTo(scrollPane.viewport.width)
 
-    view.component.setSize(fullTitleWidth * 11, 320)
-    layoutRecursively(view.component)
-    view.render(controller.state.value)
+    val properties = PropertiesComponent.getInstance()
+    val previousProportion = properties.getValue(SPLIT_PROPORTION_PROPERTY)
+    try {
+      view.component.setSize(fullTitleWidth * 2, 320)
+      (view.component as OnePixelSplitter).proportion = 0.9f
+      layoutRecursively(view.component)
+      view.render(controller.state.value)
 
-    assertThat(titleLabel.text).isEqualTo(fullTitle)
-    assertThat(titleLabel.toolTipText).isNull()
+      assertThat(titleLabel.text).isEqualTo(fullTitle)
+      assertThat(titleLabel.toolTipText).isNull()
+    }
+    finally {
+      restoreProperty(properties, SPLIT_PROPORTION_PROPERTY, previousProportion)
+    }
   }
 
   @Test
@@ -849,7 +976,7 @@ internal class UnifiedPluginsPageViewTest {
     val installedList = sectionList(view, installedTitle)
     val sectionsPanel = installedList.parent.parent as JComponent
     val expectedInsets = Insets(JBUI.scale(8), JBUI.scale(16), JBUI.scale(4), JBUI.scale(12))
-    assertThat(sectionsPanel.insets).isEqualTo(Insets(0, 0, 0, 0))
+    assertThat(sectionsPanel.insets).isEqualTo(Insets(0, 0, JBUI.scale(8), 0))
     assertThat(installedHeader.preferredSize.height).isEqualTo(JBUI.scale(40))
     assertThat(installedHeader.minimumSize.height).isEqualTo(JBUI.scale(40))
     assertThat(installedHeader.maximumSize.height).isEqualTo(JBUI.scale(40))
@@ -1084,6 +1211,71 @@ internal class UnifiedPluginsPageViewTest {
   }
 
   @Test
+  fun `sticky header preserves its keyboard highlight`(): Unit = timeoutRunBlocking(context = Dispatchers.UI) {
+    val controller = UnifiedPluginsPageController(
+      listOf(section(PluginSectionId.Installed, itemCount = 5), section(PluginSectionId.Bundled, itemCount = 20))
+    )
+    lateinit var view: UnifiedPluginsPageView
+    view = createView(onExpansionChanged = { id, expanded ->
+      controller.setSectionExpanded(id, expanded)
+      view.render(controller.state.value)
+    })
+    view.use {
+      view.render(controller.state.value)
+      prepareForScrolling(view)
+      val title = IdeBundle.message("plugins.configurable.bundled")
+      val header = sectionHeader(view, title) as SelectablePanel
+      val button = componentsOfType(header, JToggleButton::class.java).single()
+      val headerSlot = header.parent
+      val scrollPane = componentsOfType(view.component, JBScrollPane::class.java).single()
+      val bundledList = sectionList(view, title)
+      val originalFocusManager = KeyboardFocusManager.getCurrentKeyboardFocusManager()
+      val focusManager = object : DefaultKeyboardFocusManager() {
+        override fun getFocusOwner(): Component = button
+      }
+
+      fun gainFocus(cause: FocusEvent.Cause) {
+        val event = FocusEvent(button, FocusEvent.FOCUS_GAINED, false, null, cause)
+        button.focusListeners.forEach { it.focusGained(event) }
+      }
+
+      fun restoreFocus() {
+        val event = FocusEvent(button, FocusEvent.FOCUS_LOST)
+        button.focusListeners.forEach { it.focusLost(event) }
+        gainFocus(FocusEvent.Cause.UNKNOWN)
+      }
+
+      KeyboardFocusManager.setCurrentKeyboardFocusManager(focusManager)
+      try {
+        gainFocus(FocusEvent.Cause.MOUSE_EVENT)
+        button.doClick()
+        assertThat(bundledList.model.size).isEqualTo(20)
+        assertThat(header.selectionColor).isNull()
+
+        scrollToRow(scrollPane, bundledList, 5)
+        assertThat(header.parent).isNotSameAs(headerSlot)
+        restoreFocus()
+        assertThat(header.selectionColor).isNull()
+
+        scrollPane.viewport.viewPosition = Point()
+        assertThat(header.parent).isSameAs(headerSlot)
+        restoreFocus()
+        assertThat(header.selectionColor).isNull()
+
+        gainFocus(FocusEvent.Cause.TRAVERSAL_FORWARD)
+        val keyboardHighlight = header.selectionColor
+        assertThat(keyboardHighlight).isNotNull()
+        scrollToRow(scrollPane, bundledList, 5)
+        restoreFocus()
+        assertThat(header.selectionColor).isEqualTo(keyboardHighlight)
+      }
+      finally {
+        KeyboardFocusManager.setCurrentKeyboardFocusManager(originalFocusManager)
+      }
+    }
+  }
+
+  @Test
   fun `marketplace replaces suggested when query changes`(): Unit = timeoutRunBlocking(context = Dispatchers.UI) {
     val controller = UnifiedPluginsPageController(
       listOf(
@@ -1150,6 +1342,65 @@ internal class UnifiedPluginsPageViewTest {
 
     searchField.text = "java"
     assertThat(queries.last()).isEqualTo("java")
+  }
+
+  @Test
+  fun `typing in the list appends to the search while the page is attached`(): Unit = timeoutRunBlocking(context = Dispatchers.UI) {
+    val originalFocusManager = KeyboardFocusManager.getCurrentKeyboardFocusManager()
+    val focusManager = object : DefaultKeyboardFocusManager() {
+      private var source: Component? = null
+
+      override fun getFocusOwner(): Component? = source
+
+      fun type(component: Component, char: Char, modifiers: Int = 0): Boolean {
+        source = component
+        val event = KeyEvent(component, KeyEvent.KEY_TYPED, 0, modifiers, KeyEvent.VK_UNDEFINED, char)
+        return getKeyEventDispatchers().orEmpty().any { it.dispatchKeyEvent(event) }
+      }
+    }
+    val host = ShowingContainer()
+    KeyboardFocusManager.setCurrentKeyboardFocusManager(focusManager)
+    try {
+      host.addNotify()
+      val queries = ArrayList<String>()
+      val installedTitle = IdeBundle.message("plugin.manager.tab.installed")
+      val controller = UnifiedPluginsPageController(listOf(section(PluginSectionId.Installed, itemCount = 5)))
+      val list = createView(onSearchChanged = queries::add).use { view ->
+        host.add(view.component)
+        view.render(controller.state.value)
+        view.setSearchQuery("Jet")
+
+        assertThat(view.component.isShowing).isTrue()
+        val list = sectionList(view, installedTitle)
+        val header = componentsOfType(sectionHeader(view, installedTitle), JToggleButton::class.java).single()
+        val footer = componentsOfType(view.component, JToggleButton::class.java)
+          .single { it.accessibleContext.accessibleName == IdeBundle.message("plugins.configurable.show.hidden.row", 2) }
+        assertThat(focusManager.type(list, 'B', InputEvent.SHIFT_DOWN_MASK)).isTrue()
+        assertThat(focusManager.type(header, 'r')).isTrue()
+        assertThat(focusManager.type(footer, 'a')).isTrue()
+        assertThat(queries).containsExactly("JetB", "JetBr", "JetBra")
+
+        assertThat(focusManager.type(list, ' ')).isFalse()
+        assertThat(focusManager.type(header, '\n')).isFalse()
+        assertThat(focusManager.type(list, 'c', InputEvent.CTRL_DOWN_MASK)).isFalse()
+        assertThat(focusManager.type(list, 'c', InputEvent.META_DOWN_MASK)).isFalse()
+        val textField = JTextField().also(list::add)
+        assertThat(focusManager.type(textField, 'x')).isFalse()
+        assertThat(focusManager.type(JButton(), 'x')).isFalse()
+
+        host.remove(view.component)
+        assertThat(focusManager.type(list, 'x')).isFalse()
+        host.add(view.component)
+        assertThat(focusManager.type(list, 'i')).isTrue()
+        assertThat(queries).containsExactly("JetB", "JetBr", "JetBra", "JetBrai")
+        list
+      }
+      assertThat(focusManager.type(list, 'x')).isFalse()
+    }
+    finally {
+      host.removeNotify()
+      KeyboardFocusManager.setCurrentKeyboardFocusManager(originalFocusManager)
+    }
   }
 
   @Test

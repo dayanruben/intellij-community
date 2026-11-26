@@ -10,6 +10,7 @@ import com.intellij.driver.sdk.ui.components.elements.accessibleList
 import com.intellij.driver.sdk.ui.components.elements.popup
 import com.intellij.driver.sdk.ui.components.settings.SettingsDialogUiComponent
 import com.intellij.driver.sdk.ui.components.settings.settingsDialog
+import com.intellij.driver.sdk.ui.ui
 import com.intellij.openapi.util.SystemInfo
 import java.awt.Point
 import java.awt.Rectangle
@@ -80,6 +81,13 @@ class MainToolbarUI(data: ComponentData) : UiComponent(data) {
   val settingsButton: UiComponent = x("//div[contains(@myaction, 'Settings')]")
   val runWidget: ActionButtonUi = x(ActionButtonUi::class.java) { contains(byJavaClass("com.intellij.execution.ui.RedesignedRunConfigurationSelector")) }
   val cwmButton: UiComponent = x { byTooltip("Code With Me") }
+
+  fun selectRunConfiguration(runConfigurationName: String) {
+    step("Select run configuration `$runConfigurationName`") {
+      runWidget.click()
+      driver.ui.popup().waitOneText(runConfigurationName).click()
+    }
+  }
 
   fun projectWidget(projectName: String): AbstractToolbarComboUi =
     abstractToolbarCombo { and(byType("com.intellij.openapi.wm.impl.AbstractToolbarCombo"), contains(byVisibleText(projectName))) }

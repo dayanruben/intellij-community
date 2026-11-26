@@ -534,6 +534,23 @@ public class SimpleDiffViewer extends TwosideTextDiffViewer {
     return aligningViewModeSupported && !myTextDiffProvider.noFitnessForParticularPurposePromised();
   }
 
+  /**
+   * Tells if the aligning view mode paints the padding of an inserted or deleted change with the color of the change.
+   */
+  @ApiStatus.Internal
+  protected boolean isAlignedChangeColored() {
+    return true;
+  }
+
+  /**
+   * Tells if the user can select the ignore policy and the highlighting policy.
+   * When this is false, the policy actions show, but they are disabled.
+   */
+  @ApiStatus.Internal
+  public boolean isPolicySelectionEnabled() {
+    return true;
+  }
+
   //
   // Misc
   //

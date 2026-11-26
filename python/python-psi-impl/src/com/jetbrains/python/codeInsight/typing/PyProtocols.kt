@@ -32,6 +32,24 @@ fun PyClassLikeType.isProtocol(context: TypeEvalContext): Boolean = containsProt
 
 fun PyClass.isProtocol(context: TypeEvalContext): Boolean = containsProtocol(getSuperClassTypes(context))
 
+/** Whether this type is a callback protocol: a protocol whose only member is `__call__`. */
+@ApiStatus.Internal
+fun PyClassLikeType.isCallbackProtocol(context: TypeEvalContext): Boolean {
+  if (!isProtocol(context)) return false
+  // getProtocolMembers looks only one level up, so read the members of each protocol ancestor too
+  val protocols = sequenceOf(this) + getAncestorTypes(context).asSequence().filterNotNull().filter { it.isProtocol(context) }
+  val memberNames = protocols.flatMap { it.getProtocolMembers(context) }.map { it.name }.toSet()
+  return memberNames == setOf(PyNames.CALL)
+}
+
+/**
+ * Whether this type is an instance of a [callback protocol][isCallbackProtocol] with one signature. An overloaded
+ * `__call__` has more than one signature, so it does not count.
+ */
+@ApiStatus.Internal
+fun PyClassType.isCallbackProtocolInstance(context: TypeEvalContext): Boolean =
+  !isDefinition && isCallbackProtocol(context) && findMember(PyNames.CALL, PyResolveContext.defaultContext(context)).size == 1
+
 @ApiStatus.Internal
 fun PyClassType.isRuntimeCheckable(context: TypeEvalContext): Boolean =
   PyKnownDecoratorUtil.knownDecoratorsOf(pyClass, context)

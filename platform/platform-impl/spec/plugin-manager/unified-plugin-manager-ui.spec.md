@@ -107,14 +107,13 @@ This specification covers the page structure, section model, search, source load
     `compatible multi selection renders every row and details occurrence`
   )
 
-- The default split must assign equal widths when the available width is at most 700 scaled pixels.
-- Above 700 scaled pixels, the list must receive one eleventh of each extra pixel.
+- The default list width must be half of the available width, up to 350 scaled pixels.
 - Pane minimum widths must take priority when the page is too narrow for the default split.
 - The default split must follow page resizing until the user moves the divider.
 - The page must save the user's split proportion and restore it when the page reopens.
 - The details pane must have a minimum width of 220 scaled pixels.
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageViewTest.kt (
-    `default split gives the list half of narrow widths and one eleventh of extra width`;
+    `default split caps the list at 350 scaled pixels`;
     `nested layout does not save the default split`;
     `user split proportion persists across views and resizes`
   )
@@ -498,6 +497,22 @@ Untested: Community tests verify the Enter handler, but they do not verify the S
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageControllerTest.kt
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageViewTest.kt
 
+- A collapsed section header must show “Show more” on hover or keyboard focus.
+- An expanded section header must show “Show less” when the section can collapse.
+  [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageViewTest.kt (
+    `section header reveals Show more on hover and keyboard focus`
+  )
+
+- A collapsed section with hidden plugins must offer an expansion row after the preview.
+- The expansion row must show the hidden count when the count is known and within the display limit.
+- A collapsed preview must use “Show more” when the count is unavailable or exceeds the display limit.
+- An expanded section that can collapse must offer “Show less” after its plugins, except for Suggested.
+  [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageViewTest.kt (
+    `section footer expands and collapses a plugin preview`;
+    `loading icon replaces count while retaining items`;
+    `large section count shows the display limit`
+  )
+
 - Manual expansion must keep selected plugins and their details.
 - Manual collapse must keep selected plugins that remain visible and remove selections it hides.
 - Plugin details must follow the retained selection.
@@ -558,8 +573,12 @@ Untested: Community tests verify the Enter handler, but they do not verify the S
     `expandable section header supports mouse keyboard hover and focus`
   )
 
-- Up and Down must navigate between rendered plugin rows across sections.
+- Up and Down must navigate plugin rows, expandable section headers, Bundled category headers, and visible expansion rows in display order.
 - Up and Down on a focused enablement switch must change the row selection without toggling the switch.
+  [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageRealRowsTest.kt (
+    `Tab order uses one plugin row and arrows reach the headers`;
+    `arrow order includes both footer actions and expansion keeps the preview focus`
+  )
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/LegacyPluginRowFactoryTest.kt (
     `Space dispatches the row action and switch arrows navigate rows`
   )
@@ -569,19 +588,42 @@ Untested: Community tests verify the Enter handler, but they do not verify the S
 
 - Up and Down must visit the Marketplace link after the Suggested rows when the link is visible.
 - Moving to the link with an arrow key must clear the plugin selection.
+- Down from the search field must focus the selected plugin or the first item in the arrow order.
   [@test] ../../testSrc/com/intellij/ide/plugins/UnifiedPluginsPageSessionTest.kt (
     `arrows move between Suggested rows the Marketplace link and the next section`
   )
 
-- Tab must visit the active section and category actions, one plugin row, and that row's controls before it leaves the list for details.
+- Typing a printable character in the plugin list must focus the search field and append the character to the query.
+- Space, Enter, and shortcuts with Ctrl or Meta must stay with the focused control.
+- Text fields in the list must receive their own input.
+  [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageViewTest.kt (
+    `typing in the list appends to the search while the page is attached`
+  )
+
+- The settings gear must be a Tab stop.
+- Tab must visit one plugin row before it leaves the list for details.
 - The last selected row must be the list's row stop. Without a selection, the first rendered row must be that stop.
-- The Marketplace link must stay outside the Tab order.
+- Tab must skip section headers, category headers, expansion rows, row controls, and the Marketplace link.
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageRealRowsTest.kt (
-    `Tab order includes one plugin row and its controls`;
+    `Tab order uses one plugin row and arrows reach the headers`;
     `Marketplace link follows Suggested rows in arrow order and stays outside Tab order`
   )
 
-- Plugin rows and section headers must show an outline for keyboard focus.
+- Right on a section header must expand it. Left must collapse it.
+- Enter and Space must activate the focused section header or expansion row.
+  [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageViewTest.kt (
+    `Right expands a section header and Left collapses it`;
+    `expandable section header supports mouse keyboard hover and focus`
+  )
+
+- Expanding from the footer with the keyboard must move focus to the last preview plugin if it is available.
+- Collapsing from the footer with the keyboard must move focus to the section header.
+  [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageRealRowsTest.kt (
+    `arrow order includes both footer actions and expansion keeps the preview focus`
+  )
+
+- A focused plugin row outside the selection must show a keyboard focus outline.
+- Section headers and Bundled category headers must use the hover highlight for keyboard focus.
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/LegacyPluginRowFactoryTest.kt (
     `unified rows use stable island selection geometry`
   )
@@ -597,6 +639,11 @@ Untested: Community tests verify the Enter handler, but they do not verify the S
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginLocalSourceCoordinatorTest.kt (
     `enablement change updates rows without reloading inventory`;
     `enablement change survives an in-flight refresh`
+  )
+
+- A primary mouse press on row content must apply row selection before release.
+  [@test] ../../testSrc/com/intellij/ide/plugins/unified/LegacyPluginRowFactoryTest.kt (
+    `primary mouse press selects the plugin before release`
   )
 
 - Activating row content must select the plugin without invoking its primary action.
@@ -631,6 +678,11 @@ Untested: Community tests verify the Enter handler, but they do not verify the S
   )
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageRealRowsTest.kt (
     `compatible multi selection renders every row and details occurrence`
+  )
+
+- Copy must put one line per selected plugin on the clipboard in the format `name (id, version)`.
+  [@test] ../../testSrc/com/intellij/ide/plugins/UnifiedPluginsPageSessionTest.kt (
+    `Copy includes the name ID and version of every selected plugin`
   )
 
 - An independent source update must preserve the current explicit selection or explicitly cleared selection.
@@ -689,12 +741,19 @@ Untested: No focused test verifies Shift-selection across sections.
     `result announcements describe loading completion and errors`
   )
 
+- When the end of an expanded section is visible, the next section must follow its last row or footer with the standard gap.
+  [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageRealRowsTest.kt (
+    `suggested follows the Bundled footer after scrolling through the section`
+  )
+
 - The current section header must remain visible while its rows scroll.
 - The next section header must replace it without duplicating its controls.
 - A sticky expansion control must remain functional.
+- Moving a header into or out of its sticky position must preserve its keyboard highlight.
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageViewTest.kt (
     `sticky header is pushed off by the next section without duplicating controls`;
-    `sticky expansion control collapses its section`
+    `sticky expansion control collapses its section`;
+    `sticky header preserves its keyboard highlight`
   )
 
 - A section header must remain visible after the first layout, a section replacement, and a resize.
@@ -735,6 +794,8 @@ Untested: No focused test verifies Shift-selection across sections.
   )
 
 - Install, Update, and Restart actions must use the secondary button style in unified rows and details.
+- In Islands, secondary row buttons must use the theme's border color for accented surfaces.
+- A row button with a custom border color must use that color.
 - The legacy Plugins page must keep its existing action button style.
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/LegacyPluginRowFactoryTest.kt (
     `unified host uses secondary plugin action buttons`;
@@ -743,9 +804,12 @@ Untested: No focused test verifies Shift-selection across sections.
 
 - Suggested must show a “More on JetBrains Marketplace” link after its plugin rows.
   The link requires a successful load, all Suggested plugin rows to be visible, and the default Marketplace to be active.
+- The expanded Suggested section must reserve its footer for the Marketplace link.
 - The link must show an external link arrow and open the Marketplace home page in the browser.
 - Enter and Space on the focused link must open the Marketplace home page.
-- The link must use muted text and the same rounded hover and keyboard focus outline as the section headers.
+- The link must use muted text.
+- The link must match the expansion row's height and spacing above it.
+- The link and the expansion row must use a rounded highlight on hover and a rounded outline on keyboard focus.
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageRealRowsTest.kt (
     `Marketplace link follows Suggested rows in arrow order and stays outside Tab order`;
     `Marketplace link requires all Suggested results to be visible and loaded`
@@ -778,6 +842,10 @@ Untested: No focused test verifies Shift-selection across sections.
     `density variant selects 32 pixel icons`
   )
 
+- Plugin names must use regular font weight in both Plugins lists.
+
+Untested: No focused test verifies the font weight of plugin names.
+
 - A row refresh must preserve all customized tags.
   [@test] ../../testSrc/com/intellij/ide/plugins/newui/PluginRowRenderKeyTest.kt (
     `all tags are constructor presentation`
@@ -797,6 +865,7 @@ Untested: No focused test verifies Shift-selection across sections.
   )
 
 - Plugin details must use single-row tabs and offer an overflow menu when the tabs do not fit.
+- The unified details tab strip must use the Plugins page background.
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/LegacyPluginRowFactoryTest.kt (
     `details page spacing is enabled only for the unified page`
   )
@@ -836,7 +905,10 @@ Untested: No focused test verifies that Internal ignores the legacy Show All que
   )
 
 - An expanded Bundled section must group plugins by category when the query is empty.
-- Each category must offer Enable All or Disable All for the complete category.
+- Bundled category titles must use the secondary text color and the same weight as section titles.
+- Each category header must show a More actions button with an accessible name.
+- The popup must offer Enable All or Disable All for the complete category.
+- Enter and Space on a focused category header must open its More actions popup.
 - Category actions must include plugins beyond the display limit.
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageControllerTest.kt (
     `expanded Bundled section publishes category actions only without a query`;

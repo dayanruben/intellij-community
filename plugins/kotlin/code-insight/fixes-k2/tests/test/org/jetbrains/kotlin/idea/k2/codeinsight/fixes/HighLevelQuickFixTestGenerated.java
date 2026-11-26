@@ -9787,6 +9787,11 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
             runTest("../../../idea/tests/testData/quickfix/implement/abstract.kt");
         }
 
+        @TestMetadata("annotatedContextFunction.kt")
+        public void testAnnotatedContextFunction() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/implement/annotatedContextFunction.kt");
+        }
+
         @TestMetadata("annotation.kt")
         public void testAnnotation() throws Exception {
             runTest("../../../idea/tests/testData/quickfix/implement/annotation.kt");
@@ -9897,6 +9902,11 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
             runTest("../../../idea/tests/testData/quickfix/implement/manyInterfacesMemberNotImplemented.kt");
         }
 
+        @TestMetadata("namedContextParameterFromGenericHierarchy.kt")
+        public void testNamedContextParameterFromGenericHierarchy() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/implement/namedContextParameterFromGenericHierarchy.kt");
+        }
+
         @TestMetadata("nested.kt")
         public void testNested() throws Exception {
             runTest("../../../idea/tests/testData/quickfix/implement/nested.kt");
@@ -9985,6 +9995,16 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
         @TestMetadata("typeParametersClass.kt")
         public void testTypeParametersClass() throws Exception {
             runTest("../../../idea/tests/testData/quickfix/implement/typeParametersClass.kt");
+        }
+
+        @TestMetadata("unnamedContextParameter.kt")
+        public void testUnnamedContextParameter() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/implement/unnamedContextParameter.kt");
+        }
+
+        @TestMetadata("unnamedContextParameterInGenericInterface.kt")
+        public void testUnnamedContextParameterInGenericInterface() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/implement/unnamedContextParameterInGenericInterface.kt");
         }
     }
 
@@ -10338,6 +10358,66 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
         @TestMetadata("publicInlineClass.kt")
         public void testPublicInlineClass() throws Exception {
             runTest("../../../idea/tests/testData/quickfix/inlineClass/publicInlineClass.kt");
+        }
+
+        @TestMetadata("typedEqualsBlockBody.kt")
+        public void testTypedEqualsBlockBody() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/inlineClass/typedEqualsBlockBody.kt");
+        }
+
+        @TestMetadata("typedEqualsCallsEqualsOnThis.kt")
+        public void testTypedEqualsCallsEqualsOnThis() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/inlineClass/typedEqualsCallsEqualsOnThis.kt");
+        }
+
+        @TestMetadata("typedEqualsCast.kt")
+        public void testTypedEqualsCast() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/inlineClass/typedEqualsCast.kt");
+        }
+
+        @TestMetadata("typedEqualsExpressionBody.kt")
+        public void testTypedEqualsExpressionBody() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/inlineClass/typedEqualsExpressionBody.kt");
+        }
+
+        @TestMetadata("typedEqualsGeneric.kt")
+        public void testTypedEqualsGeneric() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/inlineClass/typedEqualsGeneric.kt");
+        }
+
+        @TestMetadata("typedEqualsIfElse.kt")
+        public void testTypedEqualsIfElse() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/inlineClass/typedEqualsIfElse.kt");
+        }
+
+        @TestMetadata("typedEqualsNoReturnType.kt")
+        public void testTypedEqualsNoReturnType() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/inlineClass/typedEqualsNoReturnType.kt");
+        }
+
+        @TestMetadata("typedEqualsOtherTypeCheck.kt")
+        public void testTypedEqualsOtherTypeCheck() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/inlineClass/typedEqualsOtherTypeCheck.kt");
+        }
+
+        @TestMetadata("typedEqualsParameterName.kt")
+        public void testTypedEqualsParameterName() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/inlineClass/typedEqualsParameterName.kt");
+        }
+
+        @TestMetadata("typedEqualsSafeCast.kt")
+        public void testTypedEqualsSafeCast() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/inlineClass/typedEqualsSafeCast.kt");
+        }
+
+        @TestMetadata("typedEqualsWhen.kt")
+        public void testTypedEqualsWhen() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/inlineClass/typedEqualsWhen.kt");
+        }
+
+        @TestMetadata("typedEqualsWithoutCustomEquals.kt")
+        public void testTypedEqualsWithoutCustomEquals() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/inlineClass/typedEqualsWithoutCustomEquals.kt");
         }
     }
 

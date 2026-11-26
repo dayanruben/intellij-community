@@ -120,16 +120,54 @@ fn the_groups_are_the_covered_targets_that_the_tree_has() {
     assert_eq!(plan.groups(&patterns, || Err("interrupted")), Err("interrupted"));
 }
 
-/// The query is the cost of a group, so patterns that cover no heavy or single-shard target of the plan run none.
+/// libtest runs the tests of a Rust target in parallel threads, and each shard pays the shared setup again. So each Rust
+/// test target of the tree is a single-shard target, with a record or without, under the label of the query.
 #[test]
-fn the_groups_ask_for_the_tree_only_when_the_plan_names_a_covered_target() {
+fn a_rust_test_target_is_a_single_shard_target_whatever_its_record() {
     let mut plan = ShardPlan::default();
+    plan.record(&timing("//p/a:heavy_rust_test", &[("A", 400.0)]));
+    plan.record(&timing("//p/a:medium_rust_test", &[("A", 120.0)]));
+    plan.record(&timing("@@community+//tools/bt:single_rust_test", &[("A", 5.0)]));
     plan.record(&timing("//p/a:medium_test", &[("A", 120.0)]));
-    plan.record(&timing("//q:heavy_test", &[("A", 400.0)]));
-    let groups = plan.groups(&["//p/...".to_owned()], || -> Result<Option<TreeTargets>, ()> {
-        panic!("the plan names no covered heavy or single-shard target")
-    });
-    assert_eq!(groups, Ok(Groups::default()));
+    let tree = TreeTargets::parse(
+        [
+            "_rust_test_junit_test rule //p/a:heavy_rust_test",
+            "_rust_test_junit_test rule //p/a:medium_rust_test",
+            "rust_test rule //p/b:new_rust_test",
+            "rust_test rule @community//tools/bt:single_rust_test",
+            "java_test rule //p/a:medium_test",
+        ]
+        .map(str::to_owned),
+    );
+    let patterns = vec!["//p/...".to_owned(), "@community//tools/bt/...".to_owned()];
+    assert_eq!(
+        plan.groups(&patterns, || Ok::<_, ()>(Some(tree.clone()))),
+        Ok(Groups {
+            heavy: Vec::new(),
+            single: vec![
+                "//p/a:heavy_rust_test".to_owned(),
+                "//p/a:medium_rust_test".to_owned(),
+                "//p/b:new_rust_test".to_owned(),
+                "@community//tools/bt:single_rust_test".to_owned(),
+            ],
+            gone: Vec::new(),
+        })
+    );
+}
+
+/// A Rust test target can have no record, so a plan without a covered heavy or single-shard target still asks for the
+/// tree.
+#[test]
+fn the_groups_ask_for_the_tree_also_without_a_covered_target_of_the_plan() {
+    let plan = ShardPlan::default();
+    let tree = TreeTargets::parse(["rust_test rule //p:rust_test".to_owned()]);
+    assert_eq!(
+        plan.groups(&["//p/...".to_owned()], || Ok::<_, ()>(Some(tree))),
+        Ok(Groups {
+            single: vec!["//p:rust_test".to_owned()],
+            ..Groups::default()
+        })
+    );
 }
 
 #[test]
@@ -137,11 +175,14 @@ fn the_tree_query_names_the_test_targets_of_the_patterns_in_their_order() {
     let query = |patterns: &[&str]| TreeTargets::query(&patterns.iter().map(|pattern| (*pattern).to_owned()).collect::<Vec<_>>());
     assert_eq!(
         query(&["//p/...", "@@community+//tools/bt/...", "-//p/b/...", "//p/b/c:t"]),
-        r#"tests(set() + "//p/..." + "@@community+//tools/bt/..." - "//p/b/..." + "//p/b/c:t")"#
+        r#"let t = tests(set() + "//p/..." + "@@community+//tools/bt/..." - "//p/b/..." + "//p/b/c:t") in $t except attr(tags, "\bmanual\b", $t)"#
     );
     // a negative pattern first removes from nothing, as in `bazel test`
-    assert_eq!(query(&["-//p/..."]), r#"tests(set() - "//p/...")"#);
-    assert_eq!(query(&[]), "tests(set())");
+    assert_eq!(
+        query(&["-//p/..."]),
+        r#"let t = tests(set() - "//p/...") in $t except attr(tags, "\bmanual\b", $t)"#
+    );
+    assert_eq!(query(&[]), r#"let t = tests(set()) in $t except attr(tags, "\bmanual\b", $t)"#);
 }
 
 #[test]
@@ -153,6 +194,34 @@ fn the_tree_has_a_target_under_either_name_of_its_repository() {
     assert!(!tree.has("//p:other"));
     assert!(!tree.has("//tools/bt:t"));
     assert!(!tree.has("no label"));
+}
+
+#[test]
+fn the_tree_reads_the_rule_kind_of_each_target() {
+    let tree = TreeTargets::parse(
+        [
+            "_rust_test_junit_test rule //p:junit_rust",
+            "rust_test rule @community//tools/bt:plain_rust",
+            "rust_clippy_test rule //p:clippy",
+            "java_test rule //p:java",
+            "//p:unknown",
+        ]
+        .map(str::to_owned),
+    );
+    for label in [
+        "//p:junit_rust",
+        "@@community+//tools/bt:plain_rust",
+        "//p:clippy",
+        "//p:java",
+        "//p:unknown",
+    ] {
+        assert!(tree.has(label), "{label}");
+    }
+    assert!(tree.is_rust_test("//p:junit_rust"));
+    assert!(tree.is_rust_test("@@community+//tools/bt:plain_rust"));
+    assert!(!tree.is_rust_test("//p:clippy"));
+    assert!(!tree.is_rust_test("//p:java"));
+    assert!(!tree.is_rust_test("//p:unknown"));
 }
 
 #[test]
@@ -260,4 +329,25 @@ fn a_shard_timeout_raises_the_record_only_when_the_target_becomes_heavy() {
     // a target without a record becomes heavy as well
     assert!(plan.record_lower_bound(&timing("//b:t", &[("com.E", 300.0)])));
     assert_eq!(plan.shards_of("//b:t"), 4);
+}
+
+/// The fixed seconds of a target travel in a line of their own, which an older bt skips.
+#[test]
+fn the_fixed_seconds_of_a_target_read_back_and_a_record_without_them_keeps_the_old_value() {
+    let mut plan = ShardPlan::default();
+    plan.record(&TargetTiming {
+        fixed_seconds: Some(8.5),
+        ..timing("//a:t", &[("com.A", 1.0)])
+    });
+    assert!(
+        plan.render().contains("class\t//a:t\tcom.A\t1.000\nfixed\t//a:t\t8.500\n"),
+        "{}",
+        plan.render()
+    );
+    assert_eq!(ShardPlan::parse(&plan.render()), plan);
+    assert_eq!(plan.fixed_of("//a:t"), Some(8.5));
+
+    plan.record(&timing("//a:t", &[("com.A", 2.0)]));
+    assert_eq!(plan.fixed_of("//a:t"), Some(8.5));
+    assert_eq!(ShardPlan::parse("fixed\t//a:t\tmany\nfixed\t//a:t\n").fixed_of("//a:t"), None);
 }

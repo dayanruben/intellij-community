@@ -5218,6 +5218,11 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
         public void testValueClass() throws Exception {
             runTest("../../../idea/tests/testData/inspectionsLocal/equalsOrHashCode/valueClass.kt");
         }
+
+        @TestMetadata("valueClassHashCodeOnly.kt")
+        public void testValueClassHashCodeOnly() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/equalsOrHashCode/valueClassHashCodeOnly.kt");
+        }
     }
 
     @RunWith(JUnit3RunnerWithInners.class)
@@ -11728,6 +11733,36 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
             runTest("../../../idea/tests/testData/inspectionsLocal/arrayInDataClass/justHashCode.kt");
         }
 
+        @TestMetadata("jvmInlineValueClassArray.kt")
+        public void testJvmInlineValueClassArray() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/arrayInDataClass/jvmInlineValueClassArray.kt");
+        }
+
+        @TestMetadata("jvmInlineValueClassGenericArray.kt")
+        public void testJvmInlineValueClassGenericArray() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/arrayInDataClass/jvmInlineValueClassGenericArray.kt");
+        }
+
+        @TestMetadata("jvmInlineValueClassJustHashCode.kt")
+        public void testJvmInlineValueClassJustHashCode() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/arrayInDataClass/jvmInlineValueClassJustHashCode.kt");
+        }
+
+        @TestMetadata("jvmInlineValueClassNestedArray.kt")
+        public void testJvmInlineValueClassNestedArray() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/arrayInDataClass/jvmInlineValueClassNestedArray.kt");
+        }
+
+        @TestMetadata("jvmInlineValueClassTypedEqualsAndHashCodeNoWarn.kt")
+        public void testJvmInlineValueClassTypedEqualsAndHashCodeNoWarn() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/arrayInDataClass/jvmInlineValueClassTypedEqualsAndHashCodeNoWarn.kt");
+        }
+
+        @TestMetadata("jvmInlineValueClassWithoutCustomEqualsNoWarn.kt")
+        public void testJvmInlineValueClassWithoutCustomEqualsNoWarn() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/arrayInDataClass/jvmInlineValueClassWithoutCustomEqualsNoWarn.kt");
+        }
+
         @TestMetadata("mixedParameters.kt")
         public void testMixedParameters() throws Exception {
             runTest("../../../idea/tests/testData/inspectionsLocal/arrayInDataClass/mixedParameters.kt");
@@ -11751,6 +11786,16 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
         @TestMetadata("nonOverrideHashCode.kt")
         public void testNonOverrideHashCode() throws Exception {
             runTest("../../../idea/tests/testData/inspectionsLocal/arrayInDataClass/nonOverrideHashCode.kt");
+        }
+
+        @TestMetadata("shortAndArray.kt")
+        public void testShortAndArray() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/arrayInDataClass/shortAndArray.kt");
+        }
+
+        @TestMetadata("valueClassByteAndArray.kt")
+        public void testValueClassByteAndArray() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/arrayInDataClass/valueClassByteAndArray.kt");
         }
 
         @TestMetadata("valueClassGenericArray.kt")
@@ -17172,6 +17217,11 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
                 runTest("testData/inspectionsLocal/convertTwoComparisonsToRangeCheck/hexadecimal.kt");
             }
 
+            @TestMetadata("inRangeFloat.kt")
+            public void testInRangeFloat() throws Exception {
+                runTest("testData/inspectionsLocal/convertTwoComparisonsToRangeCheck/inRangeFloat.kt");
+            }
+
             @TestMetadata("lteqgt.kt")
             public void testLteqgt() throws Exception {
                 runTest("testData/inspectionsLocal/convertTwoComparisonsToRangeCheck/lteqgt.kt");
@@ -17220,6 +17270,21 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
             @TestMetadata("notInRange.kt")
             public void testNotInRange() throws Exception {
                 runTest("testData/inspectionsLocal/convertTwoComparisonsToRangeCheck/notInRange.kt");
+            }
+
+            @TestMetadata("notInRangeDoubleIntConstantsNoWarn.kt")
+            public void testNotInRangeDoubleIntConstantsNoWarn() throws Exception {
+                runTest("testData/inspectionsLocal/convertTwoComparisonsToRangeCheck/notInRangeDoubleIntConstantsNoWarn.kt");
+            }
+
+            @TestMetadata("notInRangeDoubleNoWarn.kt")
+            public void testNotInRangeDoubleNoWarn() throws Exception {
+                runTest("testData/inspectionsLocal/convertTwoComparisonsToRangeCheck/notInRangeDoubleNoWarn.kt");
+            }
+
+            @TestMetadata("notInRangeFloatNoWarn.kt")
+            public void testNotInRangeFloatNoWarn() throws Exception {
+                runTest("testData/inspectionsLocal/convertTwoComparisonsToRangeCheck/notInRangeFloatNoWarn.kt");
             }
 
             @TestMetadata("notInRangeInclusive.kt")

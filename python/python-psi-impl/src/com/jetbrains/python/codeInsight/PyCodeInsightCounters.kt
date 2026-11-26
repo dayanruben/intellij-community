@@ -9,7 +9,8 @@ import java.util.concurrent.atomic.LongAdder
 
 /**
  * Counts the work of the Python code insight. For the native Python support, it counts type evaluations, type contexts,
- * type matches, type walks, overload checks, control flow builds, completion lookup items and resolve path cache clears.
+ * type matches, type walks, overload checks, control flow builds, the scopes visited for nested `global` names, completion
+ * lookup items and resolve path cache clears.
  * For the Django template support of the Django plugin, it counts the scans of the tag libraries and of the `{% load %}`
  * tags of a template, and the scans for the calls that get the value of an assignment. For the constraint solver of the
  * native type inference, it counts the constraint problems built and the inference variables added to them, which tell
@@ -37,6 +38,7 @@ object PyCodeInsightCounters {
     OVERLOAD_CANDIDATES_CHECKED("overload.candidatesChecked"),
     CFG_BUILDS("cfg.builds"),
     CFG_INSTRUCTIONS("cfg.instructions"),
+    SCOPE_GLOBALS_VISITS("scope.globals.visits"),
     COMPLETION_LOOKUP_ITEMS("completion.lookupItems"),
     PATH_CACHE_CLEARS("resolve.pathCache.clears"),
     DJANGO_TAG_LIBRARY_SCANS("django.tagLibrary.scans"),
@@ -44,6 +46,12 @@ object PyCodeInsightCounters {
     DJANGO_ASSIGNMENT_CALL_SCANS("django.assignment.callScans"),
     CSP_PROBLEMS_BUILT("csp.problemsBuilt"),
     CSP_INFERENCE_VARIABLES("csp.inferenceVariables"),
+    PYREFLY_TYPE_REQUESTS("pyrefly.getComputedType.calls"),
+    PYREFLY_SNAPSHOT_REQUESTS("pyrefly.getSnapshot.calls"),
+    /** Nanoseconds spent waiting for Pyrefly's answers: the server's work and the transport both ways. */
+    PYREFLY_REQUEST_NANOS("pyrefly.request.nanos"),
+    /** Nanoseconds spent turning Pyrefly's answers into types of the IDE, nested requests excluded. */
+    PYREFLY_BUILD_TYPE_NANOS("pyrefly.buildType.nanos"),
   }
 
   /** The counter values at one moment. */

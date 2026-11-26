@@ -18,12 +18,15 @@ import kotlin.io.path.setPosixFilePermissions
 import kotlin.io.path.writeText
 
 /**
- * A `<distribution>` element with a macOS file for each CPU. Only macOS reads the element.
+ * A `<distribution>` element with a macOS file and a Windows file for each CPU. Only macOS and Windows read the element.
  * A `null` [product] makes the element invalid.
  */
 internal fun distributionXml(product: String? = "JB"): String {
-  val files = listOf("aarch64", "x64").map { arch ->
-    """<file os="mac" arch="${arch}" url="https://download.jetbrains.com/unified-ide/unified-ide-${arch}.dmg"/>"""
+  val files = listOf("aarch64", "x64").flatMap { arch ->
+    listOf(
+      """<file os="mac" arch="${arch}" url="https://download.jetbrains.com/unified-ide/unified-ide-${arch}.dmg"/>""",
+      """<file os="win" arch="${arch}" url="https://download.jetbrains.com/unified-ide/unified-ide-${arch}.exe"/>""",
+    )
   }
   return """
     <distribution ${product?.let { "product=\"${it}\"" } ?: ""} manifest="https://www.jetbrains.com/go-to-unified.json">
@@ -69,7 +72,7 @@ internal fun currentLaunchOsName(): String = when (OS.CURRENT) {
 
 /**
  * Writes a macOS `product-info.json` with the product code `JB` into [app], and the launcher [script] at [launcherPath].
- * The `launch` record has the `os` value [osName]. Returns the launcher. It needs POSIX file permissions.
+ * The `launch` record has the `os` value [osName]. Returns the launcher. A test that runs the launcher needs POSIX file permissions.
  */
 internal fun writeMacLauncher(
   app: Path,
@@ -81,7 +84,9 @@ internal fun writeMacLauncher(
   val launcher = app.resolve("Contents/Resources").resolve(launcherPath).normalize()
   launcher.parent.createDirectories()
   launcher.writeText(script)
-  launcher.setPosixFilePermissions(PosixFilePermissions.fromString("rwxr-xr-x"))
+  if (FileSystems.getDefault().supportedFileAttributeViews().contains("posix")) {
+    launcher.setPosixFilePermissions(PosixFilePermissions.fromString("rwxr-xr-x"))
+  }
   return launcher
 }
 

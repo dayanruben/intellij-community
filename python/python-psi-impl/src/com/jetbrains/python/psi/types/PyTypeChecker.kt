@@ -1,7 +1,9 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.psi.types
 
+import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.util.Computable
+import com.intellij.openapi.util.RecursionGuard
 import com.intellij.openapi.util.RecursionManager
 import com.intellij.openapi.util.Ref
 import com.intellij.openapi.util.component1
@@ -20,8 +22,8 @@ import com.jetbrains.python.codeInsight.PyCodeInsightCounters
 import com.jetbrains.python.codeInsight.PyCodeInsightCounters.Counter
 import com.jetbrains.python.codeInsight.typing.ProtocolAndSubclassElements
 import com.jetbrains.python.codeInsight.typing.PyTypingTypeProvider
-import com.jetbrains.python.codeInsight.typing.getProtocolMembers
 import com.jetbrains.python.codeInsight.typing.inspectProtocolSubclass
+import com.jetbrains.python.codeInsight.typing.isCallbackProtocol
 import com.jetbrains.python.codeInsight.typing.isProtocol
 import com.jetbrains.python.documentation.PythonDocumentationProvider
 import com.jetbrains.python.inspections.PyInspectionMessages
@@ -77,6 +79,29 @@ import kotlin.jvm.optionals.getOrDefault
 import kotlin.jvm.optionals.getOrElse
 
 object PyTypeChecker {
+  /**
+   * The guard that holds a frame per [match] on the current stack.
+   *
+   * [matchesInProgress] detects a cycle, so the guard never prevents recursion here. The frames stay
+   * because [RecursionGuard.prohibitResultCaching] needs them.
+   */
+  private val matchGuard: RecursionGuard<Pair<PyType?, PyType?>> = RecursionManager.createGuard("PyTypeChecker.match")
+
+  /**
+   * The (expected, actual) pair of every [match] on the current stack, mapped to the instance that
+   * [matchGuard] holds a frame for.
+   *
+   * A recursive type or a self-referential protocol repeats a pair. The match is coinductive. The cycle
+   * holds if nothing along it contradicts it, so a repeat answers `true`. [RecursionManager] answered the
+   * same, but it also throws in a test that asserts on recursion prevention. That assertion cancels the
+   * daemon and fails the highlighting test. See PY-87896.
+   *
+   * The map keeps the instance instead of only the pair, because [RecursionGuard.prohibitResultCaching]
+   * finds the frame of a computation by identity.
+   */
+  private val matchesInProgress: ThreadLocal<MutableMap<Pair<PyType?, PyType?>, Pair<PyType?, PyType?>>> =
+    ThreadLocal.withInitial { HashMap() }
+
   /**
    * The largest number of parameter combinations that [matchSingleCallableAgainstOverloads] checks.
    * Above it, the check is [matchAnyMember] only.
@@ -387,13 +412,28 @@ object PyTypeChecker {
 
   private fun match(expected: PyType?, actual: PyType?, context: MatchContext): Optional<Boolean> {
     PyCodeInsightCounters.inc(Counter.MATCH_STEPS)
+    ProgressManager.checkCanceled()
     PyAnyType.validate(expected)
     PyAnyType.validate(actual)
-    val result = RecursionManager.doPreventingRecursion(expected to actual, false) {
-      matchImpl(expected, actual, context)
+    val key = expected to actual
+    val inProgress = matchesInProgress.get()
+    val enclosing = inProgress.putIfAbsent(key, key)
+    if (enclosing != null) {
+      // Answer the cycle, and keep the caching contract of the guard. An enclosing CachedValue must not
+      // store a result that depends on the assumption.
+      matchGuard.prohibitResultCaching(enclosing)
+      return Optional.of(true)
     }
+    try {
+      val result = matchGuard.doPreventingRecursion(key, false) {
+        matchImpl(expected, actual, context)
+      }
 
-    return result ?: Optional.of(true)
+      return result ?: Optional.of(true)
+    }
+    finally {
+      inProgress.remove(key)
+    }
   }
 
   /**
@@ -1859,9 +1899,9 @@ object PyTypeChecker {
     val context = matchContext.context
 
     if (expected is PyClassLikeType) {
-      if (isCallableProtocol(expected, context)) {
-        val protocolMembers = expected.getProtocolMembers(context)
-        if (protocolMembers.size != 1 || protocolMembers[0].name != "__call__") {
+      // A protocol that declares `__call__` matches a callable only when it is a callback protocol
+      if (expected.isProtocol(context) && PyNames.CALL in expected.getMemberNames(false, context)) {
+        if (!expected.isCallbackProtocol(context)) {
           return Optional.of(false)
         }
       }
@@ -1873,7 +1913,8 @@ object PyTypeChecker {
       }
     }
 
-    if (expected is PyClassType && actual is PyFunctionType && isCallableProtocol(expected, context)) {
+    // Here a class type is a callback protocol
+    if (expected is PyClassType && actual is PyFunctionType) {
       val expectedOverloads = expected.findMember(PyNames.CALL, PyResolveContext.defaultContext(context)).map { it.type }
       val actualCallable = actual.callable
       val actualOverloads = if (actualCallable is PyFunction) {
@@ -1959,10 +2000,6 @@ object PyTypeChecker {
   private fun match(expected: List<PyType?>, actual: List<PyType?>, matchContext: MatchContext): Boolean {
     return expected.size == actual.size &&
            expected.zip(actual).all { (expectedItem, actualItem) -> match(expectedItem, actualItem, matchContext).getOrDefault(true) }
-  }
-
-  private fun isCallableProtocol(expected: PyClassLikeType, context: TypeEvalContext): Boolean {
-    return expected.isProtocol(context) && PyNames.CALL in expected.getMemberNames(false, context)
   }
 
   private fun widenUnionOfTuplesToTupleOfUnions(unionType: PyUnionType, elementCount: Int): PyTupleType? {
@@ -2691,6 +2728,7 @@ object PyTypeChecker {
     substitutions: GenericSubstitutions,
     context: TypeEvalContext,
   ): PyType? {
+    ProgressManager.checkCanceled()
     return PyCloningTypeVisitor.clone(type, object : PyCloningTypeVisitor(context) {
       // Type variables currently being expanded along the active substitution path. A substitution map can be
       // mutually recursive (e.g. {T: S, S: T}) or self-referential (e.g. {T: list[T]}), and the transformations
@@ -2698,6 +2736,9 @@ object PyTypeChecker {
       // identity-based cycle guard never trips on them. This equality-based, path-scoped set breaks such cycles
       // to avoid a StackOverflowError.
       val typeVarsBeingSubstituted = HashSet<PyTypeVarType>()
+
+      // The same guard for TypeVarTuples, for example {Ts: *tuple[*Ts]} from the invalid default in `class C[*Ts = *tuple[*Ts]]`.
+      val typeVarTuplesBeingSubstituted = HashSet<PyTypeVarTupleType>()
 
       fun flattenUnpackedTuple(type: PyType?): List<PyType?> {
         return if (type is PyUnpackedTupleType && !type.isUnbound) {
@@ -2720,7 +2761,15 @@ object PyTypeChecker {
         }
         val substitution = substitutions.typeVarTuples[typeVarTupleType]
         if (typeVarTupleType != substitution && substitution.hasGenerics(context)) {
-          return clone(substitution)
+          if (!typeVarTuplesBeingSubstituted.add(typeVarTupleType)) {
+            return typeVarTupleType
+          }
+          try {
+            return clone(substitution)
+          }
+          finally {
+            typeVarTuplesBeingSubstituted.remove(typeVarTupleType)
+          }
         }
         // TODO This should happen in getSubstitutionsWithUnresolvedReturnGenerics, but it won't work for inherited constructors
         //   as in testVariadicGenericCheckTypeAliasesRedundantParameter, investigate why

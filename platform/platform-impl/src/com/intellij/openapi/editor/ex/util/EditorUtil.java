@@ -1,6 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.editor.ex.util;
 
+import com.intellij.codeWithMe.ClientId;
 import com.intellij.diagnostic.Dumpable;
 import com.intellij.ide.DataManager;
 import com.intellij.ide.actions.DistractionFreeModeController;
@@ -15,6 +16,7 @@ import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.CustomizedDataContext;
 import com.intellij.openapi.actionSystem.DataContext;
+import com.intellij.openapi.actionSystem.DataSink;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.command.CommandEvent;
@@ -26,6 +28,7 @@ import com.intellij.openapi.editor.Caret;
 import com.intellij.openapi.editor.CaretAction;
 import com.intellij.openapi.editor.CaretActionListener;
 import com.intellij.openapi.editor.CaretModel;
+import com.intellij.openapi.editor.ComponentInlayRenderer;
 import com.intellij.openapi.editor.CustomFoldRegion;
 import com.intellij.openapi.editor.CustomWrap;
 import com.intellij.openapi.editor.Document;
@@ -34,6 +37,7 @@ import com.intellij.openapi.editor.EditorBundle;
 import com.intellij.openapi.editor.EditorCoreUtil;
 import com.intellij.openapi.editor.EditorFactory;
 import com.intellij.openapi.editor.EditorModificationUtilEx;
+import com.intellij.openapi.editor.EditorProjection;
 import com.intellij.openapi.editor.EditorThreading;
 import com.intellij.openapi.editor.FoldRegion;
 import com.intellij.openapi.editor.FoldingModel;
@@ -41,7 +45,6 @@ import com.intellij.openapi.editor.Inlay;
 import com.intellij.openapi.editor.InlayModel;
 import com.intellij.openapi.editor.InlayProperties;
 import com.intellij.openapi.editor.LogicalPosition;
-import com.intellij.openapi.editor.EditorProjection;
 import com.intellij.openapi.editor.ScrollType;
 import com.intellij.openapi.editor.ScrollingModel;
 import com.intellij.openapi.editor.SelectionModel;
@@ -124,6 +127,19 @@ public final class EditorUtil {
   private static final Logger LOG = Logger.getInstance(EditorUtil.class);
 
   private EditorUtil() {
+  }
+
+  /**
+   * Writes the project of {@code editor} as {@link CommonDataKeys#PROJECT}. A component that writes {@code editor} as
+   * {@link CommonDataKeys#EDITOR} calls it, so a data context does not give the editor with the project of another component.
+   * An editor without a project or of the default project writes no project.
+   */
+  @ApiStatus.Internal
+  public static void putEditorProject(@NotNull DataSink sink, @NotNull Editor editor) {
+    Project project = editor.getProject();
+    if (project != null && !project.isDefault()) {
+      sink.set(PROJECT, project);
+    }
   }
 
   /**
@@ -1538,6 +1554,21 @@ public final class EditorUtil {
     }
 
     return (lineHeight - editor.getAscent()) / 2;
+  }
+
+  @ApiStatus.Internal
+  public static void scrollToInlay(@NotNull Editor editor, @NotNull Inlay<? extends ComponentInlayRenderer<JComponent>> inlay) {
+    Rectangle bounds = inlay.getBounds();
+    if (ClientId.isCurrentlyUnderLocalId() && bounds != null) {
+      ScrollingModel scrollingModel = editor.getScrollingModel();
+      scrollingModel.scrollVertically(bounds.y);
+    }
+    else {
+      ComponentInlayRenderer<JComponent> renderer = inlay.getRenderer();
+      JComponent component = renderer.getComponent();
+      Dimension componentSize = component.getSize();
+      component.scrollRectToVisible(new Rectangle(componentSize));
+    }
   }
 
   private static void runWhenViewportReady(

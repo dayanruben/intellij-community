@@ -8,6 +8,7 @@ import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.edtWriteAction
 import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.fileEditor.FileEditorOpenRequest
 import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
 import com.intellij.openapi.project.Project
 import kotlinx.coroutines.Dispatchers
@@ -27,22 +28,22 @@ internal class GHPRFilesManagerImpl(
 
   private val fs by lazy { GHPRVirtualFileSystem.getInstance() }
 
-  override fun createAndOpenTimelineFile(prId: GHPRIdentifier, requestFocus: Boolean) {
+  override suspend fun openTimeline(prId: GHPRIdentifier, requestFocus: Boolean) {
     val path = fs.getPath(id, project, repository, prId, false)
     fs.refreshAndFindFileByPath(path)?.let {
-      FileEditorManager.getInstance(project).openFile(it, requestFocus)
+      FileEditorManager.getInstanceAsync(project).openFile(it, FileEditorOpenRequest.withFocus(requestFocus))
       GHPRStatisticsCollector.logTimelineOpened(project)
     }
   }
 
-  override fun createAndOpenDiffFile(prId: GHPRIdentifier?, requestFocus: Boolean) {
+  override suspend fun openDiff(prId: GHPRIdentifier?, requestFocus: Boolean) {
     val path = fs.getPath(id, project, repository, prId, true)
     fs.refreshAndFindFileByPath(path).also {
       if (prId != null) {
         GHPRStatisticsCollector.logDiffOpened(project)
       }
       it?.let {
-        DiffEditorTabFilesManager.getInstance(project).showDiffFile(it, requestFocus)
+        project.serviceAsync<DiffEditorTabFilesManager>().openDiffFile(it, FileEditorOpenRequest.withFocus(requestFocus))
       }
     }
   }
