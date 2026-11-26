@@ -23,8 +23,8 @@ the paths are these:
 | a wrapper | `../../trace.cmd` or `../../vm.cmd` |
 | a BT crate | `../../bt/crates/<crate>/...` |
 | an Air file | `../../../../plugins/air/...` |
-| a controller ADR | `../docs/decisions/NNNN-<title>.md` |
-| an Air ADR | `../../../../plugins/air/docs/decisions/NNNN-<title>.md` |
+| an archived controller decision | `../openspec/changes/archive/<YYYY-MM-DD>-<id>/design.md` |
+| an archived Air decision | `../../../../plugins/air/openspec/changes/archive/<YYYY-MM-DD>-<id>/design.md` |
 
 ## Writing rules
 

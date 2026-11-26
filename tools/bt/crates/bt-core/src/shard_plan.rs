@@ -1,22 +1,33 @@
-//! The shard plan of a multi-target run: the number of shards of each test target, and the recorded seconds of each
-//! test class.
+//! The shard plan of a run without an explicit shard count: the number of shards of each test target, and the recorded
+//! seconds of each test class.
+//!
+//! The runner never splits a top-level class, because each shard of a class pays the setup of the class again. So the
+//! shard count of a target is its recorded seconds over [`SECONDS_PER_SHARD`] or over its heaviest top-level class,
+//! whichever is more. A target of one class gets one shard. A nested class counts in its top-level class.
 //!
 //! `bazel test` has one shard count for a whole invocation, and a lane holds targets of 5 s and of 500 s. So a planned
 //! run has up to three groups of targets, and each group has its own `bazel test` invocation with a constant forced count:
 //!
-//! - A heavy target is a target whose recorded seconds want more than [`PLANNED_SHARDS`] shards. The first invocation
+//! - A heavy target is a target whose recorded classes want more than [`PLANNED_SHARDS`] shards. The first invocation
 //!   names the heavy targets of the run ([`Groups::heavy`]) and forces [`HEAVY_SHARDS`].
 //! - The second invocation runs the patterns of the run less the heavy and single-shard targets, and forces
 //!   [`PLANNED_SHARDS`]. A target without a record stays here.
-//! - A target whose recorded seconds want one shard is a single-shard target. The third invocation names these targets
+//! - A target whose recorded classes want one shard is a single-shard target. The third invocation names these targets
 //!   ([`Groups::single`]) and forces [`SINGLE_SHARDS`].
 //! - A Rust test target is a single-shard target, whatever its record says. libtest runs the tests of one process in
 //!   parallel threads, and each shard pays the shared setup of the target again.
+//!
+//! A run of one target has one invocation, and it forces the count of the group of the target.
 //!
 //! A plan entry is a hint, because the plan keeps the targets of each branch that ran in the repository. A target that
 //! the current tree does not have fails each invocation that names it, also as a negative pattern. So
 //! [`ShardPlan::groups`] names only the targets that `bazel query` finds for the patterns of the run ([`TreeTargets`]).
 //! The same query gives the rule kind of each target, and so the Rust test targets.
+//!
+//! The plan keeps the day of the last run of each target. A run gives this day to each target that ran a shard, also a
+//! cached or a failed target ([`ShardPlan::mark_seen`]). The update then removes each target that no run named for
+//! [`PLAN_TARGET_TTL_DAYS`] days ([`ShardPlan::forget_older_than`]). So a target that a move or a removal took out of
+//! the tree leaves the plan.
 //!
 //! Each invocation passes the plan file to each test in [`SHARD_PLAN_ENV`]. The JUnit runner (`ShardFilter` of
 //! `community/platform/testFramework/bootstrap`) reads the line of its own target. A shard at or above the planned
@@ -38,10 +49,12 @@
 //! linked work tree read and write this one file. A lease of Branch Deck starts without `out/`, and the file stays
 //! after the lease is returned. So a new lease does not run its heavy targets with two shards into the Bazel timeout.
 //! A checkout outside git has only the checkout file. A run takes the shared plan, and adds each target of the checkout
-//! file that the shared plan does not name ([`ShardPlan::add_missing_targets`]).
+//! file that the shared plan does not name ([`ShardPlan::add_missing_targets`]). For a target that both files name, the
+//! run takes the later day of the last run. So an old checkout copy cannot keep a forgotten target in the plan.
 //!
 //! The tests read the checkout copy [`SHARD_PLAN_FILE`]. Before its first test invocation, a planned run writes the
 //! text of the plan it read to that copy. After the run, bt writes the updated plan to the shared file and to the copy.
+//! bt writes a file only when its text changes, because the file has about 1 MB and a cached run changes no time.
 //!
 //! The file is not a Bazel input: the plan decides how the tests of a target split, never which tests run, and an input
 //! would rerun every test after each update. bt passes the path of the copy relative to the checkout. So the key of a
@@ -54,7 +67,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 
-use crate::result::TargetTiming;
+use crate::result::{TargetTiming, outer_classes};
 
 /// The variable that names the plan file to the JUnit runner.
 pub const SHARD_PLAN_ENV: &str = "JB_TEST_SHARD_PLAN";
@@ -95,7 +108,19 @@ pub const HEAVY_SHARDS: u32 = 8;
 /// The shard count of a target the plan has no record of.
 const DEFAULT_SHARDS: u32 = 2;
 
-/// The recorded test seconds that one shard takes.
+/// The days that the plan keeps a target that no run names.
+///
+/// Fourteen, not one or two: a lease of Branch Deck lives for days, and a branch can wait some days for its next run.
+/// Each run of a branch that still has the target gives it a new day. So only a target that no checkout ran for two
+/// weeks leaves the plan.
+pub const PLAN_TARGET_TTL_DAYS: u64 = 14;
+
+/// The day of a target that only an undated checkout copy names, when the shared plan takes it: the Unix epoch. So such
+/// a target is older than [`PLAN_TARGET_TTL_DAYS`] on each real day, and it stays only when the run names it.
+const UNDATED_COPY_DAY: u64 = 0;
+
+/// The recorded test seconds that one shard takes at the least. A shard takes more when the heaviest top-level class of
+/// the target takes more, because the runner never splits a class.
 ///
 /// Simulated with the runner's partition on the test.xml files of a `--lane fast` run (148 JVM targets): against
 /// `forced=2` by test, a shard per 90 s takes 18 % less test CPU with up to four shards (8.0 ks against 9.7 ks). A shard
@@ -108,6 +133,9 @@ pub struct ShardPlan {
     targets: BTreeMap<String, BTreeMap<String, f64>>,
     /// The fixed seconds of a shard of each target, see [`TargetTiming::fixed_seconds`].
     fixed: BTreeMap<String, f64>,
+    /// The day of the last run of each target, in days since the Unix epoch. A target without a day counts as seen on
+    /// the day of the next update, see [`ShardPlan::forget_older_than`].
+    seen: BTreeMap<String, u64>,
 }
 
 /// The targets of a planned run that run in an invocation of their own, each group in the order of the labels.
@@ -141,18 +169,30 @@ pub struct TreeTargets {
 impl TreeTargets {
     /// The query expression of the test targets that the target patterns name, in their order. A negative pattern
     /// removes what the patterns before it name, as in `bazel test`. Each pattern is in quotes, because the canonical
-    /// name of a repository holds the operator `+`. The expression leaves out a target with the tag `manual`, because a
-    /// pattern of `bazel test` leaves it out, and an invocation that names it would run it.
+    /// name of a repository holds the operator `+`.
+    ///
+    /// A positive wildcard pattern leaves out a target with the tag `manual`, because `bazel test` leaves it out, and an
+    /// invocation that names it would run it. A positive explicit label keeps such a target, because `bazel test` runs
+    /// a `manual` target that a pattern names. [`is_wildcard`] tells the two kinds apart.
     pub fn query(patterns: &[String]) -> String {
         let mut expression = String::from("set()");
         for pattern in patterns {
-            let (operator, pattern) = match pattern.strip_prefix('-') {
-                Some(rest) => ('-', rest),
-                None => ('+', pattern.as_str()),
-            };
-            let _ = write!(expression, " {operator} \"{pattern}\"");
+            match pattern.strip_prefix('-') {
+                Some(rest) => {
+                    let _ = write!(expression, " - \"{rest}\"");
+                }
+                None if is_wildcard(pattern) => {
+                    let _ = write!(
+                        expression,
+                        r#" + (tests("{pattern}") except attr(tags, "\bmanual\b", tests("{pattern}")))"#
+                    );
+                }
+                None => {
+                    let _ = write!(expression, " + \"{pattern}\"");
+                }
+            }
         }
-        format!(r#"let t = tests({expression}) in $t except attr(tags, "\bmanual\b", $t)"#)
+        format!("tests({expression})")
     }
 
     /// Reads the answer of the query in the `label_kind` output, `<kind> rule <label>` a line. A line with only a label
@@ -206,28 +246,67 @@ impl ShardPlan {
                         plan.fixed.insert(label.to_owned(), seconds);
                     }
                 }
+                ["seen", label, day] => {
+                    if let Ok(day) = day.parse::<u64>() {
+                        plan.seen.insert(label.to_owned(), day);
+                    }
+                }
                 _ => {}
             }
         }
         plan
     }
 
-    /// Adds each target of `other` that this plan has no record of, and answers whether it added one.
+    /// Adds each target of `other` that this plan has no record of, with its fixed seconds and its day. For a target
+    /// that both plans have, this plan keeps its record and takes the later day. Answers whether the plan changed.
     ///
-    /// The plan of the repository only gains targets. So a target that only a checkout copy names comes from a plan
-    /// that the checkout kept before the plan was shared, and the shared plan takes it.
+    /// A target that only a checkout copy names comes from a copy older than the last update of the shared plan. The
+    /// shared plan takes it with the day of the copy. A target without a day in the copy gets [`UNDATED_COPY_DAY`]. So
+    /// the next update forgets it unless a run named it in the last [`PLAN_TARGET_TTL_DAYS`] days.
     pub fn add_missing_targets(&mut self, other: &Self) -> bool {
-        let mut added = false;
+        let mut changed = false;
         for (label, classes) in &other.targets {
             if !self.targets.contains_key(label) {
                 self.targets.insert(label.clone(), classes.clone());
                 if let Some(fixed) = other.fixed.get(label) {
                     self.fixed.insert(label.clone(), *fixed);
                 }
-                added = true;
+                self.seen
+                    .insert(label.clone(), other.seen.get(label).copied().unwrap_or(UNDATED_COPY_DAY));
+                changed = true;
+            } else if let (Some(day), Some(other_day)) = (self.seen.get_mut(label), other.seen.get(label))
+                && *other_day > *day
+            {
+                // A target without a day counts as seen today, which is never earlier than the day of the other plan.
+                *day = *other_day;
+                changed = true;
             }
         }
-        added
+        changed
+    }
+
+    /// Gives the day `today` to each target of the plan that the labels name. A label without a record stays out of the
+    /// plan.
+    pub fn mark_seen<'a>(&mut self, labels: impl IntoIterator<Item = &'a str>, today: u64) {
+        for label in labels {
+            if self.targets.contains_key(label) {
+                self.seen.insert(label.to_owned(), today);
+            }
+        }
+    }
+
+    /// Removes each target whose last run is more than `days` days before `today`, with its fixed seconds and its day.
+    ///
+    /// A target without a day gets the day `today` first. An older bt writes the shared plan without days, so its targets
+    /// stay for `days` days more. A target that [`Self::add_missing_targets`] took from a copy always has a day.
+    pub fn forget_older_than(&mut self, today: u64, days: u64) {
+        for label in self.targets.keys() {
+            self.seen.entry(label.clone()).or_insert(today);
+        }
+        let Self { targets, fixed, seen } = self;
+        seen.retain(|label, day| targets.contains_key(label) && today.saturating_sub(*day) <= days);
+        targets.retain(|label, _| seen.contains_key(label));
+        fixed.retain(|label, _| seen.contains_key(label));
     }
 
     /// Replaces the class times of the target of a finished run, and its fixed seconds when the run measured them.
@@ -260,18 +339,16 @@ impl ShardPlan {
             let recorded = raised.entry(class.clone()).or_default();
             *recorded = recorded.max(*seconds);
         }
-        if shards_for(raised.values().sum()) <= PLANNED_SHARDS {
+        if shards_for(&raised) <= PLANNED_SHARDS {
             return false;
         }
         self.targets.insert(timing.label.clone(), raised);
         true
     }
 
-    /// The shard count of the target with this label, from its recorded seconds.
+    /// The shard count of the target with this label, from its recorded classes; see [`shards_for`].
     pub fn shards_of(&self, label: &str) -> u32 {
-        self.targets
-            .get(label)
-            .map_or(DEFAULT_SHARDS, |classes| shards_for(classes.values().sum()))
+        self.targets.get(label).map_or(DEFAULT_SHARDS, shards_for)
     }
 
     /// The heavy and the single-shard targets of the plan that the target patterns of a run cover and that the current
@@ -336,7 +413,7 @@ impl ShardPlan {
 
     /// The text of the plan file, in the format that `ShardFilter.SHARD_PLAN_ENV` describes.
     pub fn render(&self) -> String {
-        let mut text = String::from("# The shard plan of bt. bt rewrites this file after each multi-target run.\n");
+        let mut text = String::from("# The shard plan of bt. bt rewrites this file after each planned run.\n");
         let _ = writeln!(text, "default\t{DEFAULT_SHARDS}");
         for (label, classes) in &self.targets {
             let _ = writeln!(text, "target\t{label}\t{}", self.shards_of(label));
@@ -345,6 +422,9 @@ impl ShardPlan {
             }
             if let Some(fixed) = self.fixed.get(label) {
                 let _ = writeln!(text, "fixed\t{label}\t{fixed:.3}");
+            }
+            if let Some(day) = self.seen.get(label) {
+                let _ = writeln!(text, "seen\t{label}\t{day}");
             }
         }
         text
@@ -360,8 +440,20 @@ impl ShardPlan {
     }
 }
 
-fn shards_for(seconds: f64) -> u32 {
-    let wanted = (seconds / SECONDS_PER_SHARD).ceil();
+/// The shard count of a target with these recorded classes: the seconds of the target over [`SECONDS_PER_SHARD`] or over
+/// its heaviest top-level class, whichever is more, from 1 to [`HEAVY_SHARDS`].
+///
+/// The runner never splits a top-level class, so more shards than this would only start idle JVMs. A nested class counts
+/// in its top-level class, as [`outer_classes`] counts it. The runner weighs a top-level class the same way.
+fn shards_for(classes: &BTreeMap<String, f64>) -> u32 {
+    let mut top_level: BTreeMap<&str, f64> = BTreeMap::new();
+    for (class, seconds) in outer_classes(classes) {
+        let outer = class.split_once('$').map_or(class, |(outer, _)| outer);
+        *top_level.entry(outer).or_default() += seconds;
+    }
+    let total: f64 = top_level.values().sum();
+    let heaviest = top_level.values().copied().fold(SECONDS_PER_SHARD, f64::max);
+    let wanted = (total / heaviest).ceil();
     #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "clamped into 1..=HEAVY_SHARDS")]
     let shards = wanted.clamp(1.0, f64::from(HEAVY_SHARDS)) as u32;
     shards
@@ -409,6 +501,17 @@ fn split_label(label: &str) -> Option<Label<'_>> {
     Some(Label { repository, package, name })
 }
 
+/// Whether a target name of a pattern names each target of its package, as `//pkg:all` does.
+fn is_any_name(name: &str) -> bool {
+    matches!(name, "all" | "*" | "all-targets")
+}
+
+/// Whether a target pattern names the targets of a package or of a tree, as `//pkg:all` and `//pkg/...` do, and not one
+/// target by its label. A pattern that is no label is no wildcard.
+fn is_wildcard(pattern: &str) -> bool {
+    split_label(pattern).is_some_and(|pattern| is_any_name(pattern.name) || pattern.package.ends_with("..."))
+}
+
 fn pattern_covers(pattern: &str, target: &Label<'_>) -> bool {
     let Some(pattern) = split_label(pattern) else {
         return false;
@@ -416,7 +519,7 @@ fn pattern_covers(pattern: &str, target: &Label<'_>) -> bool {
     if pattern.repository != target.repository {
         return false;
     }
-    let any_name = matches!(pattern.name, "all" | "*" | "all-targets");
+    let any_name = is_any_name(pattern.name);
     if let Some(root) = pattern.package.strip_suffix("...") {
         // `//pkg/...` reads as the package `pkg/...` with the name `...`, and `//pkg/...:all` with the name `all`.
         if !(any_name || pattern.name == "...") {

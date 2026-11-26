@@ -1,4 +1,4 @@
-// The grammar of a hand-laid diagram (ADR 0203). An author places each node on a grid of columns
+// The grammar of a hand-laid diagram (decision 2026-10-06-an-architecture-explanation-is-a-hand-laid-diagram). An author places each node on a grid of columns
 // and rows, and declares the edges and the numbered steps. Nothing is auto-laid: the renderer only
 // converts the grid to pixels (src/graph/diagramLayout.ts).
 //
@@ -32,7 +32,7 @@ export interface DiagramGrammar {
 /** A Bazel label: an optional repository, a package path, and an optional target name. */
 const BAZEL_LABEL = /^(@[a-z_]+)?\/\/[^:]*(:[A-Za-z0-9_.+-]+)?$/
 
-/** The limits that keep a diagram readable. The review checklist of ADR 0203 names the rest. */
+/** The limits that keep a diagram readable. The review checklist of decision 2026-10-06-an-architecture-explanation-is-a-hand-laid-diagram names the rest. */
 export const DIAGRAM_LIMITS = {
   columns: 6,
   groups: 6,
@@ -92,7 +92,8 @@ export interface DiagramNode {
   target?: string
   module: string | null
   spec: string | null
-  adr: string | null
+  /** The change id of a decision: the name of the archive folder of its design. */
+  decision: string | null
   concept: string | null
   planned: DiagramPlanned | null
   dashed: boolean
@@ -144,10 +145,10 @@ export interface HarvestedDiagramNode extends DiagramNode {
   sourceRef: { file: string, line: number } | null
   /** The `BUILD.bazel` line of `target`. The key is absent when the node names no target. */
   targetRef?: { file: string, line: number }
-  /** The title of the ADR, when `adr` is set. */
-  adrTitle: string | null
-  /** The path of the ADR under the content root, when `adr` is set. */
-  adrPath: string | null
+  /** The title of the decision, when `decision` is set. */
+  decisionTitle: string | null
+  /** The path of the design of the decision under the content root, when `decision` is set. */
+  decisionPath: string | null
 }
 
 /** The flow step that a diagram step binds to, as the harvest resolved it. */
@@ -480,7 +481,7 @@ export function validateDiagram(raw: unknown, id: string, grammar: DiagramGramma
       ...(target === null ? {} : { target }),
       module: readString(entry, 'module', errors, where),
       spec: readString(entry, 'spec', errors, where),
-      adr: readString(entry, 'adr', errors, where),
+      decision: readString(entry, 'decision', errors, where),
       concept: readString(entry, 'concept', errors, where),
       planned: readOneOf(entry, 'planned', grammar.planned, errors, where),
       dashed: readBoolean(entry, 'dashed', errors, where),

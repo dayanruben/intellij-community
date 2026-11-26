@@ -7,8 +7,6 @@ import com.intellij.openapi.editor.impl.marker.PMarkerRelocationRoot.Insertions
 import com.intellij.openapi.editor.impl.marker.PMarkerRoot.MarkerDeltaProcessor
 import com.intellij.openapi.editor.impl.marker.PMarkerRoot.MarkerEntry
 import com.intellij.openapi.util.TextRangeScalarUtil
-import com.intellij.util.Processor
-import org.jetbrains.annotations.ApiStatus
 import java.util.function.Consumer
 
 /**
@@ -19,7 +17,6 @@ import java.util.function.Consumer
  * Once the insertion direction is established, a change of direction also materializes the tree.
  * [SnapshotMarkerRootStore.runInBatch] creates the buffer and completes its pending updates.
  */
-@ApiStatus.Internal
 class PMarkerInsertionRoot internal constructor(
   /** Stores marker ranges before the buffered insertions. */
   private val base: PMarkerDirectRoot,
@@ -38,8 +35,8 @@ class PMarkerInsertionRoot internal constructor(
   @Volatile
   private var rebuilt: PMarkerDirectRoot? = null
 
-  override fun advanceResolution(previousIdentity: Any, resolution: Long): Long =
-    update?.advance(previousIdentity, resolution) ?: base.advanceResolution(previousIdentity, resolution)
+  override fun advanceResolution(handle: SnapshotMarkerReference<*>, previousIdentity: Any, resolution: Long): Long =
+    update?.advance(previousIdentity, resolution) ?: base.advanceResolution(handle, previousIdentity, resolution)
 
   override fun resolve(handle: SnapshotMarkerReference<*>): Long {
     val range = base.resolve(handle)
@@ -80,14 +77,13 @@ class PMarkerInsertionRoot internal constructor(
     val baseStart = start - if (descending) 0 else offsets.totalDelta
     if (base.endsBefore(baseStart)) return this
     val affected = ArrayList<SnapshotMarkerReference<*>>()
-    val canDefer = base.processRangeMarkersOverlappingWith(baseStart, baseStart, 0) { stored ->
-      val range = resolve(stored.handle)
-      val oldStart = PMarkerResolution.startOffset(range)
-      val oldEnd = PMarkerResolution.endOffset(range)
+    val canDefer = base.processRangeMarkersOverlappingWith(baseStart, baseStart, 0) { stored, delta ->
+      val entry = shifted(stored, delta)
+      val oldStart = entry.nodeStart
+      val oldEnd = entry.nodeEnd
       if (start !in (oldStart + 1) until oldEnd || oldEnd > Int.MAX_VALUE - length) {
         return@processRangeMarkersOverlappingWith false
       }
-      val entry = stored.copy(nodeStart = oldStart, nodeEnd = oldEnd)
       val result = entry.policy.transform(entry, patch, beforeText, afterText)
       if (!result.isValid || result.startOffset != oldStart || result.endOffset != oldEnd + length) {
         return@processRangeMarkersOverlappingWith false
@@ -112,13 +108,14 @@ class PMarkerInsertionRoot internal constructor(
     startOffset: Int,
     endOffset: Int,
     tastePreference: Int,
-    processor: Processor<in MarkerEntry>,
+    processor: MarkerDeltaProcessor,
   ): Boolean {
     val iterator = overlappingIterator(startOffset, endOffset, tastePreference)
-    while (iterator.hasNext()) if (!processor.process(iterator.next())) return false
+    while (iterator.hasNext()) if (!processor.process(iterator.next(), 0)) return false
     return true
   }
 
+  /** Finds candidates in base offsets, then checks them again in current offsets. */
   override fun overlappingIterator(startOffset: Int, endOffset: Int, tastePreference: Int): Iterator<MarkerEntry> {
     require(startOffset in 0..endOffset) { "The query range is invalid" }
     val offsets = insertions ?: return base.overlappingIterator(startOffset, endOffset, tastePreference)
@@ -144,6 +141,7 @@ class PMarkerInsertionRoot internal constructor(
     entry.marker?.cacheResolution(this, TextRangeScalarUtil.toScalarRange(entry.nodeStart, entry.nodeEnd))
   }
 
+  /** Applies the ancestor shift first, then translates both endpoints through the insertion log. */
   private fun shifted(entry: MarkerEntry, delta: Int): MarkerEntry {
     val start = entry.nodeStart + delta
     val end = entry.nodeEnd + delta

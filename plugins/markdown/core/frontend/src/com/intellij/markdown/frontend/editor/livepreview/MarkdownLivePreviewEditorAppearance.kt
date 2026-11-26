@@ -7,7 +7,12 @@ import com.intellij.ide.ui.UISettingsUtils
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
+import com.intellij.openapi.editor.DefaultLanguageHighlighterColors
 import com.intellij.openapi.editor.EditorKind
+import com.intellij.openapi.editor.colors.EditorColorsListener
+import com.intellij.openapi.editor.colors.EditorColorsManager
+import com.intellij.openapi.editor.colors.TextAttributesKey
+import com.intellij.openapi.editor.colors.impl.DelegateColorScheme
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.editor.ex.SoftWrapChangeListener
 import com.intellij.openapi.editor.ex.util.EditorUtil
@@ -17,20 +22,27 @@ import com.intellij.openapi.editor.impl.SoftWrapModelImpl
 import com.intellij.openapi.editor.impl.softwrap.CompositeSoftWrapPainter
 import com.intellij.openapi.editor.impl.softwrap.SoftWrapDrawingType
 import com.intellij.openapi.editor.impl.softwrap.SoftWrapPainter
+import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.vfs.limits.FileSizeLimit.Companion.getIntellisenseLimit
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.text.CharArrayUtil
 import com.intellij.util.ui.StartupUiUtil
+import org.intellij.plugins.markdown.highlighting.MarkdownHighlighterColors
 import org.intellij.plugins.markdown.lang.MarkdownFileType
 import org.intellij.plugins.markdown.lang.MarkdownTokenTypes
 import org.intellij.plugins.markdown.lang.isAirPrompt
 import org.intellij.plugins.markdown.settings.MarkdownSettings
 import org.intellij.plugins.markdown.ui.preview.PreviewLAFThemeStyles
+import java.awt.Font
 import java.awt.Graphics
 import java.util.function.IntUnaryOperator
 import kotlin.reflect.KMutableProperty1
+
+/** Live preview shows these keys of a code fence gray and plain. The annotator gives them by key, so the scheme of the editor applies. */
+internal val LIVE_PREVIEW_GRAY_FENCE_KEYS: Set<TextAttributesKey> =
+  setOf(MarkdownHighlighterColors.CODE_FENCE_MARKER, MarkdownHighlighterColors.CODE_FENCE_LANGUAGE)
 
 /**
  * Shows one editor in the UI font at the `Preview font size` and with soft wraps while live preview is on.
@@ -41,6 +53,9 @@ import kotlin.reflect.KMutableProperty1
  * While live preview is on, keeps soft wraps on. Only a document above the IntelliSense size limit keeps its soft-wrap flag.
  * A wrapped line starts at the first non-blank character of its first line, with no soft-wrap sign before it.
  * A wrapped list item line starts under the item text.
+ * A wrapped block quote line starts under the quote text.
+ * While live preview is on, the markers and the language of a code fence are gray and plain, so the header of the block stays quiet.
+ * The gray is the color of a line comment.
  */
 internal class MarkdownLivePreviewEditorAppearance private constructor(
   private val editor: EditorEx,
@@ -53,6 +68,12 @@ internal class MarkdownLivePreviewEditorAppearance private constructor(
 
   /** The gutter background flag before live preview. */
   private var preLivePreviewGutterBackground = true
+
+  /**
+   * True after live preview has set the attributes of the fence markers and language in the scheme of this editor.
+   * The scheme of one editor cannot drop an attribute that it sets, so after live preview it holds the attributes of the global scheme.
+   */
+  private var fenceAttributesSet = false
 
   /** A setting before live preview. A null [override] means that the setting had no override. */
   private class SavedSetting(
@@ -67,6 +88,7 @@ internal class MarkdownLivePreviewEditorAppearance private constructor(
     })
     connection.subscribe(UISettingsListener.TOPIC, UISettingsListener { onFontSettingsChanged() })
     connection.subscribe(LafManagerListener.TOPIC, LafManagerListener { onFontSettingsChanged() })
+    connection.subscribe(EditorColorsManager.TOPIC, EditorColorsListener { onSchemeChanged() })
     editor.softWrapModel.addSoftWrapChangeListener(object : SoftWrapChangeListener {
       override fun softWrapsChanged() = onSoftWrapsChanged()
       override fun recalculationEnds() = Unit
@@ -85,6 +107,7 @@ internal class MarkdownLivePreviewEditorAppearance private constructor(
       preLivePreviewGutterBackground = editor.gutterComponentEx.isPaintBackground
     }
     applyFont()
+    applyFenceAttributes()
     if (editor.editorKind != EditorKind.DIFF) editor.gutterComponentEx.isPaintBackground = false
     settings.isLineNumbersShown = false
     settings.isIndentGuidesShown = false
@@ -103,6 +126,7 @@ internal class MarkdownLivePreviewEditorAppearance private constructor(
     editor.setFontSize(UISettingsUtils.getInstance().scaledEditorFontSize)
     val savedSettings = preLivePreviewSettings ?: return
     preLivePreviewSettings = null
+    applyFenceAttributes()
     settings.runWithDeferredEditorRefresh {
       if (settings.isUseSoftWraps) setSoftWrapPainter(CompositeSoftWrapPainter(editor))
       for (setting in savedSettings) {
@@ -122,6 +146,31 @@ internal class MarkdownLivePreviewEditorAppearance private constructor(
     }
     val application = ApplicationManager.getApplication()
     if (application.isDispatchThread) update.run() else application.invokeLater(update, ModalityState.any())
+  }
+
+  private fun onSchemeChanged() {
+    // The scheme of this editor takes the new global scheme in its own listener, so the update runs after it.
+    ApplicationManager.getApplication().invokeLater({
+      if (!editor.isDisposed && fenceAttributesSet) applyFenceAttributes()
+    }, ModalityState.stateForComponent(editor.component))
+  }
+
+  /** Sets the gray plain fence keys while live preview is on, and the fence keys of the global scheme after live preview. */
+  private fun applyFenceAttributes() {
+    val scheme = editor.colorsScheme
+    val global = (scheme as? DelegateColorScheme)?.delegate ?: return
+    for (key in LIVE_PREVIEW_GRAY_FENCE_KEYS) {
+      val attributes = global.getAttributes(key)?.clone() ?: TextAttributes()
+      if (preLivePreviewSettings != null) {
+        attributes.foregroundColor = global.getAttributes(DefaultLanguageHighlighterColors.LINE_COMMENT)?.foregroundColor ?: global.defaultForeground
+        attributes.fontType = Font.PLAIN
+      }
+      scheme.setAttributes(key, attributes)
+    }
+    fenceAttributesSet = true
+    // The editor highlighter keeps the attributes of each token until it gets the scheme again.
+    editor.highlighter.setColorScheme(scheme)
+    editor.contentComponent.repaint()
   }
 
   private fun onSoftWrapsChanged() {
@@ -198,7 +247,7 @@ private class MarkdownLivePreviewSoftWrapPainter(
   override fun getMinDrawingWidth(drawingType: SoftWrapDrawingType): Int =
     if (drawingType == SoftWrapDrawingType.AFTER_SOFT_WRAP) 0 else delegate.getMinDrawingWidth(drawingType)
 
-  /** Returns the x of the item text from the line start on a list item marker line */
+  /** Returns the x of the text after the list item and block quote markers from the line start, or -1 on a line without markers */
   override fun getIndentOffset(lineStartOffset: Int, offsetToX: IntUnaryOperator): Int {
     val document = editor.document
     val lineEnd = document.getLineEndOffset(document.getLineNumber(lineStartOffset))
@@ -206,8 +255,9 @@ private class MarkdownLivePreviewSoftWrapPainter(
     var markerEnd = -1
     while (!iterator.atEnd() && iterator.start < lineEnd) {
       when (iterator.tokenType) {
-        MarkdownTokenTypes.LIST_BULLET, MarkdownTokenTypes.LIST_NUMBER, MarkdownTokenTypes.CHECK_BOX -> markerEnd = iterator.end
-        MarkdownTokenTypes.WHITE_SPACE, MarkdownTokenTypes.BLOCK_QUOTE -> Unit
+        MarkdownTokenTypes.LIST_BULLET, MarkdownTokenTypes.LIST_NUMBER, MarkdownTokenTypes.CHECK_BOX,
+        MarkdownTokenTypes.BLOCK_QUOTE -> markerEnd = iterator.end
+        MarkdownTokenTypes.WHITE_SPACE -> Unit
         else -> break
       }
       iterator.advance()

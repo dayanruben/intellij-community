@@ -1,31 +1,33 @@
-// The doc part of a site harvest: the notes, the guides, the explainers, the glossary, the decision records, and the
-// extra readmes, then the hand-laid diagrams with their references resolved. The folders come from the site config
+// The doc part of a site harvest: the notes, the guides, the explainers, the glossary, the decisions (the designs of
+// the archived OpenSpec changes), and the extra readmes, then the hand-laid diagrams with their references
+// resolved. The folders come from the site config
 // (`docs` of siteConfig.ts). The site model resolves each reference (modelProvider.ts), so this file knows no
 // language and no build system.
 //
-// The harvest also runs the decision check (adrFiles.ts), the diagram check (diagramFiles.ts), the prose check
+// The harvest also runs the decision check (decisionFiles.ts), the diagram check (diagramFiles.ts), the prose check
 // (proseLint.ts), and the vocabulary check (vocabulary.ts), in this order, so a prose finding hides no reference error.
 // It takes them from a check run (checkRun.ts), so a check that the caller ran already does not run again.
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { assertRunOf, type CheckRun, createCheckRun, once } from './checkRun.ts'
 import { resolveCodeSpanPaths } from './codeSpans.ts'
 import { type AirDiagram, DIAGRAM_FILE_SUFFIX, type HarvestedDiagram, type HarvestedDiagramNode, type HarvestedDiagramStep } from './diagram.ts'
 import type { DiagramFiles } from './diagramFiles.ts'
 import { collectPictureReferences } from './docAssets.ts'
-import { adrDisplayTitle, type AdrMeta, type GuideGroup, isLabeledId, isNoteState, NOTE_STATES, type NoteState, parseAdrMeta } from './docMeta.ts'
+import { archiveDesignTitle, type DecisionMeta, decisionMeta, type GuideGroup, isLabeledId, isNoteState, NOTE_STATES, type NoteState } from './docMeta.ts'
 import { type ExplainerChapter, splitExplainerChapters } from './explainerDoc.ts'
 import type { ModelProvider, SourceLocation } from './modelProvider.ts'
-import { contentDir, repoRoot } from './paths.ts'
+import { contentDir, openspecArchiveDesigns, posixRelative, repoRoot } from './paths.ts'
 import type { SiteConfig } from './siteConfig.ts'
+import { docPathOfRepoPath } from './sourcePaths.ts'
 
 export { slugify } from './explainerDoc.ts'
 
 /** `readme` is a bundled doc that no index lists, so a link to it still resolves. */
-export type DocKind = 'guide' | 'adr' | 'note' | 'home' | 'glossary' | 'readme' | 'explainer'
+export type DocKind = 'guide' | 'decision' | 'note' | 'home' | 'glossary' | 'readme' | 'explainer'
 
-export const DOC_KINDS: readonly DocKind[] = ['guide', 'adr', 'note', 'home', 'glossary', 'readme', 'explainer']
+export const DOC_KINDS: readonly DocKind[] = ['guide', 'decision', 'note', 'home', 'glossary', 'readme', 'explainer']
 
 export interface HarvestedDoc {
   /** Path relative to the content root, e.g. `docs/awb.md`. */
@@ -40,8 +42,8 @@ export interface HarvestedDoc {
    * docs, and leaves it empty for the rest.
    */
   mentions: string[]
-  /** The decision record metadata (docMeta.ts). Set on an `adr` doc only. */
-  adr?: AdrMeta
+  /** The decision metadata (docMeta.ts) of the design of an archived change. Set on a `decision` doc only. */
+  decision?: DecisionMeta
   /** The Guides page group (frontmatter `group:`). Set on a `guide` doc only. */
   group?: GuideGroup
   /** Whether the work of a note goes on (frontmatter `state:`). Set on a `note` doc only. */
@@ -144,6 +146,20 @@ export function collectDocPictures(
   }
 }
 
+/** The design of an archived change that the harvest reads as a decision document. */
+interface ArchiveDesignDoc {
+  /** The change id: the name of the archive folder. */
+  change: string
+  /** The folder name without its date prefix: the title of a design with no specific H1. */
+  slug: string
+  /** The `x-topic` of the change, or null. */
+  topic: string | null
+  /** The `x-adr` ids of the change. */
+  formerIds: string[]
+  /** The source of the `proposal.md` of the same folder, or null when the folder has none. */
+  proposal: string | null
+}
+
 /** The markdown files of a content-relative folder, sorted, or none when the folder does not exist. */
 function markdownEntries(content: string, folder: string): string[] {
   const dir = join(content, folder)
@@ -162,7 +178,7 @@ export function harvestDocs(config: SiteConfig, provider: ModelProvider, options
   const docs: HarvestedDoc[] = []
   const bodies = new Map<string, string>()
   const pictures = new Set<string>()
-  const harvestDoc = (docPath: string, defaultKind: DocKind): void => {
+  const harvestDoc = (docPath: string, defaultKind: DocKind, design?: ArchiveDesignDoc): void => {
     const absolute = join(content, docPath)
     if (!existsSync(absolute)) {
       return
@@ -174,18 +190,19 @@ export function harvestDocs(config: SiteConfig, provider: ModelProvider, options
     if (body.trim() === '') {
       throw new Error(`harvest: ${docPath}: the doc is empty`)
     }
-    const kind = (DOC_KINDS as readonly string[]).includes(metaKind) ? metaKind as DocKind : defaultKind
+    const kind = design === undefined && metaKind !== 'decision' && (DOC_KINDS as readonly string[]).includes(metaKind) ? metaKind as DocKind : defaultKind
     const heading = /^#\s+(.+)$/m.exec(body)?.[1]?.trim() ?? fileName
+    const title = design !== undefined ? archiveDesignTitle(body, design.proposal, design.slug) : heading
     const doc: HarvestedDoc = {
       path: docPath,
-      title: typeof meta.title === 'string' ? meta.title : kind === 'adr' ? adrDisplayTitle(heading) : heading,
+      title: typeof meta.title === 'string' ? meta.title : title,
       description: typeof meta.description === 'string' ? meta.description : '',
       kind,
       order: typeof meta.order === 'string' && /^\d+$/.test(meta.order) ? Number(meta.order) : 999,
       mentions: [],
     }
-    if (kind === 'adr') {
-      doc.adr = parseAdrMeta(docPath, body, typeof meta.topic === 'string' ? meta.topic : undefined, config.decisions.topics)
+    if (design !== undefined) {
+      doc.decision = decisionMeta(docPath, design.change, design.topic, config.decisions.topics, design.formerIds)
     }
     else if (kind === 'guide') {
       if (typeof meta.group !== 'string' || !isLabeledId(config.guideGroups, meta.group)) {
@@ -233,15 +250,18 @@ export function harvestDocs(config: SiteConfig, provider: ModelProvider, options
   if (config.docs.glossary !== null) {
     harvestDoc(config.docs.glossary, 'glossary')
   }
-  for (const folder of config.docs.decisions) {
-    for (const entry of markdownEntries(content, folder)) {
-      harvestDoc(`${folder}/${entry}`, 'adr')
-    }
+  // the design of each archived change of an OpenSpec root is a decision document. A root outside the content root
+  // gives a doc path with `..` segments (docPathOfRepoPath)
+  for (const design of openspecArchiveDesigns(config, root)) {
+    const docPath = docPathOfRepoPath(config.contentRoot, posixRelative(root, design.file))
+    const proposalFile = join(dirname(design.file), 'proposal.md')
+    const proposal = existsSync(proposalFile) ? readFileSync(proposalFile, 'utf8') : null
+    harvestDoc(docPath, 'decision', { change: design.id, slug: design.slug, topic: design.topic, formerIds: design.adr, proposal })
   }
   for (const extra of config.docs.extraReadmes) {
     harvestDoc(extra, 'readme')
   }
-  // the record files and the references to them, shared with the gate and the check script (adrFiles.ts)
+  // the designs and the references to them, shared with the gate and the check script (decisionFiles.ts)
   checks.decisions()
 
   const diagrams = harvestDiagrams(config, provider, docs, checks.diagramFiles())
@@ -254,14 +274,12 @@ export function harvestDocs(config: SiteConfig, provider: ModelProvider, options
 }
 
 /**
- * The diagrams of the site with each reference resolved against the provider and the harvested decision records.
+ * The diagrams of the site with each reference resolved against the provider and the harvested decisions.
  * The grammar, the grid, and the fence cross-check are the shared check (diagramFiles.ts).
  */
 function harvestDiagrams(config: SiteConfig, provider: ModelProvider, docs: readonly HarvestedDoc[], diagramFiles: DiagramFiles): HarvestedDiagram[] {
-  // a diagram names a record by its number, or by its file name without `.md` (a dated record has no number)
-  const adrTitles = new Map(docs.flatMap(doc => doc.adr
-    ? [[doc.path.slice(doc.path.lastIndexOf('/') + 1, -'.md'.length), doc] as const, ...(doc.adr.number === null ? [] : [[doc.adr.number, doc] as const])]
-    : []))
+  // a diagram names a decision by its change id
+  const decisionDocs = new Map(docs.flatMap(doc => doc.decision ? [[doc.decision.change, doc] as const] : []))
   const diagrams: HarvestedDiagram[] = []
   const linkedFiles: string[] = []
   for (const diagram of diagramFiles.diagrams.values()) {
@@ -308,16 +326,16 @@ function harvestDiagrams(config: SiteConfig, provider: ModelProvider, docs: read
       if (node.concept !== null && !provider.hasConcept(node.concept)) {
         throw new Error(`${where(node.id)}: unknown concept \`${node.concept}\``)
       }
-      const adr = node.adr === null ? null : adrTitles.get(node.adr)
-      if (node.adr !== null && adr === undefined) {
-        throw new Error(`${where(node.id)}: no decision record ${node.adr}`)
+      const decision = node.decision === null ? null : decisionDocs.get(node.decision)
+      if (node.decision !== null && decision === undefined) {
+        throw new Error(`${where(node.id)}: no decision ${node.decision}`)
       }
       for (const ref of [symbolRef, sourceRef, targetRef]) {
         if (ref) {
           linkedFiles.push(ref.file)
         }
       }
-      return { ...node, symbolRef, sourceRef, ...(targetRef === undefined ? {} : { targetRef }), adrTitle: adr?.title ?? null, adrPath: adr?.path ?? null }
+      return { ...node, symbolRef, sourceRef, ...(targetRef === undefined ? {} : { targetRef }), decisionTitle: decision?.title ?? null, decisionPath: decision?.path ?? null }
     })
     diagrams.push({ ...diagram, nodes, steps: resolveSteps(provider, diagram, nodes, file) })
   }

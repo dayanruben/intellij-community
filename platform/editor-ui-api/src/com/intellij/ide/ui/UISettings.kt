@@ -5,6 +5,9 @@ import com.intellij.diagnostic.LoadingState
 import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.EDT
+import com.intellij.openapi.application.ModalityState
+import com.intellij.openapi.application.asContextElement
 import com.intellij.openapi.components.PersistentStateComponentWithModificationTracker
 import com.intellij.openapi.components.SettingsCategory
 import com.intellij.openapi.components.State
@@ -18,48 +21,96 @@ import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.util.SystemInfoRt
 import com.intellij.openapi.util.registry.Registry
+import com.intellij.platform.settings.v2.SettingsContext
+import com.intellij.platform.settings.v2.SettingsKey
+import com.intellij.platform.settings.v2.getValue
 import com.intellij.serviceContainer.NonInjectable
 import com.intellij.ui.JreHiDpiUtil
 import com.intellij.ui.NewUiValue
 import com.intellij.ui.scale.JBUIScale
 import com.intellij.util.ComponentTreeEventDispatcher
+import com.intellij.util.asDisposable
+import com.intellij.util.cancelOnDispose
 import com.intellij.util.ui.EDT
 import com.intellij.util.ui.GraphicsUtil
 import com.intellij.util.ui.UIUtil
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.job
+import kotlinx.coroutines.launch
 import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.ApiStatus.ScheduledForRemoval
 import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.RenderingHints
+import java.util.concurrent.ConcurrentHashMap
 import javax.swing.JComponent
 import javax.swing.SwingConstants
 import javax.swing.SwingUtilities
 
 private val LOG = logger<UISettings>()
 
+/**
+ * Holds the UI settings of the IDE.
+ *
+ * Some properties hold the value of a settings v2 key, and their KDoc names the key. A write of such a property is
+ * asynchronous. The setter launches the write of the key and returns before the write applies. So a read right after
+ * the write can still return the old value.
+ *
+ * To react to the new value of one such property, use its value listener, such as [addEditorAntialiasingListener]. A
+ * value listener gets the new value as the getter reads it. It runs on the EDT, in any modality. It is not called when
+ * the value equals the value of its previous call. A value listener that gets a coroutine scope lives until the scope is
+ * cancelled. A value listener that gets a disposable lives until the disposable is disposed. An instance over a given
+ * component registers no value listener. To react to several values, use [UISettingsListener].
+ */
 @State(
   name = "UISettings",
   storages = [(Storage("ui.lnf.xml", usePathMacroManager = false))],
   useLoadedStateAsExisting = false,
   category = SettingsCategory.UI,
 )
-class UISettings @NonInjectable constructor(private val notRoamableOptions: NotRoamableUiSettings) : PersistentStateComponentWithModificationTracker<UISettingsState> {
-  constructor() : this(ApplicationManager.getApplication().service<NotRoamableUiSettings>())
+class UISettings private constructor(
+  private val notRoamableOptions: NotRoamableUiSettings,
+  /**
+   * Tells which of two kinds this instance is. The application service reads and writes the keys of [UISettingsKeys].
+   * An instance over a given component reads and writes only [notRoamableOptions], and never touches the keys.
+   *
+   * The second kind serves [shadowInstance] before the settings store is initialized. Then no settings vault exists,
+   * so no key can be read. The instance holds a new component that was never loaded, so it gives the default values of
+   * [NotRoamableUiOptions]. It must not read or change the real settings of the user.
+   */
+  private val usesKeys: Boolean,
+) : PersistentStateComponentWithModificationTracker<UISettingsState> {
+  /** Creates an instance over [notRoamableOptions] that never touches the keys. See [usesKeys]. */
+  @NonInjectable
+  constructor(notRoamableOptions: NotRoamableUiSettings) : this(notRoamableOptions, usesKeys = false)
+
+  /** Creates the application service, which reads and writes the keys. See [usesKeys]. */
+  constructor() : this(ApplicationManager.getApplication().service<NotRoamableUiSettings>(), usesKeys = true)
 
   private var state = UISettingsState()
 
   private val treeDispatcher = ComponentTreeEventDispatcher.create(UISettingsListener::class.java)
 
+  /**
+   * Holds the antialiasing of the text in the IDE, the value of [UISettingsKeys.IDE_ANTIALIASING]. A write is
+   * asynchronous. See [UISettings]. [addIdeAntialiasingListener] follows the value.
+   */
   var ideAAType: AntialiasingType
-    get() = notRoamableOptions.ideAAType
+    get() = readSetting(UISettingsKeys.IDE_ANTIALIASING) { notRoamableOptions.ideAAType }
     set(value) {
-      notRoamableOptions.ideAAType = value
+      writeSetting(UISettingsKeys.IDE_ANTIALIASING, value) { notRoamableOptions.ideAAType = value }
     }
 
+  /**
+   * Holds the antialiasing of the text in the editor, the value of [UISettingsKeys.EDITOR_ANTIALIASING]. A write is
+   * asynchronous. See [UISettings]. [addEditorAntialiasingListener] follows the value.
+   */
   var editorAAType: AntialiasingType
-    get() = notRoamableOptions.editorAAType
+    get() = readSetting(UISettingsKeys.EDITOR_ANTIALIASING) { notRoamableOptions.editorAAType }
     set(value) {
-      notRoamableOptions.editorAAType = value
+      writeSetting(UISettingsKeys.EDITOR_ANTIALIASING, value) { notRoamableOptions.editorAAType = value }
     }
 
   val allowMergeButtons: Boolean
@@ -80,11 +131,29 @@ class UISettings @NonInjectable constructor(private val notRoamableOptions: NotR
       state.useContrastScrollBars = value
     }
 
+  /**
+   * Tells whether the tool windows hide their stripes. It is `true` also with [experimentalSingleStripe]. A write of
+   * `false` also turns off [experimentalSingleStripe], and that part is asynchronous. See [UISettings].
+   */
   var hideToolStripes: Boolean
-    get() = state.hideToolStripes || notRoamableOptions.experimentalSingleStripe
+    get() = state.hideToolStripes || experimentalSingleStripe
     set(value) {
       state.hideToolStripes = value
-      if (!value) notRoamableOptions.experimentalSingleStripe = false
+      if (!value) {
+        experimentalSingleStripe = false
+      }
+    }
+
+  /**
+   * Tells whether the tool windows show their buttons in one stripe, the value of [UISettingsKeys.SINGLE_STRIPE]. A
+   * write is asynchronous. See [UISettings].
+   */
+  @get:Internal
+  @set:Internal
+  var experimentalSingleStripe: Boolean
+    get() = readSetting(UISettingsKeys.SINGLE_STRIPE) { notRoamableOptions.experimentalSingleStripe }
+    set(value) {
+      writeSetting(UISettingsKeys.SINGLE_STRIPE, value) { notRoamableOptions.experimentalSingleStripe = value }
     }
 
   val hideNavigationOnFocusLoss: Boolean
@@ -367,16 +436,24 @@ class UISettings @NonInjectable constructor(private val notRoamableOptions: NotR
       state.presentationMode = value
     }
 
+  /**
+   * Holds the editor font size in the presentation mode, from [presentationModeIdeScale]. A write is asynchronous. See
+   * [UISettings].
+   */
   var presentationModeFontSize: Int
     get() = UISettingsUtils.with(this).presentationModeFontSize.toInt()
     set(value) {
       UISettingsUtils.with(this).presentationModeFontSize = value.toFloat()
     }
 
+  /**
+   * Holds the scale of the IDE in the presentation mode, the value of [UISettingsKeys.PRESENTATION_MODE_IDE_SCALE]. A
+   * write is asynchronous. See [UISettings]. [addPresentationModeIdeScaleListener] follows the value.
+   */
   var presentationModeIdeScale: Float
-    get() = notRoamableOptions.presentationModeIdeScale
+    get() = readSetting(UISettingsKeys.PRESENTATION_MODE_IDE_SCALE) { notRoamableOptions.presentationModeIdeScale }
     set(value) {
-      notRoamableOptions.presentationModeIdeScale = value
+      writeSetting(UISettingsKeys.PRESENTATION_MODE_IDE_SCALE, value) { notRoamableOptions.presentationModeIdeScale = value }
     }
 
   var editorTabPlacement: Int
@@ -415,32 +492,55 @@ class UISettings @NonInjectable constructor(private val notRoamableOptions: NotR
       state.maxLookupListHeight = value
     }
 
+  /**
+   * Tells whether the IDE uses the custom font, the value of [UISettingsKeys.CUSTOM_FONT_ENABLED]. A write is
+   * asynchronous. See [UISettings].
+   */
   var overrideLafFonts: Boolean
-    get() = notRoamableOptions.state.overrideLafFonts
+    get() = readSetting(UISettingsKeys.CUSTOM_FONT_ENABLED) { notRoamableOptions.state.overrideLafFonts }
     set(value) {
-      notRoamableOptions.overrideLafFonts = value
+      writeSetting(UISettingsKeys.CUSTOM_FONT_ENABLED, value) { notRoamableOptions.overrideLafFonts = value }
     }
 
+  /**
+   * Holds the name of the custom font, the value of [UISettingsKeys.CUSTOM_FONT_FACE]. A font that cannot display the
+   * standard ASCII symbols reads as a valid fallback font. No value reads as the system font. A write is asynchronous.
+   * See [UISettings].
+   */
   var fontFace: @NlsSafe String?
     get() {
-      return notRoamableOptions.fontFace
+      if (!usesKeys) {
+        return notRoamableOptions.fontFace
+      }
+      val fontFace = UISettingsKeys.CUSTOM_FONT_FACE.getValue() ?: return JBUIScale.getSystemFontDataIfInitialized()?.first
+      return validFontFaces.computeIfAbsent(fontFace) { findValidFontFace(it, fontSize2D) }
     }
     set(value) {
-      notRoamableOptions.fontFace = value
+      writeSetting(UISettingsKeys.CUSTOM_FONT_FACE, value) { notRoamableOptions.fontFace = value }
     }
 
+  /** Holds [fontSize2D] rounded to an integer. A write is asynchronous. See [UISettings]. */
   var fontSize: Int
     get() {
-      return (notRoamableOptions.fontSize + 0.5).toInt()
+      return (fontSize2D + 0.5).toInt()
     }
     set(value) {
-      notRoamableOptions.fontSize = value.toFloat()
+      fontSize2D = value.toFloat()
     }
 
+  /**
+   * Holds the size of the custom font, the value of [UISettingsKeys.CUSTOM_FONT_SIZE]. A size of `0` or less reads as
+   * the default font size. A write is asynchronous. See [UISettings].
+   */
   var fontSize2D: Float
-    get() = notRoamableOptions.fontSize
+    get() {
+      if (!usesKeys) {
+        return notRoamableOptions.fontSize
+      }
+      return UISettingsKeys.CUSTOM_FONT_SIZE.getValue().takeIf { it > 0 } ?: getDefaultFontSize()
+    }
     set(value) {
-      notRoamableOptions.fontSize = value
+      writeSetting(UISettingsKeys.CUSTOM_FONT_SIZE, value) { notRoamableOptions.fontSize = value }
     }
 
   var fontScale: Float
@@ -449,10 +549,20 @@ class UISettings @NonInjectable constructor(private val notRoamableOptions: NotR
       notRoamableOptions.fontScale = value
     }
 
+  /**
+   * Holds the scale of the IDE, the value of [UISettingsKeys.IDE_SCALE]. A scale of `0` or less reads as the default font
+   * size, as the load of [NotRoamableUiSettings] repairs it. A write is asynchronous. See [UISettings].
+   * [addIdeScaleListener] follows the value.
+   */
   var ideScale: Float
-    get() = notRoamableOptions.ideScale
+    get() {
+      if (!usesKeys) {
+        return notRoamableOptions.ideScale
+      }
+      return UISettingsKeys.IDE_SCALE.getValue().takeIf { it > 0 } ?: getDefaultFontSize()
+    }
     set(value) {
-      notRoamableOptions.ideScale = value
+      writeSetting(UISettingsKeys.IDE_SCALE, value) { notRoamableOptions.ideScale = value }
     }
 
   var showDirectoryForNonUniqueFilenames: Boolean
@@ -559,8 +669,12 @@ class UISettings @NonInjectable constructor(private val notRoamableOptions: NotR
       state.showBreakpointsOverLineNumbers = value
     }
 
+  /**
+   * Holds the scale of the IDE now: the scale of [runWithIdeScale] while its action runs, else [presentationModeIdeScale]
+   * in the presentation mode, else [ideScale]. A write goes to the key of the mode and is asynchronous. See [UISettings].
+   */
   var currentIdeScale: Float
-    get() = if (presentationMode) presentationModeIdeScale else ideScale
+    get() = temporaryIdeScale ?: if (presentationMode) presentationModeIdeScale else ideScale
     set(scale) {
       when {
         scale.percentValue == currentIdeScale.percentValue -> return
@@ -568,6 +682,26 @@ class UISettings @NonInjectable constructor(private val notRoamableOptions: NotR
         else -> ideScale = scale
       }
     }
+
+  /**
+   * Holds the scale of [runWithIdeScale] while its action runs, else `null`.
+   */
+  private var temporaryIdeScale: Float? = null
+
+  /**
+   * Runs [action] while [currentIdeScale] reads [scale]. The call stores nothing and does not change the settings of the
+   * user. Only the synchronous code of [action] can rely on the scale.
+   */
+  @Internal
+  fun runWithIdeScale(scale: Float, action: () -> Unit) {
+    temporaryIdeScale = scale
+    try {
+      action()
+    }
+    finally {
+      temporaryIdeScale = null
+    }
+  }
 
   var showPreviewInSearchEverywhere: Boolean
     get() = state.showPreviewInSearchEverywhere
@@ -606,6 +740,9 @@ class UISettings @NonInjectable constructor(private val notRoamableOptions: NotR
     @Volatile
     private var cachedInstance: UISettings? = null
 
+    /** Maps a custom font face to the valid face that [fontFace] reads for it, so each face is checked once. */
+    private val validFontFaces = ConcurrentHashMap<String, String>()
+
     @JvmStatic
     fun getInstance(): UISettings {
       var result = cachedInstance
@@ -628,8 +765,9 @@ class UISettings @NonInjectable constructor(private val notRoamableOptions: NotR
       }
 
     /**
-     * Use this method if you are not sure whether the application is initialized.
-     * @return persisted UISettings instance or default values.
+     * Holds the application service once the settings store is initialized. Before that, it holds a new instance over a
+     * new component, which gives the default values. Early startup code, such as the early frame and the frame headers,
+     * reads it. See [UISettings.usesKeys].
      */
     @JvmStatic
     val shadowInstance: UISettings
@@ -766,6 +904,29 @@ class UISettings @NonInjectable constructor(private val notRoamableOptions: NotR
     ApplicationManager.getApplication().messageBus.connect(parentDisposable).subscribe(UISettingsListener.TOPIC, listener)
   }
 
+  /** Calls [listener] with the new [ideAAType] after it changes, until [coroutineScope] is cancelled. See [UISettings]. */
+  fun addIdeAntialiasingListener(coroutineScope: CoroutineScope, listener: (AntialiasingType) -> Unit) {
+    addValueListener(UISettingsKeys.IDE_ANTIALIASING, coroutineScope.asDisposable(), { ideAAType }, listener)
+  }
+
+  /** Calls [listener] with the new [editorAAType] after it changes, until [coroutineScope] is cancelled. See [UISettings]. */
+  fun addEditorAntialiasingListener(coroutineScope: CoroutineScope, listener: (AntialiasingType) -> Unit) {
+    addValueListener(UISettingsKeys.EDITOR_ANTIALIASING, coroutineScope.asDisposable(), { editorAAType }, listener)
+  }
+
+  /** Calls [listener] with the new [ideScale] after it changes, until [parentDisposable] is disposed. See [UISettings]. */
+  fun addIdeScaleListener(parentDisposable: Disposable, listener: (Float) -> Unit) {
+    addValueListener(UISettingsKeys.IDE_SCALE, parentDisposable, { ideScale }, listener)
+  }
+
+  /**
+   * Calls [listener] with the new [presentationModeIdeScale] after it changes, until [parentDisposable] is disposed. See
+   * [UISettings].
+   */
+  fun addPresentationModeIdeScaleListener(parentDisposable: Disposable, listener: (Float) -> Unit) {
+    addValueListener(UISettingsKeys.PRESENTATION_MODE_IDE_SCALE, parentDisposable, { presentationModeIdeScale }, listener)
+  }
+
   /**
    * Notifies all registered listeners that UI settings have been changed.
    */
@@ -796,8 +957,54 @@ class UISettings @NonInjectable constructor(private val notRoamableOptions: NotR
     }
   }
 
+  /**
+   * Returns the value of [key] at the application context. An instance over a given component returns
+   * [componentValue] instead.
+   */
+  private inline fun <T> readSetting(key: SettingsKey<T>, componentValue: () -> T): T =
+    if (usesKeys) key.getValue() else componentValue()
+
+  /**
+   * Launches a write of [value] for [key], as [UISettingsKeys.setAsync] does, and writes [value] with [writeComponent].
+   * An instance over a given component writes only the component.
+   */
+  private inline fun <T> writeSetting(key: SettingsKey<T>, value: T, writeComponent: () -> Unit) {
+    if (usesKeys) UISettingsKeys.setAsync(key, value)
+    // IJPL-262873 removes this write of the component.
+    writeComponent()
+  }
+
+  /**
+   * Calls [listener] on the EDT, in any modality, after each change of [key] at the application context, until
+   * [parentDisposable] is disposed. [listener] gets the value that [readValue] returns at that time. It is not called
+   * when that value equals the value of its previous call, or, before the first call, the value at the registration.
+   * An instance over a given component adds no listener.
+   */
+  private fun <T> addValueListener(key: SettingsKey<T>, parentDisposable: Disposable, readValue: () -> T, listener: (T) -> Unit) {
+    if (!usesKeys) return
+    val coroutineScope = service<UISettingsKeysScope>().coroutineScope
+    val listenerJob = SupervisorJob(coroutineScope.coroutineContext.job)
+    listenerJob.cancelOnDispose(parentDisposable)
+    var reportedValue = readValue()
+    key.addListener(parentDisposable, SettingsContext.app()) { _, _ ->
+      // Any modality, because a modal dialog such as Settings can write a key.
+      coroutineScope.launch(listenerJob + Dispatchers.EDT + ModalityState.any().asContextElement()) {
+        val value = readValue()
+        if (value != reportedValue) {
+          reportedValue = value
+          listener(value)
+        }
+      }
+    }
+  }
+
   @Internal
   override fun getState(): UISettingsState = state
+
+  @Internal
+  override fun initializeComponent() {
+    UISettingsKeys.ensureServiceCreated()
+  }
 
   @Internal
   override fun noStateLoaded() {
@@ -848,11 +1055,11 @@ class UISettings @NonInjectable constructor(private val notRoamableOptions: NotR
   @Suppress("DEPRECATION")
   private fun migrateOldSettings() {
     if (state.ideAAType != AntialiasingType.SUBPIXEL) {
-      ideAAType = state.ideAAType
+      notRoamableOptions.ideAAType = state.ideAAType
       state.ideAAType = AntialiasingType.SUBPIXEL
     }
     if (state.editorAAType != AntialiasingType.SUBPIXEL) {
-      editorAAType = state.editorAAType
+      notRoamableOptions.editorAAType = state.editorAAType
       state.editorAAType = AntialiasingType.SUBPIXEL
     }
     if (!state.allowMergeButtons) {
@@ -877,7 +1084,7 @@ class UISettings @NonInjectable constructor(private val notRoamableOptions: NotR
   private fun migrateOldFontSettings(): Boolean {
     var migrated = false
     if (state.fontSize != 0) {
-      fontSize2D = restoreFontSize(state.fontSize.toFloat(), state.fontScale)
+      notRoamableOptions.fontSize = restoreFontSize(state.fontSize.toFloat(), state.fontScale)
       state.fontSize = 0
       migrated = true
     }
@@ -887,7 +1094,7 @@ class UISettings @NonInjectable constructor(private val notRoamableOptions: NotR
       migrated = true
     }
     if (state.fontFace != null) {
-      fontFace = state.fontFace
+      notRoamableOptions.fontFace = state.fontFace
       state.fontFace = null
       migrated = true
     }

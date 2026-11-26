@@ -4,7 +4,7 @@ import { type CheckRun, createCheckRun } from './checkRun.ts'
 import { harvestDocs } from './harvestDocs.ts'
 import type { ModelProvider } from './modelProvider.ts'
 import { temporaryTree } from './tempTree.ts'
-import { testSiteConfig } from './testSiteConfig.ts'
+import { ARCHIVE_FILES, testSiteConfig, withOpenSpecRoot } from './testSiteConfig.ts'
 
 const DIAGRAM = `id: flow
 title: The flow
@@ -35,7 +35,6 @@ const FILES: Record<string, string> = {
   'docs/a-note.md': '---\nstate: active\n---\n\n# A note\n\nText.\n',
   'docs/guides/g.md': '---\ngroup: docs\n---\n\n# A guide\n\nText.\n',
   'docs/explainers/e.md': '---\ntitle: E\n---\n\n# E\n\n## Start\n\nThe launcher runs.\n\n```diagram\nid: flow\n```\n',
-  'docs/decisions/0001-a-record.md': '---\ntopic: docs-site\n---\n\n# 1. A record\n\n## Status\n\nAccepted.\n',
   'docs/diagrams/flow.diagram.yaml': DIAGRAM,
   'README.md': '# Readme\n\nThe tree.\n',
 }
@@ -68,7 +67,6 @@ describe('the doc harvest', () => {
       ['docs/a-note.md', 'note'],
       ['docs/guides/g.md', 'guide'],
       ['docs/explainers/e.md', 'explainer'],
-      ['docs/decisions/0001-a-record.md', 'adr'],
       ['README.md', 'readme'],
     ])
     assert.deepStrictEqual(seen, harvest.docs.map(doc => doc.path))
@@ -79,6 +77,58 @@ describe('the doc harvest', () => {
     assert.equal('targetRef' in diagram.nodes[1], false)
     assert.deepStrictEqual(diagram.steps.map(step => step.flowRef), [null])
     assert.deepStrictEqual(model.bundled, ['build/BUILD.bazel', 'src/Main.kt'])
+  })
+
+  it('reads the design of each archived change as a decision, with the date and the topic of the change', () => {
+    const root = temporaryTree('harvest-docs-', { ...FILES, ...ARCHIVE_FILES })
+    const harvest = harvestDocs(withOpenSpecRoot(testSiteConfig()), provider(), { root })
+    const designs = harvest.docs.filter(doc => doc.decision !== undefined)
+    assert.deepStrictEqual(designs.map(doc => ({ path: doc.path, title: doc.title, kind: doc.kind, decision: doc.decision })), [
+      {
+        path: 'openspec/changes/archive/2026-11-20-one-channel/design.md',
+        title: 'The host keeps one channel',
+        kind: 'decision',
+        decision: { date: '2026-11-20', topic: 'docs-site', change: '2026-11-20-one-channel', formerIds: ['0001'] },
+      },
+      // a generic H1 takes the H1 of the proposal, and a design with no H1 and no proposal takes the slug
+      {
+        path: 'openspec/changes/archive/2026-11-21-a-view-frame/design.md',
+        title: 'A view keeps its frame',
+        kind: 'decision',
+        decision: { date: '2026-11-21', topic: null, change: '2026-11-21-a-view-frame', formerIds: [] },
+      },
+      {
+        path: 'openspec/changes/archive/2026-11-22-no-heading/design.md',
+        title: 'no-heading',
+        kind: 'decision',
+        decision: { date: '2026-11-22', topic: null, change: '2026-11-22-no-heading', formerIds: [] },
+      },
+    ])
+    // the designs follow the explainers and come before the extra docs
+    assert.deepStrictEqual(harvest.docs.map(doc => doc.path).slice(-5), [
+      'docs/explainers/e.md',
+      ...designs.map(doc => doc.path),
+      'README.md',
+    ])
+  })
+
+  it('reads a design of an OpenSpec root outside the content root, with a doc path that climbs out of it', () => {
+    const files = Object.fromEntries(Object.entries({ ...FILES, ...ARCHIVE_FILES }).map(([path, text]) => [path.startsWith('openspec/') ? `tools/vm/${path}` : `site/${path}`, text]))
+    const root = temporaryTree('harvest-docs-', files)
+    const config = testSiteConfig({ contentRoot: 'site' })
+    const openspec = { roots: ['tools/vm/openspec'], templateSections: ['Purpose'] }
+    const site = { ...config, specs: { ...config.specs, openspec } }
+    const harvest = harvestDocs(site, provider(), { root })
+    const design = harvest.docs.find(doc => doc.decision?.change === '2026-11-20-one-channel')
+    assert.equal(design?.path, '../tools/vm/openspec/changes/archive/2026-11-20-one-channel/design.md')
+    assert.equal(design?.title, 'The host keeps one channel')
+    assert.ok(harvest.bodies.get(design.path)?.includes('The host keeps one channel.'))
+  })
+
+  it('names the topics of the config for a design with an unknown x-topic', () => {
+    const root = temporaryTree('harvest-docs-', { ...FILES, ...ARCHIVE_FILES, 'openspec/changes/archive/2026-11-22-no-heading/.openspec.yaml': 'x-topic: misc\n' })
+    assert.throws(() => harvestDocs(withOpenSpecRoot(testSiteConfig()), provider(), { root }),
+      /2026-11-22-no-heading\/design\.md: "x-topic: misc" of \.openspec\.yaml is unknown; use one of docs-site/)
   })
 
   it('rejects a target that the site cannot resolve', () => {

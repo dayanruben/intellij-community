@@ -130,7 +130,7 @@ internal class PMarkerDirectRootTest {
     assertNull(resolutionCache(root))
     var visited = 0
 
-    fun process(entry: MarkerEntry): Boolean {
+    val processor = PMarkerRoot.MarkerDeltaProcessor { entry, _ ->
       val expected = entries[visited++]
       val delta = if (expected.nodeStart > 40) 2 else 0
       val offsets = TextRangeScalarUtil.toScalarRange(expected.nodeStart + delta, expected.nodeEnd + delta)
@@ -138,17 +138,17 @@ internal class PMarkerDirectRootTest {
       assertEquals(offsets, checkNotNull(resolutionCache(root))[entry.handle.id])
       assertTrue(root.isValid(entry.handle))
       assertEquals(offsets, root.resolve(entry.handle))
-      return visited < 15
+      visited < 15
     }
 
     when (query) {
-      0 -> assertFalse(root.processAllRangeMarkers { entry, _ -> process(entry) })
-      1 -> assertFalse(root.processRangeMarkersOverlappingWith(0, 200, 0, ::process))
+      0 -> assertFalse(root.processAllRangeMarkers(processor))
+      1 -> assertFalse(root.processRangeMarkersOverlappingWith(0, 200, 0, processor))
       2 -> {
         val iterator = root.overlappingIterator(0, 200, 0)
         do {
           assertTrue(iterator.hasNext())
-        } while (process(iterator.next()))
+        } while (processor.process(iterator.next(), 0))
         assertTrue(iterator.hasNext())
       }
       else -> error("Unknown query: $query")
@@ -180,7 +180,7 @@ internal class PMarkerDirectRootTest {
           edited.resolve(handle)
         }
         else PMarkerResolution.UNRESOLVED
-        assertEquals(expected, edited.advanceResolution(root.resolutionCacheIdentity, previous))
+        assertEquals(expected, edited.advanceResolution(handle, root.resolutionCacheIdentity, previous))
       }
     }
   }
@@ -200,8 +200,10 @@ internal class PMarkerDirectRootTest {
     val expected = if (invalidate) PMarkerResolution.invalid(TextRangeScalarUtil.toScalarRange(2, 4))
     else TextRangeScalarUtil.toScalarRange(2, 5)
     assertEquals(expected, edited.resolve(changed.handle))
-    assertEquals(PMarkerResolution.UNRESOLVED, edited.advanceResolution(root.resolutionCacheIdentity, root.resolve(changed.handle)))
-    assertEquals(root.resolve(before.handle), edited.advanceResolution(root.resolutionCacheIdentity, root.resolve(before.handle)))
+    assertEquals(PMarkerResolution.UNRESOLVED,
+                 edited.advanceResolution(changed.handle, root.resolutionCacheIdentity, root.resolve(changed.handle)))
+    assertEquals(root.resolve(before.handle),
+                 edited.advanceResolution(before.handle, root.resolutionCacheIdentity, root.resolve(before.handle)))
   }
 
   @Test
@@ -216,14 +218,16 @@ internal class PMarkerDirectRootTest {
       .updateMeasure(second.handle, 99)
 
     for (entry in listOf(first, second)) {
-      assertEquals(metadata.resolve(entry.handle), metadata.advanceResolution(root.resolutionCacheIdentity, root.resolve(entry.handle)))
+      assertEquals(metadata.resolve(entry.handle),
+                   metadata.advanceResolution(entry.handle, root.resolutionCacheIdentity, root.resolve(entry.handle)))
     }
     val addition = entry(20, 22)
     for (changedRoot in listOf(metadata.insertMany(listOf(addition)), metadata.remove(first.handle))) {
-      assertEquals(changedRoot.resolve(second.handle), changedRoot.advanceResolution(root.resolutionCacheIdentity, root.resolve(second.handle)))
+      assertEquals(changedRoot.resolve(second.handle),
+                   changedRoot.advanceResolution(second.handle, root.resolutionCacheIdentity, root.resolve(second.handle)))
     }
     assertEquals(PMarkerResolution.UNRESOLVED,
-                 metadata.remove(first.handle).advanceResolution(root.resolutionCacheIdentity, root.resolve(first.handle)))
+                 metadata.remove(first.handle).advanceResolution(first.handle, root.resolutionCacheIdentity, root.resolve(first.handle)))
     val changedRoots = listOf(
       metadata.purgeMany(listOf(first.handle)),
       metadata.restoreEntries(listOf(second.copy(nodeStart = 30, nodeEnd = 32))),
@@ -231,7 +235,8 @@ internal class PMarkerDirectRootTest {
       PMarkerDirectRoot.empty(),
     )
     for (changedRoot in changedRoots) {
-      assertEquals(PMarkerResolution.UNRESOLVED, changedRoot.advanceResolution(root.resolutionCacheIdentity, root.resolve(second.handle)))
+      assertEquals(PMarkerResolution.UNRESOLVED,
+                   changedRoot.advanceResolution(second.handle, root.resolutionCacheIdentity, root.resolve(second.handle)))
     }
   }
 
@@ -244,13 +249,14 @@ internal class PMarkerDirectRootTest {
     val next = applyPatch(edited, DocumentPatch.simple(8, 8, "x", 2, false), "x".repeat(102))
     val previous = root.resolve(entry.handle)
 
-    assertEquals(TextRangeScalarUtil.toScalarRange(14, 16), edited.advanceResolution(root.resolutionCacheIdentity, previous))
-    assertEquals(TextRangeScalarUtil.toScalarRange(11, 13), branch.advanceResolution(root.resolutionCacheIdentity, previous))
-    assertEquals(PMarkerResolution.UNRESOLVED, edited.advanceResolution(branch.resolutionCacheIdentity, previous))
-    assertEquals(next.resolve(entry.handle), next.advanceResolution(root.resolutionCacheIdentity, previous))
-    assertEquals(next.resolve(entry.handle), next.advanceResolution(edited.resolutionCacheIdentity, edited.resolve(entry.handle)))
+    assertEquals(TextRangeScalarUtil.toScalarRange(14, 16), edited.advanceResolution(entry.handle, root.resolutionCacheIdentity, previous))
+    assertEquals(TextRangeScalarUtil.toScalarRange(11, 13), branch.advanceResolution(entry.handle, root.resolutionCacheIdentity, previous))
+    assertEquals(PMarkerResolution.UNRESOLVED, edited.advanceResolution(entry.handle, branch.resolutionCacheIdentity, previous))
+    assertEquals(next.resolve(entry.handle), next.advanceResolution(entry.handle, root.resolutionCacheIdentity, previous))
+    assertEquals(next.resolve(entry.handle),
+                 next.advanceResolution(entry.handle, edited.resolutionCacheIdentity, edited.resolve(entry.handle)))
     for (resolution in listOf(PMarkerResolution.UNRESOLVED, PMarkerResolution.ABSENT, PMarkerResolution.invalid(previous))) {
-      assertEquals(PMarkerResolution.UNRESOLVED, edited.advanceResolution(root.resolutionCacheIdentity, resolution))
+      assertEquals(PMarkerResolution.UNRESOLVED, edited.advanceResolution(entry.handle, root.resolutionCacheIdentity, resolution))
     }
   }
 
@@ -266,8 +272,10 @@ internal class PMarkerDirectRootTest {
     assertTrue(PersistentMarkerPolicy.requiresFullTraversal(patch, before, after))
     val rebuilt = root.applyPatch(patch, before, after)
 
-    assertEquals(PMarkerResolution.UNRESOLVED, moved.advanceResolution(root.resolutionCacheIdentity, root.resolve(entry.handle)))
-    assertEquals(PMarkerResolution.UNRESOLVED, rebuilt.advanceResolution(root.resolutionCacheIdentity, root.resolve(entry.handle)))
+    assertEquals(PMarkerResolution.UNRESOLVED,
+                 moved.advanceResolution(entry.handle, root.resolutionCacheIdentity, root.resolve(entry.handle)))
+    assertEquals(PMarkerResolution.UNRESOLVED,
+                 rebuilt.advanceResolution(entry.handle, root.resolutionCacheIdentity, root.resolve(entry.handle)))
   }
 
   @Test
@@ -580,8 +588,8 @@ internal class PMarkerDirectRootTest {
     assertEquals(specMask, resolvedEntries(root).single { it.handle === handle }.specMask)
     assertEquals(specMask, root.overlappingIterator(0, 100, 0).asSequence().single { it.handle === handle }.specMask)
     val entries = ArrayList<MarkerEntry>()
-    assertTrue(root.processRangeMarkersOverlappingWith(0, 100, 0) {
-      entries.add(it)
+    assertTrue(root.processRangeMarkersOverlappingWith(0, 100, 0) { entry, _ ->
+      entries.add(entry)
       true
     })
     assertEquals(specMask, entries.single { it.handle === handle }.specMask)

@@ -1,9 +1,8 @@
-// The detail card of a clicked diagram card (ADR 0203 of Air): what the part does, where its code is, the
+// The detail card of a clicked diagram card (decision 2026-10-06-an-architecture-explanation-is-a-hand-laid-diagram): what the part does, where its code is, the
 // specs and the decision behind it, the steps it appears in, and the other chapters that show it.
 // One level deep, as the explainer checklist asks: no nested disclosure. The module, concept, and spec chips come
 // from the reference links of the site (RefLinks); a site without them shows none.
 
-import { adrNumberedTitle } from '../../../scripts/docMeta.ts'
 import { SourceLink } from '../../components/SourceLink'
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
@@ -53,7 +52,7 @@ export function NodeCard({ diagram, node, laneTitle, color, baseDir, onStep, onC
   const moduleLink = node.module === null ? null : refLinks.moduleLink?.(node.module) ?? null
   const spec = node.spec === null ? null : refLinks.specLink?.(node.spec) ?? null
   const concept = node.concept === null ? null : refLinks.conceptLink?.(node.concept) ?? null
-  const adrDoc = node.adrPath === null ? undefined : index.docsByPath.get(node.adrPath)
+  const decisionDoc = node.decisionPath === null ? undefined : index.docsByPath.get(node.decisionPath)
   const related = alsoIn(diagram, node)
   const hasCode = node.symbolRef !== null || node.sourceRef !== null || node.targetRef !== undefined || moduleLink !== null || concept !== null
   return (
@@ -92,12 +91,12 @@ export function NodeCard({ diagram, node, laneTitle, color, baseDir, onStep, onC
           </div>
         </section>
       )}
-      {(spec !== null || adrDoc !== undefined) && (
+      {(spec !== null || decisionDoc !== undefined) && (
         <section className="node-card-refs">
           <h3>Specs and decisions</h3>
           <ChipLinks>
             {spec !== null && <ChipLink href={spec.href}>{spec.title}</ChipLink>}
-            {adrDoc !== undefined && node.adrPath !== null && <ChipLink href={decisionRoute(node.adrPath)}>{adrDoc.adr === undefined ? adrDoc.title : adrNumberedTitle(adrDoc.adr, adrDoc.title)}</ChipLink>}
+            {decisionDoc !== undefined && node.decisionPath !== null && <ChipLink href={decisionRoute(node.decisionPath)}>{decisionDoc.title}</ChipLink>}
           </ChipLinks>
         </section>
       )}

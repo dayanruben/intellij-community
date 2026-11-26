@@ -83,7 +83,7 @@ internal class PMarkerDirectRootShiftTest {
   }
 
   @Test
-  fun `edits before all markers share both subtrees and preserve snapshots`() = withEntries { entries ->
+  fun `edits before all markers share both subtrees and preserve snapshots`(): Unit = withEntries { entries ->
     val root = PMarkerDirectRoot.empty().insertMany(entries)
     for (entry in entries) root.resolve(entry.handle)
     for (patch in listOf(
@@ -100,14 +100,15 @@ internal class PMarkerDirectRootShiftTest {
       assertTrue(notifications.isEmpty())
       if (edited !== root) {
         for (entry in entries) {
-          assertEquals(edited.resolve(entry.handle), edited.advanceResolution(root.resolutionCacheIdentity, root.resolve(entry.handle)))
+          assertEquals(edited.resolve(entry.handle),
+                       edited.advanceResolution(entry.handle, root.resolutionCacheIdentity, root.resolve(entry.handle)))
         }
       }
     }
   }
 
   @Test
-  fun `edits at non greedy range starts share both subtrees`() = withEntries { entries ->
+  fun `edits at non greedy range starts share both subtrees`(): Unit = withEntries { entries ->
     val root = PMarkerDirectRoot.empty().insertMany(entries)
     for (patch in listOf(
       DocumentPatch.simple(20, 20, "xx", 1, false),
@@ -121,7 +122,7 @@ internal class PMarkerDirectRootShiftTest {
   }
 
   @Test
-  fun `boundary flags and point markers retain their policy behavior`() = withEntries { entries ->
+  fun `boundary flags and point markers retain their policy behavior`(): Unit = withEntries { entries ->
     for (point in listOf(false, true)) {
       val ranges = entries.mapIndexed { index, entry -> if (point && index == 1) entry.copy(nodeEnd = entry.nodeStart) else entry }
       val original = PMarkerDirectRoot.empty().insertMany(ranges)
@@ -149,7 +150,7 @@ internal class PMarkerDirectRootShiftTest {
   }
 
   @Test
-  fun `boundary edits report affected markers and run custom policies`() = withEntries { entries ->
+  fun `boundary edits report affected markers and run custom policies`(): Unit = withEntries { entries ->
     val root = PMarkerDirectRoot.empty().insertMany(entries)
     val patch = DocumentPatch.simple(20, 20, "xx", 1, false)
     val affected = ArrayList<SnapshotMarkerReference<*>>()
@@ -174,7 +175,7 @@ internal class PMarkerDirectRootShiftTest {
   }
 
   @Test
-  fun `persistent traversals and text moves bypass the whole tree shift`() = withEntries { entries ->
+  fun `persistent traversals and text moves bypass the whole tree shift`(): Unit = withEntries { entries ->
     var transformed = 0
     val persistent = entries[1].copy(policy = object : MarkerPolicy {
       override val isPersistent: Boolean = true
@@ -204,7 +205,7 @@ internal class PMarkerDirectRootShiftTest {
   }
 
   @Test
-  fun `repeated shifts preserve metadata queries and later insertions and removals`() = withEntries { entries ->
+  fun `repeated shifts preserve metadata queries and later insertions and removals`(): Unit = withEntries { entries ->
     val original = PMarkerDirectRoot.empty().insertMany(entries)
     val patch = DocumentPatch.simple(0, 0, "xx", 1, false)
     var shifted = original
@@ -223,7 +224,7 @@ internal class PMarkerDirectRootShiftTest {
   }
 
   @Test
-  fun `cached offsets survive edits and unrelated marker creation and removal`() = withEntries { entries ->
+  fun `cached offsets survive edits and unrelated marker creation and removal`(): Unit = withEntries { entries ->
     val original = PMarkerDirectRoot.empty().insertMany(entries)
     val edited = apply(original, DocumentPatch.simple(10, 10, "xx", 1, false))
     val added = entries.first().copy(
@@ -239,19 +240,19 @@ internal class PMarkerDirectRootShiftTest {
     for (entry in listOf(entries.first(), entries.last())) {
       val expected = TextRangeScalarUtil.shift(entry.range(), 1)
       assertEquals(expected, latest.resolve(entry.handle))
-      assertEquals(expected, latest.advanceResolution(original.resolutionCacheIdentity, original.resolve(entry.handle)))
+      assertEquals(expected, latest.advanceResolution(entry.handle, original.resolutionCacheIdentity, original.resolve(entry.handle)))
       assertEquals(entry.range(), original.resolve(entry.handle))
     }
     assertEquals(PMarkerResolution.ABSENT, latest.resolve(entries[3].handle))
     assertEquals(PMarkerResolution.UNRESOLVED,
-                 latest.advanceResolution(original.resolutionCacheIdentity, entries[3].range()))
+                 latest.advanceResolution(entries[3].handle, original.resolutionCacheIdentity, entries[3].range()))
     val branch = apply(original, DocumentPatch.simple(0, 0, "x", 1, false))
     assertEquals(PMarkerResolution.UNRESOLVED,
-                 latest.advanceResolution(branch.resolutionCacheIdentity, branch.resolve(entries.first().handle)))
+                 latest.advanceResolution(entries.first().handle, branch.resolutionCacheIdentity, branch.resolve(entries.first().handle)))
   }
 
   @Test
-  fun `old cached offsets require resolution after many edits`() = withEntries { entries ->
+  fun `old cached offsets require resolution after many edits`(): Unit = withEntries { entries ->
     val original = PMarkerDirectRoot.empty().insertMany(entries)
     var previous = original
     var current = original
@@ -262,8 +263,9 @@ internal class PMarkerDirectRootShiftTest {
 
     val entry = entries.first()
     assertEquals(TextRangeScalarUtil.shift(entry.range(), 64), current.resolve(entry.handle))
-    assertEquals(PMarkerResolution.UNRESOLVED, current.advanceResolution(original.resolutionCacheIdentity, entry.range()))
-    assertEquals(current.resolve(entry.handle), current.advanceResolution(previous.resolutionCacheIdentity, previous.resolve(entry.handle)))
+    assertEquals(PMarkerResolution.UNRESOLVED, current.advanceResolution(entry.handle, original.resolutionCacheIdentity, entry.range()))
+    assertEquals(current.resolve(entry.handle),
+                 current.advanceResolution(entry.handle, previous.resolutionCacheIdentity, previous.resolve(entry.handle)))
     assertEquals(entry.range(), original.resolve(entry.handle))
   }
 
@@ -284,7 +286,10 @@ internal class PMarkerDirectRootShiftTest {
                    shifted.getPrefixAggregate(entry.nodeStart + delta))
     }
     val found = ArrayList<MarkerEntry>()
-    shifted.processRangeMarkersOverlappingWith(0, 200, 1) { found.add(it); true }
+    shifted.processRangeMarkersOverlappingWith(0, 200, 1) { entry, _ ->
+      found.add(entry)
+      true
+    }
     assertEquals(entries.filter { it.flavorFlags.toInt() and 1 != 0 }.map { it.handle }, found.map { it.handle })
   }
 

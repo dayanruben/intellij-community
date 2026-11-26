@@ -74,6 +74,25 @@ fn spawn_answers(fake: &FakeRuntime, exit_code: i32, output: &str) {
     };
 }
 
+/// Runs the fast lane over a tree whose excluded build fails, and checks that the run answers `BUILD_FAILED`.
+fn run_with_a_failed_excluded_build() -> FakeRuntime {
+    let fake = fake_air_tree();
+    spawn_answers(&fake, 1, "ERROR: ui_test does not compile");
+    let outcome = run(&["--lane", "fast"], &fake);
+    assert_eq!(outcome.exit_code, exit::BUILD_FAILED, "{}", outcome.text);
+    fake
+}
+
+/// Checks that the run asked no `bazel query` and ran one test invocation, and returns that invocation.
+#[track_caller]
+fn single_test_command_without_query(fake: &FakeRuntime) -> String {
+    let spawned: Vec<String> = fake.spawned().iter().map(|argv| argv.join(" ")).collect();
+    assert!(!spawned.iter().any(|command| command.contains(" query ")), "{spawned:#?}");
+    let mut tests = test_commands(fake);
+    assert_eq!(tests.len(), 1, "{tests:#?}");
+    tests.remove(0)
+}
+
 /// A run of the core target whose BEP names one attempt with this status, reading the given test.xml.
 fn one_attempt(fake: &FakeRuntime, status: &'static str, xml: &str) {
     fake.put_absolute(XML_PATH, xml);
@@ -110,7 +129,7 @@ fn dry_run_resolves_without_spawning_bazel() {
         &[
             &format!("label   {CORE_LABEL}"),
             "filter  com.intellij.air.shared.core.AgentThreadIdentityTest",
-            "--test_sharding_strategy=explicit",
+            "--test_sharding_strategy=disabled",
         ],
     );
 }
@@ -147,10 +166,7 @@ fn the_fast_lane_builds_the_excluded_targets_before_it_runs_anything() {
 /// A target that does not compile is the answer, not a footnote after a green lane.
 #[test]
 fn a_failed_excluded_build_stops_the_lane_and_reports_build_failed() {
-    let fake = fake_air_tree();
-    spawn_answers(&fake, 1, "ERROR: ui_test does not compile");
-    let outcome = run(&["--lane", "fast"], &fake);
-    assert_eq!(outcome.exit_code, exit::BUILD_FAILED, "{}", outcome.text);
+    let fake = run_with_a_failed_excluded_build();
     assert!(
         !fake.spawned().iter().any(|argv| argv.join(" ").contains(" test ")),
         "the lane ran anyway"
@@ -245,16 +261,14 @@ fn the_bep_file_is_deleted_after_a_dry_run_and_after_a_failed_excluded_build() {
     assert_eq!(outcome.exit_code, exit::GREEN, "{}", outcome.text);
     assert_eq!(fake.state().removed, [BEP_PATH], "after --dry-run");
 
-    let fake = fake_air_tree();
-    spawn_answers(&fake, 1, "ERROR: ui_test does not compile");
-    let outcome = run(&["--lane", "fast"], &fake);
-    assert_eq!(outcome.exit_code, exit::BUILD_FAILED, "{}", outcome.text);
+    let fake = run_with_a_failed_excluded_build();
     assert!(fake.state().removed.contains(&BEP_PATH.to_owned()), "after a failed excluded build");
 }
 
-/// A lane parallelises across its targets already, so the shard plan gives each target its own count.
+/// A lane parallelises across its targets already, so the shard plan gives each target its own count. A run of one
+/// target without a record takes the plan with the planned count too, and writes no profile.
 #[test]
-fn a_lane_forces_the_planned_count_with_the_plan_and_a_single_target_six_shards() {
+fn a_lane_and_a_single_target_force_the_planned_count_with_the_plan() {
     assert_mentions(
         &dry_run(&["--lane", "fast"]),
         &[
@@ -264,8 +278,174 @@ fn a_lane_forces_the_planned_count_with_the_plan_and_a_single_target_six_shards(
         ],
     );
     let single = dry_run(&[CORE_LABEL]);
-    assert_mentions(&single, &["--test_sharding_strategy=forced=6"]);
-    assert!(!single.contains("JB_TEST_SHARD_PLAN"), "{single}");
+    assert_mentions(
+        &single,
+        &[
+            "--test_sharding_strategy=forced=2",
+            "--test_env=JB_TEST_SHARD_PLAN=out/bt/shard-plan.tsv",
+        ],
+    );
+    assert!(!single.contains("--profile") && !single.contains(" -k "), "{single}");
+}
+
+/// Runs one target over a tree whose plan is `plan` and whose query answers `tree`, and answers its one `bazel test`
+/// command line after it checks that the query ran first.
+#[track_caller]
+fn single_target_command(plan: &str, tree: &[&str], label: &str) -> String {
+    let fake = fake_air_tree();
+    fake.put_absolute(SHARD_PLAN, plan);
+    tree_has(&fake, tree);
+    run(&[label], &fake);
+    let spawned: Vec<String> = fake.spawned().iter().map(|argv| argv.join(" ")).collect();
+    assert!(spawned[0].contains(" query "), "the query runs first: {spawned:#?}");
+    let mut tests = test_commands(&fake);
+    assert_eq!(tests.len(), 1, "{tests:#?}");
+    let test = tests.remove(0);
+    assert!(test.ends_with(&format!(" {label}")) && !test.contains(" -- "), "{test}");
+    assert!(!test.contains("--profile") && !test.contains(" -k "), "{test}");
+    assert_mentions(&test, &["--test_env=JB_TEST_SHARD_PLAN=out/bt/shard-plan.tsv"]);
+    test
+}
+
+/// A run of one target has one invocation, and the group of the target in the plan gives its count. Before, the target
+/// of a group was excluded from the invocation of its own pattern, which left `bazel test L -- -L`.
+#[test]
+fn a_single_target_runs_in_one_invocation_with_the_count_of_its_group() {
+    let single = single_target_command(
+        &format!("default\t2\nclass\t{SINGLE_LABEL}\tcom.S\t7.000\n"),
+        &[SINGLE_LABEL],
+        SINGLE_LABEL,
+    );
+    assert_mentions(&single, &["--test_sharding_strategy=forced=1"]);
+
+    let heavy = single_target_command(&heavy_plan_text(), &[CORE_LABEL], CORE_LABEL);
+    assert_mentions(&heavy, &["--test_sharding_strategy=forced=8"]);
+
+    let planned = single_target_command(&heavy_plan_text(), &[OTHER_LABEL], OTHER_LABEL);
+    assert_mentions(&planned, &["--test_sharding_strategy=forced=2"]);
+
+    // one heavy class runs whole on one shard
+    let one_class = single_target_command(
+        &format!("default\t2\nclass\t{CORE_LABEL}\tcom.A\t530.000\n"),
+        &[CORE_LABEL],
+        CORE_LABEL,
+    );
+    assert_mentions(&one_class, &["--test_sharding_strategy=forced=1"]);
+}
+
+/// `bazel test` runs a `manual` target that the run names by its label, so the query keeps it. After its first record,
+/// the target takes the count of its group and is no gone target.
+#[test]
+fn a_single_manual_target_takes_the_count_of_its_group() {
+    const MANUAL_LABEL: &str = "//build/tests/smoke:all-products-packaging_test";
+    let fake = fake_air_tree();
+    fake.put_absolute(SHARD_PLAN, &format!("default\t2\nclass\t{MANUAL_LABEL}\tcom.A\t400.000\n"));
+    tree_has(&fake, &[&format!("java_test rule {MANUAL_LABEL}")]);
+    run(&[MANUAL_LABEL], &fake);
+    assert_eq!(
+        fake.state().files.get(TREE_QUERY_PATH).map(String::as_str),
+        Some(&*format!(r#"tests(set() + "{MANUAL_LABEL}")"#))
+    );
+    let tests = test_commands(&fake);
+    assert_eq!(tests.len(), 1, "{tests:#?}");
+    assert_mentions(&tests[0], &["--test_sharding_strategy=forced=1"]);
+    let stderr = fake.state().stderr.join("\n");
+    assert!(!stderr.contains("the shard plan names targets"), "{stderr}");
+}
+
+/// The query of a single-target run finds a Rust test target, which runs with one shard whatever its record says.
+#[test]
+fn a_single_rust_test_target_runs_with_one_shard() {
+    const RUST_LABEL: &str = "//plugins/air/tests/architecture-gate:air-docs-model_test";
+    let rust = single_target_command(
+        &format!("default\t2\n{}", six_shard_lines(RUST_LABEL)),
+        &[&format!("_rust_test_junit_test rule {RUST_LABEL}")],
+        RUST_LABEL,
+    );
+    assert_mentions(&rust, &["--test_sharding_strategy=forced=1"]);
+}
+
+/// A class or a method filter runs in one JVM without the plan, and the run asks no query.
+#[test]
+fn a_filtered_single_target_runs_unsharded_without_the_plan() {
+    for filter in [
+        "com.intellij.air.shared.core.AgentThreadIdentityTest",
+        "com.intellij.air.shared.core.AgentThreadIdentityTest#one",
+    ] {
+        let fake = fake_air_tree();
+        fake.put_absolute(SHARD_PLAN, &heavy_plan_text());
+        run(&[CORE_LABEL, "--filter", filter], &fake);
+        let test = single_test_command_without_query(&fake);
+        assert_mentions(&test, &["--test_sharding_strategy=disabled", &format!("--test_filter={filter}")]);
+        assert!(!test.contains("forced=") && !test.contains("JB_TEST_SHARD_PLAN"), "{test}");
+        assert_eq!(fake.state().files.get(SHARD_PLAN), Some(&heavy_plan_text()), "{filter}");
+    }
+}
+
+/// A package filter takes the plan and the count of the group of the target. It records no class time, because it times
+/// only some classes of the target. It still gives the day of the run to the target, so the target stays in the plan.
+#[test]
+fn a_package_filter_takes_the_plan_and_gives_only_the_day() {
+    let fake = fake_air_tree();
+    let plan_text = format!("{}seen\t{CORE_LABEL}\t1\nseen\t{OTHER_LABEL}\t1\n", heavy_plan_text());
+    fake.put_absolute(SHARD_PLAN, &plan_text);
+    tree_has(&fake, &[CORE_LABEL]);
+    one_attempt(
+        &fake,
+        "PASSED",
+        r#"<testsuites><testsuite name="com.intellij.air.shared.core.ATest" tests="1" time="1.0"/></testsuites>"#,
+    );
+    fake.state().clock = 5 * MS_PER_DAY;
+    let outcome = run(&[CORE_LABEL, "--filter", "com.intellij.air.shared.core"], &fake);
+    assert_eq!(outcome.exit_code, exit::GREEN, "{}", outcome.text);
+    let tests = test_commands(&fake);
+    assert_eq!(tests.len(), 1, "{tests:#?}");
+    assert_mentions(
+        &tests[0],
+        &[
+            "--test_sharding_strategy=forced=8",
+            "--test_env=JB_TEST_JUNIT5_FILTERS=include-package=com.intellij.air.shared.core",
+            "--test_env=JB_TEST_SHARD_PLAN=out/bt/shard-plan.tsv",
+        ],
+    );
+    let written = fake.state().files.get(SHARD_PLAN).cloned().unwrap_or_default();
+    let before = ShardPlan::parse(&plan_text);
+    let after = ShardPlan::parse(&written);
+    assert_eq!(after.class_times().collect::<Vec<_>>(), before.class_times().collect::<Vec<_>>());
+    assert_mentions(
+        &written,
+        &[&format!("seen\t{CORE_LABEL}\t5\n"), &format!("seen\t{OTHER_LABEL}\t1\n")],
+    );
+}
+
+/// A green run of one target records its class times. A run whose times are the times on disk, such as a cached run,
+/// writes neither plan file: the shared plan has about 1 MB.
+#[test]
+fn a_run_writes_no_plan_file_whose_text_stays_the_same() {
+    let fake = work_tree(fake_air_tree());
+    tree_has(&fake, &[CORE_LABEL]);
+    let xml = r#"<testsuites><testsuite name="com.air.RecordedTest" tests="1" time="40.0"/></testsuites>"#;
+    one_attempt(&fake, "PASSED", xml);
+    let outcome = run(&[CORE_LABEL], &fake);
+    assert_eq!(outcome.exit_code, exit::GREEN, "{}", outcome.text);
+    let recorded = fake.state().files.get(SHARED_PLAN).cloned().unwrap_or_default();
+    assert_mentions(
+        &recorded,
+        &[
+            &format!("target\t{CORE_LABEL}\t1\n"),
+            &format!("class\t{CORE_LABEL}\tcom.air.RecordedTest\t40.000\n"),
+        ],
+    );
+    assert_eq!(fake.state().files.get(SHARD_PLAN), Some(&recorded));
+
+    // a write of either file now fails loudly, so a run that writes one shows on the stderr
+    fake.state().write_failures.extend([SHARED_PLAN.to_owned(), SHARD_PLAN.to_owned()]);
+    fake.state().stderr.clear();
+    let outcome = run(&[CORE_LABEL], &fake);
+    assert_eq!(outcome.exit_code, exit::GREEN, "{}", outcome.text);
+    let stderr = fake.state().stderr.join("\n");
+    assert!(!stderr.contains("cannot write the shard plan"), "{stderr}");
+    assert_eq!(fake.state().files.get(SHARED_PLAN), Some(&recorded));
 }
 
 #[test]
@@ -337,16 +517,19 @@ fn a_lane_run_records_the_class_times_of_the_targets_that_passed() {
         fake.state().files.get(SHARD_PLAN).map(String::as_str),
         Some(
             &*[
-                "# The shard plan of bt. bt rewrites this file after each multi-target run.",
+                "# The shard plan of bt. bt rewrites this file after each planned run.",
                 "default\t2",
                 &format!("target\t{OTHER_LABEL}\t1"),
                 &format!("class\t{OTHER_LABEL}\tcom.Old\t7.000"),
+                // the failed target ran, so it gets the day of the run too
+                &format!("seen\t{OTHER_LABEL}\t0"),
                 &format!("target\t{CORE_LABEL}\t2"),
                 &format!("class\t{CORE_LABEL}\tcom.A\t72.000"),
                 &format!("class\t{CORE_LABEL}\tcom.A$Inner\t2.000"),
                 &format!("class\t{CORE_LABEL}\tcom.B\t30.000"),
                 // the fake shards report no wall time, so their class seconds leave no fixed seconds
                 &format!("fixed\t{CORE_LABEL}\t0.000"),
+                &format!("seen\t{CORE_LABEL}\t0"),
                 "",
             ]
             .join("\n")
@@ -506,25 +689,35 @@ fn test_commands(fake: &FakeRuntime) -> Vec<String> {
         .collect()
 }
 
+/// The plan lines of a target whose classes `com.<name>` take these seconds.
+fn class_lines(label: &str, classes: &[(&str, u32)]) -> String {
+    classes
+        .iter()
+        .map(|(class, seconds)| format!("class\t{label}\tcom.{class}\t{seconds}.000\n"))
+        .collect()
+}
+
+/// The plan lines of a target that wants six shards: 530 s in six classes.
+fn six_shard_lines(label: &str) -> String {
+    class_lines(label, &[("A", 90), ("B", 90), ("C", 90), ("D", 90), ("E", 90), ("F", 80)])
+}
+
+/// The plan lines of a target that wants two shards: 120 s in two classes.
+fn two_shard_lines(label: &str) -> String {
+    class_lines(label, &[("B", 60), ("B2", 60)])
+}
+
 /// A plan where the core target wants six shards and the other target two.
 fn heavy_plan_tree() -> FakeRuntime {
     let fake = fake_air_tree();
-    fake.put_absolute(
-        SHARD_PLAN,
-        &format!("default\t2\nclass\t{CORE_LABEL}\tcom.A\t530.000\nclass\t{OTHER_LABEL}\tcom.B\t120.000\n"),
-    );
+    fake.put_absolute(SHARD_PLAN, &heavy_plan_text());
     tree_has(&fake, &[CORE_LABEL, OTHER_LABEL]);
     fake
 }
 
 fn three_group_plan_tree() -> FakeRuntime {
     let fake = fake_air_tree();
-    fake.put_absolute(
-        SHARD_PLAN,
-        &format!(
-            "default\t2\nclass\t{CORE_LABEL}\tcom.A\t530.000\nclass\t{OTHER_LABEL}\tcom.B\t120.000\nclass\t{SINGLE_LABEL}\tcom.S\t7.000\n"
-        ),
-    );
+    fake.put_absolute(SHARD_PLAN, &format!("{}class\t{SINGLE_LABEL}\tcom.S\t7.000\n", heavy_plan_text()));
     tree_has(&fake, &[CORE_LABEL, OTHER_LABEL, SINGLE_LABEL]);
     fake
 }
@@ -614,9 +807,10 @@ fn stale_plan_tree() -> FakeRuntime {
     fake.put_absolute(
         SHARD_PLAN,
         &format!(
-            "default\t2\nclass\t{CORE_LABEL}\tcom.A\t530.000\nclass\t{GONE_HEAVY_LABEL}\tcom.G\t400.000\n\
-             class\t{SINGLE_LABEL}\tcom.S\t7.000\nclass\t{GONE_SINGLE_LABEL}\tcom.H\t3.000\n\
-             class\t{COMMUNITY_SINGLE_LABEL}\tcom.C\t2.000\n"
+            "default\t2\n{}{}class\t{SINGLE_LABEL}\tcom.S\t7.000\nclass\t{GONE_SINGLE_LABEL}\tcom.H\t3.000\n\
+             class\t{COMMUNITY_SINGLE_LABEL}\tcom.C\t2.000\n",
+            six_shard_lines(CORE_LABEL),
+            six_shard_lines(GONE_HEAVY_LABEL),
         ),
     );
     fake
@@ -648,7 +842,7 @@ fn a_plan_target_that_the_tree_does_not_have_runs_in_no_invocation() {
     assert_eq!(
         fake.state().files.get(TREE_QUERY_PATH).map(String::as_str),
         Some(
-            r#"let t = tests(set() + "//plugins/air/..." + "@community//tools/bt/..." + "@community//tools/vm/...") in $t except attr(tags, "\bmanual\b", $t)"#
+            r#"tests(set() + (tests("//plugins/air/...") except attr(tags, "\bmanual\b", tests("//plugins/air/..."))) + (tests("@community//tools/bt/...") except attr(tags, "\bmanual\b", tests("@community//tools/bt/..."))) + (tests("@community//tools/vm/...") except attr(tags, "\bmanual\b", tests("@community//tools/vm/..."))))"#
         )
     );
     let tests = test_commands(&fake);
@@ -761,11 +955,8 @@ fn a_query_without_an_answer_leaves_each_target_in_the_invocation_of_the_pattern
     let fake = stale_plan_tree();
     fake.state().write_failures.insert(TREE_QUERY_PATH.to_owned());
     run(&["--lane", "fast"], &fake);
-    let spawned: Vec<String> = fake.spawned().iter().map(|argv| argv.join(" ")).collect();
-    assert!(!spawned.iter().any(|command| command.contains(" query ")), "{spawned:#?}");
-    let tests = test_commands(&fake);
-    assert_eq!(tests.len(), 1, "{tests:#?}");
-    assert!(!tests[0].contains(" -- -"), "{}", tests[0]);
+    let test = single_test_command_without_query(&fake);
+    assert!(!test.contains(" -- -"), "{test}");
     let stderr = fake.state().stderr.join("\n");
     assert_mentions(
         &stderr,
@@ -819,7 +1010,7 @@ fn a_rust_test_target_runs_in_the_single_shard_invocation() {
     let fake = fake_air_tree();
     fake.put_absolute(
         SHARD_PLAN,
-        &format!("default\t2\nclass\t{RUST_LABEL}\tcom.R\t530.000\nclass\t{OTHER_LABEL}\tcom.B\t120.000\n"),
+        &format!("default\t2\n{}{}", six_shard_lines(RUST_LABEL), two_shard_lines(OTHER_LABEL)),
     );
     tree_has(
         &fake,
@@ -849,11 +1040,8 @@ fn a_rust_test_target_runs_in_the_single_shard_invocation() {
 fn an_explicit_shard_count_runs_no_query() {
     let fake = fake_air_tree();
     run(&["--lane", "fast", "--shards", "3"], &fake);
-    let spawned: Vec<String> = fake.spawned().iter().map(|argv| argv.join(" ")).collect();
-    assert!(!spawned.iter().any(|command| command.contains(" query ")), "{spawned:#?}");
-    let tests = test_commands(&fake);
-    assert_eq!(tests.len(), 1, "{tests:#?}");
-    assert!(tests[0].contains("forced=3"), "{}", tests[0]);
+    let test = single_test_command_without_query(&fake);
+    assert!(test.contains("forced=3"), "{test}");
 }
 
 /// The invocations read as one run: disjoint targets, one verdict, one plan update.
@@ -866,7 +1054,7 @@ fn the_heavy_planned_and_single_invocations_read_as_one_run() {
         (1, "/exec/testlogs/core/shard_1/test.xml"),
         (2, "/exec/testlogs/core/shard_2/test.xml"),
     ] {
-        fake.put_absolute(path, &xml("com.A", 260 + shard));
+        fake.put_absolute(path, &xml(&format!("com.A{shard}"), 260 + shard));
         heavy_events.push(test_result_event(&AttemptSpec {
             shard: i64::from(shard),
             xml: path,
@@ -918,8 +1106,10 @@ fn the_heavy_planned_and_single_invocations_read_as_one_run() {
     assert_mentions(
         &plan,
         &[
-            &format!("target\t{CORE_LABEL}\t6\n"),
-            &format!("class\t{CORE_LABEL}\tcom.A\t523.000\n"),
+            // two classes of about 260 s want two shards
+            &format!("target\t{CORE_LABEL}\t2\n"),
+            &format!("class\t{CORE_LABEL}\tcom.A1\t261.000\n"),
+            &format!("class\t{CORE_LABEL}\tcom.A2\t262.000\n"),
             &format!("class\t{OTHER_LABEL}\tcom.B\t5.000\n"),
             &format!("class\t{SINGLE_LABEL}\tcom.S\t1.000\n"),
         ],
@@ -1017,7 +1207,7 @@ fn work_tree(fake: FakeRuntime) -> FakeRuntime {
 
 /// The text of a plan where the core target wants six shards and the other target two.
 fn heavy_plan_text() -> String {
-    format!("default\t2\nclass\t{CORE_LABEL}\tcom.A\t530.000\nclass\t{OTHER_LABEL}\tcom.B\t120.000\n")
+    format!("default\t2\n{}{}", six_shard_lines(CORE_LABEL), two_shard_lines(OTHER_LABEL))
 }
 
 /// A linked work tree whose plan file `plan` holds [`heavy_plan_text`], and whose tree has the core and the other target.
@@ -1050,17 +1240,75 @@ fn a_work_tree_without_a_checkout_copy_takes_the_heavy_count_from_the_shared_pla
 }
 
 /// The tests read the checkout copy, so a planned run writes the text of the shared plan there before it starts bazel. A
-/// filtered run records nothing, so the copy keeps that text after the run. For a target that both files name, the
-/// shared plan wins.
+/// filtered run records no class times, so the copy keeps the class lines of that text after the run. For a target
+/// that both files name, the shared plan wins.
 #[test]
 fn a_planned_run_copies_the_shared_plan_into_the_checkout() {
     let fake = heavy_work_tree(SHARED_PLAN);
     fake.put_absolute(SHARD_PLAN, &format!("default\t2\nclass\t{CORE_LABEL}\tcom.Old\t1.000\n"));
     run(&["--lane", "fast", "--", "--test_filter=com.A"], &fake);
 
+    let expected = [
+        "# The shard plan of bt. bt rewrites this file after each planned run.",
+        "default\t2",
+        &format!("target\t{OTHER_LABEL}\t2"),
+        two_shard_lines(OTHER_LABEL).trim_end(),
+        &format!("seen\t{OTHER_LABEL}\t0"),
+        &format!("target\t{CORE_LABEL}\t6"),
+        six_shard_lines(CORE_LABEL).trim_end(),
+        &format!("seen\t{CORE_LABEL}\t0"),
+        "",
+    ]
+    .join("\n");
     let state = fake.state();
-    assert_eq!(state.files.get(SHARD_PLAN), Some(&heavy_plan_text()));
-    assert_eq!(state.files.get(SHARED_PLAN), Some(&heavy_plan_text()));
+    assert_eq!(state.files.get(SHARD_PLAN), Some(&expected));
+    assert_eq!(state.files.get(SHARED_PLAN), Some(&expected));
+}
+
+/// A filtered run records no class times, but it gives the day of the run to each target that ran a shard. So a target
+/// that only filtered runs use keeps its heavy count.
+#[test]
+fn a_filtered_run_gives_the_day_of_the_run_and_keeps_the_class_times() {
+    let fake = work_tree(fake_air_tree());
+    fake.put_absolute(
+        SHARED_PLAN,
+        &format!(
+            "default\t2\n{}seen\t{CORE_LABEL}\t10\n{}seen\t{OTHER_LABEL}\t10\n",
+            six_shard_lines(CORE_LABEL),
+            two_shard_lines(OTHER_LABEL)
+        ),
+    );
+    tree_has(&fake, &[CORE_LABEL, OTHER_LABEL]);
+    fake.put_absolute(
+        XML_PATH,
+        r#"<testsuites><testsuite name="com.A" tests="1" time="9.0"/></testsuites>"#,
+    );
+    fake.put_absolute(
+        HEAVY_BEP_PATH,
+        &bep_lines(&[test_result_event(&AttemptSpec {
+            xml: XML_PATH,
+            ..attempt(CORE_LABEL)
+        })]),
+    );
+    fake.state().clock = 24 * MS_PER_DAY;
+    let outcome = run(&["--lane", "fast", "--", "--test_filter=com.A"], &fake);
+    assert_eq!(outcome.exit_code, exit::GREEN, "{}", outcome.text);
+
+    let expected = [
+        "# The shard plan of bt. bt rewrites this file after each planned run.",
+        "default\t2",
+        &format!("target\t{OTHER_LABEL}\t2"),
+        two_shard_lines(OTHER_LABEL).trim_end(),
+        &format!("seen\t{OTHER_LABEL}\t10"),
+        &format!("target\t{CORE_LABEL}\t6"),
+        six_shard_lines(CORE_LABEL).trim_end(),
+        &format!("seen\t{CORE_LABEL}\t24"),
+        "",
+    ]
+    .join("\n");
+    let state = fake.state();
+    assert_eq!(state.files.get(SHARED_PLAN), Some(&expected));
+    assert_eq!(state.files.get(SHARD_PLAN), Some(&expected));
 }
 
 /// The update reads the shared plan again, and it writes the shared plan and the checkout copy. A target that only the
@@ -1071,7 +1319,7 @@ fn a_run_records_the_class_times_in_the_shared_plan_and_in_the_checkout_copy() {
     fake.put_absolute(SHARED_PLAN, &format!("default\t2\nclass\t{OTHER_LABEL}\tcom.B\t120.000\n"));
     fake.put_absolute(
         SHARD_PLAN,
-        &format!("default\t2\nclass\t{OTHER_LABEL}\tcom.B\t5.000\nclass\t{OLD_LABEL}\tcom.Old\t7.000\n"),
+        &format!("default\t2\nclass\t{OTHER_LABEL}\tcom.B\t5.000\nclass\t{OLD_LABEL}\tcom.Old\t7.000\nseen\t{OLD_LABEL}\t0\n"),
     );
     // The old target is a single-shard target that the current tree does not have.
     tree_has(&fake, &[CORE_LABEL, OTHER_LABEL]);
@@ -1081,21 +1329,142 @@ fn a_run_records_the_class_times_in_the_shared_plan_and_in_the_checkout_copy() {
     assert_eq!(outcome.exit_code, exit::GREEN, "{}", outcome.text);
 
     let expected = [
-        "# The shard plan of bt. bt rewrites this file after each multi-target run.",
+        "# The shard plan of bt. bt rewrites this file after each planned run.",
         "default\t2",
-        &format!("target\t{OTHER_LABEL}\t2"),
+        &format!("target\t{OTHER_LABEL}\t1"),
         &format!("class\t{OTHER_LABEL}\tcom.B\t120.000"),
+        // a target without a day counts as seen on the day of the update
+        &format!("seen\t{OTHER_LABEL}\t0"),
         &format!("target\t{CORE_LABEL}\t1"),
         &format!("class\t{CORE_LABEL}\tcom.air.RecordedTest\t40.000"),
         &format!("fixed\t{CORE_LABEL}\t0.000"),
+        &format!("seen\t{CORE_LABEL}\t0"),
         &format!("target\t{OLD_LABEL}\t1"),
         &format!("class\t{OLD_LABEL}\tcom.Old\t7.000"),
+        &format!("seen\t{OLD_LABEL}\t0"),
         "",
     ]
     .join("\n");
     let state = fake.state();
     assert_eq!(state.files.get(SHARED_PLAN), Some(&expected));
     assert_eq!(state.files.get(SHARD_PLAN), Some(&expected));
+}
+
+/// A target that a run takes from the cache ran no class, so its class times stay. It still gets the day of the run, so
+/// a target that each run takes from the cache stays in the plan.
+#[test]
+fn a_cached_target_gets_the_day_of_the_run() {
+    let fake = work_tree(fake_air_tree());
+    fake.put_absolute(
+        SHARED_PLAN,
+        &format!("default\t2\nclass\t{CORE_LABEL}\tcom.A\t3.000\nseen\t{CORE_LABEL}\t3\nclass\t{OTHER_LABEL}\tcom.B\t5.000\nseen\t{OTHER_LABEL}\t3\n"),
+    );
+    tree_has(&fake, &[CORE_LABEL, OTHER_LABEL]);
+    fake.put_absolute(
+        XML_PATH,
+        r#"<testsuites><testsuite name="com.A" tests="1" time="9.0"/></testsuites>"#,
+    );
+    fake.put_absolute(
+        BEP_PATH,
+        &bep_lines(&[test_result_event(&AttemptSpec {
+            cached: true,
+            xml: XML_PATH,
+            ..attempt(CORE_LABEL)
+        })]),
+    );
+    fake.state().clock = 10 * MS_PER_DAY;
+    let outcome = run(&["--lane", "fast"], &fake);
+    assert_eq!(outcome.exit_code, exit::GREEN, "{}", outcome.text);
+
+    let expected = [
+        "# The shard plan of bt. bt rewrites this file after each planned run.",
+        "default\t2",
+        &format!("target\t{OTHER_LABEL}\t1"),
+        &format!("class\t{OTHER_LABEL}\tcom.B\t5.000"),
+        &format!("seen\t{OTHER_LABEL}\t3"),
+        &format!("target\t{CORE_LABEL}\t1"),
+        &format!("class\t{CORE_LABEL}\tcom.A\t3.000"),
+        &format!("seen\t{CORE_LABEL}\t10"),
+        "",
+    ]
+    .join("\n");
+    let state = fake.state();
+    assert_eq!(state.files.get(SHARED_PLAN), Some(&expected));
+    assert_eq!(state.files.get(SHARD_PLAN), Some(&expected));
+}
+
+/// A target that no run named for [`PLAN_TARGET_TTL_DAYS`] days leaves the shared plan and the checkout copy, also when
+/// the checkout copy still names it. A target of exactly that age stays.
+#[test]
+fn a_target_that_no_run_named_for_the_ttl_leaves_both_plan_files() {
+    let fake = work_tree(fake_air_tree());
+    fake.put_absolute(
+        SHARED_PLAN,
+        &format!(
+            "default\t2\nclass\t{OLD_LABEL}\tcom.Old\t7.000\nfixed\t{OLD_LABEL}\t2.000\nseen\t{OLD_LABEL}\t5\nclass\t{OTHER_LABEL}\tcom.B\t5.000\nseen\t{OTHER_LABEL}\t6\n"
+        ),
+    );
+    fake.put_absolute(
+        SHARD_PLAN,
+        &format!("default\t2\nclass\t{OLD_LABEL}\tcom.Old\t7.000\nseen\t{OLD_LABEL}\t4\n"),
+    );
+    tree_has(&fake, &[CORE_LABEL, OTHER_LABEL]);
+    one_attempt(
+        &fake,
+        "PASSED",
+        r#"<testsuites><testsuite name="com.air.RecordedTest" tests="1" time="40.0"/></testsuites>"#,
+    );
+    fake.state().clock = 20 * MS_PER_DAY;
+    let outcome = run(&["--lane", "fast"], &fake);
+    assert_eq!(outcome.exit_code, exit::GREEN, "{}", outcome.text);
+
+    let expected = [
+        "# The shard plan of bt. bt rewrites this file after each planned run.",
+        "default\t2",
+        &format!("target\t{OTHER_LABEL}\t1"),
+        &format!("class\t{OTHER_LABEL}\tcom.B\t5.000"),
+        &format!("seen\t{OTHER_LABEL}\t6"),
+        &format!("target\t{CORE_LABEL}\t1"),
+        &format!("class\t{CORE_LABEL}\tcom.air.RecordedTest\t40.000"),
+        &format!("fixed\t{CORE_LABEL}\t0.000"),
+        &format!("seen\t{CORE_LABEL}\t20"),
+        "",
+    ]
+    .join("\n");
+    let state = fake.state();
+    assert_eq!(state.files.get(SHARED_PLAN), Some(&expected));
+    assert_eq!(state.files.get(SHARD_PLAN), Some(&expected));
+}
+
+/// A checkout copy from before the `seen` line names a target without a day. The shared plan forgot the target, so the
+/// copy brings it back with no claim to the day of the run, and the update forgets it again.
+#[test]
+fn an_undated_target_of_the_checkout_copy_does_not_come_back() {
+    let fake = work_tree(fake_air_tree());
+    fake.put_absolute(
+        SHARED_PLAN,
+        &format!("default\t2\nclass\t{OTHER_LABEL}\tcom.B\t5.000\nseen\t{OTHER_LABEL}\t20\n"),
+    );
+    fake.put_absolute(SHARD_PLAN, &format!("default\t2\nclass\t{OLD_LABEL}\tcom.Old\t7.000\n"));
+    tree_has(&fake, &[CORE_LABEL, OTHER_LABEL]);
+    one_attempt(
+        &fake,
+        "PASSED",
+        r#"<testsuites><testsuite name="com.air.RecordedTest" tests="1" time="40.0"/></testsuites>"#,
+    );
+    fake.state().clock = 20 * MS_PER_DAY;
+    let outcome = run(&["--lane", "fast"], &fake);
+    assert_eq!(outcome.exit_code, exit::GREEN, "{}", outcome.text);
+
+    let state = fake.state();
+    for path in [SHARED_PLAN, SHARD_PLAN] {
+        let plan = state.files.get(path).cloned().unwrap_or_default();
+        assert!(!plan.contains(OLD_LABEL), "{path}:\n{plan}");
+        assert_mentions(
+            &plan,
+            &[&format!("seen\t{OTHER_LABEL}\t20\n"), &format!("seen\t{CORE_LABEL}\t20\n")],
+        );
+    }
 }
 
 /// A checkout outside git reads and writes only the checkout copy.
@@ -1126,7 +1495,7 @@ fn a_work_tree_without_a_shared_plan_reads_its_checkout_copy_and_shares_it() {
         &shared,
         &[
             &format!("target\t{CORE_LABEL}\t6\n"),
-            &format!("class\t{CORE_LABEL}\tcom.A\t530.000\n"),
+            &format!("class\t{CORE_LABEL}\tcom.F\t80.000\n"),
         ],
     );
     assert_eq!(fake.state().files.get(SHARD_PLAN), Some(&shared));

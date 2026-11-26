@@ -56,7 +56,8 @@ public interface OptionController {
   /**
    * @param bindId control ID to lookup
    * @return an {@link OptPane} and the corresponding control to create UI that allows to change the option addressed by a bindId;
-   * null if there's no pane which changes this particular option, or option is invalid.
+   * null if there's no pane which changes this particular option, or option is invalid. For radio buttons,
+   * it returns the first radio button that controls the given bindId.
    */
   default @Nullable OptionControlInfo findControl(@NotNull String bindId) {
     return null;
@@ -100,8 +101,7 @@ public interface OptionController {
    * and delegates to this controller for any other bindId.
    */
   @Contract(pure = true)
-  default <T> @NotNull OptionController onValue(@NotNull String bindId, @NotNull Supplier<@NotNull T> getter,
-                                                @NotNull Consumer<@NotNull T> setter) {
+  default <T> @NotNull OptionController onValue(@NotNull String bindId, @NotNull Supplier<T> getter, @NotNull Consumer<T> setter) {
     OptionController controller = this;
     return new OptionController() {
       @Override

@@ -9,10 +9,10 @@ Two sites use the kernel:
 - The Air architecture site, [`plugins/air/docs`](../../../plugins/air/docs/README.md), served at `/air/`.
 - The dev distribution site, [`build/docs`](../../../build/docs/README.md), served at `/build/`.
 
-The decision records
-[The docs site is a shared kernel](../../../plugins/air/docs/decisions/2026-10-14-the-docs-site-is-a-shared-kernel.md)
+The decisions
+[The docs site is a shared kernel](../../../plugins/air/openspec/changes/archive/2026-10-14-the-docs-site-is-a-shared-kernel/design.md)
 (Air) and
-[The dev distribution docs run on the docs-site kernel](../../../build/docs/decisions/2026-10-14-the-dev-distribution-docs-run-on-the-docs-site-kernel.md)
+[The dev distribution docs run on the docs-site kernel](../../../build/openspec/changes/archive/2026-11-10-the-distribution-docs-run-on-the-docs-site-kernel/design.md)
 (build) give the reasons.
 
 ## Layout
@@ -43,17 +43,43 @@ time.
 | `siteRoot` | The package directory of the site, relative to the repository root. |
 | `contentRoot` | The directory that each doc path is relative to. The build site uses the repository root, `''`. |
 | `outDir` | The output directory of `pnpm run build`, relative to the repository root. |
-| `docs` | The doc folders: home, notes, guides, explainers, diagrams, glossary, decisions, the extra docs, and the skip names. |
-| `specs` | The spec roots, the file suffix, the `plain-1` style or null, and the template sections. |
+| `docs` | The doc folders: home, notes, guides, explainers, diagrams, glossary, the extra docs, the extra folders, and the skip names. `extraFolders`, optional, lists the folders whose markdown the spec and vocabulary checks read as prose, beside the guides and the explainers. The harvest does not read them. |
+| `specs` | The spec roots, the file suffix, the `plain-1` style or null, the template sections, and the OpenSpec roots. |
 | `sourceRoots` | The folders that a `source:` reference and a spec target can name. |
 | `github` | The GitHub base of a source link and the path of the content root in the repository. |
 | `themeStorageKey` | The localStorage key of the theme. The inline script of `index.html` uses the same key. |
-| `decisions` | The record folders, the last frozen number, the reference roots, the topics, the hidden topic, and the shared numbers. |
+| `decisions` | The reference roots, the skip names of the reference walk, the topics, and the hidden topic. |
 | `guideGroups` | The groups of the Guides page, in page order. |
 | `diagram` | The node kinds with their skins, and the values of the `planned:` field. |
 | `prose` | The sentence limit, the card limit, the history pattern, and the guide that a finding names. |
 | `vocabulary` | The term rules of the vocabulary check, or null. |
 | `launchPicker` | The launch picker at `/launch`, or null. |
+
+### The decision documents
+
+A decision document is the design of an archived change of an OpenSpec root of `specs.openspec`. The design is `<root>/changes/archive/<change-id>/design.md`. The change id is the
+name of the archive folder, `YYYY-MM-DD-<slug>`. A folder without a `design.md` gives no decision.
+
+The `.openspec.yaml` file of the change gives the fields of the decision:
+
+| Field | What it gives |
+| --- | --- |
+| `x-topic` | The topic, one of `decisions.topics`. A design without it shows in the list with no topic filter, and in the group "Other changes" of the section tree. |
+| `x-adr` | The ids of the older records that the design replaces, optional. No check reads it. |
+
+The date of the design is the date prefix of its folder. Its title is its H1. A generic H1, `# Design` or
+`# Proposal`, names no decision. Then the title is the H1 of the `proposal.md` of the same folder, else the slug. A
+decision has no number, no status and no successor: a later change edits or deletes the design that it replaces. The
+route slug of the design is its change id. The Decisions page lists the designs newest first, by the change id, and
+filters them by topic. The doc kind of a design is `decision`, and the field `decision` holds its date, topic and
+change id. A diagram card names a decision with the field `decision: <change-id>`.
+
+A markdown file cites a decision by a relative link to its `design.md`. A source file names it as
+`decision <change-id>`.
+
+The checks read a design of a change with an `x-topic` as a decision. A design without an `x-topic` is the design of
+a change of its time. Its relative links name the folder of the active change, because the archive moved the file one
+folder down. So the prose rules and the link rules skip it. The vocabulary check reads each design.
 
 ### The model provider
 
@@ -94,14 +120,14 @@ layouts (`PageLayout` of `src/routeTable.ts`):
 
 | Layout | The columns | Pages of the kernel |
 | --- | --- | --- |
-| `reading` | The section tree, the document with its crumb row (786px, 70ch of the 16px prose), and the table of contents. | A guide, a decision record, a doc. |
+| `reading` | The section tree, the document with its crumb row (786px, 70ch of the 16px prose), and the table of contents. | A guide, a decision, a doc. |
 | `catalog` | The reading layout with a 960px document, for cards, tiles and chip rows. | The indexes of the guides, the explainers and the decisions. |
 | `tool` | One column across the page, at `text-sm`. | Home, the source viewer, the launch picker. |
 | `canvas` | The page fills the outlet and draws its own panes. The page owns its trail. | One explainer. |
 
 A canonical route entry without a `layout` does not compile. `src/pageLayout.tsx` draws the layouts. `sectionTrees`
 gives the trees of the site sections by route page, for example the specs of a spec page. The kernel gives the trees of
-the guides and the decision records. A reading page without a tree or a table of contents has no empty column for it,
+the guides and the decisions. A reading page without a tree or a table of contents has no empty column for it,
 and its columns stay in the middle of the page. Below the `section-nav:` breakpoint the tree opens in a Sheet from the
 crumb row.
 
@@ -109,13 +135,13 @@ The tokens are the stock values of the shadcn preset `b0` with the base `base`: 
 theme color is the stock blue theme. The
 domain tokens are a status, the six lanes, and the brand gradient. The kernel also defines the host contract tokens of
 the GenUI catalog from the stock values, because a site can render the catalog primitives. A link is the foreground
-color with an underline, as in the shadcn docs. The Air record
-[The docs sites and the GenUI catalog take the stock shadcn preset](../../../plugins/air/docs/decisions/2026-10-26-the-docs-sites-and-the-genui-catalog-take-the-stock-shadcn-preset.md)
+color with an underline, as in the shadcn docs. The Air decision
+[The docs sites and the GenUI catalog take the stock shadcn preset](../../../plugins/air/openspec/changes/archive/2026-10-26-the-docs-site-chrome-is-stock-shadcn-with-a-top-nav/design.md)
 lists every deviation from the stock values and its reason.
 
 The kernel imports each shadcn component by a relative path, for example `./ui/button`. The files under
 `src/components/ui/` are stock shadcn. The Air site resolves a kernel import of a GenUI catalog name to the catalog
-file (Air ADR 0218). The kernel has no `components.json`: run `pnpm exec shadcn add` in a site, move the new file to
+file (Air [The docs site chrome is stock shadcn with a top nav, an in-page breadcrumb and the GenUI primitives](../../../plugins/air/openspec/changes/archive/2026-10-26-the-docs-site-chrome-is-stock-shadcn-with-a-top-nav/design.md)). The kernel has no `components.json`: run `pnpm exec shadcn add` in a site, move the new file to
 `src/components/ui/`, and change its `@/` imports to relative paths.
 
 ## Hand-laid diagrams
@@ -129,7 +155,7 @@ An explainer is a markdown doc in the `docs.explainers` folder. Each `## ` headi
 diagram. One explainer keeps one lane order in each chapter. A stage can split into sub-lanes of its color. A chapter
 answers one question, a step lights two to five nodes, and a card holds at most 150 words. The method is in the Air
 [hand-laid diagram guide](../../../plugins/air/docs/guides/hand-laid-diagram-guide.md), and the review list is in
-[Air ADR 0204](../../../plugins/air/docs/decisions/0204-an-architecture-explanation-is-laid-out-by-hand.md).
+[An architecture explanation is a hand-laid diagram, and a diagram step may bind to a flow step](../../../plugins/air/openspec/changes/archive/2026-10-06-an-architecture-explanation-is-a-hand-laid-diagram/design.md).
 
 ## Checks
 
@@ -137,7 +163,7 @@ Each check has a CLI that takes the config of the site. In `build/docs`:
 
 ```sh
 node ../../community/tools/docs-site/scripts/diagramFiles.ts site.config.ts
-node ../../community/tools/docs-site/scripts/adrFiles.ts site.config.ts
+node ../../community/tools/docs-site/scripts/decisionFiles.ts site.config.ts
 node ../../community/tools/docs-site/scripts/proseLint.ts site.config.ts
 node ../../community/tools/docs-site/scripts/specRefs.ts site.config.ts
 node ../../community/tools/docs-site/scripts/vocabulary.ts site.config.ts
@@ -146,12 +172,12 @@ node ../../community/tools/docs-site/scripts/vocabulary.ts site.config.ts
 | Check | It fails on |
 | --- | --- |
 | `diagramFiles` | A grammar or grid error, a fence that names no diagram, and a diagram that no fence shows. |
-| `adrFiles` | A record name of another shape, a new number, a duplicate, a bad H1 or `Date:` line, and a dead link or mention. |
-| `proseLint` | A long sentence, a history mark, and a long card, in the explainers and the diagram cards. |
-| `specRefs` | A dead spec target, `[@test]` link, `.md` link, or anchor, and a break of the `plain-1` rules. |
+| `decisionFiles` | An archive folder name without a calendar date, an unknown `x-topic`, a `decision <change-id>` mention that names no design, a dead link to a design, an `ADR NNNN` mention, and a link into a `docs/decisions/` folder. |
+| `proseLint` | A long sentence, a history mark, and a long card, in the explainers and the diagram cards. A long sentence and a history mark in a design with an `x-topic`. |
+| `specRefs` | A dead spec target, `[@test]` link, `.md` link, or anchor, and a break of the `plain-1` rules. The prose docs include each design with an `x-topic`. |
 | `vocabulary` | A term of the site table outside the docs and sections that allow it. |
 
-The doc harvest also fails on a record without a known status or a known topic. The `pnpm run check` script of a
+The doc harvest also fails on a design with an unknown `x-topic`. The `pnpm run check` script of a
 site runs these checks and its own checks. Then it runs the script tests of the site and of the kernel. Air does not run `specRefs` and `vocabulary`. `AirSpecReferencesTest` owns the Air spec
 references.
 
@@ -171,10 +197,12 @@ kernel holds the protocol, and the gate of each site calls its `runGate`:
 - Any other result, or no sentinel: an infrastructure failure, not a check failure.
 
 The crate `docs-gate` of `community/build/dist-tools/crates` runs the gate and reads its output. Its test target
-takes `DOCS_GATE_DATA` and `DOCS_GATE_ENV` of `//tools/openspec:defs.bzl`. `air-architecture-model_test` of
+takes `DOCS_GATE_DATA` and `DOCS_GATE_ENV` of `//tools/openspec:defs.bzl`. `air-docs-model_test` of
 `plugins/air/tests/architecture-gate` runs the Air gate, and `//build/docs:docs-site_test` runs the build gate. The gate has no
 `node_modules`, so each module that it loads imports nothing from npm. `scripts/yamlCompat.ts` parses with
 `Bun.YAML` on bun, also on a machine that has the packages.
+The crate passes the declared `checkout-files` binary in `DOCS_CHECKOUT_FILES`. With it, `walkFiles` of
+`scripts/paths.ts` reads the files that git lists under a root, once for each root, and reads no directory.
 
 ## Wiring in a site
 
@@ -206,7 +234,7 @@ Each site builds with one node and one pnpm. Bazel declares them:
 
 The aliases are in `//build`, not in this directory. The root `.bazelignore` lists `community`, so a package here has
 no root label. The pins stay in the ultimate module, per
-[build ADR 0009](../../../build/docs/decisions/0009-bun-pins-in-the-ultimate-module.md).
+[The bun pins live in the ultimate module, so a community checkout downloads no bun](../../../build/openspec/changes/archive/2026-09-04-bun-pins-in-the-ultimate-module/design.md).
 
 The kernel `package.json` is the source of the versions: `engines.node` and `packageManager`.
 `DocsSiteToolchainConsistencyTest` fails when the pins drift from it, or when a site names another `packageManager`.
@@ -246,4 +274,4 @@ module. After a kernel change, run the checks and the e2e suite of both sites.
    `//build:bun`.
 8. Add the site manifest to the list of `DocsSiteToolchainConsistencyTest`.
 9. Add a `.gitignore` with `generated/`. The root `.gitignore` already covers `out/`.
-10. Write `README.md` and `AGENTS.md`, and a dated decision record of the site that names the kernel.
+10. Write `README.md` and `AGENTS.md`, and a change of the OpenSpec root of the site whose design names the kernel.

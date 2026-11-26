@@ -9,11 +9,12 @@
  * Resolves `relativePath` against a content-relative `baseDir`, returning a repo-root-relative
  * path (`plugins/air/<module>/...` or `community/...` for Air). `..` clamps at the repo root; both observed
  * spec spellings (`../../<module>/…` and `../../../../plugins/air/<module>/…`) normalize to
- * the same result.
+ * the same result. A `baseDir` outside the content root starts with `..` segments, as the doc path of a design outside
+ * it does (`docPathOfRepoPath`).
  */
 export function resolveRepoPath(contentRoot: string, baseDir: string, relativePath: string): string {
-  const parts = [...contentRoot.split('/').filter(part => part !== '' && part !== '.'), ...(baseDir === '' ? [] : baseDir.split('/'))]
-  for (const segment of relativePath.split('/')) {
+  const parts: string[] = []
+  for (const segment of [...contentRoot.split('/'), ...baseDir.split('/'), ...relativePath.split('/')]) {
     if (segment === '..') {
       parts.pop()
     }
@@ -28,6 +29,38 @@ export function resolveRepoPath(contentRoot: string, baseDir: string, relativePa
 export function contentPathOf(contentRoot: string, repoPath: string): string | null {
   const prefix = contentRoot === '' || contentRoot === '.' ? '' : `${contentRoot}/`
   return repoPath.startsWith(prefix) ? repoPath.slice(prefix.length) : null
+}
+
+/**
+ * The doc path of a repo-root-relative path: the content-relative form, or for a path outside the content root the
+ * relative path with `..` segments. Only a harvested doc of a site has such a path: the design of an archived change of
+ * an OpenSpec root outside the content root, for example the vm root of the Air site.
+ */
+export function docPathOfRepoPath(contentRoot: string, repoPath: string): string {
+  const inside = contentPathOf(contentRoot, repoPath)
+  if (inside !== null) {
+    return inside
+  }
+  const base = contentRoot.split('/').filter(part => part !== '' && part !== '.')
+  const target = repoPath.split('/')
+  let common = 0
+  while (common < base.length && common < target.length && base[common] === target[common]) {
+    common++
+  }
+  return [...base.slice(common).map(() => '..'), ...target.slice(common)].join('/')
+}
+
+/** The segment that stands for `..` in the file of a doc path under a folder of harvested files. */
+const PARENT_SEGMENT = '__parent__'
+
+/** The file of a doc path under a folder of harvested files: a `..` segment becomes `__parent__`, so the file stays in the folder. */
+export function harvestedFileOf(docPath: string): string {
+  return docPath.split('/').map(segment => segment === '..' ? PARENT_SEGMENT : segment).join('/')
+}
+
+/** The doc path of a file under a folder of harvested files: the reverse of `harvestedFileOf`. */
+export function docPathOfHarvestedFile(file: string): string {
+  return file.split('/').map(segment => segment === PARENT_SEGMENT ? '..' : segment).join('/')
 }
 
 /**
@@ -75,6 +108,12 @@ export function specTestFiles(
 /** The file name of a spec under an OpenSpec root: `<root>/specs/<capability>/spec.md`. */
 export const OPENSPEC_SPEC_FILE = 'spec.md'
 
+/** The archive folder of an OpenSpec root, relative to the root: `<root>/changes/archive/<change-id>/`. */
+export const OPENSPEC_ARCHIVE_DIR = 'changes/archive'
+
+/** The file name of the design of a change: `<root>/changes/archive/<change-id>/design.md` is a decision document. */
+export const OPENSPEC_DESIGN_FILE = 'design.md'
+
 /** The part of `SiteConfig.specs` that a spec id needs. */
 export interface SpecRootsConfig {
   roots: string[]
@@ -101,6 +140,22 @@ export function specIdOfRepoPath(specs: SpecRootsConfig, repoPath: string): stri
     const prefix = root === '' ? '' : `${root}/`
     if (repoPath.startsWith(prefix)) {
       return repoPath.slice(prefix.length, -specs.suffix.length)
+    }
+  }
+  return null
+}
+
+/**
+ * The change id of the content-relative `path` when it names the design of an archived change of an OpenSpec root,
+ * `<root>/changes/archive/<change-id>/design.md`, or null.
+ */
+export function archiveDesignChangeId(contentRoot: string, specs: Pick<SpecRootsConfig, 'openspec'>, path: string): string | null {
+  const repoPath = resolveRepoPath(contentRoot, '', path)
+  for (const root of specs.openspec?.roots ?? []) {
+    const prefix = `${root}/${OPENSPEC_ARCHIVE_DIR}/`
+    const slash = repoPath.indexOf('/', prefix.length)
+    if (repoPath.startsWith(prefix) && slash > prefix.length && repoPath.slice(slash + 1) === OPENSPEC_DESIGN_FILE) {
+      return repoPath.slice(prefix.length, slash)
     }
   }
   return null

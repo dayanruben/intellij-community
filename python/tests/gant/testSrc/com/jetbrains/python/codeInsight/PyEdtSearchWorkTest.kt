@@ -4,13 +4,16 @@ package com.jetbrains.python.codeInsight
 import com.intellij.codeInsight.daemon.GutterIconNavigationHandler
 import com.intellij.codeInsight.daemon.LineMarkerInfo
 import com.intellij.idea.TestFor
+import com.intellij.lang.LanguageExtensionPoint
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.Ref
 import com.intellij.psi.PsiElement
+import com.intellij.refactoring.suggested.SuggestedRefactoringSupport
 import com.intellij.testFramework.ExtensionTestUtil
 import com.intellij.testFramework.runInEdtAndWait
 import com.intellij.ui.UiInterceptors
@@ -126,19 +129,37 @@ class PyEdtSearchWorkTest : PyCodeInsightTestCase() {
 
   @TestFor(issues = ["PY-92734"])
   @Test
-  fun `typing an opening parenthesis after a method name evaluates types on the EDT`() = runInEdtAndWait {
+  fun `the typed handler of an opening parenthesis after a method name evaluates no types`() = runInEdtAndWait {
     myFixture.configureByText("a.py", """
-      class Base:
+      import abc
+      from abc import ABCMeta
+
+      class Base(ABCMeta):
           pass
 
       class Child(Base):
           def run<caret>
-    """.trimIndent())
-    val counts = PyCodeInsightCounters.countOnCurrentThread { myFixture.type('(') }
 
-    assertTrue(myFixture.editor.document.text.contains("def run(self):"), myFixture.editor.document.text)
-    assertTrue(counts.getValue(Counter.CONTEXTS_CONSTRUCTED) > 0,
-               "Pinned defect: the handler builds a type context for the MRO on the EDT. Counters: $counts")
+          @abc.abstractclassmethod
+          def start<caret>
+    """.trimIndent())
+    val editor = myFixture.editor
+    val file = myFixture.file
+    // Typing in the fixture also runs the other typed handlers and the pending EDT events, so the test calls the handler alone.
+    // The suggested refactoring listener reads the function on each document change, so the test masks its support.
+    val suggestedRefactoringSupports = ExtensionPointName<LanguageExtensionPoint<SuggestedRefactoringSupport>>(SuggestedRefactoringSupport.name)
+    ExtensionTestUtil.maskExtensions(suggestedRefactoringSupports, emptyList(), disposable)
+    val counts = PyCodeInsightCounters.countOnCurrentThread {
+      WriteCommandAction.runWriteCommandAction(myFixture.project) {
+        editor.caretModel.runForEachCaret { _ ->
+          PyMethodNameTypedHandler().beforeCharTyped('(', myFixture.project, editor, file, file.fileType)
+        }
+      }
+    }
+
+    assertTrue(myFixture.editor.document.text.contains("def run(cls):"), myFixture.editor.document.text)
+    assertTrue(myFixture.editor.document.text.contains("def start(cls):"), myFixture.editor.document.text)
+    assertEquals(0, counts.getValue(Counter.CONTEXTS_CONSTRUCTED), "The handler builds a type context on the EDT. Counters: $counts")
   }
 
   @TestFor(issues = ["PY-92735"])

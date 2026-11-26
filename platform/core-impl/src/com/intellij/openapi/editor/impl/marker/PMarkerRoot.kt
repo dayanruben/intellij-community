@@ -3,7 +3,6 @@ package com.intellij.openapi.editor.impl.marker
 
 import com.intellij.openapi.editor.ex.DocumentPatch
 import com.intellij.openapi.editor.ex.DocumentText
-import com.intellij.util.Processor
 import org.jetbrains.annotations.TestOnly
 import java.util.function.Consumer
 
@@ -21,8 +20,13 @@ interface PMarkerRoot {
   /** Identifies roots with the same marker offsets and validity. This token must not retain a root. */
   val resolutionCacheIdentity: Any
 
-  /** Advances cached offsets across an edit, or requests a full resolution. */
-  fun advanceResolution(previousIdentity: Any, resolution: Long): Long = PMarkerResolution.UNRESOLVED
+  /**
+   * Advances the cached [resolution] of [handle] to this root.
+   * Returns [PMarkerResolution.UNRESOLVED] when the caller must resolve the marker in this root.
+   *
+   * @param previousIdentity the cache token of the root that supplied [resolution].
+   */
+  fun advanceResolution(handle: SnapshotMarkerReference<*>, previousIdentity: Any, resolution: Long): Long = PMarkerResolution.UNRESOLVED
 
   /** Replaces the offsets of existing valid markers and discards stale cached offsets. */
   fun restoreEntries(entries: List<MarkerEntry>): PMarkerRoot
@@ -196,14 +200,14 @@ interface PMarkerRoot {
    * Processes valid markers that non-strictly intersect the requested range and contain every bit in [tastePreference].
    * A zero preference matches every marker.
    *
-   * The processor receives the stored entry. Its node range can exclude a lazy shift from an ancestor node. Call [resolve]
-   * when the processor needs actual offsets in the document snapshot.
+   * Add the delta to both entry offsets to get the document offsets.
+   * Returns `false` if the processor stops the traversal.
    */
   fun processRangeMarkersOverlappingWith(
     startOffset: Int,
     endOffset: Int,
     tastePreference: Int,
-    processor: Processor<in MarkerEntry>,
+    processor: MarkerDeltaProcessor,
   ): Boolean
 
   /**

@@ -14,7 +14,7 @@ load(
 load("//build/rust-tools:rust_test_junit.bzl", "rust_test_junit")
 
 # The one `target_compatible_with` of every crate that is not `portable`. The controller, the guest agent, the
-# viewer's server and the planner are Unix tools; ADR 0059 says which crates the Windows CI host builds.
+# viewer's server and the planner are Unix tools; decision 2026-09-26-the-ui-lane-tooling-is-rust says which crates the Windows CI host builds.
 NOT_ON_WINDOWS = _NOT_ON_WINDOWS
 
 # `community/common.bazelrc` scrubs `PATH` on Windows. A test that starts a host tool needs it back. On Unix
@@ -79,7 +79,7 @@ def avl_crate(
     community module (`_CROSS_MODULE_CRATES`).
 
     The test runs through `rust_test_junit`: libtest writes no report, Bazel's own report holds one case for the whole
-    target, and BT counts cases. `AirTestTargetDeclarationTest` does not see this test, because it scans `BUILD.bazel`
+    target, and BT counts cases. The test target checks of `air-architecture-model_test` do not see this test, because they scan `BUILD.bazel`
     files for rule calls named `*_test` or `*_test_*`, and this one is `avl_crate`. So nothing gates `test_tags`, and an
     `external` or `no-sandbox` tag there makes the test uncached.
 
@@ -89,7 +89,7 @@ def avl_crate(
     code with a Windows clippy, which the root `clippy-windows-x86_64` and `clippy-windows-arm64` do from a Unix host.
 
     Args:
-      portable: whether the crate is also built and tested on Windows (ADR 0059). A crate that a portable
+      portable: whether the crate is also built and tested on Windows (decision 2026-09-26-the-ui-lane-tooling-is-rust). A crate that a portable
         crate or its test depends on must be portable too.
       closure: pins the crate closure of the one binary of the crate in `closure.txt`, as `<bin>_closure_test`. The
         closure is the one for x86_64 Linux on every host.

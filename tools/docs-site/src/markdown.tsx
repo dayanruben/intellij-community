@@ -9,7 +9,7 @@ import { marked } from 'marked'
 import { Fragment, lazy, Suspense, type MouseEvent, type ReactNode, useEffect, useMemo } from 'react'
 import { parseDiagramFence } from '../scripts/diagram.ts'
 import { isExternalPicture, picturePath } from '../scripts/docAssets.ts'
-import { contentPathOf, repoPathOf, requirementGroup, resolveRepoPath, SOURCE_PATH_PATTERN, specIdOfRepoPath } from '../scripts/sourcePaths.ts'
+import { contentPathOf, docPathOfRepoPath, repoPathOf, requirementGroup, resolveRepoPath, SOURCE_PATH_PATTERN, specIdOfRepoPath } from '../scripts/sourcePaths.ts'
 import { docAssetUrl } from './docAssets'
 import { decisionRoute, docRoute, explainerRoute, guideRoute, isDecisionPath, normalizeMarkdownAppHref } from './router'
 import { codeSpanTarget } from './codeSpanLink.ts'
@@ -70,10 +70,14 @@ export interface SitePage {
   title: string | null
 }
 
-/** The page of the site for a repo-root-relative path, or null when the site bundles no page of it. */
+/**
+ * The page of the site for a repo-root-relative path, or null when the site bundles no page of it. A path outside the
+ * content root has a page only when the site harvested it, as a design of an OpenSpec root outside the content root.
+ */
 export function pageOfRepoPath(repoPath: string): SitePage | null {
-  const contentPath = contentPathOf(site().config.contentRoot, repoPath)
-  if (contentPath === null) {
+  const { config, index } = site()
+  const contentPath = contentPathOf(config.contentRoot, repoPath) ?? docPathOfRepoPath(config.contentRoot, repoPath)
+  if (contentPath.startsWith('../') && !index.docsByPath.has(contentPath)) {
     return null
   }
   const href = routeForPath(contentPath)
@@ -385,7 +389,7 @@ export function InlineMarkdown({ source }: { source: string }) {
   return <span dangerouslySetInnerHTML={{ __html: html }} />
 }
 
-// --- prose docs with figure fences: hand-laid diagrams (```diagram and ```air-diagram, ADR 0203 of Air) and the fences of the site
+// --- prose docs with figure fences: hand-laid diagrams (```diagram and ```air-diagram, decision 2026-10-06-an-architecture-explanation-is-a-hand-laid-diagram) and the fences of the site
 
 type DocSegment =
   | { kind: 'html', html: string }

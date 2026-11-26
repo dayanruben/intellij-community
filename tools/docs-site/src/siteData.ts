@@ -3,10 +3,11 @@
 // `siteIndex` joins it into the lookups of the kernel pages, once per data object.
 
 import type { HarvestedDiagram } from '../scripts/diagram.ts'
-import { type AdrMeta, adrOrderKey } from '../scripts/docMeta.ts'
+import type { DecisionMeta } from '../scripts/docMeta.ts'
 import type { ExplainerChapter } from '../scripts/explainerDoc.ts'
 import type { HarvestedDoc } from '../scripts/harvestDocs.ts'
 import type { SiteConfig } from '../scripts/siteConfig.ts'
+import { docPathOfHarvestedFile } from '../scripts/sourcePaths.ts'
 import { decisionPaths } from './routeTable.ts'
 
 export type { HarvestedDoc } from '../scripts/harvestDocs.ts'
@@ -70,7 +71,7 @@ export interface SiteData {
  * itself, because Vite resolves a glob pattern relative to the file that holds it.
  */
 export function harvestedFiles<T>(glob: Record<string, T>, prefix: string): Record<string, T> {
-  return Object.fromEntries(Object.entries(glob).filter(([key]) => key.startsWith(prefix)).map(([key, value]) => [key.slice(prefix.length), value]))
+  return Object.fromEntries(Object.entries(glob).filter(([key]) => key.startsWith(prefix)).map(([key, value]) => [docPathOfHarvestedFile(key.slice(prefix.length)), value]))
 }
 
 /** Slug of a bundled doc, used in /guides/<slug> and /explain/<slug> routes: the file basename, so a move between folders keeps its URL. */
@@ -79,16 +80,16 @@ export function guideSlug(path: string): string {
 }
 
 export type ExplainerDoc = HarvestedDoc & { chapters: ExplainerChapter[] }
-export type DecisionDoc = HarvestedDoc & { adr: AdrMeta }
+export type DecisionDoc = HarvestedDoc & { decision: DecisionMeta }
 
 /** The lookups of the kernel pages over one {@link SiteData}. */
 export interface SiteIndex {
   data: SiteData
   /** Bundled prose docs by content-relative path. */
   docsByPath: ReadonlyMap<string, HarvestedDoc>
-  /** The explainers (ADR 0203 of Air), in frontmatter order. Each one has `chapters`. */
+  /** The explainers (decision 2026-10-06-an-architecture-explanation-is-a-hand-laid-diagram), in frontmatter order. Each one has `chapters`. */
   explainerDocs: readonly ExplainerDoc[]
-  /** The decision records, newest first: a dated record before a numbered one. */
+  /** The decisions, newest first by change id. */
   decisionDocs: readonly DecisionDoc[]
   /** The hand-laid diagrams by id. */
   diagramsById: ReadonlyMap<string, HarvestedDiagram>
@@ -97,23 +98,23 @@ export interface SiteIndex {
   docForGuideSlug(slug: string): HarvestedDoc | undefined
   /** The explainer behind an /explain/<slug> route, or undefined. */
   docForExplainerSlug(slug: string): ExplainerDoc | undefined
-  /** The decision record behind a /decisions/<slug> route, or undefined. */
+  /** The decision behind a /decisions/<slug> route, by its change id or by one of its former ids, or undefined. */
   docForDecisionSlug(slug: string): DecisionDoc | undefined
 }
 
 const indexes = new WeakMap<SiteData, SiteIndex>()
 
 /** The index of `data`. The site data module and `createSite` share one index per data object. */
-export function siteIndex(data: SiteData, config: Pick<SiteConfig, 'docs'>): SiteIndex {
+export function siteIndex(data: SiteData, config: Pick<SiteConfig, 'contentRoot' | 'docs' | 'specs'>): SiteIndex {
   const cached = indexes.get(data)
   if (cached !== undefined) {
     return cached
   }
   const docsRoot = `${config.docs.root}/`
-  const { decisionSlug } = decisionPaths(config.docs.decisions)
+  const { decisionSlug } = decisionPaths(config)
   const docByGuideSlug = new Map(
     data.docs
-      .filter(doc => doc.path.startsWith(docsRoot) && !doc.path.includes('/decisions/') && doc.kind !== 'explainer')
+      .filter(doc => doc.path.startsWith(docsRoot) && doc.kind !== 'explainer' && doc.kind !== 'decision')
       .map(doc => [guideSlug(doc.path), doc]),
   )
   const explainerDocs = data.docs
@@ -121,9 +122,13 @@ export function siteIndex(data: SiteData, config: Pick<SiteConfig, 'docs'>): Sit
     .sort((a, b) => a.order - b.order || a.title.localeCompare(b.title))
   const explainerBySlug = new Map(explainerDocs.map(doc => [guideSlug(doc.path), doc]))
   const decisionDocs = data.docs
-    .filter((doc): doc is DecisionDoc => doc.adr !== undefined)
-    .sort((a, b) => adrOrderKey(b.adr).localeCompare(adrOrderKey(a.adr)) || b.path.localeCompare(a.path))
-  const decisionBySlug = new Map(decisionDocs.map(doc => [decisionSlug(doc.path), doc]))
+    .filter((doc): doc is DecisionDoc => doc.decision !== undefined)
+    .sort((a, b) => b.decision.change.localeCompare(a.decision.change) || b.path.localeCompare(a.path))
+  // a change id wins over a former id of another decision
+  const decisionBySlug = new Map<string, DecisionDoc>([
+    ...decisionDocs.flatMap(doc => doc.decision.formerIds.map(id => [id, doc] as const)),
+    ...decisionDocs.map(doc => [decisionSlug(doc.path), doc] as const),
+  ])
   const index: SiteIndex = {
     data,
     docsByPath: new Map(data.docs.map(doc => [doc.path, doc])),

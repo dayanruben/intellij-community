@@ -67,7 +67,6 @@ import com.intellij.ui.layout.and
 import com.intellij.ui.layout.not
 import com.intellij.ui.scale.JBUIScale
 import com.intellij.ui.treeStructure.Tree
-import com.intellij.util.ui.GraphicsUtil
 import com.intellij.util.ui.JBFont
 import com.intellij.util.ui.RestartDialogImpl
 import com.intellij.util.ui.UIUtil
@@ -75,7 +74,6 @@ import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.Nls
 import java.awt.Font
 import java.awt.RenderingHints
-import java.awt.Window
 import javax.swing.ComboBoxModel
 import javax.swing.DefaultComboBoxModel
 import javax.swing.JComponent
@@ -269,7 +267,7 @@ internal class AppearanceConfigurable : BoundSearchableConfigurable(message("tit
         val useCustomCheckbox = checkBox(message("checkbox.override.default.laf.fonts"))
           .gap(RightGap.SMALL)
           .bindSelected(settings::overrideLafFonts) {
-            NotRoamableUiSettings.getInstance().overrideLafFonts = it
+            settings.overrideLafFonts = it
             if (!it) {
               getDefaultFont().let { defaultFont ->
                 settings.fontFace = defaultFont.family
@@ -497,6 +495,8 @@ internal class AppearanceConfigurable : BoundSearchableConfigurable(message("tit
             .bindItem({ settings.presentationModeIdeScale.percentStringValue }, { })
             .applyToComponent {
               isEditable = true
+              IdeScaleTransformer.Settings.followScale(this, isPresentation = true,
+                                                       disposable = checkNotNull(disposable) { "The UI of the configurable is not created" })
             }
             .validationOnInput {
               IdeScaleTransformer.Settings.validatePercentScaleInput(this, it, true)
@@ -507,9 +507,6 @@ internal class AppearanceConfigurable : BoundSearchableConfigurable(message("tit
               IdeScaleTransformer.Settings.scaleFromPercentStringValue(it.item, true)?.let { scale ->
                 logIdeZoomChanged(scale, true)
                 settings.presentationModeIdeScale = scale
-                if (settings.presentationMode) {
-                  settings.fireUISettingsChanged()
-                }
               }
             }
         }
@@ -555,13 +552,6 @@ internal class AppearanceConfigurable : BoundSearchableConfigurable(message("tit
               .label(message("label.text.antialiasing.scope.ide"))
               .bindItem(settings::ideAAType.toNullableProperty())
               .accessibleName(message("label.text.antialiasing.scope.ide"))
-              .onApply {
-                for (w in Window.getWindows()) {
-                  for (c in UIUtil.uiTraverser(w).filter(JComponent::class.java)) {
-                    GraphicsUtil.setAntialiasingType(c, AntialiasingType.getAATextInfoForSwingComponent())
-                  }
-                }
-              }
           },
           {
             val editorAAOptions =

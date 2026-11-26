@@ -1,5 +1,5 @@
 //! The install the pinned Apple `container` CLI runs from (the decision
-//! `2026-11-18-the-pinned-container-runs-from-the-volume-of-the-runtime-root`).
+//! decision 2026-11-18-the-docker-backend-runs-on-the-host-engine-or-apple-container).
 //!
 //! The pin lives in the Bazel repository cache. When the Bazel user root is on another volume than the runtime root,
 //! the controller runs a copy of the install under the runtime root instead: on 2026-11-18 the vmnet plugin of an

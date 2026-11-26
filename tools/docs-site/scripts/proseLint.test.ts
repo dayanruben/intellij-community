@@ -2,9 +2,9 @@ import assert from 'node:assert/strict'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, it } from 'node:test'
-import { checkDiagramProse, checkExplainerProse, checkProse, countWords, formatProseFinding, type ProseRule, readProseFindings } from './proseLint.ts'
+import { checkDecisionProse, checkDiagramProse, checkExplainerProse, checkProse, countWords, formatProseFinding, type ProseRule, readProseFindings } from './proseLint.ts'
 import { temporaryTree } from './tempTree.ts'
-import { testSiteConfig } from './testSiteConfig.ts'
+import { ARCHIVE_FILES, testSiteConfig, withOpenSpecRoot } from './testSiteConfig.ts'
 
 /** The limits of the Air site: an issue id and a "Since IJAI" with no number are history marks too. */
 const CONFIG = testSiteConfig({
@@ -45,6 +45,14 @@ describe('the prose of an explainer', () => {
     assert.equal(findings[0].line, 1)
   })
 
+  it('ends a sentence after a bold lead-in', () => {
+    const lead = words(15).slice(0, -1)
+    assert.deepStrictEqual(checkExplainerProse('x.md', `**${lead}.** ${words(15)}
+`, LIMITS), [])
+    assert.deepStrictEqual(rules(checkExplainerProse('x.md', `**${lead}** ${words(15)}
+`, LIMITS)), ['sentence-length'])
+  })
+
   it('ends a sentence at the end of a list item', () => {
     const item = words(20).slice(0, -1)
     assert.deepStrictEqual(checkExplainerProse('x.md', `- ${item}\n- ${item}\n`, LIMITS), [])
@@ -74,8 +82,8 @@ describe('the prose of an explainer', () => {
     assert.match(findings[0].excerpt, /^"IJAI-3663" in/)
   })
 
-  it('passes a link to a decision record', () => {
-    assert.deepStrictEqual(checkExplainerProse('x.md', 'The [record](../decisions/0197-a-session-is-state.md) holds the reason.\n', LIMITS), [])
+  it('passes a link to a decision', () => {
+    assert.deepStrictEqual(checkExplainerProse('x.md', 'The [decision](../../openspec/changes/archive/2026-10-02-a-session-is-state/design.md) holds the reason.\n', LIMITS), [])
   })
 
   it('reports a count that rots, and not a schema number', () => {
@@ -134,5 +142,22 @@ describe('the prose gate', () => {
     writeFileSync(join(root, 'docs/explainers/y.md'), 'IJAI-1 moved it.\n')
     assert.deepStrictEqual(readProseFindings(CONFIG, root).findings.map(formatProseFinding), ['docs/explainers/y.md:1: history: "IJAI-1" in "IJAI-1 moved it."'])
     assert.throws(() => checkProse(CONFIG, root), /prose: 1 finding\(s\)[\s\S]*docs\/explainers\/y\.md:1: history/)
+  })
+})
+
+describe('the prose of a decision', () => {
+  it('takes the sentence limit and the history marks, and no count rule', () => {
+    const findings = checkDecisionProse('d/design.md', `## Context\n\n${words(26)}\n\nIJAI-1 moved it. The host reads 4 files.\n`, LIMITS)
+    assert.deepStrictEqual(rules(findings), ['sentence-length', 'history'])
+  })
+
+  it('reads a design with an x-topic, and not a design without one', () => {
+    const root = air({ ...ARCHIVE_FILES, 'openspec/changes/archive/2026-11-22-no-heading/design.md': `${words(30)}\n` })
+    const config = withOpenSpecRoot(CONFIG)
+    assert.equal(checkProse(config, root), 1)
+    writeFileSync(join(root, 'openspec/changes/archive/2026-11-20-one-channel/design.md'), `# The host keeps one channel\n\n${words(26)}\n`)
+    assert.deepStrictEqual(readProseFindings(config, root).findings.map(finding => `${finding.path}:${finding.line}: ${finding.rule}`), [
+      'openspec/changes/archive/2026-11-20-one-channel/design.md:3: sentence-length',
+    ])
   })
 })

@@ -6,7 +6,6 @@ import com.intellij.openapi.editor.ex.DocumentText
 import com.intellij.openapi.editor.impl.marker.PMarkerRoot.MarkerDeltaProcessor
 import com.intellij.openapi.editor.impl.marker.PMarkerRoot.MarkerEntry
 import com.intellij.openapi.util.TextRangeScalarUtil
-import com.intellij.util.Processor
 import java.util.function.Consumer
 
 /**
@@ -46,6 +45,10 @@ internal class PMarkerAppendRoot private constructor(
 
   private fun entryAt(index: Int): MarkerEntry = entries[index]
 
+  /**
+   * Finds the first index in the suffix that satisfies [matches].
+   * Returns the entry count when the suffix is empty.
+   */
   private inline fun firstIndex(matches: (MarkerEntry) -> Boolean): Int {
     var low = 0
     var high = size
@@ -68,11 +71,11 @@ internal class PMarkerAppendRoot private constructor(
     startOffset: Int,
     endOffset: Int,
     tastePreference: Int,
-    processor: Processor<in MarkerEntry>,
+    processor: MarkerDeltaProcessor,
   ): Boolean {
     val iterator = overlappingIterator(startOffset, endOffset, tastePreference)
     while (iterator.hasNext()) {
-      if (!processor.process(iterator.next())) return false
+      if (!processor.process(iterator.next(), 0)) return false
     }
     return true
   }
@@ -88,7 +91,7 @@ internal class PMarkerAppendRoot private constructor(
     }
     val flags = tastePreference and 0xFF
     return object : AbstractIterator<MarkerEntry>() {
-      private var index = first
+      private var index: Int = first
 
       override fun computeNext() {
         while (index < size) {
@@ -104,6 +107,10 @@ internal class PMarkerAppendRoot private constructor(
     }
   }
 
+  /**
+   * Appends an entry when its offsets and ID preserve the buffer's order.
+   * Uses a direct root for other insertions and for entries with a measure.
+   */
   override fun insert(
     handle: SnapshotMarkerReference<*>,
     startOffset: Int,
@@ -123,6 +130,7 @@ internal class PMarkerAppendRoot private constructor(
     return PMarkerAppendRoot(base, entries.add(entry))
   }
 
+  /** Builds and caches a direct root from the buffered entries in their existing order. */
   fun materialize(): PMarkerDirectRoot {
     directRoot?.let { return it }
     return synchronized(this) {
@@ -175,6 +183,7 @@ internal class PMarkerAppendRoot private constructor(
       return current.entry
     }
 
+    /** Appends [entry]. When the tail fills a page, stores that page in the shared vector. */
     fun add(entry: MarkerEntry): Entries {
       val newSize = size + 1
       if (newSize % PAGE_SIZE != 0) return Entries(newSize, pages, TailEntry(entry, tail))
@@ -190,7 +199,7 @@ internal class PMarkerAppendRoot private constructor(
     private class TailEntry(val entry: MarkerEntry, val previous: TailEntry?)
 
     private companion object {
-      const val PAGE_SIZE = 16
+      const val PAGE_SIZE: Int = 16
     }
   }
 }

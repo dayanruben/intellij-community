@@ -48,7 +48,7 @@ object CommunityModuleSets {
    * A lean product such as Draft takes coreLang and adds only the feature sets that it needs.
    *
    * The direct members are groups that only this set carries today.
-   * ADR 0010 (`build/docs/decisions/0010-a-module-set-is-the-leaf-a-fragment-is-the-feature.md`) gives such a group no set.
+   * The decision `build/openspec/changes/archive/2026-09-14-a-module-set-is-the-leaf-a-fragment-is-the-feature/design.md` gives such a group no set.
    * The `completion.*` and `pluginManager.*` groups become sets when a second product takes `essential` without them.
    *
    * The debugger platform is not part of this set. [ideCommon] nests [debugger],
@@ -72,8 +72,7 @@ object CommunityModuleSets {
 
     module("intellij.platform.buildScripts.downloader")
     module("intellij.platform.indexing.impl.backend")
-    module("intellij.platform.settings.v2")
-    module("intellij.platform.settings.v2.shared")
+    module("intellij.platform.settings.v2.shared.essential")
     module("intellij.platform.settings.v2.backend.baseline")
     module("intellij.platform.settings.v2.backend")
     module("intellij.platform.settings.v2.vcs")

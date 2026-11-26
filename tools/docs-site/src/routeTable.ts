@@ -1,4 +1,4 @@
-// The one ordered table of app URLs of a docs site (ADR 0162 of Air). Parse, build, the app route heads, the nav
+// The one ordered table of app URLs of a docs site (decision 2026-10-25-one-route-table-owns-the-url-the-nav-section-and-the-layout). Parse, build, the app route heads, the nav
 // section, and the crumb head all come from it. The first entry that matches wins, in both directions. Legacy entries
 // only parse, so old links and bookmarks keep working.
 //
@@ -9,6 +9,7 @@
 // The module is pure: it reads no bundler state, so a node unit test loads it.
 
 import type { SiteConfig } from '../scripts/siteConfig.ts'
+import { archiveDesignChangeId } from '../scripts/sourcePaths.ts'
 
 /** The common shape of every route: a site route has more fields. */
 export interface AnyRoute {
@@ -21,26 +22,22 @@ export interface SourceLineSelection {
   end: number
 }
 
-/** The Decisions index filter on the record status (ADR_STATUSES of scripts/docMeta.ts). */
-export type DecisionStatusFilter = 'accepted' | 'proposed' | 'partly-superseded' | 'superseded'
-
 /** The routes of the kernel pages. */
 export type KernelRoute =
   | { page: 'home' }
   | { page: 'guides', anchor: string | null }
   | { page: 'guide', slug: string, anchor: string | null }
-  /** The explainers index (ADR 0203 of Air). */
+  /** The explainers index (decision 2026-10-06-an-architecture-explanation-is-a-hand-laid-diagram). */
   | { page: 'explainers', anchor: string | null }
   /** One explainer at one chapter, with the step and the selected node of its diagram. */
   | { page: 'explainer', slug: string, chapter: string | null, step: number | null, node: string | null }
   | {
       page: 'decisions'
       anchor: string | null
-      status: DecisionStatusFilter | null
       /** A topic id, `all` for every topic, or null for every topic except the hidden one. */
       topic: string | null
     }
-  /** One decision record by the base name of its file, for example `0197-a-session-is-state-an-agent-is-a-writer`. */
+  /** One decision by its change id, for example `2026-10-02-a-session-is-state-and-an-agent-is-a-writer`. */
   | { page: 'decision', slug: string, anchor: string | null }
   | { page: 'source', path: string, selection: SourceLineSelection | null }
   | { page: 'doc', path: string, anchor: string | null }
@@ -68,7 +65,7 @@ export interface RouteParent {
 }
 
 /**
- * How the shell lays out a page (Air ADR "The docs site lays out each page by its route").
+ * How the shell lays out a page (decision 2026-10-25-one-route-table-owns-the-url-the-nav-section-and-the-layout).
  * - `reading`: the section tree, the document, and the table of contents, each a column. The document has the measure
  *   of prose, 70ch. The outlet scrolls.
  * - `catalog`: the reading layout with a wide document, about 960px, for a page of cards, tiles and chip rows.
@@ -98,21 +95,20 @@ export function isCatalogAnchor(slug: string | null | undefined): slug is string
   return slug != null && slug.startsWith('group-')
 }
 
-/** The decision records of a site: the paths are relative to `contentRoot`. */
+/** The decision documents of a site: the paths are relative to `contentRoot`. */
 export interface DecisionPaths {
-  /** True for the path of a decision record. */
+  /** True for the path of the design of an archived OpenSpec change. */
   isDecisionPath(path: string): boolean
-  /** The `decision` route slug of a decision record path: the file name without `.md`. */
+  /** The `decision` route slug of a decision path: the change id of the design. */
   decisionSlug(path: string): string
 }
 
-/** The decision path rules of the decision folders `dirs` (`docs.decisions` of the site config). */
-export function decisionPaths(dirs: readonly string[]): DecisionPaths {
-  const prefixes = dirs.map(dir => `${dir}/`)
-  const dirOf = (path: string): string | undefined => prefixes.find(dir => path.startsWith(dir) && !path.slice(dir.length).includes('/'))
+/** The decision path rules of a site: the design of each archived change of the OpenSpec roots (`specs.openspec`). */
+export function decisionPaths(config: Pick<SiteConfig, 'contentRoot' | 'specs'>): DecisionPaths {
+  const changeOf = (path: string): string | null => archiveDesignChangeId(config.contentRoot, config.specs, path)
   return {
-    isDecisionPath: path => path.endsWith('.md') && dirOf(path) !== undefined,
-    decisionSlug: path => path.slice((dirOf(path) ?? '').length, -'.md'.length),
+    isDecisionPath: path => changeOf(path) !== null,
+    decisionSlug: path => changeOf(path) ?? path,
   }
 }
 
@@ -399,15 +395,15 @@ function withQuery(path: string, params: Record<string, string | null>, paths: R
 const HOME: KernelRoute = { page: 'home' }
 const GUIDES: RouteParent = { label: 'Guides', route: { page: 'guides', anchor: null } as KernelRoute }
 const EXPLAINERS: RouteParent = { label: 'Explainers', route: { page: 'explainers', anchor: null } as KernelRoute }
-const DECISIONS: RouteParent = { label: 'Decisions', route: { page: 'decisions', anchor: null, status: null, topic: null } as KernelRoute }
+const DECISIONS: RouteParent = { label: 'Decisions', route: { page: 'decisions', anchor: null, topic: null } as KernelRoute }
 
 /**
  * The routes of the kernel pages, in table order. A site puts its route extensions before them. The launch route is
  * in the table only when the site has a launch picker.
  */
-export function kernelRouteEntries(config: Pick<SiteConfig, 'docs' | 'launchPicker'>): RouteEntry[] {
+export function kernelRouteEntries(config: Pick<SiteConfig, 'contentRoot' | 'launchPicker' | 'specs'>): RouteEntry[] {
   const route = routeBuilder<KernelRoute | LaunchRoute, KernelNavSection | LaunchNavSection>()
-  const { isDecisionPath, decisionSlug } = decisionPaths(config.docs.decisions)
+  const { isDecisionPath, decisionSlug } = decisionPaths(config)
   return [
     route('home', '/', { section: null, layout: 'tool' }),
     route('guides', '/guides/:anchor?', { when: ({ anchor }) => anchor === null || isCatalogAnchor(anchor), section: 'guides', layout: 'catalog' }),
@@ -421,7 +417,7 @@ export function kernelRouteEntries(config: Pick<SiteConfig, 'docs' | 'launchPick
       layout: 'canvas',
     }),
     route('decisions', '/decisions/:anchor?', {
-      query: { status: oneOf<DecisionStatusFilter>('accepted', 'proposed', 'partly-superseded', 'superseded'), topic: text },
+      query: { topic: text },
       when: ({ anchor }) => anchor === null || isCatalogAnchor(anchor),
       section: 'decisions',
       layout: 'catalog',
@@ -429,13 +425,13 @@ export function kernelRouteEntries(config: Pick<SiteConfig, 'docs' | 'launchPick
     route('decision', '/decisions/:slug/:anchor?', { when: ({ slug }) => !isCatalogAnchor(slug), section: 'decisions', parent: DECISIONS, layout: 'reading' }),
     route('source', '/source/*path', { query: { selection: lineRange('line') }, section: null, parent: { label: 'Source' }, layout: 'tool' }),
     ...config.launchPicker ? [route('launch', '/launch', { query: { q: text }, section: 'launch', layout: 'tool' })] : [],
-    // a decision record had a doc URL before it had its own page
+    // a decision had a doc URL before it had its own page
     route('decision', '/doc/:path/:anchor?', {
       legacy: true,
       when: ({ path }) => isDecisionPath(path),
       to: ({ path, anchor }) => ({ page: 'decision', slug: decisionSlug(path), anchor }),
     }),
-    // the path is one encoded segment. A decision record builds its own page
+    // the path is one encoded segment. A decision builds its own page
     route('doc', '/doc/:path/:anchor?', {
       when: ({ path }) => path.endsWith('.md'),
       normalize: target => isDecisionPath(target.path) ? { page: 'decision', slug: decisionSlug(target.path), anchor: target.anchor } : target,
@@ -584,6 +580,6 @@ export function createRouteTable(entries: readonly RouteEntry[]): RouteTable {
 }
 
 /** The table of a site: its route extensions first, then the kernel routes. */
-export function siteRouteTable(config: Pick<SiteConfig, 'docs' | 'launchPicker'>, extensions: readonly RouteExtension[]): RouteTable {
+export function siteRouteTable(config: Pick<SiteConfig, 'contentRoot' | 'launchPicker' | 'specs'>, extensions: readonly RouteExtension[]): RouteTable {
   return createRouteTable([...extensions, ...kernelRouteEntries(config)])
 }

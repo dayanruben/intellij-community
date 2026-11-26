@@ -798,7 +798,7 @@ internal fun mergeGeneratedPreparationFacts(
 
 /**
  * The distribution has no module filter. A directory that a module jar must not carry lives outside the resource
- * root, and the layout copies it from there, see ADR 0026.
+ * root, and the layout copies it from there, see decision 2026-10-02-two-directories-over-one-destination-are-refused.
  */
 private fun requireNoModuleExcludes(layout: PluginLayout) {
   val (module, excludes) = layout.moduleExcludes.entries.firstOrNull { it.value.isNotEmpty() } ?: return
@@ -1185,9 +1185,7 @@ private fun renderEmbeddedProductDescriptorCall(
   // The attributes in buildifier's alphabetical order, so a regenerate leaves the section unchanged.
   val attributes = TreeMap(embedded.content.attributes(DIST_MODULE_SETS_SYMBOL))
   val descriptors = productDescriptorRows(stated = embedded.descriptors, content = embedded.content, refused = emptyList(), index = index)
-  if (descriptors.isNotEmpty()) {
-    attributes.put("descriptors", LinkedHashMap(descriptors))
-  }
+  putDescriptorRows(attributes, descriptors)
   if (embedded.libraryDescriptors.isNotEmpty()) {
     attributes.put("library_descriptors", LinkedHashMap(embedded.libraryDescriptors))
   }

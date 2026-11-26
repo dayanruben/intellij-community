@@ -2,8 +2,8 @@
 
 A cargo workspace (`Cargo.toml`, `Cargo.lock`, `rust-toolchain`) that Bazel builds too, through `avl.MODULE.bazel`
 (repository `@avl`) and `avl.bzl`. The workspace is a package of the community module, beside BT. How to operate the
-controller is the `vm-ui-tests` skill; the model behind it is `docs/vm-ui-tests.md`. ADR 0059 records the port from Go, and ADR 0186 records the native
-Windows host. ADR 0074 records the rework: the crate rule, the closures, the error model and the command line.
+controller is the `vm-ui-tests` skill; the model behind it is `docs/vm-ui-tests.md`. [The UI-lane tooling is one Rust implementation in one cargo workspace that Bazel builds](openspec/changes/archive/2026-09-26-the-ui-lane-tooling-is-rust/design.md) records the port from Go, and [A Windows host runs the controller natively](docs/a-windows-host-runs-the-controller-natively-plan.md) records the native
+Windows host. [The UI-lane crates follow the re-key domains, and the audience of each binary picks its error model](openspec/changes/archive/2026-10-02-the-ui-lane-crates-follow-the-re-key-domains/design.md) records the rework: the crate rule, the closures, the error model and the command line.
 
 `avl` stands for Air VM Lane; `avl.MODULE.bazel` says why the name is short. An agent that changes this workspace
 follows [`AGENTS.md`](AGENTS.md).
@@ -12,8 +12,8 @@ follows [`AGENTS.md`](AGENTS.md).
 
 - [`docs/`](docs) holds the guide to the UI lanes, `vm-ui-tests.md`, and the notes on the Linux guest, the Windows
   lane and the open work.
-- [`docs/decisions/`](docs/decisions) holds the ADRs of the controller. Its [`README.md`](docs/decisions/README.md)
-  states how a record takes its number.
+- [`openspec/`](openspec/README.md) is the OpenSpec root of the workspace. A decision is the `design.md` of a change
+  there, and the archive `openspec/changes/archive/` keeps it.
 - [`spec/`](spec) holds the specs of the controller and the recorder. Its [`README.md`](spec/README.md) states the
   path conventions and the gate.
 
@@ -57,11 +57,11 @@ and `:air-trace` natively.
 
 ## The Docker image
 
-`docker/` holds the image of the Linux worker (`--backend docker`, ADR 0183): the `Dockerfile` and its
+`docker/` holds the image of the Linux worker (`--backend docker`, [The Linux worker is a Docker container built from the repository, and it is the default worker](openspec/changes/archive/2026-10-08-the-linux-worker-is-a-docker-container-and-the-default/design.md)): the `Dockerfile` and its
 entrypoint `air-display`. The entrypoint starts the X display and the window manager. The image carries the guest
-Node ([the Docker image carries Node, and the Tart Linux worker is retired](docs/decisions/2026-10-08-the-docker-image-carries-node-and-the-tart-linux-worker-is-retired.md)). `avl-vm` embeds both files and
+Node ([the Docker image carries Node, and the Tart Linux worker is retired](openspec/changes/archive/2026-10-08-the-linux-worker-is-a-docker-container-and-the-default/design.md)). `avl-vm` embeds both files and
 builds the image; nobody builds it by hand. The base is `DOCKER_BASE_IMAGE` in `community/tools/vm/provision/versions.env`.
-`container.MODULE.bazel` pins Apple `container`, the engine of a Mac on macOS 26 or newer ([Apple container is a second engine of the Docker backend](docs/decisions/2026-10-09-apple-container-is-a-second-engine-of-the-docker-backend.md), ADR 0224).
+`container.MODULE.bazel` pins Apple `container`, the engine of a Mac on macOS 26 or newer ([The Docker backend runs on the engine of the host or on Apple container, by the macOS version](openspec/changes/archive/2026-11-18-the-docker-backend-runs-on-the-host-engine-or-apple-container/design.md)).
 `docker.MODULE.bazel` pins the Docker CLI and its `docker-buildx` plugin, which a Mac runs against the engine of its
 host environment.
 
@@ -89,7 +89,7 @@ A crate exists when two binaries share it, or when it is the frozen-bytes engine
 `avl-report` writes the bytes an agent reads. Code that one binary uses is a module of that binary. So the `vm`
 controller holds the modules `bench`, `console`, `daemon`, `lane`, `report` and `worker`, and `air-trace` holds `serve`,
 `plan` and `publish`.
-`build/docs/decisions/0043-the-crate-boundaries-follow-the-re-key-domains.md` states the same rule for the distribution tools.
+`build/openspec/changes/archive/2026-10-01-every-dist-tool-is-a-rust-binary/design.md` states the same rule for the distribution tools.
 The crates form a DAG with the contracts at the bottom. `avl-wire`,
 `avl-trace`, `avl-control` and `avl-testkit` depend on no sibling, and `avl-trace-tools` and `avl-bridge` stand on `avl-trace` alone.
 `avl-junit` stands on `avl-wire` and on `serde`, `serde_json` and `jiff`, which the guest agent links already. So the guest agent can write the JUnit XML and the IJ Perf file.
@@ -115,7 +115,7 @@ links `dev-launch` of the distribution tools, which composes the argument file o
 dev-dependency, and nothing depends on `avl-vm`.
 
 The crates with `portable = True` in their `BUILD.bazel` also build and test on Windows, x86_64 and arm64. Every
-crate is portable except `avl-guest`, which runs only inside a Linux or macOS guest (ADR 0186). A Windows host
+crate is portable except `avl-guest`, which runs only inside a Linux or macOS guest ([A Windows host runs the controller natively](docs/a-windows-host-runs-the-controller-natively-plan.md)). A Windows host
 drives the Docker backend only, so the Tart and Parallels modules of `avl-vm`'s `worker` are `cfg(unix)`. A test whose
 fixture is a Tart or Parallels pool, or a shell script, is `cfg(unix)` too. The library of `avl-guest` carries no
 platform constraint and is tagged `manual`, because rules_rs analyzes a binary's dependencies in the exec
@@ -166,7 +166,7 @@ and copy `<bin>_closure.txt` from `out/bazel-bin` over `closure.txt`.
 | run time | `avl-vm` (`report`) | `report time`: where the time of a run went, from its journal, its iteration reports and the spans of its trace bundles, with no worker; `--baseline` adds the ratio of each test class |
 | bench | `avl-vm` (`bench`) | `vm bench`, the start-up measurement of the IDE on this host: the generation of a dev distribution, the Starter-shaped IDE launch and its supervision, the session, the readers of the files the IDE writes (the start-up report, the trace, the FUS log, the class log, the CPU profile), the memory sample at the gate, the gate, the summary and the digest |
 | | `avl-vm` | the `vm` binary: the clap command tree, which renders the help, the global arguments and the dispatch, the output form and renderer the descriptors allow, the live terminal dashboard of `run`, `shard` and `flake` (`console`), `image validate\|build`, and the viewer a prose run starts (`ensure_viewer`, through `avl_host_sys::viewer`) |
-| suites | `avl-affected` | which suites a changed path reaches (the suite's own files, the lane harness, the flow tags, the specs' `[@test]` links, the JPS modules), the UI lanes a VM worker runs with their test labels (`lanes`, which the controller and the planner share), and the bridge: the Air area that `bt.json` of the checkout names, read at the start of each program (`plugins/air/tests/integration/lanes.json`, with each UI lane's test label, which `AirIntegrationTagTest`, `AirTestTargetDeclarationTest`, the architecture gate test `air-architecture-model_test` and the flow generator `docs/scripts/flowCatalog.ts` read too), and a BT refusal as the controller's |
+| suites | `avl-affected` | which suites a changed path reaches (the suite's own files, the lane harness, the flow tags, the specs' `[@test]` links, the JPS modules), the UI lanes a VM worker runs with their test labels (`lanes`, which the controller and the planner share), and the bridge: the Air area that `bt.json` of the checkout names, read at the start of each program (`plugins/air/tests/integration/lanes.json`, with each UI lane's test label, which the architecture gate tests `air-architecture-model_test` and `air-docs-model_test` and the flow generator `docs/scripts/flowCatalog.ts` read too), and a BT refusal as the controller's |
 | agents | `avl-fake-agent` | the fake ACP agent, the `acp-fake-agent` binary, std-only and blocking: the controlled proxy, which passes each line of the IDE to the control server and applies each command of the test process, the deterministic agent with its fixed answers, whose forms are the golden `testdata/answers.json` that a Kotlin test reads, the terminal sign-in and TUI modes, and the MCP client of a session over streamable HTTP and stdio. It links `avl-control` alone of the siblings |
 | traces | `avl-record` | the recorder that the lane daemon starts, the `air-trace-record` binary: the protocol's state machine, the bundle writer, the Allure result of each bundle when a run asks for it, the snapshots, the `idea.log` slice; where the pixels come from (X11 over MIT-SHM, else the IDE's paint route), the stills, lossless WebP or, when the scenario has a video, lossy AVIF from libaom (`aom/`), the H.264 video the recorder encodes itself, its fragmented MP4 and frame index; ffmpeg only for a Mac's screen |
 | | `air-trace` | the `air-trace` binary: dispatch to `pack`, which is `avl-trace-tools`', and the modules `serve` and `plan`. `air-trace serve`: the bundles discovery finds, by byte range and live, the planner route, the bundles of a TeamCity build (`--teamcity`), and the docs site; `air-trace teamcity-publish`: after a Bazel test on TeamCity, the one archive artifact `air-traces.zip` with the viewer page, `runs.json` in the listing form of `serve` and one zip for each bundle, the messages that publish it and link each test to its trace, which `avl-report` writes, the viewer, which it builds as `serve` builds the site when `--viewer` is absent, and the build from the agent's property files; `air-trace plan`: from a bundle, a flow text, a profile, a `test.xml`, a report, a path or a name to the scenarios, the bundles the input names, the bundles of those scenarios on disk, and the commands |
@@ -176,7 +176,7 @@ and copy `<bin>_closure.txt` from `out/bazel-bin` over `closure.txt`.
 ## The bench
 
 `vm bench` measures the start-up of the IDE on a macOS host, and one search workload after the start-up: Find in
-Files. ADR 0193 records why the verb is in `vm`.
+Files. [The start-up bench is a vm verb, and every IDE run starts from a staged generation](openspec/changes/archive/2026-10-01-the-start-up-bench-is-a-vm-verb-over-a-staged-generation/design.md) records why the verb is in `vm`.
 
 The help is the one guide to its use. `./community/tools/vm.cmd bench --help` states the verb for each question, the
 order of a class attribution, the measurement of a change, the host and the exit codes. The help of a verb states its
@@ -184,14 +184,14 @@ grammar and its defaults. This section states only the measurement model and the
 
 Every run is an integration test, as every run of the IDE Starter is, so a welcome run measures what the perf test of
 the welcome screen measures. `session.json` names this measurement model, and
-[a welcome run measures what the perf test measures](docs/decisions/2026-10-12-a-welcome-run-measures-what-the-perf-test-measures.md)
+[a welcome run measures what the perf test measures](openspec/changes/archive/2026-10-12-a-welcome-run-measures-what-the-perf-test-measures/design.md)
 records it. A metric of a welcome span or of a modal span is the sum of the spans of its name, as the perf test sums them, and a name that
 repeats is a note of the run. The digest shows these sums in the groups `welcome spans` and `modal spans`. The group
 `span ends (ms from the process start)` holds the end of the first span of each start-up step, on the clock of the
 anchors such as `welcomeBecameVisible`. That clock starts at the load of `com.intellij.idea.Main` in `class-load.log`,
 the metric `jvm.processStart`. The report's `jvm.loadingTime` starts it about 100 ms too early, and only a log without
 the main class uses it. The record
-[The bench clock starts at the load of the main class](docs/decisions/2026-10-22-the-bench-clock-starts-at-the-load-of-the-main-class.md)
+[The bench clock starts at the load of the main class](openspec/changes/archive/2026-10-22-the-class-count-of-a-bench-run-is-the-jvm-class-load-log/design.md)
 states why. A modal run opens no project, so the IDE writes its start-up report at the exit, and
 the record reads it after the quit. Its `totalDuration` is negative or missing, so it is a note of the run and no
 metric.
@@ -200,7 +200,7 @@ The IDE of a run starts as its own responsible process of macOS, as an app that 
 gate and before the thread dump, the run writes `memory.json`. It holds the physical footprint and the resident size
 of the IDE, of each descendant, and of each process whose responsible process is the IDE. The WebKit XPC processes of a
 web view are children of launchd, so only the responsible process names them. The record
-[The bench finds the WebKit processes of the IDE by the responsible process](docs/decisions/2026-11-20-the-bench-finds-the-webkit-processes-of-the-ide-by-the-responsible-process.md)
+[The bench finds the WebKit processes of the IDE by the responsible process](openspec/changes/archive/2026-11-20-the-bench-finds-webkit-processes-by-the-responsible-process/design.md)
 states why. The digest group `memory at the gate (MB)` holds the footprint of the IDE, of the JCEF processes
 (`cef_server` and its helpers), of the WebKit processes, of the other processes and of all, and the resident size of
 the IDE and of all. An MB is 2^20 bytes, as Activity Monitor counts it. The group `processes at the gate (count)`
@@ -225,8 +225,8 @@ loaded before the anchor.
 The trigger frame of a module is the frame nearest to the top of its stack whose class has another owner. The search
 skips the frames of the runtime, the language libraries, the service container, the extension points and the message
 bus. A class without an owner in the log is a platform class. A log from a distribution before this shape has no time
-and no stack, so the tables print `-` and say so. The decision record
-[The bench names the trigger of each plugin loader](docs/decisions/2026-10-19-the-bench-names-the-trigger-of-each-plugin-loader.md)
+and no stack, so the tables print `-` and say so. The decision
+[The bench names the trigger of each plugin loader](openspec/changes/archive/2026-10-19-the-bench-names-the-trigger-of-each-plugin-loader/design.md)
 states the rule.
 
 `--profile` of `welcome` and `project` samples the CPU with async-profiler from the JVM start to the gate of each run. When the gate passes, the
@@ -253,7 +253,7 @@ Besides the config and the system of its sandbox, each run gives the IDE the `ho
 Java preferences in its memory and the passwords in its memory, so the IDE sees no account, no preferences and no common
 data of the host, as a lane with a fresh home does. A cargo-sync run keeps the `user.home` of the host, because the
 Rust plugin finds the toolchain in `~/.cargo` below it. The record
-[A bench run sees no account and no data of the host](docs/decisions/2026-11-22-a-bench-run-sees-no-account-and-no-data-of-the-host.md)
+[A bench run sees no account and no data of the host](openspec/changes/archive/2026-11-22-a-bench-run-sees-no-account-and-no-data-of-the-host/design.md)
 states why.
 
 A session with `--generation` runs over a generation that exists, with no build and no stage. It names the commit that

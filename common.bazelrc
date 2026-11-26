@@ -72,6 +72,18 @@ common:bta --javacopt=-XDcompilePolicy=bytodo
 common:jps --repo_env=IJ_JVM_USE_RULES_KOTLIN_BACKEND=0
 common:bta --repo_env=IJ_JVM_USE_RULES_KOTLIN_BACKEND=1
 
+# The bytecode instrumentation of the Java output on the rules_kotlin backend. On the JPS backend the jvm-inc-builder
+# worker instruments the Java classes itself. On the rules_kotlin backend the javac plugin of rules_jvm does it inside
+# each compile. The Bazel flag --plugin puts the plugin on the annotation processor path of every Java compile. The
+# rules_jvm flag selects the Java toolchain that gives the plugin its two switches. The rules_jvm flag stays out of
+# --experimental_propagate_custom_flag below: a tool of the build compiles without the plugin.
+common:bta --@rules_jvm//:bytecode_instrumentation=true
+common:bta --plugin=@rules_jvm//instrumentation-javac-plugin:plugin
+
+# The Java toolchain of the bytecode instrumentation applies only when the flag above is true, so every config registers
+# it. A registration under one config would change the exec configuration and build a second copy of every tool.
+common --extra_toolchains=@rules_jvm//:bytecode_instrumentation_java_toolchain_definition
+
 # Every target that compiles through the rules_kotlin rules uses the rules_jvm toolchain (the
 # Build Tools API with the embeddable compiler), which MODULE.bazel registers. A standalone module
 # such as @jps_to_bazel takes the compiler plugin that matches this toolchain's compiler through its
@@ -179,6 +191,7 @@ startup --noautodetect_server_javabase
 # C:\\Users\\Ilia.Kirianovskii\\AppData\\Local\\Microsoft\\WindowsApps;C:\\WINDOWS;C:\\WINDOWS\\System32;C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0
 # https://github.com/bazelbuild/bazel/blob/93cde47ab3236b3b7124b41824f843f3659064de/src/main/java/com/google/devtools/build/lib/bazel/rules/BazelRuleClassProvider.java#L162
 common:windows --action_env=PATH=C:\\do-not-use-PATH
+test:windows --test_env=PATH=C:\\Windows\\system32
 
 # Enable compact *.repo_mapping manifest
 build --incompatible_compact_repo_mapping_manifest
@@ -301,11 +314,12 @@ common --repo_env=BAZEL_MSVC_RUNTIME_VISUAL_STUDIO_EULA=1
 
 # Keep a packed jar or tree of the dev distribution in the local disk cache and out of the remote cache. These outputs
 # are large, and their download takes longer than a local pack. `build/openspec/specs/cache/spec.md` states the
-# policy, and `build/docs/decisions/2026-11-04-a-packed-output-stays-out-of-the-remote-cache.md` has the measurements.
+# policy, and decision 2026-11-19-ci-packs-use-the-remote-cache has the measurements.
 common --modify_execution_info=PackContentModuleJar=+no-remote-cache,PackDevPluginJar=+no-remote-cache,PackDevPluginRemainder=+no-remote-cache,DevPluginSourceTreeArchive=+no-remote-cache,DevPluginSourceTreeExtract=+no-remote-cache
 
 # A CI build packs each jar in the sandbox, so a pack that reads an undeclared input fails there. A local build packs
-# without the sandbox, see ADR 0019. The sandbox does not change the cache key.
+# without the sandbox, see decision 2026-11-19-ci-packs-use-the-remote-cache. The sandbox does not
+# change the cache key.
 common:ci --modify_execution_info=PackContentModuleJar=-no-sandbox,PackDevPluginJar=-no-sandbox
 
 # Host platforms overrides to ensure some default contraints are set when compiling for the host.

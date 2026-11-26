@@ -9,7 +9,6 @@ import {
   stripBase,
   type AnyRoute,
   type DecisionPaths,
-  type DecisionStatusFilter,
   type KernelRoute,
   type LaunchRoute,
   type PageLayout,
@@ -20,7 +19,7 @@ import {
 } from './routeTable.ts'
 
 export { catalogAnchor, isCatalogAnchor } from './routeTable.ts'
-export type { AnyRoute, DecisionStatusFilter, KernelRoute, LaunchRoute, PageLayout, RouteParent, SourceLineSelection } from './routeTable.ts'
+export type { AnyRoute, KernelRoute, LaunchRoute, PageLayout, RouteParent, SourceLineSelection } from './routeTable.ts'
 
 /** The event that `navigate` sends. The shell reads the new route on it. */
 export const ROUTE_CHANGE_EVENT = 'docs-site-route-change'
@@ -35,14 +34,14 @@ interface InstalledRoutes {
 let installed: InstalledRoutes | null = null
 
 /** Installs the route table of the site. `createSite` calls it once, before the first render. */
-export function installRoutes(config: Pick<SiteConfig, 'base' | 'docs' | 'launchPicker'>, extensions: readonly RouteExtension[]): void {
+export function installRoutes(config: Pick<SiteConfig, 'base' | 'contentRoot' | 'docs' | 'launchPicker' | 'specs'>, extensions: readonly RouteExtension[]): void {
   const basePath = config.base.endsWith('/') ? config.base : `${config.base}/`
   const table = siteRouteTable(config, extensions)
   installed = {
     table,
     basePrefix: basePath === '/' ? '' : basePath.slice(0, -1),
     heads: new Set(table.heads()),
-    decisions: decisionPaths(config.docs.decisions),
+    decisions: decisionPaths(config),
   }
 }
 
@@ -78,12 +77,12 @@ export function parentOf(route: AnyRoute): RouteParent | null {
   return routes().table.entryFor(route).parent
 }
 
-/** True for the content-relative path of a decision record. */
+/** True for the content-relative path of a decision: the design of an archived change. */
 export function isDecisionPath(path: string): boolean {
   return routes().decisions.isDecisionPath(path)
 }
 
-/** The `decision` route slug of a decision record path: the file name without `.md`. */
+/** The `decision` route slug of a decision path: the change id. */
 export function decisionSlug(path: string): string {
   return routes().decisions.decisionSlug(path)
 }
@@ -108,7 +107,7 @@ export function guidesRoute(anchor?: string): string {
   return kernelHref({ page: 'guides', anchor: anchor ?? null })
 }
 
-/** The explainers index (ADR 0203 of Air). */
+/** The explainers index (decision 2026-10-06-an-architecture-explanation-is-a-hand-laid-diagram). */
 export function explainersRoute(anchor?: string): string {
   return kernelHref({ page: 'explainers', anchor: anchor ?? null })
 }
@@ -135,16 +134,15 @@ export function sourceRoute(path: string, selection?: SourceLineSelection | numb
 }
 
 export interface DecisionsRouteOptions {
-  status?: DecisionStatusFilter | null
   topic?: string | null
 }
 
-/** The Decisions index; `topic` null hides the records of the hidden topic, `all` shows every topic. */
+/** The Decisions index; `topic` null hides the decisions of the hidden topic, `all` shows every topic. */
 export function decisionsRoute(anchor?: string, options: DecisionsRouteOptions = {}): string {
-  return kernelHref({ page: 'decisions', anchor: anchor ?? null, status: options.status ?? null, topic: options.topic ?? null })
+  return kernelHref({ page: 'decisions', anchor: anchor ?? null, topic: options.topic ?? null })
 }
 
-/** One decision record by its content-relative path. */
+/** One decision by the content-relative path of its design. */
 export function decisionRoute(path: string, anchor?: string): string {
   return kernelHref({ page: 'decision', slug: decisionSlug(path), anchor: anchor ?? null })
 }

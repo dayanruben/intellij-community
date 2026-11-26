@@ -6,8 +6,6 @@ import com.intellij.openapi.editor.ex.DocumentText
 import com.intellij.openapi.editor.impl.marker.PMarkerRoot.MarkerDeltaProcessor
 import com.intellij.openapi.editor.impl.marker.PMarkerRoot.MarkerEntry
 import com.intellij.openapi.util.TextRangeScalarUtil
-import com.intellij.util.Processor
-import org.jetbrains.annotations.ApiStatus
 import java.util.function.Consumer
 
 /**
@@ -16,7 +14,6 @@ import java.util.function.Consumer
  * Queries and unsupported operations can materialize the complete tree.
  * [runInBatch] materializes any remaining moves when the scope exits.
  */
-@ApiStatus.Internal
 class PMarkerRelocationRoot private constructor(
   /** Stores entries whose positions can be replaced by [positions]. */
   private val base: PMarkerDirectRoot,
@@ -39,7 +36,8 @@ class PMarkerRelocationRoot private constructor(
   @Volatile
   private var rebuilt: PMarkerDirectRoot? = null
 
-  override fun advanceResolution(previousIdentity: Any, resolution: Long): Long = update.advance(previousIdentity, resolution)
+  override fun advanceResolution(handle: SnapshotMarkerReference<*>, previousIdentity: Any, resolution: Long): Long =
+    update.advance(previousIdentity, resolution)
 
   override fun isValid(handle: SnapshotMarkerReference<*>): Boolean =
     positions.getUnchecked(handle.id) != null || base.isValid(handle)
@@ -85,6 +83,10 @@ class PMarkerRelocationRoot private constructor(
     )
   }
 
+  /**
+   * Buffers an ordered insertion while the affected markers remain points.
+   * Publishes their new positions in the returned root and sends their handles to [affected].
+   */
   private fun deferInsertion(
     patch: DocumentPatch,
     beforeText: DocumentText,
@@ -102,7 +104,7 @@ class PMarkerRelocationRoot private constructor(
     val start = patch.startOffset()
     val baseStart = start - (if (descending) 0 else insertions?.totalDelta ?: 0)
     val changes = ArrayList<MarkerEntry>()
-    val canDefer = base.processRangeMarkersOverlappingWith(baseStart, baseStart, 0) { stored ->
+    val canDefer = base.processRangeMarkersOverlappingWith(baseStart, baseStart, 0) { stored, _ ->
       if (positions.getUnchecked(stored.handle.id) != null) return@processRangeMarkersOverlappingWith true
       val entry = stored.copy(nodeStart = start, nodeEnd = start)
       val result = entry.policy.transform(entry, patch, beforeText, afterText)
@@ -128,6 +130,7 @@ class PMarkerRelocationRoot private constructor(
     )
   }
 
+  /** Builds and caches a direct root with all deferred moves and insertions applied. */
   private fun materialize(): PMarkerDirectRoot {
     rebuilt?.let { return it }
     return synchronized(this) {
@@ -186,7 +189,7 @@ class PMarkerRelocationRoot private constructor(
   override fun getPrefixAggregate(offset: Int): Int = base.getPrefixAggregate(offset)
 
   override fun processRangeMarkersOverlappingWith(
-    startOffset: Int, endOffset: Int, tastePreference: Int, processor: Processor<in MarkerEntry>,
+    startOffset: Int, endOffset: Int, tastePreference: Int, processor: MarkerDeltaProcessor,
   ): Boolean = materialize().processRangeMarkersOverlappingWith(startOffset, endOffset, tastePreference, processor)
 
   override fun overlappingIterator(startOffset: Int, endOffset: Int, tastePreference: Int): Iterator<MarkerEntry> =
@@ -295,7 +298,6 @@ class PMarkerRelocationRoot private constructor(
      * Runs [runnable] and materializes any remaining relocation root in [rootStore] on exit, including when [runnable] throws.
      * The caller controls deferral through [move].
      */
-    @JvmStatic
     fun runInBatch(rootStore: SnapshotMarkerRootStore<*>, runnable: Runnable) {
       try {
         runnable.run()
@@ -313,7 +315,6 @@ class PMarkerRelocationRoot private constructor(
      * Eligible deferred moves return a buffered root. Queries and unsupported operations can materialize it.
      * When [defer] is false, applies the move immediately.
      */
-    @JvmStatic
     fun move(root: PMarkerRoot, entry: MarkerEntry, defer: Boolean = true): PMarkerRoot {
       require(entry.nodeStart >= 0 && entry.nodeStart == entry.nodeEnd && entry.measure == 0) { "A relocation requires a point marker" }
       val previous = root as? PMarkerRelocationRoot
