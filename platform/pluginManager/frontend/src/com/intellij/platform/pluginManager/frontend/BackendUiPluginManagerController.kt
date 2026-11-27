@@ -14,10 +14,10 @@ import com.intellij.ide.plugins.marketplace.PluginSearchResult
 import com.intellij.ide.plugins.marketplace.PrepareToUninstallResult
 import com.intellij.ide.plugins.marketplace.ResetPluginsStateResult
 import com.intellij.ide.plugins.marketplace.SetEnabledStateResult
-import com.intellij.ide.plugins.newui.PluginInstallationProgressSink
-import com.intellij.ide.plugins.newui.PluginInstallationState
 import com.intellij.ide.plugins.newui.CustomPluginRepository
 import com.intellij.ide.plugins.newui.CustomPluginRepositoryLoadResult
+import com.intellij.ide.plugins.newui.PluginInstallationProgressSink
+import com.intellij.ide.plugins.newui.PluginInstallationState
 import com.intellij.ide.plugins.newui.PluginInventoryEntry
 import com.intellij.ide.plugins.newui.PluginInventorySnapshot
 import com.intellij.ide.plugins.newui.PluginSource
@@ -30,10 +30,11 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.updateSettings.impl.PluginUpdateExclusionService.Exclusion
 import com.intellij.openapi.updateSettings.impl.PluginUpdateSource
 import com.intellij.openapi.updateSettings.impl.pluginsAdvertisement.FUSEventSource
-import com.intellij.platform.pluginManager.shared.rpc.PluginInstallerApi
 import com.intellij.platform.pluginManager.shared.rpc.PluginInstallRpcEvent
+import com.intellij.platform.pluginManager.shared.rpc.PluginInstallerApi
 import com.intellij.platform.pluginManager.shared.rpc.PluginManagerApi
 import com.intellij.platform.project.projectId
 import fleet.rpc.client.RpcClientDisconnectedException
@@ -365,6 +366,18 @@ class BackendUiPluginManagerController() : UiPluginManagerController {
 
   override suspend fun getAllPluginUpdateSources(): List<PluginUpdateSource> {
     return PluginManagerApi.getInstance().getAllPluginUpdateSources()
+  }
+
+  override fun isPluginUpdateExclusionSupported(): Boolean {
+    return false
+  }
+
+  override fun getPluginUpdateExclusion(sessionId: String, pluginId: PluginId): Exclusion? {
+    return null
+  }
+
+  override suspend fun persistPluginUpdateExclusion(sessionId: String, pluginId: PluginId, exclusion: Exclusion?) {
+    PluginManagerApi.getInstance().persistPluginUpdateExclusion(sessionId, pluginId, exclusion)
   }
 
   private fun List<PluginUiModel>.withSource(): List<PluginUiModel> {

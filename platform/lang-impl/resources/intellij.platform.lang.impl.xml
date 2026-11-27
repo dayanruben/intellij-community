@@ -490,6 +490,7 @@
     <extensionPoint qualifiedName="com.intellij.resultHandlerProvider" interface="com.intellij.codeInspection.incorrectFormatting.IncorrectFormattingResultHandlerProvider"/>
     <extensionPoint qualifiedName="com.intellij.refactoring.copyHandler" interface="com.intellij.refactoring.copy.CopyHandlerDelegate" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.refactoring.moveHandler" interface="com.intellij.refactoring.move.MoveHandlerDelegate" dynamic="true"/>
+    <extensionPoint qualifiedName="com.intellij.refactoring.fileMoveVeto" interface="com.intellij.refactoring.move.FileMoveVeto" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.refactoring.invertBoolean" beanClass="com.intellij.lang.LanguageExtensionPoint" dynamic="true">
       <with attribute="implementationClass" implements="com.intellij.refactoring.invertBoolean.InvertBooleanDelegate"/>
     </extensionPoint>
@@ -939,7 +940,6 @@
                          parentId="editor"
                          key="settings.hints"
                          bundle="messages.ApplicationBundle"
-                         dynamic="true"
                          groupWeight="1"/>
     <search.optionContributor implementation="com.intellij.codeInsight.hints.settings.InlayHintsSettingsSearchableContributor"/>
     <codeInsight.inlayProviderFactory implementation="com.intellij.codeInsight.hints.SingleLanguageInlayProviderFactory"/>

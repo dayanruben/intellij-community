@@ -16,6 +16,7 @@ import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.DumbAwareToggleAction
@@ -33,6 +34,7 @@ internal class UnifiedPluginsPageActions @RequiresEdt constructor(
   private val host: LegacyPluginUiHost,
   private val customizer: PluginManagerCustomizer?,
   private val onRefreshRequested: () -> Unit,
+  private val onCheckForUpdatesRequested: () -> Unit,
   private val installedPlugins: () -> List<PluginUiModel>,
   private val onPluginInstalledFromDisk: (PluginInstallCallbackData) -> Unit,
 ) {
@@ -42,6 +44,11 @@ internal class UnifiedPluginsPageActions @RequiresEdt constructor(
 
   fun isModified(): Boolean {
     return pluginsAutoUpdateEnabled?.let { it != UpdateSettings.getInstance().state.isPluginsAutoUpdateEnabled } == true
+  }
+
+  fun isPluginsAutoUpdateEnabled(): Boolean {
+    return PluginManagementPolicy.getInstance().isPluginAutoUpdateAllowed() &&
+           (pluginsAutoUpdateEnabled ?: UpdateSettings.getInstance().state.isPluginsAutoUpdateEnabled)
   }
 
   fun apply() {
@@ -69,8 +76,9 @@ internal class UnifiedPluginsPageActions @RequiresEdt constructor(
           }
         })
       actions.add(UpdatePluginsAutomaticallyToggleAction())
-      actions.addSeparator()
     }
+    actions.add(CheckForUpdatesAction())
+    actions.addSeparator()
 
     actions.add(ManagePluginRepositoriesAction())
     actions.add(OpenHttpProxyConfigurableAction())
@@ -144,6 +152,12 @@ internal class UnifiedPluginsPageActions @RequiresEdt constructor(
     }
   }
 
+  private inner class CheckForUpdatesAction : DumbAwareAction(IdeBundle.message("plugins.configurable.check.for.updates.action")) {
+    override fun actionPerformed(event: AnActionEvent) {
+      onCheckForUpdatesRequested()
+    }
+  }
+
   private inner class UpdatePluginsAutomaticallyToggleAction : DumbAwareToggleAction(
     IdeBundle.message("updates.plugins.autoupdate.settings.action")
   ) {
@@ -171,9 +185,12 @@ internal class UnifiedPluginsPageActions @RequiresEdt constructor(
   }
 }
 
-internal fun eligibleInstalledPluginModels(sections: List<PluginSectionState>): List<PluginUiModel> {
+internal fun eligibleInstalledPluginModels(
+  sections: List<PluginSectionState>,
+  installedPluginIds: Set<PluginId>,
+): List<PluginUiModel> {
   val section = sections.firstOrNull { it.id == PluginSectionId.Installed } ?: return emptyList()
-  return section.items.map { item ->
+  return section.items.filter { it.pluginId in installedPluginIds }.map { item ->
     requireNotNull(item.modelHandle) { "Installed plugin ${item.pluginId} has no model handle" }.model
   }
 }

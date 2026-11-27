@@ -7,8 +7,10 @@ import com.intellij.ide.plugins.MarketplaceTabSearchSortByOptions
 import com.intellij.ide.plugins.newui.MyPluginModel
 import com.intellij.ide.plugins.newui.PluginPreparedUpdateState
 import com.intellij.ide.plugins.newui.PluginProgressState
+import com.intellij.ide.plugins.newui.PluginRowInput
 import com.intellij.ide.plugins.newui.PluginUiModel
 import com.intellij.ide.plugins.newui.SearchQueryParser
+import com.intellij.ide.plugins.newui.isRestartRequired
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.updateSettings.impl.getPresentableName
 import com.intellij.openapi.util.text.StringUtil
@@ -47,6 +49,8 @@ internal data class UnifiedPluginsPageSourceState(
   val mayEstablishSelection: Boolean,
   val searchControls: UnifiedPluginsSearchControlsState = UnifiedPluginsSearchControlsState(),
   val internalDescriptorSettled: Boolean = true,
+  val restartRequired: Boolean = false,
+  val uninstallingPlugins: List<PluginUiModel> = emptyList(),
   /** Identifies the query used by the last completed page projection. */
   val projectedQueryRevision: Long = query.revision,
 ) {
@@ -354,8 +358,17 @@ private fun projectUnifiedPluginsPageSourceState(
   cancellationCheck()
   val route = query.sourceRoute()
   val effectiveSort = UnifiedPluginsQuery.parse(query.rawQuery).effectiveSort
-  val localPluginIds = if (route.local.eligible) {
-    collectLocalPluginIds(localState.sections, cancellationCheck)
+  val installedSection = localState.sections.firstOrNull { it.id == PluginSectionId.Installed }
+  val sessionInstallIds = installedSection?.sessionInstallGroups.orEmpty().flatMapTo(HashSet(), SessionPluginInstallGroup::pluginIds)
+  val sessionInstallInputs = if (sessionInstallIds.isEmpty()) emptyMap() else buildMap {
+    installedSection?.items.orEmpty().forEach { item ->
+      cancellationCheck()
+      val input = item.rowInput
+      if (item.pluginId in sessionInstallIds && input != null) put(item.pluginId, input)
+    }
+  }
+  val excludedLocalIds = if (route.local.eligible) {
+    collectExcludedLocalPluginIds(localState.sections, sessionInstallIds, cancellationCheck)
   }
   else {
     emptySet()
@@ -365,7 +378,7 @@ private fun projectUnifiedPluginsPageSourceState(
                              ?.takeIf { it.queryRevision == query.revision && it.section.id == marketplaceFamilyId }
                              ?.section
                            ?: PluginSectionState(marketplaceFamilyId, status = initialMarketplaceSectionStatus(query))
-  val availableMarketplaceSection = marketplaceSection.withoutPlugins(localPluginIds, cancellationCheck)
+  val availableMarketplaceSection = marketplaceSection.projectRemoteItems(excludedLocalIds, sessionInstallInputs, cancellationCheck)
   val visibleMarketplaceSection = if (marketplaceFamilyId == PluginSectionId.Suggested) {
     availableMarketplaceSection.copy(items = availableMarketplaceSection.items.take(SUGGESTED_PLUGIN_LIMIT))
   }
@@ -424,7 +437,7 @@ private fun projectUnifiedPluginsPageSourceState(
     }
   }
   val visibleRepositorySections = repositorySections.map { section ->
-    section.withoutPlugins(localPluginIds, cancellationCheck)
+    section.projectRemoteItems(excludedLocalIds, sessionInstallInputs, cancellationCheck)
   }
   cancellationCheck()
   val marketplaceListModelData = marketplaceState?.takeIf { it.queryRevision == query.revision }?.listModelData
@@ -451,6 +464,10 @@ private fun projectUnifiedPluginsPageSourceState(
     repositoryContentRevision = repositoryState?.repositoryContentRevision ?: 0,
     mayEstablishSelection = mayEstablishSelection,
     internalDescriptorSettled = internalState?.descriptorRequestSettled ?: true,
+    uninstallingPlugins = localState.uninstallingPlugins,
+    restartRequired = localState.manualUpdates.values.any {
+      (it.presentation as? UnifiedPluginManualUpdatePresentation.Prepared)?.restartRequired == true
+    } || localState.listModelData.installationStates.values.any { it.status.isRestartRequired() },
     searchControls = composeUnifiedPluginsSearchControls(
       query,
       localState,
@@ -475,29 +492,42 @@ private fun projectUnifiedPluginsPageSourceState(
   )
 }
 
-private fun collectLocalPluginIds(
+private fun collectExcludedLocalPluginIds(
   sections: List<PluginSectionState>,
+  sessionInstallIds: Set<PluginId>,
   cancellationCheck: () -> Unit,
 ): Set<PluginId> = buildSet {
   sections.forEach { section ->
     if (section.id != PluginSectionId.Installed && section.id != PluginSectionId.Bundled) return@forEach
     section.items.forEach { item ->
       cancellationCheck()
-      add(item.pluginId)
+      if (item.pluginId !in sessionInstallIds) add(item.pluginId)
     }
   }
 }
 
-private fun PluginSectionState.withoutPlugins(
+private fun PluginSectionState.projectRemoteItems(
   excludedPluginIds: Set<PluginId>,
+  sessionInstallInputs: Map<PluginId, PluginRowInput>,
   cancellationCheck: () -> Unit,
 ): PluginSectionState {
-  if (items.isEmpty() || excludedPluginIds.isEmpty()) return this
-  val visibleItems = items.filter { item ->
+  if (items.isEmpty() || excludedPluginIds.isEmpty() && sessionInstallInputs.isEmpty()) return this
+  val visibleItems = items.mapNotNull { item ->
     cancellationCheck()
-    item.pluginId !in excludedPluginIds
+    if (item.pluginId in excludedPluginIds) return@mapNotNull null
+    val local = sessionInstallInputs[item.pluginId] ?: return@mapNotNull item
+    val input = item.rowInput ?: return@mapNotNull item
+    val updatedInput = input.copy(
+      installedPlugin = local.installedPlugin,
+      installationState = local.installationState,
+      enabled = if (local.installedPlugin == null) input.enabled else local.enabled,
+      operationInProgress = local.operationInProgress,
+      detailsProgress = local.detailsProgress,
+      preparedUpdate = local.preparedUpdate,
+    )
+    if (updatedInput == input) item else item.copy(rowInput = updatedInput)
   }
-  return if (visibleItems.size == items.size) this else copy(items = visibleItems)
+  return if (visibleItems == items) this else copy(items = visibleItems)
 }
 
 private data class UnifiedPluginsPageProjection(

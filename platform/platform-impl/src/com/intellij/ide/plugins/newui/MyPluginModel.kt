@@ -2,6 +2,7 @@
 package com.intellij.ide.plugins.newui
 
 import com.intellij.core.CoreBundle
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.externalDependencies.DependencyOnPlugin
 import com.intellij.externalDependencies.ExternalDependenciesManager
 import com.intellij.ide.IdeBundle
@@ -39,6 +40,7 @@ import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.MessageDialogBuilder.Companion.okCancel
 import com.intellij.openapi.ui.Messages
+import com.intellij.openapi.updateSettings.impl.PluginUpdateExclusionService.Exclusion
 import com.intellij.openapi.updateSettings.impl.PluginUpdateSource
 import com.intellij.openapi.updateSettings.impl.pluginsAdvertisement.FUSEventSource
 import com.intellij.openapi.util.text.HtmlChunk
@@ -1151,15 +1153,18 @@ open class MyPluginModel @JvmOverloads constructor(
     callback: Runnable?,
   ) {
     val scope = coroutineScope.childScope(javaClass.name, Dispatchers.IO, true)
-    myTopController!!.showProgress(true)
-    forEachDetailPanel { panel ->
-      if (panel.descriptorForActions === descriptor) {
-        panel.showUninstallProgress(scope)
-      }
-    }
+    val target = controller.getTarget()
+    val context = PluginOperationContext.create(descriptor.pluginId, target, PluginOperationKind.UNINSTALL)
+    operationStarted(context, descriptor)
     try {
+      myTopController!!.showProgress(true)
+      forEachDetailPanel { panel ->
+        if (panel.descriptorForActions === descriptor) {
+          panel.showUninstallProgress(scope)
+        }
+      }
       val needRestartForUninstall = controller.performUninstall(sessionId, descriptor.pluginId)
-      myPluginManagerCustomizer?.onPluginDeleted(descriptor, controller.getTarget())
+      myPluginManagerCustomizer?.onPluginDeleted(descriptor, target)
       val completelyUninstalled = myPluginManagerCustomizer?.isPluginCompletelyUninstalled(descriptor) ?: true
       descriptor.isDeleted = completelyUninstalled
       val errorCheckResult = UiPluginManager.getInstance().loadErrors(sessionId)
@@ -1180,8 +1185,15 @@ open class MyPluginModel @JvmOverloads constructor(
         myEventPublisher.inventoryInvalidated(PluginInventoryChangeReason.UNINSTALL, listOf(descriptor.pluginId))
         callback?.run()
       }
+      operationTargetFinished(context, target, PluginOperationTerminalResult.SUCCEEDED, restartRequired = needRestartForUninstall)
+    }
+    catch (e: Throwable) {
+      rethrowControlFlowException(e)
+      operationTargetFinished(context, target, PluginOperationTerminalResult.FAILED)
+      throw e
     }
     finally {
+      operationFinished(context)
       hideProgresses(descriptor.pluginId)
     }
   }
@@ -1289,6 +1301,26 @@ open class MyPluginModel @JvmOverloads constructor(
     }
     myMarketplacePluginComponentMap[pluginId]?.forEach { listComponent ->
       listComponent.updateUnknownUpdateSourceWarning(isUnknown)
+    }
+  }
+
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
+  fun updateUiAfterUpdateExclusionChange(
+    pluginId: PluginId,
+    pluginUpdateExclusion: Exclusion?,
+    isMissingUpdateSourceWarningEnabled: Boolean,
+  ) {
+    val isPluginUpdateAllowed = pluginUpdateExclusion != Exclusion.FromUpdate
+    forEachDetailPanel { pageComponent ->
+      if (pageComponent.isShowingPlugin(pluginId)) {
+        pageComponent.updateUnknownUpdateSourceBanner(isPluginUpdateAllowed)
+      }
+    }
+    myInstalledPluginComponentMap[pluginId]?.forEach { listComponent ->
+      listComponent.updateUnknownUpdateSourceWarning(isMissingUpdateSourceWarningEnabled, isPluginUpdateAllowed)
+    }
+    myMarketplacePluginComponentMap[pluginId]?.forEach { listComponent ->
+      listComponent.updateUnknownUpdateSourceWarning(isMissingUpdateSourceWarningEnabled, isPluginUpdateAllowed)
     }
   }
 

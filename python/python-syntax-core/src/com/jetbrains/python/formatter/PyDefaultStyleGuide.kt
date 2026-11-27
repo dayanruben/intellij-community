@@ -61,6 +61,8 @@ object PyDefaultStyleGuide {
 
       // Force a new line after the colon of single-clause compound statements.
       NEW_LINE_AFTER_COLON = true
+      // Except a class or function body that is only `...` (a dummy implementation).
+      ELLIPSIS_BODY_ON_SAME_LINE = true
 
       // Magic trailing comma.
       USE_TRAILING_COMMA_IN_COLLECTIONS = true
@@ -83,6 +85,10 @@ object PyDefaultStyleGuide {
 
       HANG_CLOSING_BRACKETS = false
       DICT_ALIGNMENT = PyCodeStyleSettings.DICT_ALIGNMENT_NONE
+
+      // A long subscription splits like a collection, and a long assigned value goes in parentheses.
+      CHOP_DOWN_LONG_SUBSCRIPTIONS = true
+      WRAP_LONG_ASSIGNED_VALUE_IN_PARENTHESES = true
     }
   }
 

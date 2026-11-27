@@ -1,6 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.plugins
 
+import com.intellij.icons.AllIcons
 import com.intellij.ide.CopyPasteManagerEx
 import com.intellij.ide.IdeBundle
 import com.intellij.ide.plugins.api.PluginDto
@@ -13,15 +14,22 @@ import com.intellij.ide.plugins.marketplace.statistics.enums.UnifiedPluginSearch
 import com.intellij.ide.plugins.marketplace.utils.MarketplaceCustomizationService
 import com.intellij.ide.plugins.newui.CustomPluginRepository
 import com.intellij.ide.plugins.newui.CustomPluginRepositoryLoadResult
+import com.intellij.ide.plugins.newui.DefaultUiPluginManagerController
 import com.intellij.ide.plugins.newui.EventHandler.SelectionType
 import com.intellij.ide.plugins.newui.LegacyPluginUiHost
 import com.intellij.ide.plugins.newui.ListPluginComponent
+import com.intellij.ide.plugins.newui.PluginInstallationState
 import com.intellij.ide.plugins.newui.PluginManagerSession
 import com.intellij.ide.plugins.newui.PluginManagerSessionService
+import com.intellij.ide.plugins.newui.PluginOperationContext
+import com.intellij.ide.plugins.newui.PluginOperationKind
+import com.intellij.ide.plugins.newui.PluginOperationTerminalResult
 import com.intellij.ide.plugins.newui.PluginSource
+import com.intellij.ide.plugins.newui.PluginStatus
 import com.intellij.ide.plugins.newui.PluginUiModel
 import com.intellij.ide.plugins.newui.PluginUpdateSourceState
 import com.intellij.ide.plugins.newui.PluginUpdatesEvent
+import com.intellij.ide.plugins.newui.UiPluginManagerController
 import com.intellij.ide.plugins.newui.UpdateButton
 import com.intellij.ide.plugins.unified.UnifiedPluginInternalGroup
 import com.intellij.ide.plugins.unified.UnifiedPluginInventory
@@ -36,6 +44,7 @@ import com.intellij.ide.plugins.unified.UnifiedPluginRepositoryDataProvider
 import com.intellij.ide.plugins.unified.UnifiedPluginUpdateAllCallback
 import com.intellij.ide.plugins.unified.UnifiedPluginUpdateAllExecutor
 import com.intellij.ide.plugins.unified.UnifiedPluginUpdateAllRequest
+import com.intellij.ide.plugins.unified.UnifiedPluginsPageActions
 import com.intellij.ide.plugins.unified.buildLocalSnapshot
 import com.intellij.ide.plugins.unified.buildMarketplaceSnapshot
 import com.intellij.ide.ui.LafManager
@@ -81,7 +90,6 @@ import com.intellij.testFramework.junit5.RegistryKey
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.junit5.TestDisposable
 import com.intellij.testFramework.replaceService
-import com.intellij.ui.AnimatedIcon
 import com.intellij.ui.ComponentUtil
 import com.intellij.ui.SearchTextField
 import com.intellij.ui.components.ActionLink
@@ -92,12 +100,15 @@ import com.intellij.util.ui.withShowingChanged
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
@@ -118,6 +129,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import javax.swing.JButton
 import javax.swing.JComponent
+import javax.swing.JLabel
 import javax.swing.JPanel
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
@@ -169,6 +181,51 @@ internal class UnifiedPluginsPageSessionTest {
         Disposer.dispose(session)
       }
     }
+
+  @Test
+  fun `settings menu offers Check for Updates after automatic updates`(@TestDisposable disposable: Disposable): Unit = uiTest {
+    val policy = object : PluginManagementPolicy by PluginManagementPolicy.getInstance() {
+      override fun isAvailable(): Boolean = true
+      override fun isPluginAutoUpdateAllowed(): Boolean = true
+    }
+    ExtensionTestUtil.maskExtensions(PluginManagementPolicy.EP, listOf(policy), disposable)
+    val host = LegacyPluginUiHost(parentScope = this, operationScope = this)
+    try {
+      var checks = 0
+      val actions = UnifiedPluginsPageActions(
+        parentComponent = JPanel(),
+        pageScope = this,
+        host = host,
+        customizer = null,
+        onRefreshRequested = { error("Unexpected page refresh") },
+        onCheckForUpdatesRequested = { checks++ },
+        installedPlugins = { emptyList() },
+        onPluginInstalledFromDisk = { error("Unexpected disk installation") },
+      )
+      val children = actions.group.getChildren(null)
+      val automaticUpdates = children.indexOfFirst {
+        it.templatePresentation.text == IdeBundle.message("updates.plugins.autoupdate.settings.action")
+      }
+      assertThat(automaticUpdates).isZero()
+      val check = children[automaticUpdates + 1]
+      assertThat(check.templatePresentation.text).isEqualTo(IdeBundle.message("plugins.configurable.check.for.updates.action"))
+      check.actionPerformed(TestActionEvent.createTestEvent(check))
+      assertThat(checks).isEqualTo(1)
+    }
+    finally {
+      host.dispose(closeSession = true)
+    }
+  }
+
+  @Test
+  fun `disk install selects the new plugin before Apply`() = uiTest {
+    assertDiskInstallRevealsPlugin(searchQuery = null, pluginId = "disk.install.selection")
+  }
+
+  @Test
+  fun `disk install clears the search and selects the new plugin`() = uiTest {
+    assertDiskInstallRevealsPlugin(searchQuery = "Existing", pluginId = "disk.install.search")
+  }
 
   @Test
   fun `Copy includes the name ID and version of every selected plugin`(@TestDisposable disposable: Disposable): Unit =
@@ -547,7 +604,7 @@ internal class UnifiedPluginsPageSessionTest {
         val updateAllButton = updateAllButton(header)
         updateAllButton.isVisible = true
         updateAllButton.text = "Update All"
-        val settingsToolbar = header.components.single { it !== searchComponent && it !is JButton }
+        val settingsToolbar = header.components.single { it !== searchComponent && it !is JButton && it !is JLabel }
         val layout = header.layout as GridBagLayout
         val searchConstraints = layout.getConstraints(searchComponent)
         val updateAllConstraints = layout.getConstraints(updateAllButton)
@@ -575,6 +632,139 @@ internal class UnifiedPluginsPageSessionTest {
     }
 
   @Test
+  fun `operation status uses only free header space`(): Unit = uiTest {
+    val session = createSession(null)
+    try {
+      val header = session.getCenterComponent(Configurable.TopComponentController.EMPTY)
+      val search = componentsOfType(header, SearchFieldWithExtension::class.java).single()
+      val status = header.components.filterIsInstance<JLabel>().single()
+      val preferredSize = header.preferredSize
+      val minimumSize = header.minimumSize
+
+      status.text = "Installing a plugin with a long name"
+      status.isVisible = true
+      assertThat(header.preferredSize).isEqualTo(preferredSize)
+      assertThat(header.minimumSize).isEqualTo(minimumSize)
+
+      header.setSize(preferredSize.width + JBUI.scale(40), preferredSize.height)
+      header.doLayout()
+      assertThat(search.width).isEqualTo(search.preferredSize.width)
+      assertThat(status.width).isPositive().isLessThan(status.preferredSize.width)
+      assertThat(status.x + status.width).isLessThanOrEqualTo(header.width)
+      assertThat(status.getToolTipText(null)).isEqualTo(status.text)
+    }
+    finally {
+      Disposer.dispose(session)
+    }
+  }
+
+  @Test
+  fun `pending restart shares the header slot with active progress`(): Unit = uiTest {
+    val existing = inventoryItem("restart.existing", "Existing Plugin")
+    val provider = FixedLocalDataProvider(UnifiedPluginInventory(listOf(existing), emptyList()))
+    val checkingForUpdates = MutableStateFlow(false)
+    val session = createSession(null, provider, updateCheckInProgress = checkingForUpdates)
+    try {
+      val header = session.getCenterComponent(Configurable.TopComponentController.EMPTY)
+      val restart = restartButton(header)
+      val status = header.components.filterIsInstance<JLabel>().single()
+      assertThat(restart.isVisible).isFalse()
+      assertThat(restart.icon).isSameAs(AllIcons.Actions.Restart)
+      val layout = header.layout as GridBagLayout
+      assertThat(layout.getConstraints(restart).gridx).isEqualTo(layout.getConstraints(status).gridx)
+      val checkingText = IdeBundle.message("plugins.configurable.operation.checking.updates")
+      checkingForUpdates.value = true
+      waitUntilAssertSucceeds {
+        assertThat(status.isVisible).isTrue()
+        assertThat(status.text).isEqualTo(checkingText)
+      }
+
+      val content = session.getComponent()
+      waitForPluginIds(content, setOf(existing.model.pluginId.idString))
+      val model = componentsOfType(content, ListPluginComponent::class.java).single().getModelFacade().getModel()
+      val plugin = PluginDto("New Plugin", PluginId.getId("restart.install"))
+      val install = PluginOperationContext.create(plugin.pluginId, PluginSource.LOCAL, PluginOperationKind.INSTALL)
+      model.operationStarted(install, plugin)
+      waitUntilAssertSucceeds {
+        assertThat(status.text).isEqualTo(IdeBundle.message("plugins.configurable.operation.installing.plugin", plugin.name))
+      }
+      model.operationTargetFinished(install, PluginSource.LOCAL, PluginOperationTerminalResult.SUCCEEDED, restartRequired = true)
+      model.operationFinished(install)
+      waitForButton(restart, "Restart IDE", enabled = true)
+
+      val update = PluginOperationContext.create(existing.model.pluginId, PluginSource.LOCAL, PluginOperationKind.UPDATE)
+      model.operationStarted(update, existing.model)
+      waitUntilAssertSucceeds {
+        assertThat(status.isVisible).isTrue()
+        assertThat(status.text).isEqualTo(IdeBundle.message("plugins.configurable.operation.updating.plugin", existing.model.name))
+        assertThat(restart.isVisible).isFalse()
+      }
+
+      session.enableSearch("No matching plugin")!!.run()
+      model.operationTargetFinished(update, PluginSource.LOCAL, PluginOperationTerminalResult.SUCCEEDED)
+      model.operationFinished(update)
+      waitForButton(restart, "Restart IDE", enabled = true)
+      assertThat(status.isVisible).isFalse()
+
+      session.reset()
+      waitUntilAssertSucceeds {
+        assertThat(restart.isVisible).isFalse()
+        assertThat(status.isVisible).isTrue()
+        assertThat(status.text).isEqualTo(checkingText)
+      }
+      checkingForUpdates.value = false
+      waitUntilAssertSucceeds { assertThat(status.isVisible).isFalse() }
+    }
+    finally {
+      Disposer.dispose(session)
+    }
+  }
+
+  @Test
+  fun `uninstall progress stays in the header across search changes`(): Unit = uiTest {
+    val plugin = inventoryItem("uninstall.plugin", "Uninstall Plugin")
+    val provider = FixedLocalDataProvider(UnifiedPluginInventory(listOf(plugin), emptyList()))
+    val checkingForUpdates = MutableStateFlow(true)
+    val session = createSession(null, provider, updateCheckInProgress = checkingForUpdates)
+    try {
+      val header = session.getCenterComponent(Configurable.TopComponentController.EMPTY)
+      val status = header.components.filterIsInstance<JLabel>().single()
+      val content = session.getComponent()
+      waitForPluginIds(content, setOf(plugin.model.pluginId.idString))
+      val model = componentsOfType(content, ListPluginComponent::class.java).single().getModelFacade().getModel()
+      val result = CompletableDeferred<Boolean>()
+      val controller = object : UiPluginManagerController by DefaultUiPluginManagerController {
+        override suspend fun performUninstall(sessionId: String, pluginId: PluginId): Boolean = result.await()
+      }
+      val uninstall = async { model.uninstallAndUpdateUi(plugin.model, controller) }
+      try {
+        val uninstalling = IdeBundle.message("plugins.configurable.operation.uninstalling.plugin", plugin.model.name)
+        waitUntilAssertSucceeds {
+          assertThat(status.isVisible).isTrue()
+          assertThat(status.text).isEqualTo(uninstalling)
+        }
+        session.enableSearch("No matching plugin")!!.run()
+        waitForPluginIds(content, emptySet())
+        assertThat(status.text).isEqualTo(uninstalling)
+
+        result.complete(false)
+        uninstall.await()
+        waitUntilAssertSucceeds {
+          assertThat(status.text).isEqualTo(IdeBundle.message("plugins.configurable.operation.checking.updates"))
+        }
+        checkingForUpdates.value = false
+        waitUntilAssertSucceeds { assertThat(status.isVisible).isFalse() }
+      }
+      finally {
+        uninstall.cancel()
+      }
+    }
+    finally {
+      Disposer.dispose(session)
+    }
+  }
+
+  @Test
   fun `search keeps its maximum with internal controls and shrinks for header actions`(): Unit =
     uiTest {
       val session = createSession(null)
@@ -583,7 +773,7 @@ internal class UnifiedPluginsPageSessionTest {
         val searchComponent = componentsOfType(header, SearchFieldWithExtension::class.java).single()
         updateAllButton(header).apply {
           isVisible = true
-          text = "Updating 13/35..."
+          text = "Update All"
         }
 
         waitForSearchControlCount(searchComponent, 1)
@@ -603,9 +793,10 @@ internal class UnifiedPluginsPageSessionTest {
     }
 
   @Test
-  fun `Update All button counts prepared executor targets`(): Unit =
+  fun `Update All uses the header status for batch progress`(): Unit =
     uiTest {
       val updates = MutableSharedFlow<PluginUpdatesEvent>(replay = 1)
+      val checkingForUpdates = MutableStateFlow(false)
       val executor = RecordingUpdateAllExecutor()
       val first = PluginDto("First", PluginId.getId("first"))
       val second = PluginDto("Second", PluginId.getId("second"))
@@ -627,32 +818,97 @@ internal class UnifiedPluginsPageSessionTest {
         provider = provider,
         pluginUpdates = updates,
         updateAllExecutor = executor,
+        updateCheckInProgress = checkingForUpdates,
       )
       try {
         val header = session.getCenterComponent(Configurable.TopComponentController.EMPTY)
         val button = updateAllButton(header)
+        val status = header.components.filterIsInstance<JLabel>().single()
         assertThat(button.isVisible).isFalse()
 
         updates.emit(PluginUpdatesEvent(listOf(first, second), listOf(disabled), listOf(pluginNod)))
         waitForButton(button, "Update All", enabled = true)
-        assertThat(button.icon).isNull()
+        checkingForUpdates.value = true
+        waitUntilAssertSucceeds {
+          assertThat(status.isVisible).isTrue()
+          assertThat(status.text).isEqualTo(IdeBundle.message("plugins.configurable.operation.checking.updates"))
+          assertThat(button.isVisible).isFalse()
+        }
+        checkingForUpdates.value = false
+        waitForButton(button, "Update All", enabled = true)
         button.doClick()
-        waitForButton(button, "Updating 0/2...", enabled = false)
-        assertThat(button.icon).isSameAs(AnimatedIcon.Default.INSTANCE)
+        waitUntilAssertSucceeds {
+          assertThat(status.isVisible).isTrue()
+          assertThat(status.text).isEqualTo(IdeBundle.message("plugins.configurable.operation.updating.plugins", 0, 2))
+          assertThat(button.isVisible).isFalse()
+          assertThat(componentsOfType(session.getComponent(), ListPluginComponent::class.java)).hasSize(3)
+        }
         assertThat(executor.requests.single().updates).containsExactly(first, second)
 
         updates.emit(PluginUpdatesEvent(listOf(second), emptyList(), emptyList()))
         delay(50.milliseconds)
-        assertThat(button.text).isEqualTo("Updating 0/2...")
+        assertThat(status.text).isEqualTo(IdeBundle.message("plugins.configurable.operation.updating.plugins", 0, 2))
         executor.callbacks.single().prepared(first.pluginId, restartRequired = false)
-        waitForButton(button, "Updating 1/2...", enabled = false)
+        waitUntilAssertSucceeds {
+          assertThat(status.text).isEqualTo(IdeBundle.message("plugins.configurable.operation.updating.plugins", 1, 2))
+          assertThat(button.isVisible).isFalse()
+        }
         executor.callbacks.single().prepared(second.pluginId, restartRequired = false)
         waitForButton(button, "Updated", enabled = false)
+        waitUntilAssertSucceeds { assertThat(status.isVisible).isFalse() }
       }
       finally {
         Disposer.dispose(session)
       }
     }
+
+  @Test
+  fun `Update All excludes prepared and applied individual updates`(): Unit = uiTest {
+    val first = PluginDto("First", PluginId.getId("manual.first"))
+    val second = PluginDto("Second", PluginId.getId("manual.second"))
+    val applied = PluginDto("Applied", PluginId.getId("manual.applied"))
+    val candidates = listOf(first, second, applied)
+    val updates = flowOf(PluginUpdatesEvent(candidates, emptyList(), emptyList()))
+    val provider = FixedLocalDataProvider(
+      UnifiedPluginInventory(candidates.map { inventoryItem(it.pluginId.idString, checkNotNull(it.name)) }, emptyList()),
+      installationStates = mapOf(applied.pluginId to PluginInstallationState(true, PluginStatus.UPDATED)),
+    )
+    val executor = RecordingUpdateAllExecutor()
+    val session = createSession(null, provider, pluginUpdates = updates, updateAllExecutor = executor)
+    try {
+      val content = session.getComponent()
+      val header = session.getCenterComponent(Configurable.TopComponentController.EMPTY)
+      val button = updateAllButton(header)
+      val status = header.components.filterIsInstance<JLabel>().single()
+      waitForPluginIds(content, candidates.map { it.pluginId.idString }.toSet())
+      val model = componentsOfType(content, ListPluginComponent::class.java).first().getModelFacade().getModel()
+
+      suspend fun prepareUpdate(update: PluginDto) {
+        val operation = PluginOperationContext.create(update.pluginId, PluginSource.LOCAL, PluginOperationKind.UPDATE)
+        model.operationStarted(operation, update)
+        waitUntilAssertSucceeds { assertThat(status.isVisible).isTrue() }
+        model.operationTargetFinished(operation, PluginSource.LOCAL, PluginOperationTerminalResult.SUCCEEDED)
+        model.operationFinished(operation)
+        waitUntilAssertSucceeds { assertThat(status.isVisible).isFalse() }
+      }
+
+      waitForButton(button, "Update All", enabled = true)
+      prepareUpdate(first)
+      waitForButton(button, "Update All", enabled = true)
+      prepareUpdate(second)
+      waitUntilAssertSucceeds { assertThat(button.isVisible).isFalse() }
+
+      session.reset()
+      waitForButton(button, "Update All", enabled = true)
+      prepareUpdate(first)
+      waitForButton(button, "Update All", enabled = true)
+      button.doClick()
+      assertThat(executor.requests.single().updates).containsExactly(second)
+    }
+    finally {
+      Disposer.dispose(session)
+    }
+  }
 
   @Test
   fun `Update All follows session enablement with cached disabled updates`(): Unit =
@@ -848,7 +1104,7 @@ internal class UnifiedPluginsPageSessionTest {
         }
         waitForButton(button, "Update All", enabled = true)
         button.doClick()
-        waitForButton(button, "Updating 0/1...", enabled = false)
+        waitUntilAssertSucceeds { assertThat(button.isVisible).isFalse() }
         assertThat(executor.requests.single().updates).containsExactly(unchanged)
         executor.callbacks.single().prepared(unchanged.pluginId, restartRequired = false)
         waitForButton(button, "Updated", enabled = false)
@@ -941,17 +1197,20 @@ internal class UnifiedPluginsPageSessionTest {
         }
       }, disposable)
       withContext(Dispatchers.EDT) {
-        val button = updateAllButton(session.getCenterComponent(Configurable.TopComponentController.EMPTY))
+        val header = session.getCenterComponent(Configurable.TopComponentController.EMPTY)
+        val button = updateAllButton(header)
+        val restart = restartButton(header)
         val dynamicUpdate = PluginDto("Dynamic", PluginId.getId("dynamic"))
         val restartUpdate = PluginDto("Restart", PluginId.getId("restart"))
         updates.emit(PluginUpdatesEvent(listOf(dynamicUpdate, restartUpdate), emptyList(), emptyList()))
         waitForButton(button, "Update All", enabled = true)
         button.doClick()
-        waitForButton(button, "Updating 0/2...", enabled = false)
+        waitUntilAssertSucceeds { assertThat(button.isVisible).isFalse() }
         executor.callbacks.single().prepared(dynamicUpdate.pluginId, restartRequired = false)
         executor.callbacks.single().prepared(restartUpdate.pluginId, restartRequired = true)
-        waitForButton(button, "Restart IDE", enabled = true)
-        button.doClick()
+        waitForButton(restart, "Restart IDE", enabled = true)
+        assertThat(button.isVisible).isFalse()
+        restart.doClick()
       }
       dialogShown.await()
       if (confirmRestart) {
@@ -1446,6 +1705,26 @@ internal class UnifiedPluginsPageSessionTest {
       }
     }
 
+  private suspend fun assertDiskInstallRevealsPlugin(searchQuery: String?, pluginId: String) {
+    val existing = inventoryItem("existing.plugin", "Existing Plugin")
+    val provider = FixedLocalDataProvider(UnifiedPluginInventory(listOf(existing), emptyList()))
+    val installed = inventoryItem(pluginId, "Disk Plugin").model
+    val session = createSession(searchQuery, provider)
+    try {
+      val content = session.getComponent()
+      waitForSelectedPluginIds(content, setOf(existing.model.pluginId.idString))
+      val center = session.getCenterComponent(Configurable.TopComponentController.EMPTY)
+      val install = checkNotNull(snapshot(center)[PluginManagerConfigurable.PLUGIN_INSTALL_CALLBACK_DATA_KEY])
+      install.accept(PluginInstallCallbackData(file = null, pluginDescriptor = installed.getDescriptor(), restartNeeded = true))
+
+      waitForSelectedPluginIds(content, setOf(pluginId))
+      assertThat(searchField(session).text).isEmpty()
+    }
+    finally {
+      Disposer.dispose(session)
+    }
+  }
+
   private fun uiTest(action: suspend CoroutineScope.() -> Unit) {
     withForcedRespectIsShowingClientProperty {
       timeoutRunBlocking(context = Dispatchers.UiWithModelAccess, action = action)
@@ -1460,6 +1739,7 @@ internal class UnifiedPluginsPageSessionTest {
     pluginStatesReadiness: suspend () -> Unit = {},
     sessionInitializationReadiness: suspend (LegacyPluginUiHost) -> Unit = { it.awaitSessionInitialization() },
     pluginUpdates: Flow<PluginUpdatesEvent> = emptyFlow(),
+    updateCheckInProgress: Flow<Boolean> = flowOf(false),
     recalculatePluginUpdates: () -> Unit = {},
     internalGroupLoader: suspend () -> UnifiedPluginInternalGroup? = { null },
     internalLoadingDelay: Duration = 100.milliseconds,
@@ -1475,6 +1755,7 @@ internal class UnifiedPluginsPageSessionTest {
       repositoryDataProviderFactory = { repositoryProvider },
       marketplaceDataProviderFactory = { _, _ -> marketplaceProvider },
       pluginUpdates = pluginUpdates,
+      updateCheckInProgress = updateCheckInProgress,
       recalculatePluginUpdates = recalculatePluginUpdates,
       customizer = null,
       pluginStatesReadiness = pluginStatesReadiness,
@@ -1598,14 +1879,14 @@ internal class UnifiedPluginsPageSessionTest {
 
   private fun assertAdaptiveSearchWidth(header: JComponent, searchComponent: JComponent) {
     val updateAllButton = updateAllButton(header).apply { isVisible = true }
-    val settingsToolbar = header.components.single { it !== searchComponent && it !is JButton }
+    val settingsToolbar = header.components.single { it !== searchComponent && it !is JButton && it !is JLabel }
     val layout = header.layout as GridBagLayout
     val searchConstraints = layout.getConstraints(searchComponent)
     val updateAllConstraints = layout.getConstraints(updateAllButton)
     val settingsConstraints = layout.getConstraints(settingsToolbar)
     val maximumWidth = JBUI.scale(340)
-    assertThat(updateAllConstraints.gridx).isEqualTo(searchConstraints.gridx + 1)
-    assertThat(settingsConstraints.gridx).isEqualTo(updateAllConstraints.gridx + 1)
+    assertThat(settingsConstraints.gridx).isEqualTo(searchConstraints.gridx + 1)
+    assertThat(updateAllConstraints.gridx).isEqualTo(settingsConstraints.gridx + 1)
     assertThat(searchConstraints.fill).isEqualTo(GridBagConstraints.HORIZONTAL)
     assertThat(searchComponent.minimumSize.width).isLessThan(maximumWidth)
     assertThat(searchComponent.preferredSize.width).isEqualTo(maximumWidth)
@@ -1622,7 +1903,7 @@ internal class UnifiedPluginsPageSessionTest {
     header.doLayout()
 
     assertThat(searchComponent.width).isLessThan(maximumWidth)
-    assertThat(settingsToolbar.bounds.x + settingsToolbar.width).isLessThanOrEqualTo(header.width)
+    assertThat(updateAllButton.x + updateAllButton.width).isLessThanOrEqualTo(header.width)
 
     val historyToolbar = JPanel().apply {
       preferredSize = Dimension(JBUI.scale(88), header.preferredSize.height)
@@ -1647,13 +1928,17 @@ internal class UnifiedPluginsPageSessionTest {
     header.doLayout()
 
     assertThat(searchComponent.width).isEqualTo(expectedNarrowSearchWidth)
-    assertThat(updateAllButton.x - searchComponent.run { x + width }).isEqualTo(JBUI.scale(4))
-    assertThat(settingsToolbar.x - updateAllButton.run { x + width }).isEqualTo(JBUI.scale(4))
-    assertThat(settingsToolbar.bounds.x + settingsToolbar.width).isLessThanOrEqualTo(header.width)
+    assertThat(settingsToolbar.x - searchComponent.run { x + width }).isEqualTo(JBUI.scale(4))
+    assertThat(updateAllButton.x - settingsToolbar.run { x + width }).isEqualTo(JBUI.scale(4))
+    assertThat(updateAllButton.x + updateAllButton.width).isLessThanOrEqualTo(header.width)
   }
 
   private fun updateAllButton(header: JComponent): JButton {
-    return header.components.single { it is JButton } as JButton
+    return header.components.filterIsInstance<JButton>().single { it.icon !== AllIcons.Actions.Restart }
+  }
+
+  private fun restartButton(header: JComponent): JButton {
+    return header.components.filterIsInstance<JButton>().single { it.icon === AllIcons.Actions.Restart }
   }
 
   private suspend fun waitForButton(button: JButton, text: String, enabled: Boolean) {
@@ -1694,6 +1979,7 @@ internal class UnifiedPluginsPageSessionTest {
     private val onEnrichmentRequested: () -> Unit = {},
     private val errors: Map<PluginId, List<HtmlChunk>> = emptyMap(),
     private val enabledStates: Map<PluginId, Boolean> = emptyMap(),
+    private val installationStates: Map<PluginId, PluginInstallationState> = emptyMap(),
   ) : UnifiedPluginLocalDataProvider {
     override suspend fun loadInventory(): UnifiedPluginInventory {
       onInventoryLoaded()
@@ -1715,7 +2001,7 @@ internal class UnifiedPluginsPageSessionTest {
         contentRevision = contentRevision,
         enabledStates = plugins.associate { it.model.pluginId to (enabledStates[it.model.pluginId] ?: true) },
         errors = errors,
-        installationStates = emptyMap(),
+        installationStates = installationStates,
         restrictions = emptyMap(),
       )
     }

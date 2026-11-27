@@ -42,6 +42,26 @@ internal class UnifiedPluginUpdateAllControllerTest {
   }
 
   @Test
+  fun `button hides when the last update leaves the enabled snapshot`() {
+    controller.acceptUpdates(updates(plugin("only")))
+    assertThat(controller.state.value.presentation).isEqualTo(UnifiedPluginUpdateAllPresentation.Available)
+
+    controller.acceptUpdates(updates())
+
+    assertThat(controller.state.value.presentation).isEqualTo(UnifiedPluginUpdateAllPresentation.Hidden)
+  }
+
+  @Test
+  fun `button becomes available when an update returns to the enabled snapshot`() {
+    controller.acceptUpdates(updates())
+    assertThat(controller.state.value.presentation).isEqualTo(UnifiedPluginUpdateAllPresentation.Hidden)
+
+    controller.acceptUpdates(updates(plugin("returned")))
+
+    assertThat(controller.state.value.presentation).isEqualTo(UnifiedPluginUpdateAllPresentation.Available)
+  }
+
+  @Test
   fun `request captures one snapshot before executor starts`() {
     val first = plugin("first")
     val second = plugin("second")
@@ -182,6 +202,32 @@ internal class UnifiedPluginUpdateAllControllerTest {
   }
 
   @Test
+  fun `retry follows eligibility after a batch fails`() {
+    val first = plugin("first")
+    val second = plugin("second")
+    controller.acceptUpdates(updates(first, second))
+    controller.requestUpdateAll()
+    finishOperation(first, PluginOperationTerminalResult.FAILED)
+    finishOperation(second, PluginOperationTerminalResult.FAILED)
+
+    controller.acceptUpdates(updates())
+    assertThat(controller.state.value.presentation).isEqualTo(UnifiedPluginUpdateAllPresentation.Hidden)
+    controller.requestUpdateAll()
+    assertThat(executor.requests).hasSize(1)
+
+    val newTarget = plugin("new.target")
+    controller.acceptUpdates(updates(newTarget))
+    assertThat(controller.state.value.presentation).isEqualTo(UnifiedPluginUpdateAllPresentation.Available)
+
+    controller.acceptUpdates(updates(second, newTarget))
+    assertThat(controller.state.value.presentation).isEqualTo(UnifiedPluginUpdateAllPresentation.Failed)
+    val refreshedSecond = plugin("second").apply { version = "2.1" }
+    controller.acceptUpdates(updates(refreshedSecond, newTarget))
+    controller.requestUpdateAll()
+    assertThat(executor.requests.last().updates.single()).isSameAs(refreshedSecond)
+  }
+
+  @Test
   fun `restart requirement survives a retry`() {
     val first = plugin("first")
     val second = plugin("second")
@@ -189,6 +235,8 @@ internal class UnifiedPluginUpdateAllControllerTest {
     controller.requestUpdateAll()
     executor.callbacks.single().prepared(first.pluginId, restartRequired = true)
     finishOperation(second, PluginOperationTerminalResult.FAILED)
+    assertThat(controller.state.value.presentation).isEqualTo(UnifiedPluginUpdateAllPresentation.Failed)
+    assertThat(controller.state.value.restartRequired).isTrue()
     controller.requestUpdateAll()
 
     executor.callbacks.last().prepared(second.pluginId, restartRequired = false)
@@ -207,6 +255,68 @@ internal class UnifiedPluginUpdateAllControllerTest {
     executor.callbacks.single().prepared(second.pluginId, restartRequired = false)
 
     assertThat(controller.state.value).isEqualTo(UnifiedPluginUpdateAllState(UnifiedPluginUpdateAllPresentation.Updated))
+  }
+
+  @Test
+  fun `apply makes a new update for the same plugin eligible`() {
+    val target = plugin("target")
+    controller.acceptUpdates(updates(target))
+    controller.requestUpdateAll()
+    executor.callbacks.single().prepared(target.pluginId, restartRequired = false)
+    controller.acceptOperationEvent(PluginModelEvent.InventoryInvalidated(PluginInventoryChangeReason.APPLY, emptySet()))
+
+    val nextVersion = plugin("target").apply { version = "2.0" }
+    controller.acceptUpdates(updates(nextVersion))
+    assertThat(controller.state.value.presentation).isEqualTo(UnifiedPluginUpdateAllPresentation.Available)
+    controller.requestUpdateAll()
+    assertThat(executor.requests.last().updates.single()).isSameAs(nextVersion)
+  }
+
+  @Test
+  fun `new eligible updates replace Updated`() {
+    assertUpdateAllReturns(restartRequired = false)
+  }
+
+  @Test
+  fun `new eligible updates preserve pending restart`() {
+    assertUpdateAllReturns(restartRequired = true)
+  }
+
+  private fun assertUpdateAllReturns(restartRequired: Boolean) {
+    val prepared = plugin("prepared")
+    controller.acceptUpdates(updates(prepared))
+    controller.requestUpdateAll()
+    executor.callbacks.single().prepared(prepared.pluginId, restartRequired)
+
+    val expected = if (restartRequired) UnifiedPluginUpdateAllPresentation.RestartRequired else UnifiedPluginUpdateAllPresentation.Updated
+    controller.acceptUpdates(updates())
+    assertThat(controller.state.value.presentation).isEqualTo(expected)
+    controller.acceptUpdates(updates(prepared))
+    assertThat(controller.state.value.presentation).isEqualTo(expected)
+
+    val next = plugin("next")
+    controller.acceptUpdates(updates(prepared, next))
+    assertThat(controller.state.value.presentation).isEqualTo(UnifiedPluginUpdateAllPresentation.Available)
+    assertThat(controller.state.value.restartRequired).isEqualTo(restartRequired)
+    controller.requestUpdateAll()
+    assertThat(executor.requests.last().updates).containsExactly(next)
+  }
+
+  @Test
+  fun `clearing available updates preserves active progress and prepared restart`() {
+    val target = plugin("target")
+    controller.acceptUpdates(updates(target))
+    controller.requestUpdateAll()
+    controller.clearAvailableUpdates()
+    assertThat(controller.state.value.presentation).isEqualTo(UnifiedPluginUpdateAllPresentation.Running(0, 1))
+
+    executor.callbacks.single().prepared(target.pluginId, restartRequired = true)
+    controller.clearAvailableUpdates()
+    assertThat(controller.state.value.presentation).isEqualTo(UnifiedPluginUpdateAllPresentation.Hidden)
+    assertThat(controller.state.value.restartRequired).isTrue()
+
+    controller.acceptUpdates(updates(plugin("new.target")))
+    assertThat(controller.state.value.presentation).isEqualTo(UnifiedPluginUpdateAllPresentation.Available)
   }
 
   @Test

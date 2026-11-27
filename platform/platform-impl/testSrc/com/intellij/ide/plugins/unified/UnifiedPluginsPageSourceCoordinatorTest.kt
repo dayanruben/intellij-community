@@ -18,6 +18,7 @@ import com.intellij.ide.plugins.newui.PluginUpdatesEvent
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.util.text.HtmlChunk
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.Flow
@@ -402,18 +403,36 @@ internal class UnifiedPluginsPageSourceCoordinatorTest {
   }
 
   @Test
-  fun `prepared Marketplace install stays installed after the query is repeated`() = runTest {
+  fun `Marketplace selection stays on a scheduled install`() = runTest {
     val events = MutableSharedFlow<PluginModelEvent>(extraBufferCapacity = 2)
-    val plugin = plugin("academy.plugin", "Academy Plugin")
+    val plugin = plugin("academy.plugin", "Academy Plugin").apply { displayCategory = "Productivity" }
+    val query = "academy /category:Productivity"
+    val existing = (1..PluginSectionState.COLLAPSED_ITEM_LIMIT).map { index ->
+      val model = plugin("existing.$index", "Academy Extension $index").apply { displayCategory = "Productivity" }
+      UnifiedPluginInventoryItem(model, runtimeOn = PluginSource.LOCAL, stagedOn = null, bundledOn = null)
+    }
     val coordinator = coordinator(
-      provider = FakeLocalDataProvider(UnifiedPluginInventory(emptyList(), emptyList())),
-      initialQuery = "academy",
+      provider = FakeLocalDataProvider(UnifiedPluginInventory(existing, emptyList())),
+      initialQuery = query,
       hostEvents = events,
       marketplaceDataProvider = FixedMarketplaceDataProvider(plugin),
     )
     coordinator.start()
     advanceTimeBy(500.milliseconds)
     runCurrent()
+    val controller = UnifiedPluginsPageController(initialQuery = coordinator.state.value.query)
+    fun publish() {
+      val state = coordinator.state.value
+      controller.replaceSourceState(
+        state.query,
+        state.sections.filterNot { it.id == PluginSectionId.Installing },
+        state.mayEstablishSelection,
+        projectedQueryRevision = state.projectedQueryRevision,
+      )
+    }
+    publish()
+    val marketplaceOccurrence = PluginOccurrenceId(PluginSectionId.Marketplace, plugin.pluginId)
+    controller.selectOccurrence(marketplaceOccurrence)
 
     val operationId = UUID.randomUUID()
     assertThat(events.tryEmit(PluginModelEvent.OperationStarted(
@@ -424,6 +443,15 @@ internal class UnifiedPluginsPageSourceCoordinatorTest {
       target = PluginSource.LOCAL,
       kind = PluginOperationKind.INSTALL,
     ))).isTrue()
+    runCurrent()
+    publish()
+    assertThat(controller.state.value.selectedOccurrence).isEqualTo(marketplaceOccurrence)
+    val installed = controller.state.value.sections.single { it.id == PluginSectionId.Installed }
+    val scheduled = installed.visibleItems.single { it.pluginId == plugin.pluginId }
+    assertThat(scheduled.rowInput?.operationInProgress).isTrue()
+    val marketplace = controller.state.value.sections.single { it.id == PluginSectionId.Marketplace }.items.single()
+    assertThat(marketplace.pluginId).isEqualTo(plugin.pluginId)
+    assertThat(marketplace.rowInput?.operationInProgress).isTrue()
     assertThat(events.tryEmit(PluginModelEvent.OperationFinished(
       sessionId = "session",
       operationId = operationId,
@@ -434,17 +462,238 @@ internal class UnifiedPluginsPageSourceCoordinatorTest {
     ))).isTrue()
     runCurrent()
 
-    assertMarketplacePluginPrepared(coordinator.state.value, plugin.pluginId)
+    assertInstallPrepared(coordinator.state.value, plugin.pluginId)
+    assertInstallPrepared(coordinator.state.value, plugin.pluginId, PluginSectionId.Marketplace)
     assertThat(coordinator.state.value.sections.single { it.id == PluginSectionId.Installing }.items.map { it.pluginId })
       .containsExactly(plugin.pluginId)
 
     coordinator.setQuery("")
     runCurrent()
-    coordinator.setQuery("academy")
+    coordinator.setQuery(query)
     advanceTimeBy(500.milliseconds)
     runCurrent()
 
-    assertMarketplacePluginPrepared(coordinator.state.value, plugin.pluginId)
+    assertInstallPrepared(coordinator.state.value, plugin.pluginId)
+    assertInstallPrepared(coordinator.state.value, plugin.pluginId, PluginSectionId.Marketplace)
+    coordinator.close()
+  }
+
+  @Test
+  fun `scheduled installs and dependencies show progress in Installed`() = runTest {
+    val events = MutableSharedFlow<PluginModelEvent>(extraBufferCapacity = 2)
+    val existing = inventoryItem("existing", "Existing Plugin")
+    val first = plugin("first", "First Plugin")
+    val latest = plugin("latest", "Latest Plugin")
+    val dependencies = (1..3).map { plugin("dependency.$it", "Dependency $it") }
+    val updateDependency = plugin("update.dependency", "Update Dependency")
+    val coordinator = coordinator(
+      provider = FakeLocalDataProvider(UnifiedPluginInventory(listOf(existing), emptyList())),
+      hostEvents = events,
+    )
+    coordinator.start()
+    runCurrent()
+    val controller = UnifiedPluginsPageController()
+
+    fun installedSection(): PluginSectionState {
+      val state = coordinator.state.value
+      controller.replaceSourceState(
+        state.query, state.sections, state.mayEstablishSelection, projectedQueryRevision = state.projectedQueryRevision,
+      )
+      return controller.state.value.sections.single { it.id == PluginSectionId.Installed }
+    }
+
+    fun start(model: PluginUiModel, kind: PluginOperationKind): UUID {
+      val id = UUID.randomUUID()
+      assertThat(events.tryEmit(PluginModelEvent.OperationStarted("session", id, model.pluginId, model, PluginSource.LOCAL, kind))).isTrue()
+      runCurrent()
+      return id
+    }
+
+    fun finish(
+      id: UUID,
+      model: PluginUiModel,
+      kind: PluginOperationKind = PluginOperationKind.INSTALL,
+      result: PluginOperationTerminalResult = PluginOperationTerminalResult.SUCCEEDED,
+      installedDependencies: List<PluginUiModel> = emptyList(),
+      restartRequired: Boolean = false,
+    ) {
+      assertThat(events.tryEmit(PluginModelEvent.OperationFinished(
+        "session", id, model.pluginId, PluginSource.LOCAL, kind, result, installedDependencies, restartRequired,
+      ))).isTrue()
+      runCurrent()
+    }
+
+    assertThat(installedSection().items.map(PluginItemState::pluginId)).containsExactly(existing.model.pluginId)
+
+    val firstOperation = start(first, PluginOperationKind.INSTALL)
+    assertThat(installedSection().visibleItems.first().rowInput?.operationInProgress).isTrue()
+    val latestOperation = start(latest, PluginOperationKind.INSTALL)
+    assertThat(events.tryEmit(PluginModelEvent.OperationDependenciesScheduled(
+      "session", latestOperation, latest.pluginId, dependencies, PluginSource.LOCAL, PluginOperationKind.INSTALL,
+    ))).isTrue()
+    runCurrent()
+    val scheduled = installedSection()
+    assertThat(scheduled.visibleItems.map(PluginItemState::pluginId)).containsExactlyElementsOf(
+      (listOf(latest) + dependencies + first + existing.model).map(PluginUiModel::pluginId)
+    )
+    assertThat(scheduled.visibleItems.dropLast(1)).allSatisfy { assertThat(it.rowInput?.operationInProgress).isTrue() }
+    controller.setSectionExpanded(PluginSectionId.Installed, false)
+    assertThat(installedSection().expanded).isFalse()
+
+    finish(latestOperation, latest, installedDependencies = dependencies, restartRequired = true)
+    finish(firstOperation, first)
+    val updateOperation = start(existing.model, PluginOperationKind.UPDATE)
+    assertThat(events.tryEmit(PluginModelEvent.OperationDependenciesScheduled(
+      "session", updateOperation, existing.model.pluginId, listOf(updateDependency), PluginSource.LOCAL, PluginOperationKind.UPDATE,
+    ))).isTrue()
+    runCurrent()
+    assertThat(installedSection().items.takeLast(2).map(PluginItemState::pluginId))
+      .containsExactly(existing.model.pluginId, updateDependency.pluginId)
+    finish(updateOperation, existing.model, PluginOperationKind.UPDATE, installedDependencies = listOf(updateDependency))
+    val failed = plugin("failed", "Failed Plugin")
+    finish(start(failed, PluginOperationKind.INSTALL), failed, result = PluginOperationTerminalResult.FAILED)
+
+    val installed = installedSection()
+    assertThat(installed.items.map(PluginItemState::pluginId)).containsExactlyElementsOf(
+      (listOf(latest) + dependencies + first + existing.model + updateDependency).map(PluginUiModel::pluginId)
+    )
+    assertThat(installed.items.take(4)).allSatisfy {
+      assertThat(it.rowInput?.operationInProgress).isFalse()
+      assertThat(it.rowInput?.preparedUpdate).isEqualTo(PluginPreparedUpdateState(restartRequired = true))
+    }
+    val occurrence = installed.occurrenceId(latest.pluginId)
+    controller.selectOccurrence(occurrence)
+    assertThat(controller.state.value.selectedOccurrences).containsExactly(occurrence)
+
+    assertThat(events.tryEmit(PluginModelEvent.InventoryInvalidated(PluginInventoryChangeReason.RESET, emptySet()))).isTrue()
+    runCurrent()
+    assertThat(installedSection().items.map(PluginItemState::pluginId)).containsExactly(existing.model.pluginId)
+    coordinator.close()
+  }
+
+  @Test
+  fun `recent installs keep their order when the page reopens`() = runTest {
+    val history = UnifiedPluginInstallHistory()
+    val events = MutableSharedFlow<PluginModelEvent>(extraBufferCapacity = 2)
+    val existing = inventoryItem("existing", "Existing Plugin")
+    val older = inventoryItem("older", "Older Plugin")
+    val newer = inventoryItem("newer", "Newer Plugin")
+    val dependency = inventoryItem("dependency", "Dependency")
+    val unfinished = inventoryItem("unfinished", "Unfinished Plugin")
+    val firstPage = coordinator(
+      provider = FakeLocalDataProvider(UnifiedPluginInventory(listOf(existing), emptyList())),
+      hostEvents = events,
+      installHistory = history,
+    )
+    firstPage.start()
+    runCurrent()
+
+    fun start(plugin: PluginUiModel): UUID {
+      val id = UUID.randomUUID()
+      assertThat(events.tryEmit(PluginModelEvent.OperationStarted(
+        "session", id, plugin.pluginId, plugin, PluginSource.LOCAL, PluginOperationKind.INSTALL,
+      ))).isTrue()
+      runCurrent()
+      return id
+    }
+
+    fun finish(id: UUID, plugin: PluginUiModel, dependencies: List<PluginUiModel> = emptyList()) {
+      assertThat(events.tryEmit(PluginModelEvent.OperationFinished(
+        "session", id, plugin.pluginId, PluginSource.LOCAL, PluginOperationKind.INSTALL,
+        PluginOperationTerminalResult.SUCCEEDED, installedPlugins = dependencies,
+      ))).isTrue()
+      runCurrent()
+    }
+
+    val olderOperation = start(older.model)
+    val newerOperation = start(newer.model)
+    assertThat(events.tryEmit(PluginModelEvent.OperationDependenciesScheduled(
+      "session", newerOperation, newer.model.pluginId, listOf(dependency.model), PluginSource.LOCAL, PluginOperationKind.INSTALL,
+    ))).isTrue()
+    runCurrent()
+    finish(newerOperation, newer.model, listOf(dependency.model))
+    finish(olderOperation, older.model)
+    start(unfinished.model)
+    firstPage.close()
+
+    val inventory = UnifiedPluginInventory(listOf(existing, older, dependency, newer), emptyList())
+    val reopened = coordinator(
+      provider = FakeLocalDataProvider(inventory),
+      marketplaceDataProvider = FixedMarketplaceDataProvider(newer.model),
+      installHistory = history,
+    )
+    reopened.start()
+    runCurrent()
+    fun installedOrder(page: UnifiedPluginsPageSourceCoordinator): List<String> {
+      val controller = UnifiedPluginsPageController(initialSections = page.state.value.sections)
+      return controller.state.value.sections.single { it.id == PluginSectionId.Installed }.items.map { it.pluginId.idString }
+    }
+
+    assertThat(installedOrder(reopened)).containsExactly("newer", "dependency", "older", "existing")
+    assertThat(reopened.state.value.sections.single { it.id == PluginSectionId.Suggested }.items).isEmpty()
+    reopened.close()
+
+    val freshRun = coordinator(provider = FakeLocalDataProvider(inventory))
+    freshRun.start()
+    runCurrent()
+    assertThat(installedOrder(freshRun)).containsExactly("existing", "older", "dependency", "newer")
+    freshRun.close()
+  }
+
+  @Test
+  fun `source rows keep an install through Apply`() = runTest {
+    val events = MutableSharedFlow<PluginModelEvent>(extraBufferCapacity = 2)
+    val plugin = plugin("new.plugin", "New Plugin")
+    val suggestedPlugin = plugin(plugin.pluginId.idString, "Suggested Plugin")
+    val repositoryPlugin = plugin(plugin.pluginId.idString, "Repository Plugin")
+    val repository = CustomPluginRepository("repository", PluginSource.LOCAL)
+    val repositorySection = PluginSectionId.CustomRepository(repository.id)
+    val sections = listOf(PluginSectionId.Installed, PluginSectionId.Suggested, repositorySection)
+    val initialInventory = UnifiedPluginInventory(emptyList(), emptyList())
+    val refreshedInventory = CompletableDeferred<UnifiedPluginInventory>()
+    var applying = false
+    val provider = object : UnifiedPluginLocalDataProvider by FakeLocalDataProvider(initialInventory) {
+      override suspend fun loadInventory(): UnifiedPluginInventory = if (applying) refreshedInventory.await() else initialInventory
+    }
+    val coordinator = coordinator(
+      provider = provider,
+      hostEvents = events,
+      marketplaceDataProvider = FixedMarketplaceDataProvider(suggestedPlugin),
+      repositoryDataProvider = FixedRepositoryDataProvider(listOf(repository), mapOf(repository.id to listOf(repositoryPlugin))),
+    )
+    coordinator.start()
+    runCurrent()
+    val id = UUID.randomUUID()
+    assertThat(events.tryEmit(PluginModelEvent.OperationStarted(
+      "session", id, plugin.pluginId, repositoryPlugin, PluginSource.LOCAL, PluginOperationKind.INSTALL,
+    ))).isTrue()
+    runCurrent()
+    for (sectionId in sections) {
+      val item = coordinator.state.value.sections.single { it.id == sectionId }.items.single()
+      assertThat(item.rowInput?.operationInProgress).describedAs("progress in %s", sectionId).isTrue()
+    }
+
+    assertThat(events.tryEmit(PluginModelEvent.OperationFinished(
+      "session", id, plugin.pluginId, PluginSource.LOCAL, PluginOperationKind.INSTALL, PluginOperationTerminalResult.SUCCEEDED,
+    ))).isTrue()
+    runCurrent()
+    sections.forEach { assertInstallPrepared(coordinator.state.value, plugin.pluginId, it) }
+
+    applying = true
+    assertThat(events.tryEmit(PluginModelEvent.InventoryInvalidated(PluginInventoryChangeReason.APPLY, emptySet()))).isTrue()
+    runCurrent()
+    sections.forEach { assertInstallPrepared(coordinator.state.value, plugin.pluginId, it) }
+
+    refreshedInventory.complete(UnifiedPluginInventory(listOf(
+      UnifiedPluginInventoryItem(plugin, runtimeOn = PluginSource.LOCAL, stagedOn = null, bundledOn = null),
+    ), emptyList()))
+    runCurrent()
+    for ((sectionId, model) in sections.zip(listOf(plugin, suggestedPlugin, repositoryPlugin))) {
+      val item = coordinator.state.value.sections.single { it.id == sectionId }.items.single()
+      assertThat(item.modelHandle?.model).isSameAs(model)
+      assertThat(item.rowInput?.installedPlugin).isSameAs(plugin)
+      assertThat(item.rowInput?.preparedUpdate).isNull()
+    }
     coordinator.close()
   }
 
@@ -1442,6 +1691,7 @@ internal class UnifiedPluginsPageSourceCoordinatorTest {
     marketplaceDataProvider: UnifiedPluginMarketplaceDataProvider = EmptyMarketplaceDataProvider,
     internalGroup: UnifiedPluginInternalGroup? = null,
     onSearchReset: () -> Unit = {},
+    installHistory: UnifiedPluginInstallHistory = UnifiedPluginInstallHistory(),
   ): UnifiedPluginsPageSourceCoordinator {
     val localSource = UnifiedPluginLocalSourceCoordinator(
       scope = backgroundScope,
@@ -1450,6 +1700,7 @@ internal class UnifiedPluginsPageSourceCoordinatorTest {
       hostEvents = hostEvents,
       sessionId = "session",
       loadErrorMessage = "Unable to load plugins",
+      installHistory = installHistory,
     )
     val query = initialPluginsQueryState(initialQuery)
     val internalSource = UnifiedPluginInternalSourceCoordinator(
@@ -1595,7 +1846,10 @@ internal class UnifiedPluginsPageSourceCoordinatorTest {
 
   private class FixedMarketplaceDataProvider(
     private val plugin: PluginUiModel,
-  ) : UnifiedPluginMarketplaceDataProvider by EmptyMarketplaceDataProvider {
+  ) : UnifiedPluginMarketplaceDataProvider {
+    override fun loadSuggested(): Flow<UnifiedPluginMarketplaceFetchResult> =
+      flowOf(UnifiedPluginMarketplaceFetchResult(listOf(plugin)))
+
     override suspend fun searchMarketplace(query: String): UnifiedPluginMarketplaceFetchResult {
       return UnifiedPluginMarketplaceFetchResult(listOf(plugin))
     }
@@ -1666,9 +1920,14 @@ internal class UnifiedPluginsPageSourceCoordinatorTest {
     return state.sections.single { it.id == PluginSectionId.Installed }.items.map { it.pluginId.idString }
   }
 
-  private fun assertMarketplacePluginPrepared(state: UnifiedPluginsPageSourceState, pluginId: PluginId) {
-    val item = state.sections.single { it.id == PluginSectionId.Marketplace }.items.single { it.pluginId == pluginId }
+  private fun assertInstallPrepared(
+    state: UnifiedPluginsPageSourceState,
+    pluginId: PluginId,
+    sectionId: PluginSectionId = PluginSectionId.Installed,
+  ) {
+    val item = state.sections.single { it.id == sectionId }.items.single { it.pluginId == pluginId }
     assertThat(item.rowInput?.preparedUpdate).isEqualTo(PluginPreparedUpdateState(restartRequired = false))
+    assertThat(item.rowInput?.installedPlugin?.pluginId).isEqualTo(pluginId)
   }
 
   private fun repositorySections(state: UnifiedPluginsPageSourceState): List<PluginSectionState> {

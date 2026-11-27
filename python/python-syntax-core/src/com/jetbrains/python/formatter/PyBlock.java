@@ -162,6 +162,7 @@ public class PyBlock implements ASTBlock {
   private Wrap myFromImportWrapping = null;
   private Wrap myParameterListWrapping = null;
   private Wrap myArgumentListWrapping = null;
+  private Wrap mySubscriptionWrapping = null;
 
   public PyBlock(@Nullable PyBlock parent,
                  @NotNull ASTNode node,
@@ -201,6 +202,11 @@ public class PyBlock implements ASTBlock {
     }
     else if (node.getElementType() == PyElementTypes.ARGUMENT_LIST) {
       myArgumentListWrapping = Wrap.createWrap(settings.CALL_PARAMETERS_WRAP, settings.CALL_PARAMETERS_LPAREN_ON_NEXT_LINE);
+    }
+    else if (node.getElementType() == PyElementTypes.SUBSCRIPTION_EXPRESSION && pySettings.CHOP_DOWN_LONG_SUBSCRIPTIONS &&
+             // The text of an f-string fragment, such as f"{d[ 'a' ]=}", is printed as written.
+             TreeUtil.findParent(node, PyElementTypes.FSTRING_FRAGMENT) == null) {
+      mySubscriptionWrapping = Wrap.createWrap(PyCodeStyleSettings.CHOP_DOWN_IF_LONG, true);
     }
   }
 
@@ -361,7 +367,12 @@ public class PyBlock implements ASTBlock {
           // We omit indentation for the binary expression itself in this case (similarly to PyTupleExpression inside
           // PyParenthesisedExpression) because we indent individual operands and operators inside rather than
           // the whole contained expression.
-          childIndent = parenthesised ? Indent.getContinuationIndent() : Indent.getContinuationWithoutFirstIndent();
+          if (parenthesised && isHangingAssignedValue(binaryParentNode)) {
+            childIndent = Indent.getNormalIndent();
+          }
+          else {
+            childIndent = parenthesised ? Indent.getContinuationIndent() : Indent.getContinuationWithoutFirstIndent();
+          }
         }
         else {
           childIndent = Indent.getNormalIndent();
@@ -593,6 +604,18 @@ public class PyBlock implements ASTBlock {
                                            @Nullable Wrap childWrap,
                                            @Nullable IElementType parentType) {
     if (childType != PyTokenTypes.COMMA && childType != PyTokenTypes.END_OF_LINE_COMMENT) {
+      // x[...]
+      if (mySubscriptionWrapping != null && isSubscriptionIndex(child)) {
+        return child.getElementType() == PyElementTypes.TUPLE_EXPRESSION ? null : mySubscriptionWrapping;
+      }
+      if (mySubscriptionWrapping != null && isSubscriptionOperand(child)) {
+        // The subscription splits inside its brackets, not before its operand.
+        return null;
+      }
+      if (parentType == PyElementTypes.TUPLE_EXPRESSION && myParent != null && myParent.mySubscriptionWrapping != null &&
+          isSubscriptionIndex(myNode)) {
+        return myParent.mySubscriptionWrapping;
+      }
       // (...)
       if (childType != PyTokenTypes.LPAR && childType != PyTokenTypes.RPAR) {
         if (parentType == PyElementTypes.PARAMETER_LIST) return myParameterListWrapping;
@@ -640,6 +663,25 @@ public class PyBlock implements ASTBlock {
     return collection != null && ourHuggableArgumentTypes.contains(collection.getNode().getElementType()) &&
            (collection.getNode().getElementType() != PyElementTypes.PARENTHESIZED_EXPRESSION ||
             ((PyAstParenthesizedExpression)collection).getContainedExpression() instanceof PyAstTupleExpression);
+  }
+
+  private static boolean isSubscriptionIndex(@NotNull ASTNode node) {
+    final ASTNode parent = node.getTreeParent();
+    return parent != null && parent.getElementType() == PyElementTypes.SUBSCRIPTION_EXPRESSION &&
+           node.getPsi() == ((PyAstSubscriptionExpression)parent.getPsi()).getIndexExpression();
+  }
+
+  /**
+   * Tells if the node is an assigned value in parentheses with a line break after the opening parenthesis,
+   * as {@link PyLongAssignedValuePreFormatProcessor} writes it, and the processor is on.
+   * The content then has one indent level, as Black writes it.
+   */
+  private boolean isHangingAssignedValue(@NotNull ASTNode parenthesized) {
+    if (!myContext.getPySettings().WRAP_LONG_ASSIGNED_VALUE_IN_PARENTHESES) return false;
+    final ASTNode parent = parenthesized.getTreeParent();
+    if (parent == null || !isAlignableAssignmentStatement(parent)) return false;
+    final ASTNode openingParenthesis = parenthesized.getFirstChildNode();
+    return openingParenthesis != null && isWhitespaceWithLineBreaks(openingParenthesis.getTreeNext(), 1);
   }
 
   private static boolean isInsideSubscriptionExpression(ASTNode child) {
@@ -1127,6 +1169,21 @@ public class PyBlock implements ASTBlock {
         return Spacing.createSpacing(spaces, spaces, 0, false, 0);
       }
 
+      if (mySubscriptionWrapping != null &&
+          (childType1 == PyTokenTypes.LBRACKET || node2.getElementType() == PyTokenTypes.RBRACKET) &&
+          !(psi1 instanceof PsiComment) && !(psi2 instanceof PsiComment)) {
+        final Spacing bracketSpacing = getSubscriptionBracketSpacing();
+        if (bracketSpacing != null) return bracketSpacing;
+      }
+
+      if (myNode.getElementType() == PyElementTypes.PARENTHESIZED_EXPRESSION &&
+          (childType1 == PyTokenTypes.LPAR || node2.getElementType() == PyTokenTypes.RPAR) &&
+          !(psi1 instanceof PsiComment) && !(psi2 instanceof PsiComment) &&
+          isHangingAssignedValue(myNode)) {
+        // Also when KEEP_LINE_BREAKS is off, the value stays on its own line between the parentheses.
+        return Spacing.createSpacing(0, 0, 1, true, 0);
+      }
+
       if (psi2 instanceof PyAstStatementList) {
         // Quite odd getSpacing() doesn't get called with child1=null for the first statement
         // in the statement list of a class, yet it does get called for the preceding colon and
@@ -1137,6 +1194,9 @@ public class PyBlock implements ASTBlock {
           if (statements.length > 0 && statements[0] instanceof PyAstFunction) {
             return getBlankLinesForOption(pySettings.BLANK_LINES_BEFORE_FIRST_METHOD);
           }
+        }
+        if (childType1 == PyTokenTypes.COLON && isEllipsisBodyOnSameLine((PyAstStatementList)psi2)) {
+          return Spacing.createSpacing(1, 1, 0, false, 0);
         }
         if (childType1 == PyTokenTypes.COLON && (needLineBreakInStatement())) {
           return Spacing.createSpacing(0, 0, 1, true, settings.KEEP_BLANK_LINES_IN_CODE);
@@ -1235,11 +1295,43 @@ public class PyBlock implements ASTBlock {
     return myContext.getSpacingBuilder().getSpacing(this, child1, child2);
   }
 
+  /**
+   * Puts the index of a subscription on its own lines when it does not fit on one line, as Black and Ruff do:
+   * a line break after "[" and before "]".
+   */
+  private @Nullable Spacing getSubscriptionBracketSpacing() {
+    final ASTNode openingBracket = myNode.findChildByType(PyTokenTypes.LBRACKET);
+    final ASTNode closingBracket = myNode.findChildByType(PyTokenTypes.RBRACKET);
+    if (openingBracket == null || closingBracket == null) return null;
+    final CommonCodeStyleSettings settings = myContext.getSettings();
+    final int spaces = settings.SPACE_WITHIN_BRACKETS ? 1 : 0;
+    final TextRange dependency = new TextRange(openingBracket.getStartOffset(), closingBracket.getTextRange().getEndOffset());
+    return Spacing.createDependentLFSpacing(spaces, spaces, dependency, settings.KEEP_LINE_BREAKS, 0);
+  }
+
   private @NotNull Spacing getBlankLinesForOption(int minBlankLines) {
     final int lineFeeds = minBlankLines + 1;
     return Spacing.createSpacing(0, 0, lineFeeds,
                                  myContext.getSettings().KEEP_LINE_BREAKS,
                                  myContext.getSettings().KEEP_BLANK_LINES_IN_DECLARATIONS);
+  }
+
+  /**
+   * Tells if the statement list is the body of this class or function, the body is only {@code ...},
+   * and {@link PyCodeStyleSettings#ELLIPSIS_BODY_ON_SAME_LINE} puts it on the line of the colon.
+   * A comment before the ellipsis, or on a line after it, is a sibling of the ellipsis in the statement list,
+   * and keeps the body on its own line. A comment on the line of the ellipsis is part of its statement,
+   * and moves with it.
+   */
+  private boolean isEllipsisBodyOnSameLine(@NotNull PyAstStatementList statementList) {
+    if (!myContext.getPySettings().ELLIPSIS_BODY_ON_SAME_LINE) return false;
+    final PsiElement container = myNode.getPsi();
+    if (!(container instanceof PyAstFunction || container instanceof PyAstClass)) return false;
+    final PsiElement onlyChild = statementList.getFirstChild();
+    return onlyChild != null &&
+           onlyChild == statementList.getLastChild() &&
+           onlyChild instanceof PyAstStatement statement &&
+           isEllipsis(statement);
   }
 
   private boolean needLineBreakInStatement() {

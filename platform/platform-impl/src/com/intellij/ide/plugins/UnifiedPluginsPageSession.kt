@@ -12,11 +12,13 @@ import com.intellij.ide.plugins.marketplace.statistics.enums.PluginManagerOpenSo
 import com.intellij.ide.plugins.marketplace.statistics.enums.UnifiedPluginSearchSourceKind
 import com.intellij.ide.plugins.marketplace.utils.MarketplaceUrls
 import com.intellij.ide.plugins.newui.LegacyPluginUiHost
+import com.intellij.ide.plugins.newui.PluginInventoryChangeReason
 import com.intellij.ide.plugins.newui.PluginManagerCustomizer
 import com.intellij.ide.plugins.newui.PluginModelAsyncOperationsExecutor
 import com.intellij.ide.plugins.newui.PluginModelEvent
 import com.intellij.ide.plugins.newui.PluginPriceService
 import com.intellij.ide.plugins.newui.PluginSource
+import com.intellij.ide.plugins.newui.PluginStatus
 import com.intellij.ide.plugins.newui.PluginUiModel
 import com.intellij.ide.plugins.newui.PluginUpdatesEvent
 import com.intellij.ide.plugins.newui.PluginUpdatesService
@@ -35,6 +37,7 @@ import com.intellij.ide.plugins.unified.PluginSectionId
 import com.intellij.ide.plugins.unified.PluginSectionStatus
 import com.intellij.ide.plugins.unified.PluginsQueryScope
 import com.intellij.ide.plugins.unified.PluginsQueryState
+import com.intellij.ide.plugins.unified.UnifiedPluginInstallHistory
 import com.intellij.ide.plugins.unified.UnifiedPluginInternalGroup
 import com.intellij.ide.plugins.unified.UnifiedPluginInternalSourceCoordinator
 import com.intellij.ide.plugins.unified.UnifiedPluginLocalDataProvider
@@ -48,7 +51,8 @@ import com.intellij.ide.plugins.unified.UnifiedPluginSearchControlIntent
 import com.intellij.ide.plugins.unified.UnifiedPluginUpdateAllButton
 import com.intellij.ide.plugins.unified.UnifiedPluginUpdateAllController
 import com.intellij.ide.plugins.unified.UnifiedPluginUpdateAllExecutor
-import com.intellij.ide.plugins.unified.UnifiedPluginUpdateAllIntent
+import com.intellij.ide.plugins.unified.UnifiedPluginUpdateAllPresentation
+import com.intellij.ide.plugins.unified.UnifiedPluginUpdateAllState
 import com.intellij.ide.plugins.unified.UnifiedPluginsPageActions
 import com.intellij.ide.plugins.unified.UnifiedPluginsPageController
 import com.intellij.ide.plugins.unified.UnifiedPluginsPageSourceCoordinator
@@ -109,6 +113,7 @@ import java.awt.event.ContainerAdapter
 import java.awt.event.ContainerEvent
 import java.util.concurrent.CancellationException
 import java.util.function.Consumer
+import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JPanel
 import kotlin.time.Duration
@@ -136,6 +141,7 @@ internal class UnifiedPluginsPageSession @RequiresEdt constructor(
     DefaultUnifiedPluginMarketplaceDataProvider(host, getActiveProject(), cache)
   },
   pluginUpdates: Flow<PluginUpdatesEvent> = PluginUpdatesService.getInstance().updatesFlow(),
+  updateCheckInProgress: Flow<Boolean> = PluginUpdatesService.getInstance().updateCheckInProgress(),
   private val recalculatePluginUpdates: () -> Unit = { PluginUpdatesService.getInstance().recalculateUpdates() },
   private val customizer: PluginManagerCustomizer? = PluginManagerCustomizer.getInstance(),
   pluginStatesReadiness: suspend () -> Unit = { customizer?.awaitPluginStatesLoaded() },
@@ -161,6 +167,7 @@ internal class UnifiedPluginsPageSession @RequiresEdt constructor(
     unifiedDetailsPageLayout = true,
     pluginIconScale = densityVariant.pluginIconScale,
     compactRows = densityVariant.compactRows,
+    pluginsAutoUpdateEnabledProvider = { actions.isPluginsAutoUpdateEnabled() },
   )
   private var updateAllOperationEventSink: (PluginModelEvent) -> Unit = {}
   private val sessionPluginUpdates = host.filterPluginUpdates(pluginUpdates)
@@ -177,7 +184,8 @@ internal class UnifiedPluginsPageSession @RequiresEdt constructor(
     hostEvents = host.events,
     sessionId = host.sessionId,
     loadErrorMessage = IdeBundle.message("plugins.configurable.local.plugins.not.loaded"),
-    hostEventObserver = { event -> updateAllOperationEventSink(event) },
+    hostEventObserver = ::acceptHostEvent,
+    installHistory = application.getService(UnifiedPluginInstallHistory::class.java),
   )
   private val initialQueryState = initialNavigation.toQueryState()
   private val marketplaceDataProvider = marketplaceDataProviderFactory(host, repositoryCache)
@@ -222,19 +230,23 @@ internal class UnifiedPluginsPageSession @RequiresEdt constructor(
       .filter(PluginCategoryPromotionProvider::isPriorityCategory)
       .mapTo(HashSet(), PluginCategoryPromotionProvider::getCategoryName),
   )
-  private val updateAllButton = UnifiedPluginUpdateAllButton(::handleUpdateAllIntent)
+  private val restartButton = JButton(IdeBundle.message("plugins.configurable.restart.ide.button"), AllIcons.Actions.Restart).apply {
+    isVisible = false
+    addActionListener { requestRestart() }
+  }
   private val view: UnifiedPluginsPageView
   private val contentComponent: JComponent
   private val actions: UnifiedPluginsPageActions
   private val headerComponent: JComponent
   private val updateAllController: UnifiedPluginUpdateAllController
+  private val updateAllButton: UnifiedPluginUpdateAllButton
   private val pageSourceCollectionJob: Job
   private val updateAllUpdatesCollectionJob: Job
-  private val updateAllStateCollectionJob: Job
+  private val operationHeaderCollectionJob: Job
   private val applyState = UnifiedPluginsPageApplyState()
 
   private val callbackLock = Any()
-  private var pendingSelectedPluginIds: List<PluginId> = emptyList()
+  private var pendingSelection: PendingPluginSelection? = null
   private var pendingSelectionSourcesSettled = false
   private var shutdownCallbackExecuted = false
   private var applyScheduled = false
@@ -244,6 +256,7 @@ internal class UnifiedPluginsPageSession @RequiresEdt constructor(
   private var renderedRepositoryContentRevision = -1L
   private var pageReadyReported = false
   private var showMarketplaceLink = false
+  private var checkingForUpdates = false
   private var reportedSourceFailures: Set<UnifiedPluginSourceFailure> = emptySet()
   private var spotlightSearchActive = false
   private var queryIntentRevision = 0L
@@ -312,6 +325,7 @@ internal class UnifiedPluginsPageSession @RequiresEdt constructor(
       executor = updateAllExecutor,
       targetSink = localSource::setUpdateAllTargets,
     )
+    updateAllButton = UnifiedPluginUpdateAllButton(updateAllController::requestUpdateAll)
     updateAllOperationEventSink = updateAllController::acceptOperationEvent
 
     actions = UnifiedPluginsPageActions(
@@ -320,7 +334,14 @@ internal class UnifiedPluginsPageSession @RequiresEdt constructor(
       host = host,
       customizer = customizer,
       onRefreshRequested = ::refresh,
-      installedPlugins = { eligibleInstalledPluginModels(localSource.state.value.sections) },
+      onCheckForUpdatesRequested = {
+        updateAllController.clearAvailableUpdates()
+        PluginUpdatesService.getInstance().clearAndRecalculateUpdates()
+      },
+      installedPlugins = {
+        val localState = localSource.state.value
+        eligibleInstalledPluginModels(localState.sections, localState.listModelData.installedModels.keys)
+      },
       onPluginInstalledFromDisk = { callbackData ->
         onPluginInstalledFromDisk(callbackData, PluginSource.LOCAL)
       },
@@ -328,7 +349,6 @@ internal class UnifiedPluginsPageSession @RequiresEdt constructor(
     headerComponent = createHeaderComponent()
     customizer?.initCustomizer(contentComponent)
     renderPageSourceState(pageSource.state.value)
-    updateAllButton.render(updateAllController.state.value.presentation)
     pageSourceCollectionJob = contentComponent.launchOnShow("UnifiedPluginsPageSession.pageSource") {
       launch {
         val usesDefaultMarketplace = withContext(Dispatchers.IO) {
@@ -350,20 +370,31 @@ internal class UnifiedPluginsPageSession @RequiresEdt constructor(
         if (!disposed) renderPageSourceState(state)
       }
     }
-    updateAllStateCollectionJob = contentComponent.launchOnShow("UnifiedPluginsPageSession.updateAllState") {
-      updateAllController.state.collect { state ->
-        if (!disposed) updateAllButton.render(state.presentation)
-      }
+    operationHeaderCollectionJob = contentComponent.launchOnShow("UnifiedPluginsPageSession.operationHeader") {
+      updateAllController.state.combine(updateCheckInProgress) { state, checking -> state to checking }
+        .collect { (state, checking) ->
+          if (!disposed) {
+            checkingForUpdates = checking
+            renderOperationHeader(pageSource.state.value, state)
+          }
+        }
     }
     updateAllUpdatesCollectionJob = pageScope.launch(start = CoroutineStart.UNDISPATCHED) {
       sessionPluginUpdates.combine(localSource.state) { updates, localState ->
-        val enabledPluginIds = localState.sections.asSequence()
+        if (localState.facetsLoading) return@combine updates.copy(enabledUpdates = emptyList())
+        val eligiblePluginIds = localState.sections.asSequence()
           .filter { it.id == PluginSectionId.Installed || it.id == PluginSectionId.Bundled }
           .flatMap { it.items.asSequence() }
-          .filter { it.rowInput?.enabled == true }
+          .filter { item ->
+            val input = item.rowInput ?: return@filter false
+            val status = input.installationState.status
+            val applied = input.installedPlugin?.source != PluginSource.BOTH &&
+                          (status == PluginStatus.UPDATED || status == PluginStatus.UPDATED_WITH_RESTART)
+            input.enabled && item.pluginId !in localState.manualUpdates && !applied
+          }
           .map { it.pluginId }
           .toHashSet()
-        updates.copy(enabledUpdates = updates.all.filter { it.pluginId in enabledPluginIds })
+        updates.copy(enabledUpdates = updates.all.filter { it.pluginId in eligiblePluginIds })
       }.collect(updateAllController::acceptUpdates)
     }
     PluginManagerUsageCollector.logUnifiedSessionStarted(openSource)
@@ -487,7 +518,7 @@ internal class UnifiedPluginsPageSession @RequiresEdt constructor(
 
   override fun select(pluginIds: Collection<PluginId>) {
     if (disposed) return
-    pendingSelectedPluginIds = pluginIds.toList()
+    pendingSelection = PendingPluginSelection(pluginIds.toSet()).takeUnless { it.pluginIds.isEmpty() }
     if (applyPendingSelection()) {
       view.render(controller.state.value, showMarketplaceLink)
     }
@@ -562,7 +593,7 @@ internal class UnifiedPluginsPageSession @RequiresEdt constructor(
       pageSource.close()
       pageSourceCollectionJob.cancel()
       updateAllUpdatesCollectionJob.cancel()
-      updateAllStateCollectionJob.cancel()
+      operationHeaderCollectionJob.cancel()
       updateAllController.close()
       updateAllOperationEventSink = {}
       val installationMovedToBackground = host.dispose(closeSession = closeSessionNow)
@@ -583,7 +614,7 @@ internal class UnifiedPluginsPageSession @RequiresEdt constructor(
     val installCallback = Consumer<PluginInstallCallbackData> { callbackData ->
       onPluginInstalledFromDisk(callbackData, PluginSource.REMOTE)
     }
-    return object : JPanel(AdaptivePluginsHeaderLayout()), UiDataProvider {
+    return object : JPanel(AdaptivePluginsHeaderLayout(view.operationStatusComponent)), UiDataProvider {
       init {
         isOpaque = false
         add(view.searchComponent, GridBagConstraints().apply {
@@ -594,28 +625,34 @@ internal class UnifiedPluginsPageSession @RequiresEdt constructor(
           insets = JBUI.insetsRight(4)
         })
         add(
-          updateAllButton.component,
-          GridBagConstraints().apply {
-            gridx = 1
-            gridy = 0
-            fill = GridBagConstraints.NONE
-            anchor = GridBagConstraints.CENTER
-            insets = JBUI.insetsRight(4)
-          },
-        )
-        add(
           TabbedPaneHeaderComponent.createToolbar(
             actions.group,
             IdeBundle.message("plugin.manager.tooltip"),
             AllIcons.General.GearPlain,
           ).also(::makeToolbarButtonsFocusable),
           GridBagConstraints().apply {
-            gridx = 2
+            gridx = 1
             gridy = 0
-            weightx = 1.0
             anchor = GridBagConstraints.WEST
           },
         )
+        add(
+          updateAllButton.component,
+          GridBagConstraints().apply {
+            gridx = 2
+            gridy = 0
+            anchor = GridBagConstraints.CENTER
+            insets = JBUI.insetsLeft(4)
+          },
+        )
+        val operationConstraints = GridBagConstraints().apply {
+          gridx = 3
+          gridy = 0
+          anchor = GridBagConstraints.WEST
+          insets = JBUI.insetsLeft(8)
+        }
+        add(view.operationStatusComponent, operationConstraints)
+        add(restartButton, operationConstraints)
       }
 
       override fun uiDataSnapshot(sink: DataSink) {
@@ -675,6 +712,19 @@ internal class UnifiedPluginsPageSession @RequiresEdt constructor(
     }
   }
 
+  private fun acceptHostEvent(event: PluginModelEvent) {
+    updateAllOperationEventSink(event)
+    if (event !is PluginModelEvent.InventoryInvalidated || event.reason != PluginInventoryChangeReason.INSTALL_FROM_DISK) return
+    if (event.pluginIds.isEmpty()) return
+
+    application.invokeLater({
+      if (disposed) return@invokeLater
+      applyQueryIntent("", requestFocus = false)
+      pendingSelection = PendingPluginSelection(event.pluginIds, fromDisk = true)
+      if (controller.state.value.query == pageSource.state.value.query) renderControllerState()
+    }, ModalityState.any())
+  }
+
   private fun installShutdownCallback() {
     val installedPluginsState = InstalledPluginsState.getInstance()
     synchronized(callbackLock) {
@@ -721,6 +771,7 @@ internal class UnifiedPluginsPageSession @RequiresEdt constructor(
     scope: PluginsQueryScope = PluginsQueryScope.Unified,
   ) {
     if (disposed) return
+    if (pendingSelection?.fromDisk == true) pendingSelection = null
     queryIntentRevision++
     view.setSearchQuery(query)
     val previousRevision = pageSource.state.value.query.revision
@@ -732,6 +783,7 @@ internal class UnifiedPluginsPageSession @RequiresEdt constructor(
 
   private fun applySearchControl(intent: UnifiedPluginSearchControlIntent) {
     if (disposed) return
+    if (pendingSelection?.fromDisk == true) pendingSelection = null
     queryIntentRevision++
     val previousRevision = pageSource.state.value.query.revision
     pageSource.applySearchControl(intent)
@@ -741,7 +793,7 @@ internal class UnifiedPluginsPageSession @RequiresEdt constructor(
 
   private fun selectOccurrences(occurrenceIds: List<PluginOccurrenceId>) {
     if (disposed) return
-    pendingSelectedPluginIds = emptyList()
+    pendingSelection = null
     controller.selectOccurrences(occurrenceIds)
     renderControllerState()
   }
@@ -749,7 +801,7 @@ internal class UnifiedPluginsPageSession @RequiresEdt constructor(
   private fun selectAllDisplayed(occurrenceId: PluginOccurrenceId) {
     if (disposed) return
     if (!controller.selectAllDisplayed(occurrenceId)) return
-    pendingSelectedPluginIds = emptyList()
+    pendingSelection = null
     renderControllerState()
   }
 
@@ -759,18 +811,29 @@ internal class UnifiedPluginsPageSession @RequiresEdt constructor(
   }
 
   @RequiresEdt
-  private fun handleUpdateAllIntent(intent: UnifiedPluginUpdateAllIntent) {
-    when (intent) {
-      UnifiedPluginUpdateAllIntent.Update -> updateAllController.requestUpdateAll()
-      UnifiedPluginUpdateAllIntent.Restart -> {
-        if (customizer != null) {
-          host.requestRestart(customizer, headerComponent)
-        }
-        else {
-          host.runRestartButton(headerComponent)
-        }
-      }
+  private fun requestRestart() {
+    if (customizer != null) {
+      host.requestRestart(customizer, headerComponent)
     }
+    else {
+      host.runRestartButton(headerComponent)
+    }
+  }
+
+  @RequiresEdt
+  private fun renderOperationHeader(source: UnifiedPluginsPageSourceState, updateAll: UnifiedPluginUpdateAllState) {
+    val restartRequired = source.restartRequired || updateAll.restartRequired
+    val updateAllProgress = updateAll.presentation as? UnifiedPluginUpdateAllPresentation.Running
+    val operations = source.sections.firstOrNull { it.id == PluginSectionId.Installing }?.items.orEmpty()
+    view.renderOperationStatus(
+      operations,
+      source.uninstallingPlugins,
+      updateAllProgress,
+      showUpdateCheck = checkingForUpdates && !restartRequired,
+    )
+    val operationInProgress = view.operationStatusComponent.isVisible
+    updateAllButton.render(if (operationInProgress) UnifiedPluginUpdateAllPresentation.Hidden else updateAll.presentation)
+    restartButton.isVisible = restartRequired && !operationInProgress
   }
 
   @RequiresEdt
@@ -782,9 +845,10 @@ internal class UnifiedPluginsPageSession @RequiresEdt constructor(
     }
     val data = state.listModelData
     listModel.replaceAll(data.installedModels, data.errors, data.installationStates, data.updateSources, data.expectedExplanations)
+    renderOperationHeader(state, updateAllController.state.value)
     controller.replaceSourceState(
       query = state.query,
-      updatedSections = state.sections,
+      updatedSections = state.sections.filterNot { it.id == PluginSectionId.Installing },
       mayEstablishSelection = state.mayEstablishSelection,
       updatedSearchControls = state.searchControls,
       projectedQueryRevision = state.projectedQueryRevision,
@@ -837,29 +901,39 @@ internal class UnifiedPluginsPageSession @RequiresEdt constructor(
   }
 
   private fun renderControllerState() {
-    applyPendingSelection()
+    val fromDisk = pendingSelection?.fromDisk == true
+    val selectionApplied = applyPendingSelection()
     uiTracker.measure(PluginManagerUiMetric.UNIFIED_PAGE_RENDER) {
-      view.render(controller.state.value, showMarketplaceLink)
+      view.render(controller.state.value, showMarketplaceLink, revealSelection = fromDisk && selectionApplied)
     }
   }
 
   private fun applyPendingSelection(): Boolean {
-    if (pendingSelectedPluginIds.isEmpty()) return false
+    val request = pendingSelection ?: return false
     val state = controller.state.value
-    val pendingIds = pendingSelectedPluginIds.toSet()
+    if (request.fromDisk) {
+      val sourceState = pageSource.state.value
+      if (state.query != sourceState.query || sourceState.projectedQueryRevision != sourceState.query.revision) return false
+    }
+    val dropUnmatched = !request.fromDisk && pendingSelectionSourcesSettled
     val occurrences = state.sections.flatMap { section ->
-      section.items.filter { it.pluginId in pendingIds }.map { section.occurrenceId(it.pluginId) }
+      val items = when {
+        !request.fromDisk -> section.items
+        section.id == PluginSectionId.Installed || section.id == PluginSectionId.Bundled -> section.displayItems
+        else -> emptyList()
+      }
+      items.filter { it.pluginId in request.pluginIds }.map { section.occurrenceId(it.pluginId) }
     }.distinctBy(PluginOccurrenceId::pluginId)
     if (occurrences.isEmpty()) {
-      if (pendingSelectionSourcesSettled) pendingSelectedPluginIds = emptyList()
+      if (dropUnmatched) pendingSelection = null
       return false
     }
     val preferredMode = occurrences.groupBy { pluginDetailsMode(it.sectionId) }
       .maxByOrNull { it.value.size }
       ?.key
     val compatibleOccurrences = occurrences.filter { pluginDetailsMode(it.sectionId) == preferredMode }
-    if (occurrences.mapTo(HashSet(), PluginOccurrenceId::pluginId).containsAll(pendingIds) || pendingSelectionSourcesSettled) {
-      pendingSelectedPluginIds = emptyList()
+    if (occurrences.mapTo(HashSet(), PluginOccurrenceId::pluginId).containsAll(request.pluginIds) || dropUnmatched) {
+      pendingSelection = null
     }
     return controller.selectAndRevealOccurrences(compatibleOccurrences)
   }
@@ -873,7 +947,10 @@ internal class UnifiedPluginsPageSession @RequiresEdt constructor(
   }
 }
 
-private class AdaptivePluginsHeaderLayout : GridBagLayout() {
+private data class PendingPluginSelection(val pluginIds: Set<PluginId>, val fromDisk: Boolean = false)
+
+/** Gives [trailingStatus] the space available after the search field and header actions. */
+private class AdaptivePluginsHeaderLayout(private val trailingStatus: Component) : GridBagLayout() {
   override fun preferredLayoutSize(parent: Container): Dimension = calculateSize(parent, includeSearchWidth = true)
 
   override fun minimumLayoutSize(parent: Container): Dimension = calculateSize(parent, includeSearchWidth = false)
@@ -885,19 +962,32 @@ private class AdaptivePluginsHeaderLayout : GridBagLayout() {
     val parentInsets = parent.insets
     val availableWidth = (parent.width - parentInsets.left - parentInsets.right).coerceAtLeast(0)
     val searchComponent = visibleComponents.first()
-    val fixedWidth = visibleComponents.sumOf { component ->
+    val sizedComponents = visibleComponents.filter { it !== trailingStatus }
+    val fixedWidth = sizedComponents.sumOf { component ->
       val componentInsets = getConstraints(component).insets
       componentInsets.left + componentInsets.right +
       if (component === searchComponent) 0 else component.preferredSize.width
     }
     val searchWidth = (availableWidth - fixedWidth).coerceIn(0, searchComponent.preferredSize.width)
+    val statusInsets = if (trailingStatus.isVisible) getConstraints(trailingStatus).insets else null
+    val statusWidth = if (statusInsets == null) {
+      0
+    }
+    else {
+      val freeWidth = availableWidth - fixedWidth - searchWidth - statusInsets.left - statusInsets.right
+      freeWidth.coerceIn(0, trailingStatus.preferredSize.width)
+    }
 
     var x = parentInsets.left
     for (component in visibleComponents) {
       val constraints = getConstraints(component)
       val componentInsets = constraints.insets
       val preferredSize = component.preferredSize
-      val width = if (component === searchComponent) searchWidth else preferredSize.width
+      val width = when {
+        component === searchComponent -> searchWidth
+        component === trailingStatus -> statusWidth
+        else -> preferredSize.width
+      }
       val availableHeight = (parent.height - parentInsets.top - parentInsets.bottom -
                              componentInsets.top - componentInsets.bottom).coerceAtLeast(0)
       val height = preferredSize.height.coerceAtMost(availableHeight)
@@ -909,7 +999,7 @@ private class AdaptivePluginsHeaderLayout : GridBagLayout() {
   }
 
   private fun calculateSize(parent: Container, includeSearchWidth: Boolean): Dimension {
-    val visibleComponents = parent.components.filter { it.isVisible }
+    val visibleComponents = parent.components.filter { it.isVisible && it !== trailingStatus }
     val parentInsets = parent.insets
     var width = parentInsets.left + parentInsets.right
     var height = 0

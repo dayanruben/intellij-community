@@ -9,6 +9,7 @@ import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.codeInspection.ProblemDescriptorUtil;
 import com.intellij.codeInspection.ex.InspectionProfileImpl;
 import com.intellij.codeInspection.ex.InspectionToolWrapper;
+import com.intellij.codeInspection.ex.ToolsImpl;
 import com.intellij.codeInspection.reference.RefElement;
 import com.intellij.codeInspection.reference.RefEntity;
 import com.intellij.lang.annotation.HighlightSeverity;
@@ -47,11 +48,7 @@ public class ProblemDescriptionNode extends SuppressableInspectionTreeNode {
     super(presentation, parent);
     myElement = element;
     myDescriptor = descriptor;
-    myLevel = ObjectUtils.notNull(calculatePreciseLevel(element, descriptor, presentation), () -> {
-      String shortName = presentation.getToolWrapper().getShortName();
-      InspectionProfileImpl profile = presentation.getContext().getCurrentProfile();
-      return profile.getTools(shortName, presentation.getContext().getProject()).getLevel();
-    });
+    myLevel = ObjectUtils.notNull(calculatePreciseLevel(element, descriptor, presentation), () -> getProfileLevel(presentation));
     myLineNumber = myDescriptor instanceof ProblemDescriptor
                    ? ((ProblemDescriptor)myDescriptor).getLineNumber()
                    : lineNumberCounter == null ? -1 : lineNumberCounter.getAsInt();
@@ -61,9 +58,8 @@ public class ProblemDescriptionNode extends SuppressableInspectionTreeNode {
                                                              @Nullable CommonProblemDescriptor descriptor,
                                                              @NotNull InspectionToolPresentation presentation) {
     if (element == null) return null;
-    InspectionProfileImpl profile = presentation.getContext().getCurrentProfile();
-    String shortName = presentation.getToolWrapper().getShortName();
     if (descriptor instanceof ProblemDescriptor) {
+      InspectionProfileImpl profile = presentation.getContext().getCurrentProfile();
       InspectionProfileManager inspectionProfileManager = profile.getProfileManager();
       RefElement refElement = (RefElement)element;
       SeverityRegistrar severityRegistrar = inspectionProfileManager.getSeverityRegistrar();
@@ -74,8 +70,18 @@ public class ProblemDescriptionNode extends SuppressableInspectionTreeNode {
       return HighlightDisplayLevel.find(highlightSeverity);
     }
     else {
-      return profile.getTools(shortName, presentation.getContext().getProject()).getLevel();
+      return getProfileLevel(presentation);
     }
+  }
+
+  /**
+   * The level of the tool in the current profile, or the default level of the tool when the profile has no such tool.
+   */
+  private static @NotNull HighlightDisplayLevel getProfileLevel(@NotNull InspectionToolPresentation presentation) {
+    InspectionToolWrapper<?, ?> toolWrapper = presentation.getToolWrapper();
+    InspectionProfileImpl profile = presentation.getContext().getCurrentProfile();
+    ToolsImpl tools = profile.getToolsOrNull(toolWrapper.getShortName(), presentation.getContext().getProject());
+    return tools != null ? tools.getLevel() : toolWrapper.getDefaultLevel();
   }
 
   public boolean needCalculateTooltip() {

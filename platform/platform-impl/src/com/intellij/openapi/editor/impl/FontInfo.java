@@ -15,14 +15,23 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
 
+import javax.swing.JComponent;
 import java.awt.Component;
 import java.awt.Font;
 import java.awt.FontMetrics;
+import java.awt.GraphicsEnvironment;
 import java.awt.font.FontRenderContext;
 import java.awt.font.GlyphMetrics;
 import java.awt.font.GlyphVector;
 import java.util.EnumSet;
 import java.util.Set;
+
+import static java.awt.RenderingHints.KEY_FRACTIONALMETRICS;
+import static java.awt.RenderingHints.KEY_TEXT_ANTIALIASING;
+import static java.awt.RenderingHints.VALUE_FRACTIONALMETRICS_DEFAULT;
+import static java.awt.RenderingHints.VALUE_FRACTIONALMETRICS_OFF;
+import static java.awt.RenderingHints.VALUE_TEXT_ANTIALIAS_DEFAULT;
+import static java.awt.RenderingHints.VALUE_TEXT_ANTIALIAS_OFF;
 
 /**
  * Thread-safe
@@ -86,30 +95,16 @@ public final class FontInfo {
   }
 
   /**
-   * Returns the letter spacing in pixels at the font size, see {@link com.intellij.openapi.editor.colors.FontPreferences#getLetterSpacing()}.
-   * Without fractional metrics, the value is a whole number of device pixels, so all gaps between the glyphs are equal.
-   * A {@code null} context counts as a context without fractional metrics and without a transform.
+   * Returns the context of the font metrics that the component gives, or the default context for {@code null}.
+   * On JBR, for a {@link JComponent}, it loads no font and ignores an override of {@link JComponent#getFontMetrics}.
    */
-  @ApiStatus.Internal
-  public static float letterSpacingPixels(float letterSpacing, float size, @Nullable FontRenderContext context) {
-    float pixels = letterSpacing * size;
-    if (pixels == 0) {
-      // also turns -0 into 0
-      return 0;
-    }
-    if (context != null && context.usesFractionalMetrics()) {
-      return pixels;
-    }
-    double scale = context == null ? 1 : Math.abs(context.getTransform().getScaleX());
-    if (scale == 0) {
-      scale = 1;
-    }
-    return (float)(Math.round(pixels * scale) / scale);
-  }
-
   public static @NotNull FontRenderContext getFontRenderContext(@Nullable Component component) {
     if (component == null) {
       return DEFAULT_CONTEXT;
+    }
+    // getSwingFontRenderContext has the rules of JBR, and stock OpenJDK has other rules
+    if (component instanceof JComponent swingComponent && JBR.isAvailable()) {
+      return getSwingFontRenderContext(swingComponent);
     }
     return component.getFontMetrics(DUMMY_FONT).getFontRenderContext();
   }
@@ -131,6 +126,28 @@ public final class FontInfo {
     } else {
       return font.canDisplay(codePoint);
     }
+  }
+
+  /**
+   * Returns the letter spacing in pixels at the font size, see {@link com.intellij.openapi.editor.colors.FontPreferences#getLetterSpacing()}.
+   * Without fractional metrics, the value is a whole number of device pixels, so all gaps between the glyphs are equal.
+   * A {@code null} context counts as a context without fractional metrics and without a transform.
+   */
+  @ApiStatus.Internal
+  public static float letterSpacingPixels(float letterSpacing, float size, @Nullable FontRenderContext context) {
+    float pixels = letterSpacing * size;
+    if (pixels == 0) {
+      // also turns -0 into 0
+      return 0;
+    }
+    if (context != null && context.usesFractionalMetrics()) {
+      return pixels;
+    }
+    double scale = context == null ? 1 : Math.abs(context.getTransform().getScaleX());
+    if (scale == 0) {
+      scale = 1;
+    }
+    return (float)(Math.round(pixels * scale) / scale);
   }
 
   private final @NotNull Font myFont;
@@ -348,5 +365,33 @@ public final class FontInfo {
            ", myContext=" + myContext +
            ", myFontMetrics=" + myFontMetrics +
            '}';
+  }
+
+  /**
+   * Returns the context that {@link JComponent#getFontMetrics} gives to the font metrics of the component.
+   * This method is an optimization to avoid a freeze. {@link JComponent#getFontMetrics} loads the font,
+   * and the first load of a font file can freeze the EDT.
+   */
+  private static FontRenderContext getSwingFontRenderContext(JComponent component) {
+    var configuration = component.getGraphicsConfiguration();
+    var transform = configuration == null ? null : configuration.getDefaultTransform();
+    if (transform == null && !SystemInfo.isMac && !GraphicsEnvironment.isHeadless()) {
+      var screen = GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice();
+      transform = screen.getDefaultConfiguration().getDefaultTransform();
+    }
+    var antialiasing = component.getClientProperty(KEY_TEXT_ANTIALIASING);
+    if (antialiasing == null) {
+      antialiasing = VALUE_TEXT_ANTIALIAS_DEFAULT;
+    }
+    var fractionalMetrics = component.getClientProperty(KEY_FRACTIONALMETRICS);
+    if (fractionalMetrics == null) {
+      fractionalMetrics = VALUE_FRACTIONALMETRICS_DEFAULT;
+    }
+    if ((transform == null || transform.isIdentity()) &&
+        (antialiasing == VALUE_TEXT_ANTIALIAS_OFF || antialiasing == VALUE_TEXT_ANTIALIAS_DEFAULT) &&
+        (fractionalMetrics == VALUE_FRACTIONALMETRICS_OFF || fractionalMetrics == VALUE_FRACTIONALMETRICS_DEFAULT)) {
+      return DEFAULT_CONTEXT;
+    }
+    return new FontRenderContext(transform, antialiasing, fractionalMetrics);
   }
 }

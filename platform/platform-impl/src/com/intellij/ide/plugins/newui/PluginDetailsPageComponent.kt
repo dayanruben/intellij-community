@@ -151,6 +151,7 @@ class PluginDetailsPageComponent private constructor(
   internal val useSecondaryButtons: Boolean,
   internal val useBadgeTags: Boolean,
   internal val layout: PluginDetailsPageLayout,
+  private val pluginsAutoUpdateEnabledProvider: (() -> Boolean)? = null,
 ) : MultiPanel() {
   @JvmOverloads
   constructor(
@@ -170,6 +171,7 @@ class PluginDetailsPageComponent private constructor(
     secondaryButtons: Boolean = false,
     badgeTags: Boolean = false,
     layout: PluginDetailsPageLayout = PluginDetailsPageLayout.Legacy,
+    pluginsAutoUpdateEnabledProvider: (() -> Boolean)? = null,
   ) : this(
     pluginModel,
     searchListener,
@@ -179,6 +181,7 @@ class PluginDetailsPageComponent private constructor(
     secondaryButtons,
     badgeTags,
     layout,
+    pluginsAutoUpdateEnabledProvider,
   )
 
   @Suppress("OPT_IN_USAGE")
@@ -200,6 +203,7 @@ class PluginDetailsPageComponent private constructor(
   private var installButton: PluginInstallButton? = null
   private val mySuggestedIdeBanner = SuggestedIdeBanner()
   private var updateButton: JButton? = null
+  private var updateModeButton: PluginUpdateModeButton? = null
   private var gearButton: JComponent? = null
   private var myEnableDisableButton: JButton? = null
   private var myUninstallButton: JButton? = null
@@ -246,6 +250,7 @@ class PluginDetailsPageComponent private constructor(
   private var sourceCodeUrl: LinkPanel? = null
   private var suggestedFeatures: SuggestedComponent? = null
   private var unknownUpdateSourceBanner: UpdateSourceBanner? = null
+  private var isUnknownUpdateSourceWarningRequested = false
   private var updateSourceInitializedBanner: UpdateSourceBanner? = null
   private lateinit var bottomScrollPane: JBScrollPane
   private val scrollPanes = ArrayList<JBScrollPane>()
@@ -631,6 +636,18 @@ class PluginDetailsPageComponent private constructor(
     nameAndButtons.addButtonComponent(enableDisableController!!.button.also { gearButton = it })
     nameAndButtons.addButtonComponent(enableDisableController!!.bundledButton.also { myEnableDisableButton = it })
     nameAndButtons.addButtonComponent(enableDisableController!!.uninstallButton.also { myUninstallButton = it })
+
+    val autoUpdateEnabledProvider = pluginsAutoUpdateEnabledProvider
+    if (pluginModel.isPluginUpdateExclusionSupported() && autoUpdateEnabledProvider != null) {
+      val updateButton = PluginUpdateModeButton(
+        pluginIdProvider = { plugin?.pluginId },
+        pluginModel = pluginModel,
+        coroutineScope = coroutineScope,
+        pluginsAutoUpdateEnabledProvider = autoUpdateEnabledProvider,
+      )
+      updateModeButton = updateButton
+      nameAndButtons.addButtonComponent(updateButton)
+    }
 
     for (component in nameAndButtons.buttonComponents) {
       component.background = PluginManagerConfigurable.MAIN_BG_COLOR
@@ -1484,6 +1501,7 @@ class PluginDetailsPageComponent private constructor(
     val currentPlugin = plugin
     if (currentPlugin == null || forceHideUpdateSourceUi || !UiPluginManager.getInstance().isPluginUpdateSourceVisibleInUI()) {
       myPluginUpdateSourcePanel?.isVisible = false
+      isUnknownUpdateSourceWarningRequested = false
       unknownUpdateSourceBanner?.isVisible = false
       updateSourceInitializedBanner?.isVisible = false
       return
@@ -1493,10 +1511,17 @@ class PluginDetailsPageComponent private constructor(
 
     val isPluginUpdateSourceVisible: Boolean = (!isMarketplace && currentPlugin.isUpdateable) || installedDescriptorForMarketplace != null
     myPluginUpdateSourcePanel?.isVisible = isPluginUpdateSourceVisible
-    unknownUpdateSourceBanner?.isVisible = isPluginUpdateSourceVisible &&
-                                           pluginUpdateSource == null &&
-                                           UiPluginManager.getInstance().isMissingUpdateSourceWarningEnabled()
+    isUnknownUpdateSourceWarningRequested = isPluginUpdateSourceVisible &&
+                                            pluginUpdateSource == null &&
+                                            UiPluginManager.getInstance().isMissingUpdateSourceWarningEnabled()
+    updateUnknownUpdateSourceBanner(pluginModel.isPluginUpdateAllowed(currentPlugin.pluginId))
     updateSourceInitializedBanner?.isVisible = false
+  }
+
+  internal fun updateUnknownUpdateSourceBanner(isPluginUpdateAllowed: Boolean) {
+    plugin?.pluginId ?: return
+    unknownUpdateSourceBanner?.isVisible = isUnknownUpdateSourceWarningRequested &&
+                                           isPluginUpdateAllowed
   }
 
   private fun setPluginUpdateSource(pluginUpdateSource: PluginUpdateSource?, component: DropDownLink<PluginUpdateSource?>?) {
@@ -1720,6 +1745,7 @@ class PluginDetailsPageComponent private constructor(
       gearButton!!.isVisible = false
       myUninstallButton?.isVisible = false
       myEnableDisableButton!!.isVisible = false
+      updateModeButton?.isVisible = false
       return
     }
 
@@ -1740,6 +1766,7 @@ class PluginDetailsPageComponent private constructor(
       if (installed || installedDescriptorForMarketplace == null) {
         gearButton!!.isVisible = false
         myEnableDisableButton!!.isVisible = false
+        updateModeButton?.isVisible = false
       }
       else {
         val state = getDeletedState(installedDescriptorForMarketplace!!, pluginState)
@@ -1768,6 +1795,7 @@ class PluginDetailsPageComponent private constructor(
         /** FIXME duplicated with [ListPluginComponent] */
         myEnableDisableButton!!.isEnabled = plugin?.isDisableAllowed != false && showComponent?.isNotFreeInFreeMode() != true
         updateButton!!.isVisible = !uninstalled && isUpdateAvailable() && !installedWithoutRestart
+        updateModeButton?.isVisible = !uninstalled
         updateEnableForNameAndIcon()
         updateErrors()
       }
@@ -1806,6 +1834,7 @@ class PluginDetailsPageComponent private constructor(
       /** FIXME duplicated with [ListPluginComponent] */
       myEnableDisableButton!!.isEnabled = plugin?.isDisableAllowed != false && showComponent?.isNotFreeInFreeMode() != true
       myUninstallButton?.isVisible = !uninstalled && !bundled && showComponent?.isNotFreeInFreeMode() == true
+      updateModeButton?.isVisible = !uninstalled
 
       updateEnableForNameAndIcon()
       updateErrors()
@@ -2154,6 +2183,7 @@ class PluginDetailsPageComponent private constructor(
       installButton!!.setVisible(true)
       installButton!!.setEnabled(false, IdeBundle.message("plugins.configurable.uninstalled"))
     }
+    updateModeButton?.isVisible = false
 
     scheduleNotificationsUpdate()
     fullRepaint()

@@ -14,12 +14,14 @@ import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.idea.ActionsBundle;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.ActionPlaces;
+import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.DataSink;
 import com.intellij.openapi.actionSystem.DefaultActionGroup;
 import com.intellij.openapi.actionSystem.UiDataProvider;
 import com.intellij.openapi.actionSystem.ex.ActionUtil;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.WriteIntentReadAction;
 import com.intellij.openapi.options.BackedByPersistentState;
 import com.intellij.openapi.options.NoAutomaticReset;
 import com.intellij.openapi.options.Configurable;
@@ -29,9 +31,12 @@ import com.intellij.openapi.options.SearchableConfigurable;
 import com.intellij.openapi.components.PersistentStateComponent;
 import com.intellij.openapi.options.ex.ConfigurableVisitor;
 import com.intellij.openapi.options.ex.ConfigurableWrapper;
+import com.intellij.openapi.options.ex.FrameProjectConfigurable;
+import com.intellij.openapi.options.ex.FrameProjectsConfigurableGroup;
 import com.intellij.openapi.options.ex.MutableConfigurableGroup;
 import com.intellij.openapi.options.ex.Settings;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.project.ProjectCloseListener;
 import com.intellij.openapi.ui.LoadingDecorator;
 import com.intellij.openapi.ui.Splitter;
 import com.intellij.openapi.util.ActionCallback;
@@ -41,6 +46,7 @@ import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.wm.IdeFocusManager;
+import com.intellij.openapi.wm.ex.ProjectFrameProjectOrderListener;
 import com.intellij.ui.IdeUICustomization;
 import com.intellij.ui.OnePixelSplitter;
 import com.intellij.ui.SearchTextField;
@@ -54,6 +60,7 @@ import com.intellij.ui.treeStructure.SimpleNode;
 import com.intellij.internal.statistic.collectors.fus.ui.SettingsCounterUsagesCollector;
 import com.intellij.internal.statistic.collectors.fus.ui.SettingsOpeningTracker;
 import com.intellij.util.concurrency.EdtScheduler;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.util.xmlb.XmlSerializer;
@@ -72,6 +79,7 @@ import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JPanel;
 import javax.swing.LayoutFocusTraversalPolicy;
+import javax.swing.SwingUtilities;
 import java.awt.AWTEvent;
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -79,6 +87,7 @@ import java.awt.Component;
 import java.awt.Font;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
+import java.awt.Window;
 import java.awt.event.ActionEvent;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
@@ -98,6 +107,8 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class SettingsEditor extends AbstractEditor implements UiDataProvider, Place.Navigator {
   private static final Logger LOG = Logger.getInstance(SettingsEditor.class);
   static final String SELECTED_CONFIGURABLE = "settings.editor.selected.configurable";
+  /** The page that the tree selects when it has no better page to select. */
+  private static final String DEFAULT_CONFIGURABLE_ID = "preferences.lookFeel";
   private static final String SPLITTER_PROPORTION = "settings.editor.splitter.proportion";
   private static final float SPLITTER_PROPORTION_DEFAULT_VALUE = .2f;
 
@@ -121,6 +132,10 @@ public final class SettingsEditor extends AbstractEditor implements UiDataProvid
   private final @Nullable AnAction myExtraHeaderAction;
   private final Map<Configurable, ConfigurableController> controllers = new HashMap<>();
   private ConfigurableController lastController;
+  /** The tree of a window that configures several projects, or {@code null} for the tree of one project. */
+  private final @Nullable FrameProjectsConfigurableGroup myFrameProjectsGroup;
+  /** The project selector above the header of a project-level page, or {@code null} for the tree of one project. */
+  private final @Nullable SettingsProjectTabs myProjectTabs;
 
   /**
    * Snapshots of backing {@link PersistentStateComponent} states, captured when the window loses focus
@@ -181,6 +196,8 @@ public final class SettingsEditor extends AbstractEditor implements UiDataProvid
     myOpening = SettingsOpeningTracker.takeOpening(project);
     myUseLeaveState = useLeaveState;
     myExtraHeaderAction = extraHeaderAction;
+    myFrameProjectsGroup = (FrameProjectsConfigurableGroup)ContainerUtil.find(groups, group -> group instanceof FrameProjectsConfigurableGroup);
+    myProjectTabs = myFrameProjectsGroup == null ? null : new SettingsProjectTabs(myFrameProjectsGroup.getProjects(), this);
     properties = PropertiesComponent.getInstance(project);
     settings = new Settings(groups) {
       @Override
@@ -415,7 +432,7 @@ public final class SettingsEditor extends AbstractEditor implements UiDataProvid
     left.add(BorderLayout.CENTER, treeView);
     JPanel right = detached ? new DetachedPanel() : new JPanel(new BorderLayout());
     right.add(BorderLayout.CENTER, loadingDecorator.getComponent());
-    right.add(BorderLayout.NORTH, withHistoryToolbar(myBanner, detached ? right : this));
+    right.add(BorderLayout.NORTH, withProjectTabs(withHistoryToolbar(myBanner, detached ? right : this)));
     left.add(BorderLayout.NORTH, searchPanel);
     mySidebar = left;
     myContent = right;
@@ -446,10 +463,7 @@ public final class SettingsEditor extends AbstractEditor implements UiDataProvid
 
     if (configurable == null) {
       String id = properties.getValue(SELECTED_CONFIGURABLE);
-      configurable = ConfigurableVisitor.findById(id != null ? id : "preferences.lookFeel", groups);
-      if (configurable == null) {
-        configurable = ConfigurableVisitor.find(ConfigurableVisitor.ALL, groups);
-      }
+      configurable = findConfigurableOrFirst(id != null ? id : DEFAULT_CONFIGURABLE_ID, groups);
     }
 
     treeView.select(configurable).onProcessed(it -> this.filter.update(filter));
@@ -466,6 +480,190 @@ public final class SettingsEditor extends AbstractEditor implements UiDataProvid
         Disposer.register(this, mutable);
         mutable.addListener(createReloadListener(groups));
       }
+    }
+    if (myFrameProjectsGroup != null) {
+      listenToFrameProjects(myFrameProjectsGroup);
+    }
+  }
+
+  /**
+   * Puts the project selector below {@code header}, outside the scrolled page. The selector is hidden until a project-level
+   * page is selected.
+   */
+  private @NotNull JComponent withProjectTabs(@NotNull JComponent header) {
+    if (myProjectTabs == null) {
+      return header;
+    }
+    myProjectTabs.getComponent().setVisible(false);
+    JPanel panel = new JPanel(new BorderLayout());
+    panel.setOpaque(false);
+    panel.add(BorderLayout.NORTH, header);
+    panel.add(BorderLayout.CENTER, myProjectTabs.getComponent());
+    return panel;
+  }
+
+  private void listenToFrameProjects(@NotNull FrameProjectsConfigurableGroup group) {
+    SettingsFrameProjects projects = group.getProjects();
+    projects.addListener(() -> updateController(filter.context.getCurrentConfigurable()), this);
+    ApplicationManager.getApplication().getMessageBus().connect(this).subscribe(ProjectCloseListener.TOPIC, new ProjectCloseListener() {
+      @Override
+      public void projectClosing(@NotNull Project project) {
+        // the window closes with the frame owner, so its tree needs no change for that close
+        if (project != projects.getFrameOwner()) {
+          forgetFrameProject(project);
+        }
+      }
+    });
+    // the selector lists the projects in the order of the frame, and that order can change with the same projects
+    projects.getFrameOwner().getMessageBus().connect(this).subscribe(ProjectFrameProjectOrderListener.TOPIC, projects::reorder);
+    // a project that left the frame while the tree was built sent its close event before this subscription
+    List<Project> frameProjects = SettingsFrameProjects.listProjects(projects.getFrameOwner());
+    for (Project project : projects.getProjects()) {
+      if (!frameProjects.contains(project)) {
+        forgetFrameProject(project);
+      }
+    }
+    SettingsFrameGuestJoins.follow(group, coroutineScope, this, hasNewNodes -> {
+      if (hasNewNodes) {
+        // the tree shows the new nodes. The filter keeps its context, so the modified marks stay
+        treeView.reloadWithSelection(filter.context.getCurrentConfigurable());
+        settings.reload();
+      }
+    });
+  }
+
+  /**
+   * Drops the pages of {@code project} from the tree and {@code project} from the project selector, because {@code project}
+   * closes. A page that no project has then leaves the tree, see {@link FrameProjectsConfigurableGroup#forget}.
+   */
+  void forgetFrameProject(@NotNull Project project) {
+    FrameProjectsConfigurableGroup group = myFrameProjectsGroup;
+    if (group == null || !group.getProjects().getProjects().contains(project)) {
+      return;
+    }
+    // the pages of the project go first, while the project is alive, and then the selection moves to another project
+    Set<Configurable> removed = group.forget(project);
+    group.getProjects().remove(project);
+    if (!removed.isEmpty()) {
+      showTreeWithout(group, removed);
+    }
+    checkFrameProjectPages();
+  }
+
+  /**
+   * Shows the tree again after {@code removed} left it. When the current page left, the tree selects its nearest parent
+   * that is in the tree, or else the default page.
+   */
+  private void showTreeWithout(@NotNull FrameProjectsConfigurableGroup group, @NotNull Set<Configurable> removed) {
+    List<ConfigurableGroup> groups = List.of(group);
+    Configurable current = filter.context.getCurrentConfigurable();
+    Configurable toSelect = current;
+    // the group compaction can replace a parent with its last child, so only the new tree tells which page is left
+    while (toSelect != null && !isInTree(toSelect, groups)) {
+      toSelect = filter.context.getParentConfigurable(toSelect);
+    }
+    if (toSelect == null && current != null) {
+      toSelect = findConfigurableOrFirst(DEFAULT_CONFIGURABLE_ID, groups);
+    }
+    for (Configurable node : removed) {
+      filter.context.fireReset(node);
+      controllers.remove(node);
+      myLeaveState.remove(node);
+      myStateSnapshots.remove(node);
+    }
+    treeView.reloadWithSelection(toSelect);
+    settings.reload();
+  }
+
+  private static boolean isInTree(@NotNull Configurable configurable, @NotNull List<? extends ConfigurableGroup> groups) {
+    return ConfigurableVisitor.find(candidate -> candidate == configurable, groups) != null;
+  }
+
+  /** The page with {@code id}, or the first page of the tree when the tree has no such page. */
+  private static @Nullable Configurable findConfigurableOrFirst(@NotNull String id, @NotNull List<? extends ConfigurableGroup> groups) {
+    Configurable configurable = ConfigurableVisitor.findById(id, groups);
+    return configurable != null ? configurable : ConfigurableVisitor.find(ConfigurableVisitor.ALL, groups);
+  }
+
+  /** The tree of a window that configures several projects, or {@code null} for the tree of one project. */
+  @Nullable FrameProjectsConfigurableGroup getFrameProjectsGroup() {
+    return myFrameProjectsGroup;
+  }
+
+  /**
+   * Applies the changes of the pages of {@code project}, for example before {@code project} closes.
+   * Returns {@code false} when a page rejects its values. Then the tree selects that page, and the page shows the error.
+   */
+  boolean applyFrameProject(@NotNull Project project) {
+    if (myFrameProjectsGroup == null) {
+      return true;
+    }
+    Set<String> modifiedIds = new HashSet<>();
+    for (FrameProjectConfigurable page : myFrameProjectsGroup.modifiedPagesOf(project)) {
+      try {
+        // a click on a Swing button holds no write-intent lock, and some pages apply in a write action
+        WriteIntentReadAction.runThrowable(() -> page.apply(project));
+        modifiedIds.add(page.getId());
+      }
+      catch (ConfigurationException e) {
+        checkFrameProjectPages();
+        Map<Configurable, ConfigurationException> errors = new HashMap<>(filter.context.getErrors());
+        errors.put(page, e);
+        filter.context.fireErrorsChanged(errors, null);
+        treeView.select(page);
+        return false;
+      }
+    }
+    checkFrameProjectPages();
+    if (!modifiedIds.isEmpty()) {
+      ApplicationManager.getApplication().getMessageBus().syncPublisher(SettingsDialogListener.TOPIC).afterApply(this, modifiedIds);
+    }
+    return true;
+  }
+
+  /** Drops the changes of the pages of {@code project}, for example before {@code project} closes. */
+  void cancelFrameProject(@NotNull Project project) {
+    if (myFrameProjectsGroup == null) {
+      return;
+    }
+    for (FrameProjectConfigurable page : myFrameProjectsGroup.modifiedPagesOf(project)) {
+      page.cancel(project);
+      // the reset drops the mark and the error of the page, and the check marks a page with a change of another project again
+      filter.context.fireReset(page);
+      checkModifiedInternal(page);
+    }
+    updateStatus(filter.context.getCurrentConfigurable());
+  }
+
+  /** Checks each page of several projects for changes again, because the pages of one project changed or left. */
+  private void checkFrameProjectPages() {
+    for (Configurable configurable : new ArrayList<>(filter.context.getModified())) {
+      if (configurable instanceof FrameProjectConfigurable) {
+        checkModifiedInternal(configurable);
+      }
+    }
+    updateStatus(filter.context.getCurrentConfigurable());
+  }
+
+  /**
+   * Shows the project selector for a page of several projects, and the page of the shown project in that page.
+   * The selector lists only the projects that have the page, and it hides when no project has the page.
+   */
+  private void updateFrameProject(@Nullable Configurable configurable) {
+    if (myProjectTabs == null) {
+      return;
+    }
+    boolean visible = false;
+    if (configurable instanceof FrameProjectConfigurable frameProject) {
+      frameProject.showSelectedProject();
+      myProjectTabs.show(frameProject);
+      visible = !frameProject.getProjectsWithPage().isEmpty();
+    }
+    JComponent tabs = myProjectTabs.getComponent();
+    if (tabs.isVisible() != visible) {
+      tabs.setVisible(visible);
+      myContent.revalidate();
+      myContent.repaint();
     }
   }
 
@@ -611,6 +809,26 @@ public final class SettingsEditor extends AbstractEditor implements UiDataProvid
     sink.set(History.KEY, myHistory);
     sink.set(Settings.KEY, settings);
     sink.set(SearchTextField.KEY, search);
+    Project shownProject = getShownProject();
+    if (shownProject != null) {
+      sink.set(CommonDataKeys.PROJECT, shownProject);
+    }
+  }
+
+  /**
+   * The project whose settings the editor shows, or {@code null} for the tree of one project.
+   * A page of several projects shows {@link FrameProjectConfigurable#getShownProject}. Every other page shows the selected project.
+   * The window still belongs to its own project. Only the actions over the editor get this project.
+   */
+  @Nullable Project getShownProject() {
+    FrameProjectsConfigurableGroup group = myFrameProjectsGroup;
+    if (group == null) {
+      return null;
+    }
+    Project project = filter.context.getCurrentConfigurable() instanceof FrameProjectConfigurable page
+                      ? page.getShownProject()
+                      : group.getProjects().getSelected();
+    return project.isDisposed() ? null : project;
   }
 
   @Override
@@ -627,6 +845,17 @@ public final class SettingsEditor extends AbstractEditor implements UiDataProvid
   @Override
   protected Action getResetAction() {
     return myResetAllAction;
+  }
+
+  /**
+   * Gives the value of a table cell that the user still edits to its page. A check for changes that comes before a
+   * question about them needs this call first, or it does not see that value.
+   */
+  void stopFocusedEditing() {
+    Window window = SwingUtilities.getWindowAncestor(myContent);
+    if (window != null) {
+      UIUtil.stopFocusedEditing(window);
+    }
   }
 
   /** Checks the current page for changes at once. Without this call, the editor checks a page only after a delay. */
@@ -891,6 +1120,7 @@ public final class SettingsEditor extends AbstractEditor implements UiDataProvid
       lastController = controller;
       controller.setBanner(myBanner);
     }
+    updateFrameProject(configurable);
     updateStatus(configurable);
   }
 

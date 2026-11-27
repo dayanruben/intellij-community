@@ -78,6 +78,12 @@ public class PyCodeStyleSettings extends CustomCodeStyleSettings {
 
   public boolean NEW_LINE_AFTER_COLON = false;
   public boolean NEW_LINE_AFTER_COLON_MULTI_CLAUSE = true;
+  /**
+   * Puts the body of a class or a function on the line of its colon when the body is only {@code ...},
+   * as Black and Ruff do: {@code def f(): ...}. A comment before the body or on a line after it keeps
+   * the body on its own line. The option takes precedence over {@link #NEW_LINE_AFTER_COLON}.
+   */
+  public boolean ELLIPSIS_BODY_ON_SAME_LINE = false;
 
   public boolean SPACE_AFTER_NUMBER_SIGN = true;
   public boolean SPACE_BEFORE_NUMBER_SIGN = true;
@@ -146,6 +152,20 @@ public class PyCodeStyleSettings extends CustomCodeStyleSettings {
    * inside even if there is so called hanging indent (nothing follows the opening bracket on its line).
    */
   public boolean HANG_CLOSING_BRACKETS = false;
+
+  /**
+   * Splits a subscription that does not fit on one line: a line break after {@code [}, one item per line,
+   * and {@code ]} on its own line. Black and Ruff split at the same brackets. They keep the items on one line
+   * when the items fit there, but this option chops them down, as the "Chop down if long" collections do.
+   * Without the option, a long subscription wraps as needed.
+   */
+  public boolean CHOP_DOWN_LONG_SUBSCRIPTIONS = false;
+
+  /**
+   * Puts a long assigned value on its own line in parentheses, as Black and Ruff do.
+   * See {@link PyLongAssignedValuePreFormatProcessor} for the cases that the option changes.
+   */
+  public boolean WRAP_LONG_ASSIGNED_VALUE_IN_PARENTHESES = false;
 
   public boolean FORMAT_INJECTED_FRAGMENTS = true;
   public boolean ADD_INDENT_INSIDE_INJECTIONS = false;

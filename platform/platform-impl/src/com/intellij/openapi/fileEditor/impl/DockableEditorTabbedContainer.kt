@@ -23,6 +23,7 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.wm.IdeGlassPaneUtil
 import com.intellij.ui.awt.RelativePoint
 import com.intellij.ui.awt.RelativeRectangle
+import com.intellij.ui.createDropAreaShape
 import com.intellij.ui.docking.DockContainer
 import com.intellij.ui.docking.DockContainer.ContentResponse
 import com.intellij.ui.docking.DockableContent
@@ -45,13 +46,13 @@ import org.intellij.lang.annotations.MagicConstant
 import org.jdom.Element
 import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.TestOnly
+import org.jetbrains.annotations.VisibleForTesting
 import java.awt.Component
 import java.awt.Graphics2D
 import java.awt.Image
 import java.awt.Point
 import java.awt.Shape
 import java.awt.event.MouseEvent
-import java.awt.geom.Rectangle2D
 import java.util.concurrent.CopyOnWriteArraySet
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.JComponent
@@ -392,24 +393,29 @@ class DockableEditorTabbedContainer internal constructor(
     }
 
     fun processDropOver() {
-      boundingBox = null
       setNeedsRepaint(true)
-      val r = currentOver!!.dropArea
-      val currentDropSide: Int = currentDropSide
-      if (currentDropSide == -1) {
-        return
-      }
-      val file = currentOverInfo?.`object` as? VirtualFile
-      val dragStartLocation = file?.getUserData(DRAG_START_LOCATION_HASH_KEY)
-      if (currentDropSide == SwingConstants.CENTER &&
-          dragStartLocation != null &&
-          dragStartLocation == System.identityHashCode(currentOver)) {
-        return
-      }
-
-      TabsUtil.updateBoundsWithDropSide(r, currentDropSide)
-      boundingBox = Rectangle2D.Double(r.x.toDouble(), r.y.toDouble(), r.width.toDouble(), r.height.toDouble())
+      boundingBox = getDropAreaShape()
     }
+  }
+
+  @VisibleForTesting
+  internal fun getDropAreaShape(): Shape? {
+    val tabs = currentOver ?: return null
+    val currentDropSide = currentDropSide
+    if (currentDropSide == -1) {
+      return null
+    }
+    val file = currentOverInfo?.`object` as? VirtualFile
+    val dragStartLocation = file?.getUserData(DRAG_START_LOCATION_HASH_KEY)
+    if (currentDropSide == SwingConstants.CENTER &&
+        dragStartLocation != null &&
+        dragStartLocation == System.identityHashCode(tabs)) {
+      return null
+    }
+
+    val r = tabs.dropArea
+    TabsUtil.updateBoundsWithDropSide(r, currentDropSide)
+    return createDropAreaShape(r, splitters.getEditorArea(tabs.component), TabsUtil.getDropAreaArc())
   }
 
   override fun toString(): String = "DockableEditorTabbedContainer windows=${splitters.windows().joinToString()}"

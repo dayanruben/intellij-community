@@ -69,9 +69,13 @@ object PyClassicStyleGuide {
       HUG_SOLE_COLLECTION_ARGUMENT = false
 
       NEW_LINE_AFTER_COLON = false
+      ELLIPSIS_BODY_ON_SAME_LINE = false
 
       HANG_CLOSING_BRACKETS = false
       DICT_ALIGNMENT = PyCodeStyleSettings.DICT_ALIGNMENT_NONE
+
+      CHOP_DOWN_LONG_SUBSCRIPTIONS = false
+      WRAP_LONG_ASSIGNED_VALUE_IN_PARENTHESES = false
     }
   }
 

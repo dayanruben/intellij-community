@@ -56,30 +56,5 @@
 
     <colorAndFontPanelFactory implementation="com.intellij.collaboration.ui.codereview.ReviewColorsPageFactory"/>
     <colorAndFontDescriptorProvider implementation="com.intellij.collaboration.ui.codereview.ReviewColorsPageFactory"/>
-
-    <advancedSetting id="enable.combined.diff.for.codereview"
-                     default="false"
-                     bundle="messages.CollaborationToolsBundle"
-                     groupKey="advanced.settings.collab.tools"/>
-
   </extensions>
-
-  <actions resource-bundle="messages.CollaborationToolsBundle">
-    <group id="CodeReview.Branch.Actions">
-      <action id="CodeReview.Branch.Checkout"
-              class="com.intellij.collaboration.ui.codereview.details.CodeReviewCheckoutBranchAction"/>
-      <action id="CodeReview.Branch.CheckoutInNewWorktree"
-              class="com.intellij.collaboration.ui.codereview.details.CodeReviewCheckoutBranchInNewWorktreeAction"/>
-      <separator/>
-      <action id="CodeReview.Branch.ShowInLog"
-              class="com.intellij.collaboration.ui.codereview.details.CodeReviewShowBranchInLogAction"/>
-      <action id="CodeReview.Branch.CopyName"
-              class="com.intellij.collaboration.ui.codereview.details.CodeReviewCopyBranchNameAction"/>
-    </group>
-  </actions>
-
-  <applicationListeners>
-    <listener class="com.intellij.collaboration.ui.codereview.CodeReviewCombinedDiffAdvancedSettingsChangeListener"
-              topic="com.intellij.openapi.options.advanced.AdvancedSettingsChangeListener"/>
-  </applicationListeners>
 </idea-plugin>

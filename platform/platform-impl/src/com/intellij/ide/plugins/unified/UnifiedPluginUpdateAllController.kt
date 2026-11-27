@@ -42,6 +42,7 @@ internal data class UnifiedPluginUpdateAllTarget(
 internal data class UnifiedPluginUpdateAllState(
   val presentation: UnifiedPluginUpdateAllPresentation = UnifiedPluginUpdateAllPresentation.Hidden,
   val targets: List<UnifiedPluginUpdateAllTarget> = emptyList(),
+  val restartRequired: Boolean = false,
 )
 
 internal data class UnifiedPluginUpdateAllRequest(
@@ -88,6 +89,8 @@ internal class UnifiedPluginUpdateAllController(
   private val lock = Any()
   private val mutableState = MutableStateFlow(UnifiedPluginUpdateAllState())
   private var latestUpdates: List<PluginUiModel> = emptyList()
+  private val preparedBatchPluginIds = HashSet<PluginId>()
+  private var failedPluginIds: Set<PluginId> = emptySet()
   private var activeRequest: ActiveRequest? = null
   private var nextGeneration = 0L
   private var preparedRestartRequired = false
@@ -105,14 +108,34 @@ internal class UnifiedPluginUpdateAllController(
     }
   }
 
+  fun clearAvailableUpdates() {
+    synchronized(lock) {
+      if (closed) return
+      latestUpdates = emptyList()
+      failedPluginIds = emptySet()
+      if (activeRequest == null) publishSnapshotAvailability()
+    }
+  }
+
   fun acceptOperationEvent(event: PluginModelEvent) {
     try {
       synchronized(lock) {
         if (closed) return
-        if (event is PluginModelEvent.InventoryInvalidated && event.reason == PluginInventoryChangeReason.RESET) {
-          activeRequest = null
-          preparedRestartRequired = false
-          publishSnapshotAvailability()
+        if (event is PluginModelEvent.InventoryInvalidated) {
+          when (event.reason) {
+            PluginInventoryChangeReason.APPLY -> {
+              latestUpdates = availableUpdates()
+              preparedBatchPluginIds.clear()
+            }
+            PluginInventoryChangeReason.RESET -> {
+              activeRequest = null
+              preparedBatchPluginIds.clear()
+              failedPluginIds = emptySet()
+              preparedRestartRequired = false
+              publishSnapshotAvailability()
+            }
+            else -> Unit
+          }
           return
         }
         val request = activeRequest ?: return
@@ -147,15 +170,17 @@ internal class UnifiedPluginUpdateAllController(
   fun requestUpdateAll() {
     val execution = synchronized(lock) {
       if (closed || !mutableState.value.presentation.canStartUpdateAll()) return
+      val available = availableUpdates()
       val updates = if (mutableState.value.presentation == UnifiedPluginUpdateAllPresentation.Failed) {
-        mutableState.value.targets.filter { it.status == UnifiedPluginUpdateAllTargetStatus.Failed }.map { it.model }
+        eligibleFailedUpdates(available)
       }
       else {
-        latestUpdates
+        available
       }
       if (updates.isEmpty()) return
       val request = UnifiedPluginUpdateAllRequest(++nextGeneration, updates.toList())
       val active = ActiveRequest(request)
+      failedPluginIds = emptySet()
       activeRequest = active
       publishRequestState(active)
       Execution(request, callback(request.generation))
@@ -215,6 +240,7 @@ internal class UnifiedPluginUpdateAllController(
   private fun acceptPrepared(request: ActiveRequest, pluginId: PluginId, restartRequired: Boolean) {
     if (pluginId !in request.request.pluginIds || pluginId in request.terminalPluginIds) return
     request.preparedPluginIds.add(pluginId)
+    preparedBatchPluginIds.add(pluginId)
     preparedRestartRequired = preparedRestartRequired || restartRequired
     publishAfterTargetFinished(request)
   }
@@ -252,10 +278,8 @@ internal class UnifiedPluginUpdateAllController(
 
     activeRequest = null
     if (request.failedPluginIds.isNotEmpty()) {
-      val failedTargets = request.request.updates.filter { it.pluginId in request.failedPluginIds }.map { model ->
-        UnifiedPluginUpdateAllTarget(model, UnifiedPluginUpdateAllTargetStatus.Failed)
-      }
-      publish(UnifiedPluginUpdateAllState(UnifiedPluginUpdateAllPresentation.Failed, failedTargets))
+      failedPluginIds = request.failedPluginIds.toSet()
+      publishIdleState()
     }
     else {
       publish(UnifiedPluginUpdateAllState(
@@ -284,21 +308,31 @@ internal class UnifiedPluginUpdateAllController(
   }
 
   private fun publishIdleState() {
-    val currentPresentation = mutableState.value.presentation
-    publish(when (currentPresentation) {
-      UnifiedPluginUpdateAllPresentation.RestartRequired,
-      UnifiedPluginUpdateAllPresentation.Updated,
-      UnifiedPluginUpdateAllPresentation.Failed -> mutableState.value
-      else -> snapshotAvailabilityState()
-    })
+    val available = availableUpdates()
+    val failedTargets = eligibleFailedUpdates(available).map { model ->
+      UnifiedPluginUpdateAllTarget(model, UnifiedPluginUpdateAllTargetStatus.Failed)
+    }
+    val presentation = when {
+      failedTargets.isNotEmpty() -> UnifiedPluginUpdateAllPresentation.Failed
+      available.isNotEmpty() -> UnifiedPluginUpdateAllPresentation.Available
+      else -> when (val current = mutableState.value.presentation) {
+        UnifiedPluginUpdateAllPresentation.RestartRequired, UnifiedPluginUpdateAllPresentation.Updated -> current
+        else -> UnifiedPluginUpdateAllPresentation.Hidden
+      }
+    }
+    publish(UnifiedPluginUpdateAllState(presentation, failedTargets))
   }
+
+  private fun availableUpdates(): List<PluginUiModel> = latestUpdates.filterNot { it.pluginId in preparedBatchPluginIds }
+
+  private fun eligibleFailedUpdates(available: List<PluginUiModel>): List<PluginUiModel> = available.filter { it.pluginId in failedPluginIds }
 
   private fun publishSnapshotAvailability() {
     publish(snapshotAvailabilityState())
   }
 
   private fun snapshotAvailabilityState(): UnifiedPluginUpdateAllState {
-    return if (latestUpdates.isEmpty()) {
+    return if (availableUpdates().isEmpty()) {
       UnifiedPluginUpdateAllState()
     }
     else {
@@ -308,7 +342,7 @@ internal class UnifiedPluginUpdateAllController(
 
   private fun publish(state: UnifiedPluginUpdateAllState) {
     val previousTargets = mutableState.value.targets
-    mutableState.value = state
+    mutableState.value = state.copy(restartRequired = preparedRestartRequired)
     if (previousTargets != state.targets) {
       targetSink(state.targets)
     }

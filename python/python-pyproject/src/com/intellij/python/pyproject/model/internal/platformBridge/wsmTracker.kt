@@ -5,12 +5,15 @@ import com.intellij.platform.backend.workspace.virtualFile
 import com.intellij.platform.workspace.jps.entities.ContentRootEntity
 import com.intellij.platform.workspace.jps.entities.ExcludeUrlEntity
 import com.intellij.platform.workspace.jps.entities.ModuleEntity
+import com.intellij.platform.workspace.jps.entities.contentRoot
 import com.intellij.platform.workspace.storage.EntityChange
 import com.intellij.platform.workspace.storage.ImmutableEntityStorage
 import com.intellij.platform.workspace.storage.VersionedStorageChange
 import com.intellij.platform.workspace.storage.entities
 import com.intellij.platform.workspace.storage.url.VirtualFileUrl
+import com.intellij.python.pyproject.model.evolution.interpreterEnvironmentHomeOf
 import com.intellij.python.pyproject.model.internal.workspaceBridge.isPythonEntity
+import com.intellij.python.pyproject.model.internal.workspaceBridge.pyProjectTomlEntity
 import com.intellij.workspaceModel.ide.toPath
 import java.nio.file.Path
 
@@ -49,7 +52,7 @@ internal fun VersionedStorageChange.toRebuildRequest(projectBasePath: Path): Pen
   }
   if (newlyExcluded.isNotEmpty()) {
     // A rebuild excludes a virtualenv of its own, and that write must not start a new rebuild.
-    val fromPlatform = newlyExcluded.filterValues { !it.entitySource.isPythonEntity }
+    val fromPlatform = newlyExcluded.filterValues { !it.entitySource.isPythonEntity && !it.isInterpreterEnvironment(projectBasePath) }
     if (fromPlatform.isNotEmpty()) {
       return PendingRebuild.Directories(emptySet(), describe("newly excluded", fromPlatform.keys))
     }
@@ -57,15 +60,34 @@ internal fun VersionedStorageChange.toRebuildRequest(projectBasePath: Path): Pen
 
   for (change in getChanges(ModuleEntity::class.java)) {
     val module = when (change) {
-      is EntityChange.Added -> change.newEntity
+      is EntityChange.Added -> change.newEntity.takeUnless { it.isAddedByModel }
       is EntityChange.Removed -> null
-      is EntityChange.Replaced -> change.newEntity.takeIf { it.name != change.oldEntity.name }
+      // The model renames only a module that has its entity source, so each other rename is one of the user.
+      is EntityChange.Replaced -> change.newEntity.takeIf { it.name != change.oldEntity.name && !it.entitySource.isPythonEntity }
     }
-    if (module != null && !module.entitySource.isPythonEntity) {
+    if (module != null) {
       return PendingRebuild.Directories(emptySet(), "workspace model, the platform added or renamed the module '${module.name}'")
     }
   }
   return null
+}
+
+/**
+ * Whether the `pyproject.toml` model added this module, so the addition starts no rebuild. In PyCharm such a module has
+ * the entity source of the model. In another IDE it has the entity source of a user module, and the model marks it with
+ * its [pyProjectTomlEntity], see `applyKeepingModules`.
+ */
+private val ModuleEntity.isAddedByModel: Boolean
+  get() = entitySource.isPythonEntity || pyProjectTomlEntity != null
+
+/**
+ * Whether this exclusion is the environment of the interpreter of its module. The model writes such an exclusion when
+ * it sets the interpreter, see `excludeInnerVirtualEnv`. In another IDE the exclusion has the entity source of the user,
+ * so only its URL tells it from an exclusion that the user made.
+ */
+private fun ExcludeUrlEntity.isInterpreterEnvironment(projectBasePath: Path): Boolean {
+  val home = contentRoot?.module?.let { interpreterEnvironmentHomeOf(it, projectBasePath) } ?: return false
+  return url.toPath() == home
 }
 
 /** Checks root membership only when a content root was added, removed, or changed its URL. */

@@ -8,11 +8,14 @@ targets:
   - ../../src/com/intellij/ide/plugins/newui/DefaultUiPluginManagerController.kt
   - ../../src/com/intellij/ide/plugins/newui/LegacyPluginUiHost.kt
   - ../../src/com/intellij/ide/plugins/newui/ListPluginComponent.kt
+  - ../../src/com/intellij/ide/plugins/newui/MyPluginModel.kt
   - ../../src/com/intellij/ide/plugins/newui/PluginDetailsPageComponent.kt
+  - ../../src/com/intellij/ide/plugins/newui/PluginUpdateModeButton.kt
   - ../../src/com/intellij/ide/plugins/newui/PluginManagerCustomizer.kt
   - ../../src/com/intellij/ide/plugins/newui/PluginModelAsyncOperationsExecutor.kt
   - ../../src/com/intellij/ide/plugins/newui/PluginModelEvents.kt
   - ../../src/com/intellij/ide/plugins/newui/PluginUpdateSourceFilter.kt
+  - ../../src/com/intellij/ide/plugins/newui/PluginUpdatesService.kt
   - ../../src/com/intellij/ide/plugins/newui/SelectionBasedPluginModelAction.java
   - ../../src/com/intellij/ide/plugins/newui/UninstallAction.kt
   - ../../src/com/intellij/ide/plugins/unified/LegacyPluginRowFactory.kt
@@ -23,6 +26,7 @@ targets:
   - ../../src/com/intellij/ide/plugins/unified/UnifiedPluginUpdateAllExecutor.kt
   - ../../src/com/intellij/ide/plugins/unified/UnifiedPluginsPageActions.kt
   - ../../src/com/intellij/ide/plugins/unified/UnifiedPluginsPageSourceCoordinator.kt
+  - ../../src/com/intellij/ide/plugins/unified/UnifiedPluginsPageView.kt
   - ../../testSrc/com/intellij/ide/plugins/UnifiedPluginsPageApplyStateTest.kt
   - ../../testSrc/com/intellij/ide/plugins/UnifiedPluginsPageSessionTest.kt
   - ../../testSrc/com/intellij/ide/plugins/newui/InstallPluginTerminalStateTest.kt
@@ -31,6 +35,7 @@ targets:
   - ../../testSrc/com/intellij/ide/plugins/newui/PluginManagerButtonUsageTest.kt
   - ../../testSrc/com/intellij/ide/plugins/newui/PluginModelEventPublisherTest.kt
   - ../../testSrc/com/intellij/ide/plugins/newui/PluginUpdateSourceFilterTest.kt
+  - ../../testSrc/com/intellij/ide/plugins/newui/PluginUpdatesServiceTest.kt
   - ../../testSrc/com/intellij/ide/plugins/unified/LegacyPluginRowFactoryTest.kt
   - ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginInstallingLedgerTest.kt
   - ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginLocalSourceCoordinatorTest.kt
@@ -96,12 +101,11 @@ Untested: No focused page test covers the complete action set.
     `logical operation publishes the combined restart result`
   )
 
-## Installing Section
+## Operation Tracking
 
-- An active install or update must appear in Installing before its destination inventory settles.
-- An accepted dependency must appear in Installing while its operation is active.
+- The session must track active installs, updates, and accepted dependencies before the inventory settles.
 - Each scheduled or installed dependency must appear once in its logical operation.
-- Operation state must stay consistent across Installing, source rows, and plugin details.
+- Operation state must stay consistent across the header status, source rows, and plugin details.
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginInstallingLedgerTest.kt (
     `scheduled dependencies are active before operation completion`;
     `section projection combines operation model with current list facts`
@@ -112,8 +116,8 @@ Untested: No focused page test covers the complete action set.
   )
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageSourceCoordinatorTest.kt
 
-- Installing must retain each accepted attempt and its terminal result for the current page session.
-- A retry must update the retained plugin occurrence without adding a duplicate.
+- The session must retain each accepted attempt and its terminal result.
+- A retry must update the retained entry for the plugin.
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginInstallingLedgerTest.kt (
     `all terminal results are retained`;
     `retry updates the retained occurrence without duplicating it`
@@ -255,7 +259,18 @@ Untested: No focused test verifies state isolation across two page sessions.
   )
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageSourceCoordinatorTest.kt (
     `prepared manual update overrides a cached update in every occurrence`;
-    `prepared Marketplace install stays installed after the query is repeated`
+    `Marketplace selection stays on a scheduled install`
+  )
+
+- A newly scheduled install and its new dependencies must appear with progress in Installed when they match the current query.
+- When a user installs a selected plugin, the selection must stay on the source row while it is visible.
+- The source and Installed rows must show the same installation progress and prepared state.
+- A successful install must remain selectable before Apply and while Apply refreshes the inventory.
+- Reset must remove a prepared install when the inventory has no installed copy.
+  [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageSourceCoordinatorTest.kt (
+    `Marketplace selection stays on a scheduled install`;
+    `scheduled installs and dependencies show progress in Installed`;
+    `source rows keep an install through Apply`
   )
 
 - After progress ends, the row and details must replace their action controls with one prepared action.
@@ -278,12 +293,39 @@ Untested: No focused test verifies state isolation across two page sessions.
 
 Untested: No focused test covers the complete Settings menu or the staged automatic-update setting.
 
+- The Settings menu must offer Check for Updates after Update Plugins Automatically when the toggle is available.
+- Check for Updates must clear the cached updates and request a fresh check from each provider.
+- The check must leave active plugin operations and pending restart requests in effect.
+  [@test] ../../testSrc/com/intellij/ide/plugins/UnifiedPluginsPageSessionTest.kt (
+    `settings menu offers Check for Updates after automatic updates`
+  )
+  [@test] ../../testSrc/com/intellij/ide/plugins/newui/PluginUpdatesServiceTest.kt (
+    `manual check clears cached results before requesting all providers`
+  )
+  [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginUpdateAllControllerTest.kt (
+    `clearing available updates preserves active progress and prepared restart`
+  )
+
+- After a successful disk installation, the page must clear the Plugins search and select the installed plugin before Apply.
+- The page must scroll the selected row into view and expand its section when necessary.
+  [@test] ../../testSrc/com/intellij/ide/plugins/UnifiedPluginsPageSessionTest.kt (
+    `disk install selects the new plugin before Apply`;
+    `disk install clears the search and selects the new plugin`
+  )
+
+- Auto-Update mode for a plugin must remove it from automatic and regular update exclusions.
+- Manual Update mode for a plugin must exclude it from automatic update only.
+- Ignore Updates mode for a plugin must exclude it from automatic and regular update checks.
+  [@test] ../../../platform-tests/testSrc/com/intellij/openapi/application/UpdateCheckerFacadeTest.kt (
+    `plugin excluded from updates is omitted from update check`
+  )
+
 - Repository, proxy, and certificate changes must refresh the page after a successful edit.
 - A repository edit must give the active customizer the added and removed repository URLs.
 
 Untested: No focused test covers every management edit and refresh path.
 
-- Enable All and Disable All must use the complete query-independent Installed section.
+- Enable All and Disable All must use the installed inventory in the complete query-independent Installed section.
 - These actions must not include Bundled or remote-source sections.
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageStateTest.kt (
     `bulk state actions use only installed section models`
@@ -305,38 +347,88 @@ Untested: No focused test covers every management edit and refresh path.
 
 - Update All must capture the current enabled update set when the user starts it.
 - Disabled updates must not enter an Update All request.
+- Update All must hide when Ignore Updates removes the last enabled update.
+- Update All must show when Manual Update or Auto-Update restores an enabled update.
 - Update All must use pending enablement changes from the current settings session.
 - Enabling a plugin must admit its cached update even when the update check classified the plugin as disabled.
   [@test] ../../testSrc/com/intellij/ide/plugins/UnifiedPluginsPageSessionTest.kt (
     `Update All follows session enablement with cached disabled updates`
   )
+  [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginUpdateAllControllerTest.kt (
+    `button hides when the last update leaves the enabled snapshot`;
+    `button becomes available when an update returns to the enabled snapshot`;
+  )
+
+- Update All must exclude updates that are downloading, prepared, or already applied to their targets.
+- Reset must restore eligible updates that were prepared in the session.
+  [@test] ../../testSrc/com/intellij/ide/plugins/UnifiedPluginsPageSessionTest.kt (
+    `Update All excludes prepared and applied individual updates`
+  )
 
 - The captured total must stay fixed while that request runs.
 - A successful prepared update must advance the prepared count.
 - A failed or cancelled update must not advance the prepared count.
-- Any failed target must make the completed request retryable.
-- Retry must include only failed targets that remain eligible.
+- An eligible failed target must make the completed request retryable.
+- Retry must use the current update for each eligible failed target.
 - A restart requirement must produce the Restart IDE terminal state.
 - Completion without restart must produce the Updated terminal state.
-- A later update snapshot must replace an obsolete terminal state.
+- A later snapshot with eligible updates must restore Update All.
+- A pending restart must remain in effect when Update All becomes available again.
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginUpdateAllControllerTest.kt (
     `request captures one snapshot before executor starts`;
     `failed operation is retained after the other updates prepare`;
+    `retry follows eligibility after a batch fails`;
     `restart requirement survives a retry`;
-    `completion without restart shows updated state`
+    `completion without restart shows updated state`;
+    `apply makes a new update for the same plugin eligible`;
+    `new eligible updates replace Updated`;
+    `new eligible updates preserve pending restart`
   )
 
 ## Operation Presentation
 
-- Installing must appear before all source sections when it has visible occurrences.
-- Installing must not change in response to the search query.
-- Update All must stay visible and disabled while its request runs.
-- Update All must show prepared and total counts while its request runs.
-- Active operation progress must appear in each matching row and in the selected plugin details.
-  [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginUpdateAllControllerTest.kt
+- Active installs and updates must show a spinner and status beside the settings gear.
+- The status must use spare header space and show a tooltip for truncated text.
+- The status must follow operations across query changes and hide when it has no progress to show.
   [@test] ../../testSrc/com/intellij/ide/plugins/UnifiedPluginsPageSessionTest.kt (
-    `Update All button counts prepared executor targets`
+    `operation status uses only free header space`;
+    `Update All uses the header status for batch progress`
   )
+
+- An active uninstall must show a spinner and an Uninstalling status beside the settings gear.
+- Uninstall progress takes precedence over other header status. It clears when the uninstall succeeds, fails, or is cancelled.
+  [@test] ../../testSrc/com/intellij/ide/plugins/UnifiedPluginsPageSessionTest.kt (
+    `uninstall progress stays in the header across search changes`
+  )
+  [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginInstallingLedgerTest.kt (
+    `uninstall progress lasts until both sides finish`
+  )
+
+- Pending installs or updates that require restart must show one Restart IDE button with a restart icon beside the settings gear.
+- The button must replace the status when all operations finish. Active progress must take precedence.
+- Search filters must not affect the restart button.
+  [@test] ../../testSrc/com/intellij/ide/plugins/UnifiedPluginsPageSessionTest.kt (
+    `pending restart shares the header slot with active progress`;
+    `header Restart applies the session before restart`
+  )
+
+- While the Plugins page fetches updates, the header must show Checking for updates… with a spinner.
+- Install, update, and uninstall progress and Restart IDE must take precedence over the check status.
+- The check status must clear when the fetch succeeds, fails, or is cancelled.
+  [@test] ../../testSrc/com/intellij/ide/plugins/newui/DefaultPluginUpdatesProviderTest.kt (
+    `update check progress clears after success or failure`
+  )
+  [@test] ../../testSrc/com/intellij/ide/plugins/UnifiedPluginsPageSessionTest.kt (
+    `pending restart shares the header slot with active progress`
+  )
+
+- The Update All button must hide while its request runs or the header status shows progress.
+- The header status must show the prepared and total counts for Update All.
+  [@test] ../../testSrc/com/intellij/ide/plugins/UnifiedPluginsPageSessionTest.kt (
+    `Update All uses the header status for batch progress`
+  )
+
+- Active operation progress must appear in each matching row and in the selected plugin details.
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/LegacyPluginRowFactoryTest.kt (
     `active update renders row and details progress without action overlap`
   )

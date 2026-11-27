@@ -3,21 +3,28 @@ package org.jetbrains.plugins.github.authentication
 
 import com.intellij.collaboration.async.cancelledWith
 import com.intellij.collaboration.messages.CollaborationToolsBundle
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.ide.DataManager
 import com.intellij.ide.passwordSafe.PasswordSafe
 import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.actionSystem.Separator
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.MessageDialogBuilder
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.popup.JBPopupFactory
+import com.intellij.openapi.util.NlsActions
 import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.util.text.HtmlBuilder
 import com.intellij.openapi.util.text.HtmlChunk
+import com.intellij.openapi.vcs.VcsNotifier
+import com.intellij.platform.ide.progress.ModalTaskOwner
+import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.platform.util.coroutines.childScope
 import com.intellij.ui.CollectionComboBoxModel
 import com.intellij.ui.components.DropDownLink
@@ -31,18 +38,29 @@ import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.plugins.github.api.GithubApiRequestExecutor
+import org.jetbrains.plugins.github.api.GithubApiRequests
 import org.jetbrains.plugins.github.api.GithubServerPath
 import org.jetbrains.plugins.github.authentication.GHLoginData.Companion.reLogin
 import org.jetbrains.plugins.github.authentication.accounts.GHAccountManager
 import org.jetbrains.plugins.github.authentication.accounts.GithubAccount
 import org.jetbrains.plugins.github.authentication.accounts.GithubProjectDefaultAccountHolder
-import org.jetbrains.plugins.github.authentication.ui.GHLoginDialog
 import org.jetbrains.plugins.github.authentication.ui.GHLoginModel
+import org.jetbrains.plugins.github.authentication.ui.GHTokenLoginDialog
+import org.jetbrains.plugins.github.authentication.ui.GHTokenLoginViewModel
+import org.jetbrains.plugins.github.authentication.ui.LoginNotUniqueException
+import org.jetbrains.plugins.github.authentication.ui.UniqueLoginPredicate
+import org.jetbrains.plugins.github.authentication.ui.getLoginErrorMessage
+import org.jetbrains.plugins.github.exceptions.GithubAuthenticationException
 import org.jetbrains.plugins.github.i18n.GithubBundle
 import org.jetbrains.plugins.github.ui.util.GHPluginProjectScopeProvider
+import org.jetbrains.plugins.github.util.GithubNotificationIdsHolder
 import java.awt.Component
+import java.util.concurrent.CancellationException
 import javax.swing.JButton
 import javax.swing.JComponent
+
+private val LOG = logger<GHAccountsUtil>()
 
 private val accountManager: GHAccountManager get() = service()
 
@@ -136,7 +154,11 @@ object GHAccountsUtil {
     ) != null
   }
 
-  fun createAddAccountLink(project: Project, accountSelectionModel: CollectionComboBoxModel<GithubAccount>, loginSource: GHLoginSource): JButton {
+  fun createAddAccountLink(
+    project: Project,
+    accountSelectionModel: CollectionComboBoxModel<GithubAccount>,
+    loginSource: GHLoginSource,
+  ): JButton {
     val model = object : GHLoginModel {
       override fun isAccountUnique(server: GithubServerPath, login: String): Boolean =
         accountSelectionModel.items.none { it.name == login && it.server.equals(server, true) }
@@ -159,14 +181,21 @@ object GHAccountsUtil {
     }
   }
 
-  internal fun createAddAccountActionGroup(model: GHLoginModel, project: Project, parentComponent: JComponent, loginSource: GHLoginSource): ActionGroup {
+  internal fun createAddAccountActionGroup(
+    model: GHLoginModel,
+    project: Project,
+    parentComponent: JComponent,
+    loginSource: GHLoginSource,
+  ): ActionGroup {
     val group = DefaultActionGroup()
     val loginData = GHLoginData(loginSource)
     group.add(createBrowserLoginAction(model, project, parentComponent, loginData))
-    group.add(createTokenLoginAction(model, project, parentComponent, loginData))
+    group.add(createTokenLoginAction(CollaborationToolsBundle.message("accounts.action.add.account.with.token"),
+                                     model, project, parentComponent, loginData, isEnterprise = false))
     group.add(Separator())
 
-    group.add(createGHETokenLoginAction(project, model, parentComponent, loginData))
+    group.add(createTokenLoginAction(GithubBundle.message("action.Github.Accounts.AddGHEAccount.text"),
+                                     model, project, parentComponent, loginData, isEnterprise = true))
     return group
   }
 
@@ -174,57 +203,31 @@ object GHAccountsUtil {
   private fun createBrowserLoginAction(
     model: GHLoginModel, project: Project, parentComponent: JComponent, loginData: GHLoginData,
   ): AnAction = DumbAwareAction.create(GithubBundle.message("action.Github.Accounts.AddGHAccount.text")) {
-    loginViaBrowser(model, project, parentComponent, loginData)
-  }
-
-  private fun loginViaBrowser(
-    model: GHLoginModel, project: Project, parentComponent: JComponent?, loginData: GHLoginData,
-  ) {
-    scopedDialog(project) {
-      GHLoginDialog.OAuth(model, project, this, parentComponent, loginData).apply {
-        setServer(GithubServerPath.DEFAULT_HOST, false)
-      }
-    }.showAndGet()
+    loginWithOAuth(model, project, parentComponent, loginData)
   }
 
   private fun createTokenLoginAction(
-    model: GHLoginModel, project: Project, parentComponent: JComponent, loginData: GHLoginData,
-  ): AnAction = DumbAwareAction.create(CollaborationToolsBundle.message("accounts.action.add.account.with.token")) {
-    loginViaToken(model, project, parentComponent, loginData)
+    @NlsActions.ActionText actionName: String,
+    model: GHLoginModel,
+    project: Project,
+    parentComponent: JComponent,
+    loginData: GHLoginData,
+    isEnterprise: Boolean,
+  ): AnAction = DumbAwareAction.create(actionName) {
+    loginViaToken(model, project, parentComponent, loginData, isEnterprise)
   }
 
   private fun loginViaToken(
-    model: GHLoginModel, project: Project, parentComponent: JComponent?, loginData: GHLoginData,
+    model: GHLoginModel, project: Project, parentComponent: JComponent?, loginData: GHLoginData, isEnterprise: Boolean,
   ) {
     scopedDialog(project) {
-      GHLoginDialog.Token(model, project, this, parentComponent, loginData).apply {
+      createTokenLoginDialog(
+        model, project, parentComponent, loginData,
+        server = if (isEnterprise) "" else GithubServerPath.DEFAULT_HOST,
+        isServerEditable = isEnterprise,
+      ).apply {
         title = GithubBundle.message("dialog.title.add.github.account")
         setLoginButtonText(GithubBundle.message("accounts.add.button"))
-        setServer(GithubServerPath.DEFAULT_HOST, false)
-      }
-    }.showAndGet()
-  }
-
-  private fun createGHETokenLoginAction(
-    project: Project,
-    model: GHLoginModel,
-    parentComponent: JComponent,
-    loginData: GHLoginData,
-  ): DumbAwareAction = DumbAwareAction.create(GithubBundle.message("action.Github.Accounts.AddGHEAccount.text")) {
-    loginToGHEViaToken(project, model, parentComponent, loginData)
-  }
-
-  private fun loginToGHEViaToken(
-    project: Project,
-    model: GHLoginModel,
-    parentComponent: JComponent,
-    loginData: GHLoginData,
-  ) {
-    scopedDialog(project) {
-      GHLoginDialog.Token(model, project, this, parentComponent, loginData).apply {
-        title = GithubBundle.message("dialog.title.add.github.account")
-        setLoginButtonText(GithubBundle.message("accounts.add.button"))
-        setServer("", true)
       }
     }.showAndGet()
   }
@@ -344,6 +347,39 @@ object GHAccountsUtil {
       AuthorizationType.UNDEFINED -> request.loginWithOAuthOrToken(model, project, parentComponent)
     }
   }
+
+  @ApiStatus.Internal
+  @RequiresEdt
+  fun loginViaOAuth(account: GithubAccount?, project: Project?, parentComponent: Component?, loginSource: GHLoginSource) {
+    if (account != null) {
+      requestReLogin(account,
+                     project,
+                     parentComponent,
+                     AuthorizationType.OAUTH,
+                     loginSource)
+    }
+    else {
+      requestNewAccount(GithubServerPath.DEFAULT_SERVER,
+                        login = null,
+                        project,
+                        parentComponent,
+                        AuthorizationType.OAUTH,
+                        loginSource)
+    }
+  }
+
+  internal suspend fun acquireLogin(
+    server: GithubServerPath,
+    executor: GithubApiRequestExecutor,
+    isAccountUnique: UniqueLoginPredicate,
+    fixedLogin: String?,
+  ): String {
+    val details = executor.execute(GithubApiRequests.CurrentUser.get(server))
+    val login = details.login
+    if (fixedLogin != null && fixedLogin != login) throw GithubAuthenticationException("Token should match username \"$fixedLogin\"")
+    if (!isAccountUnique(login, server)) throw LoginNotUniqueException(login)
+    return login
+  }
 }
 
 @ApiStatus.Internal
@@ -355,7 +391,6 @@ class GHAccountAuthData(val account: GithubAccount, login: String, token: String
 @ApiStatus.Internal
 class GHLoginRequest(
   val text: @NlsContexts.DialogMessage String? = null,
-  val error: Throwable? = null,
 
   val server: GithubServerPath? = null,
   val isServerEditable: Boolean = server == null,
@@ -364,44 +399,106 @@ class GHLoginRequest(
   val isLoginEditable: Boolean = true,
 
   val authType: AuthorizationType = AuthorizationType.UNDEFINED,
-  val loginData: GHLoginData
+  val loginData: GHLoginData,
 )
 
-private fun GHLoginRequest.configure(dialog: GHLoginDialog) {
-  error?.let { dialog.setError(it) }
-  server?.let { dialog.setServer(it.toString(), isServerEditable) }
-  login?.let { dialog.setLogin(it, isLoginEditable) }
-}
-
 @OptIn(DelicateCoroutinesApi::class)
-private fun <D : GHLoginDialog> scopedDialog(project: Project?, dialogConstructor: CoroutineScope.() -> D): D {
+private fun scopedDialog(project: Project?, dialogConstructor: CoroutineScope.() -> GHTokenLoginDialog): GHTokenLoginDialog {
   if (project != null) {
     return project.service<GHPluginProjectScopeProvider>().constructDialog("GitHub login dialog", dialogConstructor)
   }
   else {
-    val cs = GlobalScope.childScope(GHLoginDialog::class.java.name)
+    val cs = GlobalScope.childScope(GHTokenLoginDialog::class.java.name)
     val dialog = cs.dialogConstructor()
     cs.cancelledWith(dialog.disposable)
     return dialog
   }
 }
 
+private fun CoroutineScope.createTokenLoginDialog(
+  model: GHLoginModel,
+  project: Project?,
+  parentComponent: Component?,
+  loginData: GHLoginData,
+  server: String,
+  isServerEditable: Boolean,
+  fixedLogin: String? = null,
+): GHTokenLoginDialog {
+  val loginVm = GHTokenLoginViewModel(
+    this,
+    GithubApiRequestExecutor.Factory.getInstance(),
+    server = server,
+    fixedLogin = fixedLogin,
+    isAccountUnique = { login, serverPath -> model.isAccountUnique(serverPath, login) },
+  ) { serverPath, login, token ->
+    model.saveLogin(serverPath, login, token)
+    logLoginEvent(serverPath, loginData)
+  }
+  return GHTokenLoginDialog(loginVm, project, this, parentComponent, isServerEditable)
+}
+
 private fun GHLoginRequest.loginWithToken(model: GHLoginModel, project: Project?, parentComponent: Component?) {
   val dialog = scopedDialog(project) {
-    GHLoginDialog.Token(model, project, this, parentComponent, loginData).also {
-      configure(it)
-    }
+    createTokenLoginDialog(
+      model, project, parentComponent, loginData,
+      server = server?.toString() ?: GithubServerPath.DEFAULT_HOST,
+      isServerEditable = server == null || isServerEditable,
+      fixedLogin = login.takeUnless { isLoginEditable },
+    )
   }
   DialogManager.show(dialog)
 }
 
 private fun GHLoginRequest.loginWithOAuth(model: GHLoginModel, project: Project?, parentComponent: Component?) {
-  val dialog = scopedDialog(project) {
-    GHLoginDialog.OAuth(model, project, this, parentComponent, loginData).also {
-      configure(it)
+  loginWithOAuth(model, project, parentComponent, loginData)
+}
+
+@RequiresEdt
+private fun loginWithOAuth(model: GHLoginModel, project: Project?, parentComponent: Component?, loginData: GHLoginData) {
+  val modalTaskOwner = when {
+    parentComponent != null -> ModalTaskOwner.component(parentComponent)
+    project != null -> ModalTaskOwner.project(project)
+    else -> ModalTaskOwner.guess()
+  }
+  val isModalContext = ModalityState.current() != ModalityState.nonModal()
+  var error: Exception? = null
+  try {
+    runWithModalProgressBlocking(modalTaskOwner, GithubBundle.message("login.to.github")) {
+      try {
+        val server = GithubServerPath.DEFAULT_SERVER
+        val token = GHOAuthService.instance.authorize()
+        val executor = GithubApiRequestExecutor.Factory.getInstance().create(server, token)
+        val login = GHAccountsUtil.acquireLogin(server,
+                                                executor,
+                                                isAccountUnique = { login, server -> model.isAccountUnique(server, login) },
+                                                fixedLogin = null)
+        model.saveLogin(server, login, token)
+        GHLoginCollector.login(loginData.copy(authType = GHAuthType.OAUTH, serverOffering = GHServerOffering.of(server)))
+      }
+      catch (e: Exception) {
+        rethrowControlFlowException(e)
+        LOG.warn("GitHub OAuth login failed", e)
+        error = e
+      }
     }
   }
-  DialogManager.show(dialog)
+  catch (_: CancellationException) {
+  }
+  error?.let { showOAuthLoginError(it, project, parentComponent, isModalContext) }
+}
+
+private fun showOAuthLoginError(error: Exception, project: Project?, parentComponent: Component?, isModalContext: Boolean) {
+  val message = getLoginErrorMessage(error)
+  if (isModalContext || project == null) {
+    val title = GithubBundle.message("login.to.github")
+    if (parentComponent != null) Messages.showErrorDialog(parentComponent, message, title)
+    else Messages.showErrorDialog(project, message, title)
+  }
+  else {
+    VcsNotifier.getInstance(project).notifyError(GithubNotificationIdsHolder.LOGIN_FAILED,
+                                                 GithubBundle.message("login.failed.notification.title"),
+                                                 message)
+  }
 }
 
 private fun GHLoginRequest.loginWithOAuthOrToken(model: GHLoginModel, project: Project?, parentComponent: Component?) {
@@ -418,7 +515,8 @@ private fun promptOAuthLogin(request: GHLoginRequest, project: Project?, parentC
       .append(HtmlChunk.br())
       .append(HtmlChunk.p().addText(CollaborationToolsBundle.message("accounts.error.password-not-saved.solution")))
       .toString()
-  } else {
+  }
+  else {
     request.text ?: GithubBundle.message("dialog.message.login.to.continue")
   }
 
@@ -438,6 +536,13 @@ private fun promptOAuthLogin(request: GHLoginRequest, project: Project?, parentC
   else {
     return builder.show(project)
   }
+}
+
+private fun logLoginEvent(server: GithubServerPath, loginData: GHLoginData) {
+  GHLoginCollector.login(loginData.copy(
+    authType = GHAuthType.TOKEN,
+    serverOffering = GHServerOffering.of(server))
+  )
 }
 
 private class AccountManagerLoginModel(private val account: GithubAccount? = null) : GHLoginModel {

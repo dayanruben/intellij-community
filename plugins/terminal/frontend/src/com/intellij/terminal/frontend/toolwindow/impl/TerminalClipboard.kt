@@ -21,6 +21,7 @@ import java.awt.Image
 import java.awt.datatransfer.DataFlavor
 import java.awt.datatransfer.Transferable
 import java.io.File
+import java.io.IOException
 import java.nio.file.Files
 import javax.imageio.ImageIO
 import kotlin.io.path.isDirectory
@@ -31,14 +32,12 @@ internal object TerminalClipboard {
     view: TerminalView,
     preferSystemSelection: Boolean = false,
   ) {
-    val systemContents = CopyPasteManager.getInstance().systemSelectionContents
-    val defaultContents = CopyPasteManager.getInstance().contents
-
     view.coroutineScope.launch {
-      val result: ContentToTextConversionResult = sequenceOf(if (preferSystemSelection) systemContents else null, defaultContents)
-                   .firstNotNullOfOrNull { getContentAsText(it, view) }
-                   ?.takeIf { it.text.isNotEmpty() }
-                   ?: return@launch
+      val result: ContentToTextConversionResult = withContext(Dispatchers.IO) {
+        val systemContents = if (preferSystemSelection) CopyPasteManager.getInstance().systemSelectionContents else null
+        sequenceOf(systemContents, ClipboardContents)
+          .firstNotNullOfOrNull { getContentAsText(it, view) }
+      }?.takeIf { it.text.isNotEmpty() } ?: return@launch
 
       view.createSendTextBuilder()
         .useBracketedPasteMode()
@@ -82,11 +81,34 @@ internal object TerminalClipboard {
     catch (e: CancellationException) {
       throw e
     }
+    catch (e: IOException) {
+      logger<TerminalClipboard>().warn("Failed to get text from clipboard", e)
+    }
     catch (t: Throwable) {
       logger<TerminalClipboard>().error("Failed to get text from clipboard", t)
     }
 
     return null
+  }
+
+  /**
+   * Reads only the flavor that a converter asks for.
+   * [CopyPasteManager.getContents] without a flavor reads every format that the clipboard owner offers, which can take seconds.
+   */
+  private object ClipboardContents : Transferable {
+    private val supportedFlavors = arrayOf(DataFlavor.javaFileListFlavor, DataFlavor.imageFlavor, DataFlavor.stringFlavor)
+
+    override fun getTransferDataFlavors(): Array<DataFlavor> {
+      return supportedFlavors.filter { isDataFlavorSupported(it) }.toTypedArray()
+    }
+
+    override fun isDataFlavorSupported(flavor: DataFlavor): Boolean {
+      return CopyPasteManager.getInstance().areDataFlavorsAvailable(flavor)
+    }
+
+    override fun getTransferData(flavor: DataFlavor): Any {
+      return CopyPasteManager.getInstance().getContents(flavor) ?: throw IOException("Failed to read $flavor from the clipboard")
+    }
   }
 
   private data class ContentToTextConversionResult(

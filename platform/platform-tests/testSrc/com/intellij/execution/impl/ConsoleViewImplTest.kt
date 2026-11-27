@@ -40,12 +40,14 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.psi.search.GlobalSearchScope
+import com.intellij.serviceContainer.AlreadyDisposedException
 import com.intellij.testFramework.EditorTestUtil
 import com.intellij.testFramework.ExtensionTestUtil.maskExtensions
 import com.intellij.testFramework.LightPlatformCodeInsightTestCase
 import com.intellij.testFramework.LightPlatformTestCase
 import com.intellij.testFramework.PerformanceUnitTest
 import com.intellij.testFramework.PlatformTestUtil
+import com.intellij.testFramework.fixtures.EditorTestFixture
 import com.intellij.testFramework.registerExtension
 import com.intellij.tools.ide.metrics.benchmark.Benchmark
 import com.intellij.util.Alarm
@@ -185,7 +187,7 @@ class ConsoleViewImplTest : LightPlatformTestCase() {
     EditorActionManager.getInstance()
     val dataContext = DataManager.getInstance().getDataContext(console.component)
     val action = TypedAction.getInstance()
-    action.actionPerformed(consoleEditor, 'h', dataContext)
+    EditorTestFixture.runLetterTyping('h', consoleEditor, consoleEditor.project) { action.actionPerformed(consoleEditor, 'h', dataContext) }
     assertEquals(1, console.contentSize)
   }
 
@@ -641,6 +643,25 @@ class ConsoleViewImplTest : LightPlatformTestCase() {
     console.flushDeferredText()
     console.waitAllRequests()
     assertEquals("!Foo!!Bar!!Baz!", console.text)
+  }
+
+  fun testFailedConsoleInitializationDoesNotLeak() {
+    var failedConsole: ConsoleView? = null
+    val filterProvider = object : ConsoleDependentInputFilterProvider() {
+      override fun getDefaultFilters(consoleView: ConsoleView, project: Project, scope: GlobalSearchScope): List<InputFilter> {
+        failedConsole = consoleView
+        throw AlreadyDisposedException("The project closed during console initialization")
+      }
+    }
+    maskExtensions(ConsoleInputFilterProvider.INPUT_FILTER_PROVIDERS, listOf(filterProvider), testRootDisposable)
+
+    try {
+      assertThrows(AlreadyDisposedException::class.java) { ConsoleViewImpl(project, true) }
+      Disposer.getTree().assertNoReferenceKeptInTree(checkNotNull(failedConsole))
+    }
+    finally {
+      failedConsole?.let { Disposer.dispose(it) }
+    }
   }
 
   fun testCustomFiltersPrecedence() {
@@ -1337,7 +1358,7 @@ class ConsoleViewImplTest : LightPlatformTestCase() {
       val action = TypedAction.getInstance()
       val dataContext = (editor as EditorEx).dataContext
 
-      action.actionPerformed(editor, c, dataContext)
+      EditorTestFixture.runLetterTyping(c, editor, editor.project) { action.actionPerformed(editor, c, dataContext) }
     }
   }
 }

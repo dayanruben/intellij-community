@@ -52,9 +52,12 @@
   </extensionPoints>
 
   <extensions defaultExtensionNs="com.intellij">
-    <problemsViewPanelProvider implementation="com.intellij.analysis.problemsView.toolWindow.ProblemsViewHighlightingPanelProvider"/>
+    <!-- the shared module creates the tabs when the split Problems View is off -->
+    <!--suppress SplitModeXmlApiUsage -->
+    <problemsViewPanelProvider id="currentFile" implementation="com.intellij.analysis.problemsView.toolWindow.ProblemsViewHighlightingPanelProvider" order="first"/>
     <problemsViewHighlightingProblemFactory id="default" implementation="com.intellij.analysis.problemsView.toolWindow.DefaultHighlightingProblemFactory"/>
-    <problemsViewPanelProvider implementation="com.intellij.analysis.problemsView.toolWindow.ProblemsViewProjectErrorsPanelProvider"/>
+    <!--suppress SplitModeXmlApiUsage -->
+    <problemsViewPanelProvider id="projectErrors" implementation="com.intellij.analysis.problemsView.toolWindow.ProblemsViewProjectErrorsPanelProvider" order="first, after currentFile"/>
     <problemsViewBridge implementation="com.intellij.analysis.problemsView.toolWindow.ProblemsViewBridgeImpl"/>
     <projectService serviceImplementation="com.intellij.analysis.problemsView.toolWindow.ProblemsViewIconUpdater" open="true"/>
     <statistics.counterUsagesCollector implementationClass="com.intellij.analysis.problemsView.toolWindow.ProblemsViewStatsCollector"/>

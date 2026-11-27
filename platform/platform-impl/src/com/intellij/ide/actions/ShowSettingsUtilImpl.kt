@@ -27,10 +27,13 @@ import com.intellij.openapi.options.TabbedConfigurable
 import com.intellij.openapi.options.ex.ConfigurableExtensionPointUtil
 import com.intellij.openapi.options.ex.ConfigurableVisitor
 import com.intellij.openapi.options.ex.ConfigurableWrapper
+import com.intellij.openapi.options.ex.FrameProjectsConfigurableGroup
+import com.intellij.openapi.options.ex.FrameProjectsConfigurableGroup.Companion.settingsWindowProject
 import com.intellij.openapi.options.newEditor.SettingsDialog
 import com.intellij.openapi.options.newEditor.SettingsDialogFactory
 import com.intellij.openapi.options.newEditor.SettingsDialogPerformanceTracker
 import com.intellij.openapi.options.newEditor.SettingsEditor
+import com.intellij.openapi.options.newEditor.SettingsFrameProjects
 import com.intellij.openapi.options.newEditor.SettingsNonModalDialog
 import com.intellij.openapi.options.newEditor.SettingsNonModalDialogFactory
 import com.intellij.openapi.options.newEditor.SettingsToolWindowManager
@@ -168,13 +171,16 @@ open class ShowSettingsUtilImpl : ShowSettingsUtil() {
     toSelect: (List<ConfigurableGroup>) -> Configurable?,
   ) {
     SettingsDialogPerformanceTracker.markOpeningStarted()
-    SettingsOpeningTracker.trackOpening(project, entry) {
-      doShow(project, { buildConfigurableGroups(project) }, toSelect, filter)
+    val windowProject = project?.let(::settingsWindowProject)
+    SettingsOpeningTracker.trackOpening(windowProject, entry) {
+      doShow(windowProject, { FrameProjectsConfigurableGroup.buildSettingsWindowGroups(windowProject) }, { groups ->
+        // the caller names a project, so the window shows that project, also before [toSelect] casts a page
+        if (project != null) {
+          selectRequester(groups, project)
+        }
+        toSelect(groups)
+      }, filter)
     }
-  }
-
-  private fun buildConfigurableGroups(project: Project?): List<ConfigurableGroup> {
-    return listOf(ConfigurableExtensionPointUtil.getConfigurableGroup(project, /* withIdeSettings = */true))
   }
 
   private fun isModalRequired(project: Project?): Boolean {
@@ -203,6 +209,7 @@ open class ShowSettingsUtilImpl : ShowSettingsUtil() {
     toSelect: (List<ConfigurableGroup>) -> Configurable?,
     filter: String?,
   ) {
+    val project = project?.let(::settingsWindowProject)
     val isModal = isModalRequired(project)
 
     // a caller that knows its entry tracks the opening before this call, so here the entry is only a fallback
@@ -233,29 +240,45 @@ open class ShowSettingsUtilImpl : ShowSettingsUtil() {
     // but actually rework the invocation to be performed not in EDT.
     ThreadingAssertions.assertBackgroundThread()/**/
     SettingsDialogPerformanceTracker.markOpeningStarted()
+    val requester = project
+    val project = settingsWindowProject(requester)
 
     // only the Settings action and the macOS application menu call this method, after the wait for the project startup
     SettingsOpeningTracker.trackOpening(project, OpeningEntry.ACTION) {
       // an open window of the same project already holds a tree, so no tree is built for this call
-      if (withContext(Dispatchers.EDT) { showOpenSettings(project) }) {
+      if (withContext(Dispatchers.EDT) { showOpenSettings(requester) }) {
         return
       }
 
-      showSettingsDialog(project, buildConfigurableGroups(project))
+      val groups = FrameProjectsConfigurableGroup.buildSettingsWindowGroups(project)
+      showSettingsDialog(project, groups, requester)
     }
   }
 
   @ApiStatus.Internal
   override suspend fun showSettingsDialog(project: Project, groups: List<ConfigurableGroup>) {
+    showSettingsDialog(project, groups, requester = null)
+  }
+
+  /**
+   * Shows [groups] in the Settings window of [project]. With a [requester], the window of a frame with several projects
+   * shows the project that asked for it.
+   */
+  private suspend fun showSettingsDialog(project: Project, groups: List<ConfigurableGroup>, requester: Project?) {
     // We want to ensure that clients don’t simply replace one API with another,
     // but actually rework the invocation to be performed not in EDT.
     ThreadingAssertions.assertBackgroundThread()
- 
+
+    val project = settingsWindowProject(project)
     val isModal = project.isDefault || !NonModalSettingsPolicy.isNonModalSettingsEnabledByAllPolicies()
     SettingsOpeningTracker.trackOpening(project, OpeningEntry.OTHER) {
       // the filter reads `configurables` of every group, so it stays on the background thread
       val filteredGroups = filterEmptyGroups(groups)
       withContext(Dispatchers.EDT) {
+        if (requester != null) {
+          // the selection of the window changes on the EDT
+          selectRequester(filteredGroups, requester)
+        }
         if (!isModal) {
           if (SettingsToolWindowManager.isEnabled(project)) {
             SettingsToolWindowManager.getInstance(project).show({ filteredGroups }, { null }, null)
@@ -311,14 +334,12 @@ open class ShowSettingsUtilImpl : ShowSettingsUtil() {
   }
 
   override fun showSettingsDialog(project: Project, toSelect: Configurable?) {
-    // the id keeps the target findable in any tree, so an open dialog needs no new one
+    // the id keeps the target findable in any tree, so an open dialog needs no new one.
+    // A page without an id gets the tree of the window too: the window of a frame with several projects shows all of them
     val id = (toSelect as? SearchableConfigurable)?.id
-    if (id == null) {
-      val groups = listOf(ConfigurableExtensionPointUtil.getConfigurableGroup(project,  /* withIdeSettings = */true))
-      showSettings(project, groups, toSelect)
-      return
+    showSettingsDialogLazily(project, filter = null, if (id == null) OpeningEntry.OTHER else OpeningEntry.BY_ID) { groups ->
+      id?.let { ConfigurableVisitor.findById(it, groups) } ?: toSelect
     }
-    showSettingsDialogLazily(project, filter = null, OpeningEntry.BY_ID) { groups -> ConfigurableVisitor.findById(id, groups) ?: toSelect }
   }
 
   override fun editConfigurable(project: Project?, configurable: Configurable): Boolean {
@@ -456,11 +477,22 @@ open class ShowSettingsUtilImpl : ShowSettingsUtil() {
 }
 
 /**
- * Shows the Settings of [project] in the open non-modal window or in the Settings tool window, and returns `true`.
+ * Shows the Settings of [requester] in the open non-modal window or in the Settings tool window, and returns `true`.
+ * The window of a frame with several projects shows [requester].
  * Returns `false` when neither holds a tree, so that the caller builds a tree only then.
  */
-private fun showOpenSettings(project: Project): Boolean {
-  return SettingsNonModalDialog.navigateOpenDialog(project, null) { null } || SettingsToolWindowManager.showIfCreated(project)
+private fun showOpenSettings(requester: Project): Boolean {
+  val project = settingsWindowProject(requester)
+  val toSelect: (List<ConfigurableGroup>) -> Configurable? = { groups ->
+    selectRequester(groups, requester)
+    null
+  }
+  return SettingsNonModalDialog.navigateOpenDialog(project, null, toSelect) || SettingsToolWindowManager.showIfCreated(project, toSelect)
+}
+
+/** Makes the Settings window of [groups] show [requester], when the project selector of the window lists it. */
+internal fun selectRequester(groups: List<ConfigurableGroup>, requester: Project) {
+  SettingsFrameProjects.of(groups)?.select(requester)
 }
 
 private fun getDialogWrapperFor(component: Component): DialogWrapper? {

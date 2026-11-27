@@ -22,6 +22,7 @@ import com.intellij.platform.workspace.jps.entities.ContentRootEntity
 import com.intellij.platform.workspace.jps.entities.modifyContentRootEntity
 import com.intellij.platform.workspace.storage.MutableEntityStorage
 import com.intellij.platform.workspace.storage.url.VirtualFileUrl
+import com.intellij.testFramework.LightVirtualFile
 import com.intellij.testFramework.PsiTestUtil
 import com.intellij.testFramework.junit5.RegistryKey
 import com.intellij.testFramework.junit5.TestApplication
@@ -307,6 +308,63 @@ class AnalysisIgnoreTest {
 
     // The condition sits on the directory of the file alone, and isExcludedAbove is what carries it below the source root.
     assertEquals(setOf(log.url), outOfContent(srcDir, log, notes))
+  }
+
+  @Test
+  @RegistryKey(key = ENABLED, value = "true")
+  fun `a directory below a nested root that gets a listed name is excluded after an earlier question`() = runBlocking {
+    val keepDir = dir("projectRoot/keep")
+    val pkgDir = dir("projectRoot/keep/pkg")
+    val source = file("projectRoot/keep/pkg/sub/Main.kt")
+    PsiTestUtil.addContentRoot(module, keepDir)
+    val excludeFile = writeAnalysisIgnoreFile("projectRoot", "build")
+    discover(excludeFile)
+
+    // The index keeps the answer "no match" for the file and for each directory up to 'keep'. The second question reads that answer.
+    assertTrue(isInContent(source))
+    assertTrue(isInContent(source))
+
+    writeAction { pkgDir.rename(this@AnalysisIgnoreTest, "build") }
+    assertFalse(isInContent(source))
+
+    writeAction { pkgDir.rename(this@AnalysisIgnoreTest, "pkg") }
+    assertTrue(isInContent(source))
+  }
+
+  @Test
+  @RegistryKey(key = ENABLED, value = "true")
+  fun `a directory below a nested root that moves into a listed directory is excluded after an earlier question`() = runBlocking {
+    val keepDir = dir("projectRoot/keep")
+    val buildDir = dir("projectRoot/keep/build")
+    val pkgDir = dir("projectRoot/keep/pkg")
+    val source = file("projectRoot/keep/pkg/Main.kt")
+    PsiTestUtil.addContentRoot(module, keepDir)
+    val excludeFile = writeAnalysisIgnoreFile("projectRoot", "build")
+    discover(excludeFile)
+    assertTrue(isInContent(source))
+
+    writeAction { pkgDir.move(this@AnalysisIgnoreTest, buildDir) }
+
+    assertFalse(isInContent(source))
+  }
+
+  @Test
+  @RegistryKey(key = ENABLED, value = "true")
+  fun `a new pattern excludes a file below a nested root after an earlier question`() = runBlocking {
+    val keepDir = dir("projectRoot/keep")
+    val source = file("projectRoot/keep/pkg/Main.kt")
+    val other = file("projectRoot/keep/other/Main.kt")
+    PsiTestUtil.addContentRoot(module, keepDir)
+    val excludeFile = writeAnalysisIgnoreFile("projectRoot", "build")
+    discover(excludeFile)
+    assertTrue(isInContent(source))
+    assertTrue(isInContent(other))
+
+    writeAction { VfsUtil.saveText(excludeFile, "pkg") }
+    discover(excludeFile)
+
+    assertFalse(isInContent(source))
+    assertTrue(isInContent(other))
   }
 
   @Test
@@ -794,6 +852,33 @@ class AnalysisIgnoreTest {
     assertTrue(caseInsensitive.shouldExclude(capitalBuild))
     assertFalse(caseInsensitive.shouldExclude(builds))
     assertTrue(caseInsensitive.shouldExclude(generated))
+  }
+
+  @Test
+  fun `the names without a wildcard are compared by their ids in one lookup`() {
+    val nodeModules = dir("projectRoot/a/node_modules")
+    val git = dir("projectRoot/.git")
+    val venvFile = file("projectRoot/a/.venv")
+    val capitalGit = dir("projectRoot/a/.Git")
+    val cacheDir = dir("projectRoot/a/cache")
+    val cacheFile = file("projectRoot/b/cache")
+    val log = file("projectRoot/a/build.log")
+    val source = file("projectRoot/a/Main.kt")
+
+    // On a case-sensitive file system the three names alone share one set of ids. The directory pattern and the wildcard stay apart.
+    val matcher = matcherOf(projectRoot, caseSensitive = true, "node_modules", ".git", ".venv", "cache/", "*.log")
+    assertTrue(matcher.shouldExclude(nodeModules))
+    assertTrue(matcher.shouldExclude(git))
+    assertTrue(matcher.shouldExclude(venvFile))
+    assertFalse(matcher.shouldExclude(capitalGit))
+    assertTrue(matcher.shouldExclude(cacheDir))
+    assertFalse(matcher.shouldExclude(cacheFile))
+    assertTrue(matcher.shouldExclude(log))
+    assertFalse(matcher.shouldExclude(source))
+
+    // A file outside the VFS has no id of its name, and the letters decide.
+    assertTrue(matcher.shouldExclude(LightVirtualFile("node_modules")))
+    assertFalse(matcher.shouldExclude(LightVirtualFile("Node_modules")))
   }
 
   // -----------------------------------------------------------------------------------------------------------------------------------

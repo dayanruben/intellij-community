@@ -16,9 +16,11 @@ targets:
   - ../../src/com/intellij/ide/plugins/newui/ListPluginComponent.kt
   - ../../src/com/intellij/ide/plugins/newui/PluginDetailsPageComponent.kt
   - ../../src/com/intellij/ide/plugins/newui/PluginImagesComponent.kt
+  - ../../src/com/intellij/ide/plugins/newui/PluginUpdateModeButton.kt
   - ../../src/com/intellij/ide/plugins/unified/LegacyPluginDetailsPresenter.kt
   - ../../src/com/intellij/ide/plugins/unified/PluginRowReconciler.kt
   - ../../src/com/intellij/ide/plugins/unified/PluginRowView.kt
+  - ../../src/com/intellij/ide/plugins/unified/UnifiedPluginInstallHistory.kt
   - ../../src/com/intellij/ide/plugins/unified/UnifiedPluginInternalSourceCoordinator.kt
   - ../../src/com/intellij/ide/plugins/unified/UnifiedPluginInventory.kt
   - ../../src/com/intellij/ide/plugins/unified/UnifiedPluginLocalDataProvider.kt
@@ -44,8 +46,11 @@ targets:
   - ../../testSrc/com/intellij/ide/plugins/UnifiedPluginsPageFeatureTest.kt
   - ../../testSrc/com/intellij/ide/plugins/UnifiedPluginsPageSessionTest.kt
   - ../../testSrc/com/intellij/ide/plugins/marketplace/statistics/UnifiedPluginSearchStatisticsTest.kt
+  - ../../testSrc/com/intellij/ide/plugins/newui/PluginDetailsPageComponentTest.kt
   - ../../testSrc/com/intellij/ide/plugins/newui/PluginImagesComponentTest.kt
   - ../../testSrc/com/intellij/ide/plugins/newui/PluginRowRenderKeyTest.kt
+  - ../../testSrc/com/intellij/ide/plugins/newui/PluginUnknownUpdateSourceWarningTest.kt
+  - ../../testSrc/com/intellij/ide/plugins/newui/PluginUpdateModeButtonTest.kt
   - ../../testSrc/com/intellij/ide/plugins/unified/LegacyPluginRowFactoryTest.kt
   - ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginInternalSourceCoordinatorTest.kt
   - ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginInventoryTest.kt
@@ -136,7 +141,7 @@ This specification covers the page structure, section model, search, source load
 
 Untested: Product welcome buttons on a remote backend keep the Settings route because the standalone dialog does not forward to the frontend.
 
-- Visible sections must use this order: Installing, Installed, Bundled, Suggested or Marketplace, Internal, then custom repositories.
+- Visible sections must show Installed, Bundled, Suggested or Marketplace, Internal, and custom repositories in that order.
 - A ready section with no items must not leave a placeholder.
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageControllerTest.kt (
     `sections use semantic order and preserve custom repository order`;
@@ -193,17 +198,20 @@ Untested: Product welcome buttons on a remote backend keep the Settings route be
     `same id on both sides prefers local presentation and retains remote bundled origin`
   )
 
-- When the page shows local sections, a plugin ID in Installed or Bundled must not appear in a remote section.
+- When the page shows local sections, remote sections must exclude bundled plugins and plugins installed before this page session.
 - This exclusion must use the complete local inventory before the page applies query filters.
 - When a source filter hides local sections, the active remote sections can show these plugin IDs.
+- A plugin installed during this page session must remain in matching Marketplace, Suggested, and custom repository results through Apply.
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageSourceCoordinatorTest.kt (
     `local plugins are excluded from Marketplace and repository sections`;
     `Suggested limits results after excluding local plugins`;
-    `repository filter shows local plugins when local sections are hidden`
+    `repository filter shows local plugins when local sections are hidden`;
+    `Marketplace selection stays on a scheduled install`;
+    `source rows keep an install through Apply`
   )
 
 - Suggested must show project suggestions, then Staff Picks, then results from an empty Marketplace query.
-- Suggested must show at most 20 plugins after it excludes local plugins.
+- Suggested must show at most 20 plugins after it applies the local exclusion.
 - Suggested must keep one result per plugin ID and prefer the result from the first group that contains it.
 - Suggested must publish each group as soon as that group and all preceding groups finish loading.
 - Suggested must keep successful results when one suggestion source fails.
@@ -374,7 +382,18 @@ Untested: Product welcome buttons on a remote backend keep the Settings route be
 - With text terms, relevance must use match scores before enabled state within each error group.
 - Enabled plugins must win a match score tie.
 - Later results in the same query revision must retain the relative order of plugins that remain in a section.
-- A new plugin must append after existing plugins. A plugin that leaves and returns must resume its retained position.
+- In the default Installed list, new install groups must appear first, in reverse order of scheduling.
+- This order must survive closing and reopening the Plugins page during the same IDE run.
+- An IDE restart must clear this order. A reopened page must show only the plugins in its inventory from earlier installs.
+- In that list, new dependencies must follow their main plugin if it is present. An existing main plugin must keep its relative position.
+- Installed must expand when a matching scheduled install is outside the preview.
+- A manual collapse must take precedence during the active installs.
+- Other new plugins must append. A plugin that leaves and returns must resume its retained position.
+  [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageSourceCoordinatorTest.kt (
+    `Marketplace selection stays on a scheduled install`;
+    `scheduled installs and dependencies show progress in Installed`;
+    `recent installs keep their order when the page reopens`
+  )
 - In Suggested, these rules apply separately to project suggestions, Staff Picks, and Marketplace results.
 - In expanded Bundled, a new plugin must append in its category. A new category must append after existing categories.
 - The first collapsed and expanded Bundled results may set separate orders to keep categories together.
@@ -538,13 +557,6 @@ Untested: Community tests verify the Enter handler, but they do not verify the S
     `large section count shows the display limit`
   )
 
-- Installing must expand once when accepted operations first exceed the collapsed limit.
-- A later manual Installing collapse must remain effective during source updates.
-  [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageControllerTest.kt (
-    `Installing auto-expands when it first becomes expandable`;
-    `manual Installing collapse survives later source replacements`
-  )
-
 - Suggested and Marketplace must start expanded.
 - A manual collapse of either section must remain effective during later source updates.
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageControllerTest.kt (
@@ -553,7 +565,7 @@ Untested: Community tests verify the Enter handler, but they do not verify the S
 
 - A query that targets only local sections must expand Installed and Bundled.
 - A Repository filter must expand each selected custom repository section.
-- Automatic expansion must not expand Installing or change the selection.
+- Automatic expansion must preserve the selection.
 - A manual collapse must remain effective while text, facets, or sorting change in the same automatic expansion context.
 - A navigation scope change must preserve that collapse while an explicit local filter stays active.
 - A changed local filter or update source must start a new automatic expansion context.
@@ -669,7 +681,7 @@ Untested: Community tests verify the Enter handler, but they do not verify the S
     `toggle selection modifier follows platform conventions`
   )
 
-- Multi-selection may span Installing, Installed, and Bundled.
+- Multi-selection may span Installed and Bundled.
 - It may separately span Internal, Suggested, Marketplace, and custom repositories.
 - Selecting a plugin from the other group must replace the incompatible selection.
 - The details panel must receive all compatible selected plugins.
@@ -713,8 +725,13 @@ Untested: Community tests verify the Enter handler, but they do not verify the S
     `keyboard navigation reveals a row below the sticky header`
   )
 
+- An explicit reveal must scroll the selected row into view below the sticky header.
+  [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageRealRowsTest.kt (
+    `explicit reveal scrolls a selected row below the sticky header`
+  )
+
 - When a source refresh replaces a visible selected row, the row must remain visible below the sticky header.
-- A source refresh must not scroll to a selected row outside the viewport.
+- A source refresh by itself must not scroll to a selected row outside the viewport.
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageRealRowsTest.kt (
     `source refresh reveals a replaced selected row below the sticky header`;
     `source refresh does not reveal a replaced offscreen selected row`
@@ -782,7 +799,7 @@ Untested: No focused test verifies Shift-selection across sections.
 
 ## Presentation
 
-- The header must show Search, Update All, and Settings controls in that order.
+- The header must show Search, the settings gear, and Update All in that order.
 - Search must shrink before a header action is clipped.
 - The unified page must hide the shared Settings progress and Reset controls.
   [@test] ../../testSrc/com/intellij/ide/plugins/UnifiedPluginsPageSessionTest.kt (
@@ -878,6 +895,39 @@ Untested: No focused test verifies text selection and copying in Additional Info
 - The first action in unified plugin details must show its complete focus outline.
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/LegacyPluginRowFactoryTest.kt (
     `unified details actions align their visible leading edge`
+  )
+
+- Unified installed plugin details must show an update-mode action.
+- The update-mode action must be hidden when the plugin is not installed or is pending uninstall.
+- The update-mode action must be hidden when plugin update exclusions are not supported.
+- Plugin update exclusions must be disabled in the split frontend.
+- The popup must show Manual Update and Ignore Updates.
+- The popup must show Auto-Update only when automatic plugin updates are enabled.
+- Ignore Updates is the No Updates mode.
+- Details must hide Update when Ignore Updates removes the plugin from the update snapshot.
+- Details must show Update when Manual Update or Auto-Update restores the plugin update.
+  [@test] ../../testSrc/com/intellij/ide/plugins/newui/PluginUpdateModeButtonTest.kt (
+    `unified installed details show the update mode action`;
+    `marketplace details hide the update mode action for a plugin that is not installed`;
+    `unified details hide the update mode action for a plugin that is pending uninstall`;
+    `update mode popup offers auto update only when automatic updates are enabled`
+  )
+  [@test] ../../testSrc/com/intellij/ide/plugins/newui/PluginUnknownUpdateSourceWarningTest.kt (
+    `update mode is disabled in split frontend`
+  )
+
+- The unknown update source warning must appear in a plugin row only when the selected plugin can be updated.
+- The unknown update source banner must appear in plugin details only when the selected plugin can be updated.
+- A plugin can be updated when it is not bundled, or when it is bundled and bundled updates are allowed.
+- Ignore Updates must hide the warning and the banner.
+- A change of the update mode must update the warning and the banner for the plugin.
+- Manual Update and Auto-Update must keep the warning and the banner as the update source requires.
+  [@test] ../../testSrc/com/intellij/ide/plugins/newui/PluginUnknownUpdateSourceWarningTest.kt (
+    `details show the unknown update source banner only when the plugin can be updated`;
+    `list row shows the unknown update source warning only when the plugin can be updated`;
+    `details follow the update mode for the unknown update source banner`;
+    `list row follows the update mode for the unknown update source warning`;
+    `list row keeps the warning hidden for an ignored plugin after an update source change`
   )
 
 - The screenshot carousel must fit inside both details insets so that its controls remain available.

@@ -6,6 +6,7 @@ import com.intellij.ide.BrowserUtil
 import com.intellij.ide.IdeBundle
 import com.intellij.ide.plugins.PluginManagerConfigurable
 import com.intellij.ide.plugins.newui.ListPluginComponent
+import com.intellij.ide.plugins.newui.PluginUiModel
 import com.intellij.ide.setToolTipText
 import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.actionSystem.ActionToolbar
@@ -121,6 +122,18 @@ internal class UnifiedPluginsPageView @RequiresEdt constructor(
     }
   }
   private val stickyHeaderHost = StickyHeaderHost()
+  private val operationProgressPluginIds = HashSet<PluginId>()
+  val operationStatusComponent: JBLabel = object : JBLabel(AnimatedIcon.Default()) {
+    override fun getPreferredSize(): Dimension =
+      super.getPreferredSize().apply { width = width.coerceAtMost(JBUI.scale(OPERATION_STATUS_MAX_WIDTH)) }
+
+    override fun getToolTipText(event: MouseEvent?): String? =
+      text.takeIf { width < super.getPreferredSize().width }
+  }.apply {
+    isVisible = false
+    foreground = UIUtil.getContextHelpForeground()
+    iconTextGap = JBUI.scale(6)
+  }
   private val scrollContainer = JBLayeredPane()
   private val sectionViews = LinkedHashMap<PluginSectionId, SectionView>()
   private val rowReconciler = rowFactory?.createReconciler { occurrenceId, row ->
@@ -269,7 +282,7 @@ internal class UnifiedPluginsPageView @RequiresEdt constructor(
   }
 
   @RequiresEdt
-  fun render(state: UnifiedPluginsPageState, showMarketplaceLink: Boolean = false) {
+  fun render(state: UnifiedPluginsPageState, showMarketplaceLink: Boolean = false, revealSelection: Boolean = false) {
     val viewportAnchor = captureViewportAnchor()
     val selectedOccurrence = state.selectedOccurrence?.takeIf { it == renderedState?.selectedOccurrence }
     val visibleSelectedRow = selectedOccurrence?.let { occurrenceId ->
@@ -333,7 +346,7 @@ internal class UnifiedPluginsPageView @RequiresEdt constructor(
     layoutRenderedSections()
     restoreViewportAnchor(viewportAnchor)
     updateStickyHeader()
-    if (visibleSelectedRow != null && rowReconciler?.row(selectedOccurrence) !== visibleSelectedRow) {
+    if (revealSelection || visibleSelectedRow != null && rowReconciler?.row(selectedOccurrence) !== visibleSelectedRow) {
       pendingSelectionRevealRevision = state.query.revision
     }
     revealPendingSelection()
@@ -342,6 +355,55 @@ internal class UnifiedPluginsPageView @RequiresEdt constructor(
     restoreFooterFocus?.invoke()
     sectionsPanel.repaint()
     scheduleResultsAnnouncement()
+  }
+
+  @RequiresEdt
+  fun renderOperationStatus(
+    items: List<PluginItemState>,
+    uninstallingPlugins: List<PluginUiModel>,
+    updateAllProgress: UnifiedPluginUpdateAllPresentation.Running?,
+    showUpdateCheck: Boolean,
+  ) {
+    val activeItems = items.filter { it.rowInput?.operationInProgress == true }
+    if (activeItems.isEmpty()) operationProgressPluginIds.clear()
+    else activeItems.mapTo(operationProgressPluginIds, PluginItemState::pluginId)
+
+    if (uninstallingPlugins.isNotEmpty()) {
+      val plugin = uninstallingPlugins.singleOrNull()
+      val status = if (plugin == null) IdeBundle.message("plugins.configurable.operation.uninstalling.plugins", uninstallingPlugins.size)
+                   else IdeBundle.message("plugins.configurable.operation.uninstalling.plugin", plugin.name ?: plugin.pluginId.idString)
+      setOperationStatus(status)
+      return
+    }
+    if (updateAllProgress != null) {
+      setOperationStatus(IdeBundle.message("plugins.configurable.operation.updating.plugins", updateAllProgress.prepared, updateAllProgress.total))
+      return
+    }
+    if (activeItems.isEmpty()) {
+      setOperationStatus(if (showUpdateCheck) IdeBundle.message("plugins.configurable.operation.checking.updates") else null)
+      return
+    }
+
+    val allUpdates = activeItems.all { it.rowInput?.installedPlugin != null || it.rowInput?.updateDescriptor != null }
+    val total = operationProgressPluginIds.size
+    val status = when {
+      allUpdates && total > 1 -> IdeBundle.message("plugins.configurable.operation.updating.plugins", total - activeItems.size, total)
+      activeItems.size == 1 -> IdeBundle.message(
+        if (allUpdates) "plugins.configurable.operation.updating.plugin" else "plugins.configurable.operation.installing.plugin",
+        activeItems.single().let { it.name ?: it.pluginId.idString },
+      )
+      else -> IdeBundle.message("plugins.configurable.operation.installing.plugins", activeItems.size)
+    }
+    setOperationStatus(status)
+  }
+
+  private fun setOperationStatus(status: @Nls String?) {
+    operationStatusComponent.apply {
+      text = status
+      toolTipText = status
+      accessibleContext.accessibleName = status
+      isVisible = status != null
+    }
   }
 
   @RequiresEdt
@@ -1742,6 +1804,7 @@ internal class UnifiedPluginsPageView @RequiresEdt constructor(
 
     const val ACTIVATE_SECTION_BUTTON: String = "activate-section-button"
     const val DETAILS_MIN_WIDTH: Int = 220
+    const val OPERATION_STATUS_MAX_WIDTH: Int = 260
     const val CATEGORY_ACTIONS_PLACE: String = "UnifiedPluginsBundledCategory"
     const val ERROR_INSET: Int = 10
     const val ERROR_LEFT_INSET: Int = 16

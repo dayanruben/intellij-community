@@ -31,7 +31,7 @@
       "name": "air-slow",
       "axis": "category",
       "excludedFromBroadRuns": "fast-lane",
-      "description": "An IDE-free target that is slow by nature: it sweeps many cases through the platform editor of an open project, it creates the production preview of each entry of the showcase catalog, it starts many processes, it drives a platform Git operation of an open project, it tests a Git adapter on real repositories, it checks many generated seeds through a durable store, or it measures the cost of many calls and checks no time. Only `BT --lane fast` leaves it out. A directory run, `BT --lane all`, and the CI configurations run it."
+      "description": "An IDE-free target that is slow by nature: it sweeps many cases through the platform editor of an open project, it creates the production preview of each entry of the showcase catalog, it starts many processes, it starts a real Git process, it checks many generated seeds through a durable store, or it measures the cost of many calls and checks no time. Only `BT --lane fast` leaves it out. A directory run, `BT --lane all`, and the CI configurations run it."
     },
     {
       "name": "air-integration-ui-flow",
@@ -81,13 +81,17 @@
     "//plugins/air/backend/workflows/git:air-backend-workflows-git-tests_test_lib",
     "//plugins/air/backend/workflows:air-backend-workflows-tests_test_lib",
     "//plugins/air/frontback/cloud:air-cloud-git-tests_test_lib",
+    "//plugins/air/frontback/session/runtime:air-session-runtime-tests_test_lib",
+    "//plugins/air/frontback/session/ui/real-git:air-session-ui-realGit-tests_test_lib",
     "//plugins/air/frontback/session/view.gui:air-session-view-gui-tests_test_lib",
     "//plugins/air/frontback/session/working-tree-git:air-session-working-tree-git-tests_test_lib",
     "//plugins/air/frontback/vcs/commit/git:air-vcs-commit-git-tests_test_lib",
+    "//plugins/air/frontback/vcs/commit/real-git:air-vcs-commit-realGit-tests_test_lib",
     "//plugins/air/frontback/worktree:air-worktree-tests_test_lib",
     "//plugins/air/frontend/llm:air-frontend-llm-tests_test_lib",
     "//plugins/air/frontend/llm/analytics/jcp:air-frontend-llm-analytics-jcp-tests_test_lib",
     "//plugins/air/frontend/session/view.gui.showcase:air-frontend-session-view-gui-showcase-tests_test_lib",
+    "//plugins/air/shared/airIde/real-git:air-shared-airIde-realGit-tests_test_lib",
     "//plugins/air/shared/airIde:air-shared-airIde-tests_test_lib",
     "//plugins/air/tests/integration/headless/acp-perf:acp-perf_test_lib",
     "//plugins/air/tests/integration/headless/acp:acp_test_lib",
@@ -134,11 +138,13 @@
       "sources": [
         "plugins/air/tests/integration/bridge/tests",
         "plugins/air/tests/integration/bridge/testGen",
-        "plugins/air/tests/integration/bridge/genui/tests"
+        "plugins/air/tests/integration/bridge/genui/tests",
+        "plugins/air/tests/integration/bridge/unifiedIde/tests"
       ],
       "descriptors": [
         "plugins/air/tests/integration/bridge/resources/intellij.air.integrationTests.bridge.xml",
-        "plugins/air/tests/integration/bridge/genui/resources/intellij.air.integrationTests.bridge.genui.xml"
+        "plugins/air/tests/integration/bridge/genui/resources/intellij.air.integrationTests.bridge.genui.xml",
+        "plugins/air/tests/integration/bridge/unifiedIde/resources/intellij.air.integrationTests.bridge.unifiedIde.xml"
       ],
       "requestType": "AirUiTestRequest",
       "vocabulary": "plugins/air/tests/integration/bridge/resources/flow-vocabulary.json"

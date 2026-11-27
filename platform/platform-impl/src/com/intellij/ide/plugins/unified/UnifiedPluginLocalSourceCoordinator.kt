@@ -4,9 +4,11 @@ package com.intellij.ide.plugins.unified
 import com.intellij.ide.plugins.newui.PluginInstallationState
 import com.intellij.ide.plugins.newui.PluginInventoryChangeReason
 import com.intellij.ide.plugins.newui.PluginModelEvent
+import com.intellij.ide.plugins.newui.PluginOperationKind
 import com.intellij.ide.plugins.newui.PluginOperationTerminalResult
 import com.intellij.ide.plugins.newui.PluginProgressState
 import com.intellij.ide.plugins.newui.PluginRowInput
+import com.intellij.ide.plugins.newui.PluginUiModel
 import com.intellij.ide.plugins.newui.PluginUpdatesEvent
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.extensions.PluginId
@@ -39,6 +41,7 @@ internal data class UnifiedPluginLocalSourceState(
   val mayEstablishSelection: Boolean,
   val facetsLoading: Boolean = false,
   val manualUpdates: Map<PluginId, UnifiedPluginManualUpdateState> = emptyMap(),
+  val uninstallingPlugins: List<PluginUiModel> = emptyList(),
   /** Implementation-detail plugins by their Installed or Bundled section. Only the `/built-in` filter shows them. */
   val implementationDetailItems: Map<PluginSectionId, List<PluginItemState>> = emptyMap(),
 )
@@ -61,8 +64,9 @@ internal class UnifiedPluginLocalSourceCoordinator(
   private val sessionId: String,
   private val loadErrorMessage: @Nls String,
   private val hostEventObserver: (PluginModelEvent) -> Unit = {},
+  installHistory: UnifiedPluginInstallHistory = UnifiedPluginInstallHistory(),
 ) : AutoCloseable {
-  private val installingLedger = UnifiedPluginInstallingLedger(sessionId)
+  private val installingLedger = UnifiedPluginInstallingLedger(sessionId, installHistory)
   private val commands = Channel<Command>(Channel.UNLIMITED)
   private val mutableState = MutableStateFlow(initialState())
   private var processorJob: Job? = null
@@ -140,6 +144,12 @@ internal class UnifiedPluginLocalSourceCoordinator(
   private fun acceptHostEvent(event: PluginModelEvent) {
     val manualUpdateChanged = acceptManualUpdateEvent(event)
     if (event is PluginModelEvent.InventoryInvalidated) {
+      when (event.reason) {
+        PluginInventoryChangeReason.APPLY -> installingLedger.applyPreparedInstalls()
+        PluginInventoryChangeReason.RESET -> installingLedger.resetPreparedInstalls()
+        PluginInventoryChangeReason.UNINSTALL -> installingLedger.forgetUninstalledPlugins(event.pluginIds)
+        else -> Unit
+      }
       if (!acceptEnablementChange(event)) {
         enabledStateOverrides.clear()
         enablementEnrichmentPending = false
@@ -147,7 +157,7 @@ internal class UnifiedPluginLocalSourceCoordinator(
       }
     }
     else {
-      val installingChanged = installingLedger.accept(event)
+      val installingChanged = installingLedger.accept(event, snapshot?.listModelData?.installedModels.orEmpty().keys)
       if (manualUpdateChanged || installingChanged) {
         publish(snapshot, currentStatus(), mayEstablishSelection = false)
       }
@@ -201,11 +211,12 @@ internal class UnifiedPluginLocalSourceCoordinator(
               true
             }
           }
+          PluginInventoryChangeReason.UNINSTALL -> manualUpdates.keys.removeAll(event.pluginIds)
           else -> false
         }
       }
       is PluginModelEvent.OperationStarted -> {
-        if (event.sessionId != sessionId) return false
+        if (event.sessionId != sessionId || event.kind == PluginOperationKind.UNINSTALL) return false
         val next = UnifiedPluginManualUpdateState(
           event.operationId,
           UnifiedPluginManualUpdatePresentation.Downloading,
@@ -213,7 +224,7 @@ internal class UnifiedPluginLocalSourceCoordinator(
         manualUpdates.put(event.displayPluginId, next) != next
       }
       is PluginModelEvent.OperationFinished -> {
-        if (event.sessionId != sessionId) return false
+        if (event.sessionId != sessionId || event.kind == PluginOperationKind.UNINSTALL) return false
         val current = manualUpdates[event.displayPluginId]?.takeIf { it.operationId == event.operationId } ?: return false
         if (event.result == PluginOperationTerminalResult.SUCCEEDED) {
           val next = current.copy(
@@ -300,6 +311,7 @@ internal class UnifiedPluginLocalSourceCoordinator(
     snapshot = loadedSnapshot
     if (completedRequestKind == RequestKind.Reload) {
       inventoryStale = false
+      if (command.inventory.unavailableSides.isEmpty()) installingLedger.settleAppliedInstalls()
     }
     if (command.updateRevision != updateRevision) {
       enablementEnrichmentPending = false
@@ -352,19 +364,20 @@ internal class UnifiedPluginLocalSourceCoordinator(
     mayEstablishSelection: Boolean = true,
   ) {
     val listModelData = currentSnapshot?.listModelData ?: PluginListModelData.EMPTY
+    val installingItems = installingItems(listModelData)
     mutableState.value = UnifiedPluginLocalSourceState(
       sections = buildList {
-        val installingItems = installingItems(listModelData)
         if (installingItems.isNotEmpty()) {
           add(PluginSectionState(PluginSectionId.Installing, items = installingItems))
         }
-        add(PluginSectionState(PluginSectionId.Installed, items = currentSnapshot?.installedItems.orEmpty(), status = status))
+        add(installingLedger.installedSection(currentSnapshot?.installedItems.orEmpty(), listModelData, status))
         add(PluginSectionState(PluginSectionId.Bundled, items = currentSnapshot?.bundledItems.orEmpty(), status = status))
       },
       listModelData = listModelData,
       mayEstablishSelection = mayEstablishSelection,
       facetsLoading = status is PluginSectionStatus.Loading,
       manualUpdates = manualUpdates.toMap(),
+      uninstallingPlugins = installingLedger.uninstallingPlugins,
       implementationDetailItems = currentSnapshot?.implementationDetailItems.orEmpty(),
     )
   }
