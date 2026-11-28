@@ -5,7 +5,10 @@ use testkit::{Run, run_tool};
 
 /// Runs the tool as `main` does, with the answer in a buffer that the tests do not read.
 fn run(args: &[&str]) -> Run {
-    run_tool(|args: Vec<OsString>, errors: &mut dyn Write| crate::run(args, &mut Vec::new(), errors), args)
+    run_tool(
+        |args: Vec<OsString>, errors: &mut dyn Write| crate::run(args, &mut Vec::new(), errors),
+        args,
+    )
 }
 
 #[test]
@@ -27,5 +30,5 @@ fn the_cmd_form_needs_an_output_file() {
 fn a_missing_spec_fails_with_its_path() {
     let run = run(&["materialize", "--spec=/no/such/idea.home.json", "--format=json"]);
     // The text of the OS error differs on Windows.
-    run.assert_error("ERROR: cannot read /no/such/idea.home.json: ");
+    run.assert_error("ERROR: /no/such/idea.home.json: ");
 }

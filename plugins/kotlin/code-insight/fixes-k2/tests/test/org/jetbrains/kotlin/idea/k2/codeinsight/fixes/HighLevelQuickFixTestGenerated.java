@@ -9618,6 +9618,21 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
             runTest("../../../idea/tests/testData/quickfix/expressions/uselessElvis.kt");
         }
 
+        @TestMetadata("uselessElvisCommentAfterOperator.kt")
+        public void testUselessElvisCommentAfterOperator() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/expressions/uselessElvisCommentAfterOperator.kt");
+        }
+
+        @TestMetadata("uselessElvisCommentInsideKeptOperand.kt")
+        public void testUselessElvisCommentInsideKeptOperand() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/expressions/uselessElvisCommentInsideKeptOperand.kt");
+        }
+
+        @TestMetadata("uselessElvisEndOfLineComment.kt")
+        public void testUselessElvisEndOfLineComment() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/expressions/uselessElvisEndOfLineComment.kt");
+        }
+
         @TestMetadata("uselessElvisForLambdaInNecessaryNestedParens.kt")
         public void testUselessElvisForLambdaInNecessaryNestedParens() throws Exception {
             runTest("../../../idea/tests/testData/quickfix/expressions/uselessElvisForLambdaInNecessaryNestedParens.kt");
@@ -9633,14 +9648,49 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
             runTest("../../../idea/tests/testData/quickfix/expressions/uselessElvisInNestedParens.kt");
         }
 
+        @TestMetadata("uselessElvisInNestedParensWithComment.kt")
+        public void testUselessElvisInNestedParensWithComment() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/expressions/uselessElvisInNestedParensWithComment.kt");
+        }
+
         @TestMetadata("uselessElvisLeftIsNull.kt")
         public void testUselessElvisLeftIsNull() throws Exception {
             runTest("../../../idea/tests/testData/quickfix/expressions/uselessElvisLeftIsNull.kt");
         }
 
+        @TestMetadata("uselessElvisLeftIsNullCommentBeforeOperator.kt")
+        public void testUselessElvisLeftIsNullCommentBeforeOperator() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/expressions/uselessElvisLeftIsNullCommentBeforeOperator.kt");
+        }
+
+        @TestMetadata("uselessElvisLeftIsNullCommentsAroundOperator.kt")
+        public void testUselessElvisLeftIsNullCommentsAroundOperator() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/expressions/uselessElvisLeftIsNullCommentsAroundOperator.kt");
+        }
+
+        @TestMetadata("uselessElvisLeftIsNullEndOfLineComment.kt")
+        public void testUselessElvisLeftIsNullEndOfLineComment() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/expressions/uselessElvisLeftIsNullEndOfLineComment.kt");
+        }
+
+        @TestMetadata("uselessElvisLeftIsNullWithComment.kt")
+        public void testUselessElvisLeftIsNullWithComment() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/expressions/uselessElvisLeftIsNullWithComment.kt");
+        }
+
         @TestMetadata("uselessElvisRightIsNull.kt")
         public void testUselessElvisRightIsNull() throws Exception {
             runTest("../../../idea/tests/testData/quickfix/expressions/uselessElvisRightIsNull.kt");
+        }
+
+        @TestMetadata("uselessElvisRightIsNullWithComment.kt")
+        public void testUselessElvisRightIsNullWithComment() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/expressions/uselessElvisRightIsNullWithComment.kt");
+        }
+
+        @TestMetadata("uselessElvisWithComment.kt")
+        public void testUselessElvisWithComment() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/expressions/uselessElvisWithComment.kt");
         }
     }
 
@@ -13036,6 +13086,11 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
             runTest("../../../idea/tests/testData/quickfix/receiverShadowedByContextParameter/callableReferenceToProperty.kt");
         }
 
+        @TestMetadata("destructuringDeclaration.kt")
+        public void testDestructuringDeclaration() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/receiverShadowedByContextParameter/destructuringDeclaration.kt");
+        }
+
         @TestMetadata("labeledThisAmbiguousNestedWith.kt")
         public void testLabeledThisAmbiguousNestedWith() throws Exception {
             runTest("../../../idea/tests/testData/quickfix/receiverShadowedByContextParameter/labeledThisAmbiguousNestedWith.kt");
@@ -13084,6 +13139,71 @@ public abstract class HighLevelQuickFixTestGenerated extends AbstractHighLevelQu
         @TestMetadata("memberExtensionLabeledThis.kt")
         public void testMemberExtensionLabeledThis() throws Exception {
             runTest("../../../idea/tests/testData/quickfix/receiverShadowedByContextParameter/memberExtensionLabeledThis.kt");
+        }
+
+        @TestMetadata("operatorAugmentedAssignmentAddThis.kt")
+        public void testOperatorAugmentedAssignmentAddThis() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/receiverShadowedByContextParameter/operatorAugmentedAssignmentAddThis.kt");
+        }
+
+        @TestMetadata("operatorBinaryAddThis.kt")
+        public void testOperatorBinaryAddThis() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/receiverShadowedByContextParameter/operatorBinaryAddThis.kt");
+        }
+
+        @TestMetadata("operatorContainsAddThis.kt")
+        public void testOperatorContainsAddThis() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/receiverShadowedByContextParameter/operatorContainsAddThis.kt");
+        }
+
+        @TestMetadata("operatorInArgumentAddThis.kt")
+        public void testOperatorInArgumentAddThis() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/receiverShadowedByContextParameter/operatorInArgumentAddThis.kt");
+        }
+
+        @TestMetadata("operatorInWhenCondition.kt")
+        public void testOperatorInWhenCondition() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/receiverShadowedByContextParameter/operatorInWhenCondition.kt");
+        }
+
+        @TestMetadata("operatorIndexedAugmentedAssignmentAddThis.kt")
+        public void testOperatorIndexedAugmentedAssignmentAddThis() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/receiverShadowedByContextParameter/operatorIndexedAugmentedAssignmentAddThis.kt");
+        }
+
+        @TestMetadata("operatorIndexedGetAddContextParameterName.kt")
+        public void testOperatorIndexedGetAddContextParameterName() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/receiverShadowedByContextParameter/operatorIndexedGetAddContextParameterName.kt");
+        }
+
+        @TestMetadata("operatorIndexedGetAddThis.kt")
+        public void testOperatorIndexedGetAddThis() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/receiverShadowedByContextParameter/operatorIndexedGetAddThis.kt");
+        }
+
+        @TestMetadata("operatorIndexedSetAddThis.kt")
+        public void testOperatorIndexedSetAddThis() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/receiverShadowedByContextParameter/operatorIndexedSetAddThis.kt");
+        }
+
+        @TestMetadata("operatorInfixAddContextOf.kt")
+        public void testOperatorInfixAddContextOf() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/receiverShadowedByContextParameter/operatorInfixAddContextOf.kt");
+        }
+
+        @TestMetadata("operatorInfixAddThis.kt")
+        public void testOperatorInfixAddThis() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/receiverShadowedByContextParameter/operatorInfixAddThis.kt");
+        }
+
+        @TestMetadata("operatorPostfixIncrementAddThis.kt")
+        public void testOperatorPostfixIncrementAddThis() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/receiverShadowedByContextParameter/operatorPostfixIncrementAddThis.kt");
+        }
+
+        @TestMetadata("operatorUnaryAddThis.kt")
+        public void testOperatorUnaryAddThis() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/receiverShadowedByContextParameter/operatorUnaryAddThis.kt");
         }
 
         @TestMetadata("propertyAddThis.kt")

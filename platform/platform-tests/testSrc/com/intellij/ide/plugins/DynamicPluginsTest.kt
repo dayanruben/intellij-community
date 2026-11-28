@@ -35,6 +35,8 @@ import com.intellij.ide.plugins.testPluginSrc.uiSettingsListener.MyUISettingsLis
 import com.intellij.ide.plugins.testPluginSrc.uiSettingsListener.MyUISettingsListenerService
 import com.intellij.ide.plugins.testPluginSrc.uiSettingsListener.foo.MyFooUISettingsListener
 import com.intellij.ide.plugins.testPluginSrc.uiSettingsListener.foo.MyFooUISettingsListenerService
+import com.intellij.ide.plugins.testPluginSrc.workspaceService.MyLightWorkspaceService
+import com.intellij.ide.plugins.testPluginSrc.workspaceService.MyWorkspaceService
 import com.intellij.ide.startup.impl.StartupManagerImpl
 import com.intellij.ide.ui.UISettings
 import com.intellij.ide.ui.UISettingsListener
@@ -70,6 +72,7 @@ import com.intellij.openapi.roots.ui.configuration.ModuleConfigurationState
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.use
+import com.intellij.openapi.workspace.workspace
 import com.intellij.packageDependencies.DependencyValidationManager
 import com.intellij.platform.ide.progress.ModalTaskOwner
 import com.intellij.platform.ide.progress.runWithModalProgressBlocking
@@ -862,6 +865,101 @@ class DynamicPluginsTest {
     finally {
       runWriteAction { moduleManager.disposeModule(module) }
     }
+  }
+
+  @Test
+  fun `workspace service loads and unloads`() {
+    val workspace = projectRule.project.workspace
+    val pluginSet = buildPluginSet(pluginsDir) {
+      plugin("plugin") {
+        extensions("""<workspaceService serviceImplementation="${MyWorkspaceService::class.java.name}"/>""")
+        includePackageClassFiles<MyWorkspaceService>()
+      }
+    }
+    val plugin = pluginSet.getEnabledPlugin("plugin")
+    val disposed = AtomicBoolean()
+    loadPluginInTest(plugin) {
+      val handle = workspace.getTestHandleService<MyWorkspaceService, _, _>(plugin)
+      assertThat(handle).isNotNull()
+      handle!!.test { disposed.set(true) }
+    }
+    assertThat(disposed.get()).isTrue()
+  }
+
+  @Test
+  fun `light workspace service unloads`() {
+    val workspace = projectRule.project.workspace
+    val pluginSet = buildPluginSet(pluginsDir) {
+      plugin("plugin") {
+        includePackageClassFiles<MyLightWorkspaceService>()
+      }
+    }
+    val plugin = pluginSet.getEnabledPlugin("plugin")
+    val disposed = AtomicBoolean()
+    loadPluginInTest(plugin) {
+      val handle = workspace.getTestHandleService<MyLightWorkspaceService, _, _>(plugin)
+      assertThat(handle).isNotNull()
+      handle!!.test { disposed.set(true) }
+    }
+    assertThat(disposed.get()).isTrue()
+  }
+
+  @Test
+  fun `workspace listener loads and unloads`() {
+    val workspace = projectRule.project.workspace
+    val pluginSet = buildPluginSet(pluginsDir) {
+      plugin("listeners") {
+        body = """
+          <workspaceListeners>
+            <listener class="${MyUISettingsListener::class.java.name}" topic="${UISettingsListener::class.java.name}"/>
+          </workspaceListeners>
+        """.trimIndent()
+        includePackageClassFiles<MyUISettingsListener>()
+      }
+    }
+    val plugin = pluginSet.getEnabledPlugin("listeners")
+    loadPluginInTestAndCheckClassLoaderCollected(plugin) {
+      val listenerTriggered = AtomicBoolean()
+      val handle = application.getTestHandleService<MyUISettingsListenerService, _, _>(plugin)!!
+      handle.test { listenerTriggered.set(true) }
+      workspace.messageBus.syncPublisher(UISettingsListener.TOPIC).uiSettingsChanged(UISettings())
+      assertThat(listenerTriggered.get()).isTrue()
+      handle.test { error("supposed to be unloaded") }
+    }
+    workspace.messageBus.syncPublisher(UISettingsListener.TOPIC).uiSettingsChanged(UISettings())
+  }
+
+  @Test
+  fun `plugin with workspace elements unloads without restart`() {
+    projectRule.project.workspace
+    val wsPlugin = plugin("ws.all") {
+      extensions("""<workspaceService serviceImplementation="${MyWorkspaceService::class.java.name}"/>""")
+      body = """
+        <workspaceListeners>
+          <listener class="${MyUISettingsListener::class.java.name}" topic="${UISettingsListener::class.java.name}"/>
+        </workspaceListeners>
+      """.trimIndent()
+      includePackageClassFiles<MyWorkspaceService>()
+      includePackageClassFiles<MyUISettingsListener>()
+    }
+    loadPluginWithText(wsPlugin).use {}
+  }
+
+  @Test
+  fun `workspace service override is declined`() {
+    projectRule.project.workspace
+    Registry.get("ide.plugins.allow.dynamic.services.overrides").setValue(false, testDisposable.disposable)
+    val pluginSet = buildPluginSet(pluginsDir, configureClassLoaders = false) {
+      plugin("wsServiceOverride") {
+        extensions("""
+          <workspaceService serviceInterface="${ServiceInterface::class.qualifiedName}"
+                            serviceImplementation="${DefaultService::class.qualifiedName}"
+                            overrides="true"/>
+        """.trimIndent())
+      }
+    }
+    val validationIssue = DynamicPlugins.validateCanLoadWithoutRestart(pluginSet.getPlugin("wsServiceOverride"))
+    assertThat(validationIssue).contains("service override")
   }
 
   @Test

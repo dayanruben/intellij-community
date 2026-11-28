@@ -22,7 +22,7 @@
 //!   --descriptor-module=<module> --plugin-directory=plugins/<directory> --descriptor=<file> --output=<file>
 //! ```
 //!
-//! The independent libraries file is `{"version": 1, "libraries": [{"library": <label>, "jars": [<file>...]}...]}`: the
+//! The independent libraries file is `{"libraries": [{"library": <label>, "jars": [<file>...]}...]}`: the
 //! libraries that the reused content module jars of the plugin merge. A refused module is a content module that the
 //! product mode of the chain refuses. The part leaves out the jars that the packer omits for the refused modules.
 
@@ -42,7 +42,7 @@ use anyhow::{Context, bail};
 use serde::Deserialize;
 
 use crate::assemble::{AssembledPart, assemble};
-use crate::part::{Member, PART_VERSION, PLUGIN_ORDER, read_part, write_json};
+use crate::part::{Member, PLUGIN_ORDER, read_part, write_json};
 
 fn main() -> ExitCode {
     cli::main(run)
@@ -104,7 +104,6 @@ fn run_assemble(args: Vec<OsString>) -> anyhow::Result<()> {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct IndependentLibraries {
-    version: i64,
     libraries: Vec<Member>,
 }
 
@@ -122,9 +121,6 @@ fn run_plan_part(args: Vec<OsString>) -> anyhow::Result<()> {
     let mut independent_libraries = Vec::new();
     for file in &independent_library_files {
         let libraries: IndependentLibraries = planfile::json::read(Path::new(file))?;
-        if libraries.version != PART_VERSION {
-            bail!("{file} has version {}, but {PART_VERSION} is expected", libraries.version);
-        }
         independent_libraries.extend(libraries.libraries);
     }
     let plan = planfile::read(Path::new(&plan_path))?;

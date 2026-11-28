@@ -1,15 +1,19 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.toolWindow.innerDrag
 
-import com.intellij.ide.DataManager
 import com.intellij.idea.AppMode
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.WriteIntentReadAction
 import com.intellij.openapi.application.impl.InternalUICustomization
 import com.intellij.openapi.application.invokeLater
+import com.intellij.openapi.actionSystem.Presentation
+import com.intellij.openapi.fileEditor.FileEditorManagerKeys
 import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
+import com.intellij.openapi.fileEditor.impl.DockableEditor
 import com.intellij.openapi.fileEditor.impl.EditorWindow
 import com.intellij.openapi.fileEditor.impl.EditorsSplitters
+import com.intellij.openapi.fileEditor.impl.FileEditorManagerImpl
+import com.intellij.openapi.fileEditor.impl.isSingletonEditorInWindow
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.popup.PopupCornerType
 import com.intellij.openapi.util.registry.Registry
@@ -26,11 +30,14 @@ import com.intellij.toolWindow.ToolWindowDragHelper.Companion.createThumbnailDra
 import com.intellij.ui.ComponentUtil
 import com.intellij.ui.MouseDragHelper
 import com.intellij.ui.WindowRoundedCornersManager
+import com.intellij.ui.awt.DevicePoint
 import com.intellij.ui.awt.RelativePoint
 import com.intellij.ui.content.Content
 import com.intellij.ui.content.Content.TEMPORARY_REMOVED_KEY
 import com.intellij.ui.content.impl.ContentImpl
 import com.intellij.ui.content.impl.ContentManagerImpl
+import com.intellij.ui.docking.DockManager
+import com.intellij.ui.docking.impl.DockManagerImpl
 import com.intellij.ui.drag.DialogDragImageView
 import com.intellij.ui.drag.DragImageView
 import com.intellij.ui.drag.GlassPaneDragImageView
@@ -102,6 +109,7 @@ internal class ToolWindowInnerDragHelper(parent: Disposable, val pane: JComponen
         val component = curLocation.target.component
         component.contains(point.getPoint(component))
       }
+      DropLocation.NewWindow -> true
       else -> false
     }
   }
@@ -212,6 +220,7 @@ internal class ToolWindowInnerDragHelper(parent: Disposable, val pane: JComponen
         true
       }
       is DropLocation.Editor -> dropIntoEditor(content, sourceDecorator, curLocation.target)
+      DropLocation.NewWindow -> dropIntoNewWindow(content, sourceDecorator, event.locationOnScreen)
     }
 
     if (shouldUnsplitSourceIfEmpty) {
@@ -286,6 +295,48 @@ internal class ToolWindowInnerDragHelper(parent: Disposable, val pane: JComponen
     val editorWindow = target.resolveWindow() ?: return false
     val transfer = ToolWindowToEditorTransfer.findApplicableTransfer(content, sourceDecorator, target.project) ?: return false
     return transfer.move(editorWindow)
+  }
+
+  /**
+   * Moves the dragged [content] into a new editor window at [screenPoint], as a drop of an editor tab outside any window does.
+   *
+   * @return the same as [dropIntoEditor]
+   */
+  private fun dropIntoNewWindow(content: Content, sourceDecorator: InternalDecoratorImpl, screenPoint: Point): Boolean {
+    val project = sourceDecorator.toolWindow.project
+    val editorManager = FileEditorManagerEx.getInstanceEx(project) as? FileEditorManagerImpl ?: return false
+    val transfer = ToolWindowToEditorTransfer.findApplicableTransfer(content, sourceDecorator, project) ?: return false
+
+    // The content can be opened only in an existing editor window, so it goes to the main one first.
+    val editorWindow = EditorDropTarget.EmptyArea(editorManager.mainSplitters).resolveWindow() ?: return false
+    val filesBefore = editorWindow.fileList.toSet()
+    val shouldUnsplitSourceIfEmpty = transfer.move(editorWindow)
+
+    val composite = editorWindow.selectedComposite
+    if (composite == null || composite.file in filesBefore) {
+      return shouldUnsplitSourceIfEmpty
+    }
+
+    val file = composite.file
+    val editors = composite.allEditors
+    val dockableEditor = DockableEditor(
+      img = null,
+      file = file,
+      presentation = Presentation(file.presentableName),
+      preferredSize = editorWindow.size,
+      isPinned = false,
+      isSingletonEditorInWindow = isSingletonEditorInWindow(editors),
+      isNorthPanelAvailable = DockManagerImpl.isNorthPanelAvailable(editors),
+    )
+    file.putUserData(FileEditorManagerKeys.CLOSING_TO_REOPEN, true)
+    try {
+      editorManager.closeFile(window = editorWindow, composite = composite, runChecks = false)
+      (DockManager.getInstance(project) as DockManagerImpl).createNewDockContainerFor(dockableEditor, RelativePoint(screenPoint))
+    }
+    finally {
+      file.putUserData(FileEditorManagerKeys.CLOSING_TO_REOPEN, null)
+    }
+    return shouldUnsplitSourceIfEmpty
   }
 
   private fun unsplitSourceIfEmpty(sourceDecorator: InternalDecoratorImpl, content: Content) {
@@ -440,6 +491,8 @@ internal class ToolWindowInnerDragHelper(parent: Disposable, val pane: JComponen
     }
 
     val content = myDraggingTab?.content
+    val sourceProject = sourceDecorator?.toolWindow?.project
+    val canDropIntoEditor = content != null && sourceProject != null && canDropIntoEditor(sourceDecorator, content, sourceProject)
     curDropLocation = when {
       decorator != null && decorator == sourceDecorator && canReorderTabs(decorator) -> {
         // Drop into the same tool window decorator - always allowed if you can reorder tabs.
@@ -449,10 +502,18 @@ internal class ToolWindowInnerDragHelper(parent: Disposable, val pane: JComponen
         // Drop into another decorator of the tool window - allowed only if the tool window allows tab splits.
         DropLocation.ToolWindow(decorator)
       }
-      editorTarget != null && content != null &&
-      canDropIntoEditor(sourceDecorator, content, editorTarget.project) -> {
+      decorator != null -> {
+        // The pointer is above the source tool window, and the branches above do not take the drop.
+        // The drag has no target here, so a release cancels it.
+        null
+      }
+      editorTarget != null && canDropIntoEditor -> {
         // Drop into the editor - allowed only if the tool window provides necessary support.
         DropLocation.Editor(editorTarget)
+      }
+      editorTarget == null && canDropIntoEditor -> {
+        // No editor takes the drop - opens a new editor window, as a drop of an editor tab does.
+        DropLocation.NewWindow
       }
       else -> null
     }
@@ -466,16 +527,19 @@ internal class ToolWindowInnerDragHelper(parent: Disposable, val pane: JComponen
   }
 
   private fun findEditorDropTarget(point: RelativePoint): EditorDropTarget? {
-    val rootComponent = UIUtil.getRootPane(point.component)?.contentPane
-    val originalPoint = point.getPoint(rootComponent)
-    val component = SwingUtilities.getDeepestComponentAt(rootComponent, originalPoint.x, originalPoint.y)
-    val dataContext = DataManager.getInstance().getDataContext(component)
-    dataContext.getData(EditorWindow.DATA_KEY)?.let {
-      return EditorDropTarget.Window(it)
+    val project = sourceDecorator?.toolWindow?.project ?: return null
+    val dockManager = DockManager.getInstance(project) as? DockManagerImpl ?: return null
+    val devicePoint = DevicePoint(point)
+    for (container in dockManager.getEditorDropContainers(devicePoint, pane)) {
+      val splitters = container.splitters
+      if (splitters.isEmptyVisible) {
+        return EditorDropTarget.EmptyArea(splitters)
+      }
+      container.findDropWindow(devicePoint.toRelativePoint(splitters))?.let {
+        return EditorDropTarget.Window(it)
+      }
     }
-
-    val splitters = ComponentUtil.getParentOfType(EditorsSplitters::class.java, component) ?: return null
-    return if (splitters.isEmptyVisible) EditorDropTarget.EmptyArea(splitters) else null
+    return null
   }
 
   private fun findEditorDropArea(content: Content): EditorsSplitters? {
@@ -492,11 +556,11 @@ internal class ToolWindowInnerDragHelper(parent: Disposable, val pane: JComponen
     val content = myDraggingTab?.content
     val canMoveContentToEditor = editorHintDropArea != null && content != null
 
-    dropHintHighlightComponent.bounds = if (canMoveContentToEditor && dropLocation !is DropLocation.Editor) {
-      editorHintDropArea.getEditorArea(pane.rootPane.glassPane)
+    if (canMoveContentToEditor && dropLocation !is DropLocation.Editor) {
+      highlightComponent(dropHintHighlightComponent, editorHintDropArea, editorHintDropArea.getEditorArea(editorHintDropArea))
     }
     else {
-      Rectangle()
+      dropHintHighlightComponent.bounds = Rectangle()
     }
   }
 
@@ -512,10 +576,9 @@ internal class ToolWindowInnerDragHelper(parent: Disposable, val pane: JComponen
       currentDropSide = TabsUtil.getDropSideFor(point.getPoint(decorator), decorator)
       val dropArea = Rectangle(decorator.size)
       TabsUtil.updateBoundsWithDropSide(dropArea, currentDropSide)
-      dropArea.bounds = SwingUtilities.convertRectangle(decorator, dropArea, pane.rootPane.glassPane)
 
       decorator.setDropInfoIndex(-1, 0)
-      dropTargetHighlightComponent.bounds = dropArea
+      highlightComponent(dropTargetHighlightComponent, decorator, dropArea)
     }
     else {
       decorator.setDropInfoIndex(-1, 0)
@@ -526,15 +589,22 @@ internal class ToolWindowInnerDragHelper(parent: Disposable, val pane: JComponen
   }
 
   private fun highlightEditorDropArea(target: EditorDropTarget) {
-    val bounds = getGlassPaneBounds(target.component)
-    dropTargetHighlightComponent.bounds = bounds
+    highlightComponent(dropTargetHighlightComponent, target.component, Rectangle(target.component.size))
+    val bounds = dropTargetHighlightComponent.bounds
     dropTargetHighlightComponent.cornerArea = ComponentUtil.getParentOfType(EditorsSplitters::class.java, target.component)?.let {
-      it.getEditorArea(pane.rootPane.glassPane).apply { translate(-bounds.x, -bounds.y) }
+      it.getEditorArea(dropTargetHighlightComponent.parent).apply { translate(-bounds.x, -bounds.y) }
     }
   }
 
-  private fun getGlassPaneBounds(component: JComponent): Rectangle {
-    return SwingUtilities.convertRectangle(component, Rectangle(component.size), pane.rootPane.glassPane)
+  private fun highlightComponent(component: JComponent, area: JComponent, areaBounds: Rectangle) {
+    val glassPane = area.rootPane?.glassPane as? JComponent ?: pane.rootPane.glassPane as JComponent
+    if (component.parent !== glassPane) {
+      removeHighlighting(component)
+      glassPane.add(component)
+      glassPane.revalidate()
+      glassPane.repaint()
+    }
+    component.bounds = SwingUtilities.convertRectangle(area, areaBounds, glassPane)
   }
 
   private fun removeAllHighlighting() {
@@ -602,6 +672,7 @@ internal class ToolWindowInnerDragHelper(parent: Disposable, val pane: JComponen
   private sealed interface DropLocation {
     data class ToolWindow(val decorator: InternalDecoratorImpl) : DropLocation
     data class Editor(val target: EditorDropTarget) : DropLocation
+    data object NewWindow : DropLocation
   }
 
   private class MyDialog(owner: JComponent, val helper: ToolWindowInnerDragHelper, tabImage: BufferedImage)

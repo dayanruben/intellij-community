@@ -1,6 +1,6 @@
 //! The expectations are whole documents, written by hand. A decoder would accept any field name and any nesting. The
 //! reader of a merged build trace uses these bytes as the schema, and the field order of the Kotlin exporter is part
-//! of it. Each expectation came from the former test `internal/span/span_test.go`, except the `time` tag.
+//! of it.
 
 use std::collections::HashSet;
 use std::fs;
@@ -131,7 +131,11 @@ fn end_after_fails_the_span_with_the_alternate_form_of_an_error_only() {
     struct Chained;
     impl Display for Chained {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            if f.alternate() { write!(f, "error: cause") } else { write!(f, "error") }
+            if f.alternate() {
+                write!(f, "error: cause")
+            } else {
+                write!(f, "error")
+            }
         }
     }
 
@@ -249,7 +253,7 @@ fn ids_are_distinct_across_tracers_and_spans() {
 
 #[test]
 fn concurrent_spans_are_all_recorded() {
-    // A whole-tranche run packs thousands of jars on many threads, and each thread starts a child of the root.
+    // A tool can start the children of one root on many threads, and each child must reach the span file.
     let tracer = Tracer::new("packer");
     let root = tracer.span("pack content modules");
     std::thread::scope(|scope| {
@@ -311,14 +315,15 @@ fn a_count_past_the_long_range_saturates() {
     assert_eq!(TagValue::from(usize::MAX), TagValue::Long(i64::MAX));
 }
 
-/// The expectation is the output of Go `encoding/json` with `SetEscapeHTML(false)`, as the Go tracer wrote it.
+/// `serde_json` escapes the quote, the backslash and the control characters, and writes every other character as UTF-8.
+/// A JSON reader accepts U+2028 and U+2029 in a string, so they stay unescaped.
 #[test]
-fn a_special_name_is_escaped_as_the_go_encoder_escapes_it() {
+fn a_special_name_is_escaped_as_json_requires() {
     let tracer = new_test_tracer();
     tracer.span("q\"b\\s\u{8}\u{c}\n\r\t\u{1}\u{1f}\u{7f}<>&\u{2028}\u{2029}é").end();
     let expected = document(concat!(
         r#"{"traceID":"00112233445566778899aabbccddeeff","spanID":"0000000000000001","#,
-        "\"operationName\":\"q\\\"b\\\\s\\b\\f\\n\\r\\t\\u0001\\u001f\u{7f}<>&\\u2028\\u2029é\",",
+        "\"operationName\":\"q\\\"b\\\\s\\b\\f\\n\\r\\t\\u0001\\u001f\u{7f}<>&\u{2028}\u{2029}é\",",
         r#""processID":"p1","startTime":1000000000001000,"duration":1000,"#,
         r#""startTimeNano":1000000000001000000,"durationNano":1000000}"#
     ));

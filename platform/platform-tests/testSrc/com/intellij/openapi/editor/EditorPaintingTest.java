@@ -11,7 +11,10 @@ import com.intellij.openapi.actionSystem.IdeActions;
 import com.intellij.openapi.actionSystem.ex.ActionUtil;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.command.WriteCommandAction;
+import com.intellij.openapi.editor.colors.CodeInsightColors;
 import com.intellij.openapi.editor.colors.EditorColors;
+import com.intellij.openapi.editor.colors.EditorColorsScheme;
+import com.intellij.openapi.editor.colors.TextAttributesKey;
 import com.intellij.openapi.editor.event.DocumentEvent;
 import com.intellij.openapi.editor.event.DocumentListener;
 import com.intellij.openapi.editor.ex.DocumentEx;
@@ -20,9 +23,11 @@ import com.intellij.openapi.editor.ex.RangeHighlighterEx;
 import com.intellij.openapi.editor.ex.util.EditorUtil;
 import com.intellij.openapi.editor.impl.EditorImpl;
 import com.intellij.openapi.editor.impl.FoldingKeys;
+import com.intellij.openapi.editor.markup.DefaultLineMarkerRenderer;
 import com.intellij.openapi.editor.markup.EffectType;
 import com.intellij.openapi.editor.markup.GutterIconRenderer;
 import com.intellij.openapi.editor.markup.HighlighterLayer;
+import com.intellij.openapi.editor.markup.HighlighterTargetArea;
 import com.intellij.openapi.editor.markup.RangeHighlighter;
 import com.intellij.openapi.editor.markup.SeparatorPlacement;
 import com.intellij.openapi.editor.markup.TextAttributes;
@@ -31,7 +36,9 @@ import com.intellij.testFramework.EdtTestUtil;
 import com.intellij.testFramework.EditorTestUtil;
 import com.intellij.testFramework.TestDataPath;
 import com.intellij.testFramework.junit5.TestApplication;
+import com.intellij.ui.ExperimentalUI;
 import com.intellij.ui.JBColor;
+import com.intellij.util.ThrowableRunnable;
 import com.intellij.util.ui.ColorIcon;
 import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.api.Test;
@@ -56,6 +63,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 @TestDataPath("$PROJECT_ROOT/community/platform/platform-tests/testData/editor/painting")
 @TestApplication
@@ -171,6 +179,35 @@ public class EditorPaintingTest extends EditorPaintingTestCase {
   }
 
   @Test
+  public void testFoldPlaceholderOnCaretRowRounded() {
+    runWithLook(true, false, () -> {
+      myFixture.initText("abcd x<caret>y\nmn");
+      myFixture.getEditor().getColorsScheme().setAttributes(
+        EditorColors.FOLDED_TEXT_ATTRIBUTES,
+        new TextAttributes(null, Color.lightGray, null, null, Font.PLAIN)
+      );
+      myFixture.addCollapsedFoldRegion(0, 4, "....");
+      checkResult();
+    });
+  }
+
+  @Test
+  public void testFoldPlaceholdersOnStraightBackgroundsRounded() {
+    runWithLook(true, false, () -> {
+      myFixture.initText("abcd xy\n\nabcd x<caret>y\n\nabcd xy");
+      myFixture.getEditor().getColorsScheme().setAttributes(
+        EditorColors.FOLDED_TEXT_ATTRIBUTES,
+        new TextAttributes(null, Color.lightGray, null, null, Font.PLAIN)
+      );
+      myFixture.addCollapsedFoldRegion(0, 4, "....");
+      myFixture.addCollapsedFoldRegion(9, 13, "....");
+      myFixture.addCollapsedFoldRegion(18, 22, "....");
+      myFixture.getEditor().getMarkupModel().addLineHighlighter(4, 0, new TextAttributes(null, Color.green, null, null, Font.PLAIN));
+      checkResult();
+    });
+  }
+
+  @Test
   public void testIndentGuideStartingAtInlineFold() {
     myFixture.runTest(() -> {
       myFixture.initText("  - parent\n    child\n    child\n  next");
@@ -182,6 +219,116 @@ public class EditorPaintingTest extends EditorPaintingTestCase {
 
       assertTrue(containsRed(paintEditor(false, null, null)));
     });
+  }
+
+  @Test
+  public void testIndentGuideInNarrowClip() {
+    myFixture.runTest(() -> {
+      myFixture.initText("  parent\n    child\n    child\n  next");
+      myFixture.getEditor().getColorsScheme().setColor(EditorColors.INDENT_GUIDE_COLOR, Color.red);
+      int guideEnd = myFixture.getEditor().getDocument().getLineStartOffset(3);
+      RangeHighlighter guide = addRangeHighlighter(0, guideEnd, 0, null);
+      guide.setCustomRenderer(new IndentGuideRenderer());
+      BufferedImage image = paintEditor(false, null, null);
+      int guideX = firstColumnWithColor(image, Color.red);
+      assertNotEquals(-1, guideX);
+      for (int x = guideX - 2; x <= guideX + 2; x++) {
+        checkPartialRepaint(new Rectangle(x, 0, 1, image.getHeight()));
+      }
+    });
+  }
+
+  @Test
+  public void testIndentGuideAtCaret() {
+    myFixture.runTest(() -> {
+      myFixture.initText("  parent\n    child\n    child\n  next");
+      EditorColorsScheme scheme = myFixture.getEditor().getColorsScheme();
+      scheme.setColor(EditorColors.INDENT_GUIDE_COLOR, Color.red);
+      scheme.setColor(EditorColors.SELECTED_INDENT_GUIDE_COLOR, Color.blue);
+      RangeHighlighter guide = addRangeHighlighter(0, myFixture.getEditor().getDocument().getLineStartOffset(3), 0, null);
+      guide.setCustomRenderer(new IndentGuideRenderer());
+      CaretModel caretModel = myFixture.getEditor().getCaretModel();
+      caretModel.moveToLogicalPosition(new LogicalPosition(1, 2));
+      assertTrue(containsRed(paintEditor(false, null, null)), "the indents model has no guide at the caret");
+
+      myFixture.getEditor().getIndentsModel().assumeIndents(List.of(new IndentGuideDescriptor(2, 0, 3)));
+      BufferedImage selected = paintEditor(false, null, null);
+      assertTrue(containsColor(selected, Color.blue));
+      assertFalse(containsRed(selected));
+
+      caretModel.moveToLogicalPosition(new LogicalPosition(1, 4));
+      assertTrue(containsRed(paintEditor(false, null, null)), "the caret is not in the column of the guide");
+    });
+  }
+
+  @Test
+  public void testIndentGuideOfMatchedBraces() {
+    myFixture.runTest(() -> {
+      addIndentGuideWithLineMarker(0);
+      BufferedImage image = paintEditor(false, null, null);
+      assertTrue(containsColor(image, Color.green));
+      assertFalse(containsRed(image));
+    });
+  }
+
+  @Test
+  public void testIndentGuideWithLineMarkerOnAnotherLine() {
+    myFixture.runTest(() -> {
+      addIndentGuideWithLineMarker(1);
+      BufferedImage image = paintEditor(false, null, null);
+      assertFalse(containsColor(image, Color.green));
+      assertTrue(containsRed(image));
+    });
+  }
+
+  @Test
+  public void testIndentGuideOfTwoLineMarkersOnOneLine() {
+    myFixture.runTest(() -> {
+      addIndentGuideWithLineMarker(1);
+      myFixture.getEditor().getColorsScheme().setColor(EditorColors.MATCHED_BRACES_INDENT_GUIDE_COLOR, null);
+      Document document = myFixture.getEditor().getDocument();
+      for (TextAttributesKey key : List.of(CodeInsightColors.MATCHED_BRACE_ATTRIBUTES, EditorColors.SEARCH_RESULT_ATTRIBUTES)) {
+        DefaultLineMarkerRenderer renderer = new DefaultLineMarkerRenderer(key, 1);
+        assertNotNull(renderer.getColor());
+        int layer = key == CodeInsightColors.MATCHED_BRACE_ATTRIBUTES ? 1 : 2;
+        RangeHighlighter marker = myFixture.getEditor().getMarkupModel().addRangeHighlighter(
+          null, 0, document.getLineEndOffset(2), layer, HighlighterTargetArea.EXACT_RANGE);
+        marker.setLineMarkerRenderer(renderer);
+      }
+      List<Color> markerColors = new ArrayList<>();
+      for (RangeHighlighter highlighter : myFixture.getEditor().getMarkupModel().getAllHighlighters()) {
+        if (highlighter.getLineMarkerRenderer() instanceof DefaultLineMarkerRenderer renderer && highlighter.getStartOffset() == 0) {
+          markerColors.add(renderer.getColor());
+        }
+      }
+      assertEquals(2, markerColors.size());
+      assertNotEquals(markerColors.get(0), markerColors.get(1));
+
+      BufferedImage image = paintEditor(false, null, null);
+
+      assertTrue(containsColor(image, markerColors.get(0)), "the guide takes the color of the first line marker");
+      assertFalse(containsColor(image, markerColors.get(1)));
+    });
+  }
+
+  /**
+   * Adds a red indent guide from the line 0 to the line 3, and a line marker that starts on {@code markerLine}. The
+   * matched brace color of the guide is green.
+   */
+  private void addIndentGuideWithLineMarker(int markerLine) {
+    assumeTrue(ExperimentalUI.isNewUI(), "Only the new UI paints the guide of a line marker in the matched brace color");
+    myFixture.initText("  parent\n    child\n    child\n  next");
+    EditorColorsScheme scheme = myFixture.getEditor().getColorsScheme();
+    scheme.setColor(EditorColors.INDENT_GUIDE_COLOR, Color.red);
+    scheme.setColor(EditorColors.MATCHED_BRACES_INDENT_GUIDE_COLOR, Color.green);
+    Document document = myFixture.getEditor().getDocument();
+    RangeHighlighter guide = addRangeHighlighter(0, document.getLineStartOffset(3), 0, null);
+    guide.setCustomRenderer(new IndentGuideRenderer());
+    DefaultLineMarkerRenderer renderer = new DefaultLineMarkerRenderer(CodeInsightColors.MATCHED_BRACE_ATTRIBUTES, 1);
+    assertNotNull(renderer.getColor());
+    RangeHighlighter marker = myFixture.getEditor().getMarkupModel().addRangeHighlighter(
+      null, document.getLineStartOffset(markerLine), document.getLineEndOffset(2), 0, HighlighterTargetArea.EXACT_RANGE);
+    marker.setLineMarkerRenderer(renderer);
   }
 
   @Test
@@ -514,10 +661,388 @@ public class EditorPaintingTest extends EditorPaintingTestCase {
     });
   }
 
+  private void runTestHuggingSelectionAcrossSoftWrap() throws Exception {
+    myFixture.initText("ab cdefghij");
+    configureSoftWraps(8);
+    myFixture.getEditor().getSelectionModel().setSelection(1, 5);
+    checkResult();
+  }
+
+  @Test
+  public void testHuggingSelectionAcrossSoftWrapRounded() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(true, true);
+      try {
+        runTestHuggingSelectionAcrossSoftWrap();
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
+  public void testHuggingSelectionAcrossSoftWrapStraight() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(false, true);
+      try {
+        runTestHuggingSelectionAcrossSoftWrap();
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  private void runTestGuardedBlock() throws Exception {
+    myFixture.initText("ab\ncdef\nghijklmnop");
+    myFixture.getEditor().getDocument().createGuardedBlock(1, 5);
+    checkResult();
+  }
+
+  @Test
+  public void testGuardedBlockRounded() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(true, true);
+      try {
+        runTestGuardedBlock();
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
+  public void testGuardedBlockStraight() {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(false, true);
+      try {
+        runTestGuardedBlock();
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
+  public void testGuardedBlockFilling() {
+    runWithLook(true, false, this::runTestGuardedBlock);
+  }
+
+  /**
+   * Gives the color at {@code x} in the middle of visual line 0, with a guarded block from {@code start} to {@code end}
+   * over the soft wrap after "ab ".
+   */
+  private int colorPastSoftWrap(int start, int end, int x) throws IOException {
+    myFixture.initText("ab cdefghij");
+    configureSoftWraps(8);
+    myFixture.getEditor().getDocument().createGuardedBlock(start, end);
+    BufferedImage image = paintEditor(false, null, null);
+    return image.getRGB(x, myFixture.getEditor().visualLineToYRange(0)[0] + 7);
+  }
+
+  private int guardRgb() {
+    return myFixture.getEditor().getColorsScheme().getColor(EditorColors.READONLY_FRAGMENT_BACKGROUND_COLOR).getRGB();
+  }
+
+  @Test
+  public void testGuardedBlockAcrossSoftWrapHugging() {
+    runWithLook(false, true, () -> {
+      int color = colorPastSoftWrap(1, 5, 35);
+      assertEquals(guardRgb(), color, "the stub at the soft wrap");
+    });
+  }
+
+  @Test
+  public void testGuardedBlockAcrossSoftWrapFilling() {
+    runWithLook(false, false, () -> {
+      int color = colorPastSoftWrap(1, 5, 45);
+      assertEquals(guardRgb(), color, "the fill after the soft wrap");
+    });
+  }
+
+  @Test
+  public void testGuardedBlockEndingAtSoftWrapHasNoStub() {
+    runWithLook(false, true, () -> {
+      int color = colorPastSoftWrap(1, 3, 35);
+      assertNotEquals(guardRgb(), color, "the stub at the soft wrap");
+    });
+  }
+
+  /**
+   * Runs {@code test} with the rounding option {@code rounded} and the hugging look {@code hugging}.
+   */
+  private void runWithLook(boolean rounded, boolean hugging, ThrowableRunnable<Exception> test) {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(rounded, hugging);
+      try {
+        test.run();
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  private void runTestHuggingHighlighterAcrossLineBreak() throws IOException {
+    myFixture.initText("ab\ncdef\nghijklmnop");
+    addRangeHighlighter(1, 5, HighlighterLayer.WARNING, null, Color.red);
+    checkResult();
+  }
+
+  @Test
+  public void testHuggingHighlighterAcrossLineBreakRounded() {
+    runWithLook(true, true, this::runTestHuggingHighlighterAcrossLineBreak);
+  }
+
+  @Test
+  public void testHuggingHighlighterAcrossLineBreakStraight() {
+    runWithLook(false, true, this::runTestHuggingHighlighterAcrossLineBreak);
+  }
+
+  @Test
+  public void testPartialRepaintOfHuggingStub() {
+    runWithLook(true, true, () -> {
+      myFixture.initText("ab\ncdef\nghijklmnop");
+      addRangeHighlighter(1, 5, HighlighterLayer.WARNING, null, Color.red);
+      checkPartialRepaint(0);
+    });
+  }
+
+  private void runTestHuggingHighlighterOverEmptyLine() throws IOException {
+    myFixture.initText("ab\n\ncd\nghijklmnop");
+    addRangeHighlighter(1, 6, HighlighterLayer.WARNING, null, Color.red);
+    checkResult();
+  }
+
+  @Test
+  public void testHuggingHighlighterOverEmptyLineRounded() {
+    runWithLook(true, true, this::runTestHuggingHighlighterOverEmptyLine);
+  }
+
+  @Test
+  public void testHuggingHighlighterOverEmptyLineStraight() {
+    runWithLook(false, true, this::runTestHuggingHighlighterOverEmptyLine);
+  }
+
+  private void runTestHuggingHighlighterAcrossSoftWrap() throws IOException {
+    myFixture.initText("ab cdefghij");
+    configureSoftWraps(8);
+    addRangeHighlighter(1, 5, HighlighterLayer.WARNING, null, Color.red);
+    checkResult();
+  }
+
+  @Test
+  public void testHuggingHighlighterAcrossSoftWrapRounded() {
+    runWithLook(true, true, this::runTestHuggingHighlighterAcrossSoftWrap);
+  }
+
+  @Test
+  public void testHuggingHighlighterAcrossSoftWrapStraight() {
+    runWithLook(false, true, this::runTestHuggingHighlighterAcrossSoftWrap);
+  }
+
+  private void runTestHuggingHighlighterOverBlockInlays() throws IOException {
+    myFixture.initText("line 1\nline 2\na");
+    Document document = myFixture.getEditor().getDocument();
+    myFixture.addBlockInlay(document.getLineStartOffset(0));
+    myFixture.addBlockInlay(document.getLineStartOffset(1));
+    addRangeHighlighter(7, 15, HighlighterLayer.WARNING, null, Color.red);
+    checkResult();
+  }
+
+  @Test
+  public void testHuggingHighlighterOverBlockInlaysRounded() {
+    runWithLook(true, true, this::runTestHuggingHighlighterOverBlockInlays);
+  }
+
+  @Test
+  public void testHuggingHighlighterOverBlockInlaysStraight() {
+    runWithLook(false, true, this::runTestHuggingHighlighterOverBlockInlays);
+  }
+
+  private void runTestLineHighlighterUnderHuggingHighlighterOverBlockInlay() throws IOException {
+    myFixture.initText("line 1\nline 2\nline 3");
+    Document document = myFixture.getEditor().getDocument();
+    myFixture.addBlockInlay(document.getLineStartOffset(1), true);
+    addLineHighlighter(0, 13, HighlighterLayer.WARNING, null, Color.green);
+    addRangeHighlighter(3, 10, HighlighterLayer.ERROR, null, Color.red);
+    BufferedImage image = paintEditor(false, null, null);
+    int bandY = myFixture.getEditor().visualLineToY(1) - 2;
+    assertEquals(Color.green.getRGB(), image.getRGB(image.getWidth() - 3, bandY), "the band right of the inlay");
+    assertEquals(Color.red.getRGB(), image.getRGB(3, bandY), "the block of the inlay");
+  }
+
+  @Test
+  public void testLineHighlighterUnderHuggingHighlighterOverBlockInlayRounded() {
+    runWithLook(true, true, this::runTestLineHighlighterUnderHuggingHighlighterOverBlockInlay);
+  }
+
+  @Test
+  public void testLineHighlighterUnderHuggingHighlighterOverBlockInlayStraight() {
+    runWithLook(false, true, this::runTestLineHighlighterUnderHuggingHighlighterOverBlockInlay);
+  }
+
+  private void runTestHuggingHighlighterOverCustomFold() throws IOException {
+    myFixture.initText("\ntext\n");
+    addCustomLinesFolding(1, 1);
+    addRangeHighlighter(0, 6, HighlighterLayer.WARNING, null, Color.red);
+    checkResult();
+  }
+
+  @Test
+  public void testHuggingHighlighterOverCustomFoldRounded() {
+    runWithLook(true, true, this::runTestHuggingHighlighterOverCustomFold);
+  }
+
+  @Test
+  public void testHuggingHighlighterOverCustomFoldStraight() {
+    runWithLook(false, true, this::runTestHuggingHighlighterOverCustomFold);
+  }
+
+  /**
+   * Asserts the color of the custom fold region on visual line 1, and the color of the stub after it.
+   */
+  private void assertCustomFoldRegionAndStub(int regionRgb, int stubRgb) throws IOException {
+    BufferedImage image = paintEditor(false, null, null);
+    int y = myFixture.getEditor().visualLineToYRange(1)[0] + 7;
+    assertEquals(regionRgb, image.getRGB(12, y), "the region");
+    assertEquals(stubRgb, image.getRGB(29, y), "the stub after the region");
+  }
+
+  private void runTestHighlighterOverLineBreakAfterCustomFold() throws IOException {
+    myFixture.initText("\ntext\nx");
+    addCustomLinesFolding(1, 1);
+    addRangeHighlighter(5, 6, HighlighterLayer.WARNING, null, Color.red);
+    assertCustomFoldRegionAndStub(((EditorEx)myFixture.getEditor()).getBackgroundColor().getRGB(), Color.red.getRGB());
+  }
+
+  @Test
+  public void testHighlighterOverLineBreakAfterCustomFoldRounded() {
+    runWithLook(true, true, this::runTestHighlighterOverLineBreakAfterCustomFold);
+  }
+
+  @Test
+  public void testHighlighterOverLineBreakAfterCustomFoldStraight() {
+    runWithLook(false, true, this::runTestHighlighterOverLineBreakAfterCustomFold);
+  }
+
+  @Test
+  public void testSelectionOverLineBreakAfterCustomFold() {
+    runWithLook(false, true, () -> {
+      myFixture.initText("\ntext\nx");
+      addCustomLinesFolding(1, 1);
+      myFixture.getEditor().getSelectionModel().setSelection(5, 7);
+      int selectionRgb = myFixture.getEditor().getSelectionModel().getTextAttributes().getBackgroundColor().getRGB();
+      assertCustomFoldRegionAndStub(((EditorEx)myFixture.getEditor()).getBackgroundColor().getRGB(), selectionRgb);
+    });
+  }
+
+  @Test
+  public void testSelectedCustomFoldRegionKeepsTheFillOfItsRow() {
+    runWithLook(false, true, () -> {
+      myFixture.initText("\ntext\nlonger line");
+      addCustomLinesFolding(1, 1);
+      addLineHighlighter(1, 5, HighlighterLayer.WARNING, null, Color.green);
+      myFixture.getEditor().getSelectionModel().setSelection(0, 6);
+      BufferedImage image = paintEditor(false, null, null);
+      int y = myFixture.getEditor().visualLineToYRange(1)[0] + 7;
+      int selectionRgb = myFixture.getEditor().getSelectionModel().getTextAttributes().getBackgroundColor().getRGB();
+      assertEquals(selectionRgb, image.getRGB(12, y), "the region");
+      assertEquals(Color.green.getRGB(), image.getRGB(60, y), "the row right of the stub");
+    });
+  }
+
+  @Test
+  public void testSelectionOfOnlyTheCustomFoldRegionHasNoStub() {
+    runWithLook(false, true, () -> {
+      myFixture.initText("\ntext\nlonger line");
+      addCustomLinesFolding(1, 1);
+      myFixture.getEditor().getSelectionModel().setSelection(1, 5);
+      int selectionRgb = myFixture.getEditor().getSelectionModel().getTextAttributes().getBackgroundColor().getRGB();
+      assertCustomFoldRegionAndStub(selectionRgb, ((EditorEx)myFixture.getEditor()).getBackgroundColor().getRGB());
+    });
+  }
+
+  @Test
+  public void testHuggingHighlighterAboveTheSelectionCoversCustomFoldRegion() {
+    runWithLook(false, true, () -> {
+      myFixture.initText("\ntext\nlonger line");
+      addCustomLinesFolding(1, 1);
+      myFixture.getEditor().getSelectionModel().setSelection(0, 6);
+      addRangeHighlighter(0, 7, HighlighterLayer.SELECTION + 1, null, Color.red);
+      assertCustomFoldRegionAndStub(Color.red.getRGB(), Color.red.getRGB());
+    });
+  }
+
+  @Test
+  public void testCustomFoldRendererGetsTheColorOfAHuggingHighlighter() {
+    runWithLook(false, true, () -> {
+      myFixture.initText("\ntext\nx");
+      List<Color> backgrounds = new ArrayList<>();
+      CustomFoldRegionRenderer renderer = new CustomFoldRegionRenderer() {
+        @Override
+        public int calcWidthInPixels(@NotNull CustomFoldRegion region) {
+          return 25;
+        }
+
+        @Override
+        public int calcHeightInPixels(@NotNull CustomFoldRegion region) {
+          return 15;
+        }
+
+        @Override
+        public void paint(
+          @NotNull CustomFoldRegion region,
+          @NotNull Graphics2D g,
+          @NotNull Rectangle2D targetRegion,
+          @NotNull TextAttributes textAttributes
+        ) {
+          backgrounds.add(textAttributes.getBackgroundColor());
+        }
+      };
+      FoldingModel foldingModel = myFixture.getEditor().getFoldingModel();
+      foldingModel.runBatchFoldingOperation(() -> foldingModel.addCustomLinesFolding(1, 1, renderer));
+      addRangeHighlighter(0, 7, HighlighterLayer.WARNING, null, Color.red);
+      paintEditor(false, null, null);
+      assertEquals(List.of(Color.red), backgrounds);
+    });
+  }
+
+  @Test
+  public void testHuggingMultiLineSyntaxToken() {
+    runWithLook(true, true, () -> {
+      myFixture.initText("ab\ncdef\nghijklmnop\n<caret>q");
+      setTokenEditorHighlighter(
+        new int[]{0, 1, 10},
+        new TextAttributes[]{
+          new TextAttributes(),
+          new TextAttributes(null, Color.red, null, null, Font.PLAIN),
+          new TextAttributes(),
+        }
+      );
+      checkResult();
+    });
+  }
+
+  private void runTestFillingHighlighterOverHuggingStub() throws IOException {
+    myFixture.initText("ab\ncdef\nghijklmnop");
+    addRangeHighlighter(1, 5, HighlighterLayer.WARNING, null, Color.red);
+    addLineHighlighter(0, 2, HighlighterLayer.ERROR, null, Color.green);
+    checkResult();
+  }
+
+  @Test
+  public void testFillingHighlighterOverHuggingStubRounded() {
+    runWithLook(true, true, this::runTestFillingHighlighterOverHuggingStub);
+  }
+
+  @Test
+  public void testFillingHighlighterOverHuggingStubStraight() {
+    runWithLook(false, true, this::runTestFillingHighlighterOverHuggingStub);
+  }
+
   @Test
   public void testMultiLineHighlighterRounded() {
     myFixture.runTest(() -> {
-      var state = setSelectionLook(true, true);
+      var state = setSelectionLook(true, false);
       try {
         myFixture.initText("ab\ncdef\nghijklmnop");
         addRangeHighlighter(1, 5, HighlighterLayer.WARNING, null, Color.red);
@@ -553,7 +1078,7 @@ public class EditorPaintingTest extends EditorPaintingTestCase {
   @Test
   public void testRoundedMultiLineSyntaxToken() {
     myFixture.runTest(() -> {
-      var state = setSelectionLook(true, true);
+      var state = setSelectionLook(true, false);
       try {
         myFixture.initText("ab\ncdef\nghijklmnop\n<caret>q");
         setTokenEditorHighlighter(
@@ -635,7 +1160,7 @@ public class EditorPaintingTest extends EditorPaintingTestCase {
   @Test
   public void testFillReachesClipWiderThanViewport() {
     myFixture.runTest(() -> {
-      var state = setSelectionLook(true, true);
+      var state = setSelectionLook(true, false);
       try {
         myFixture.initText("ab\ncd\nefghijklmnop");
         Editor editor = myFixture.getEditor();
@@ -768,7 +1293,7 @@ public class EditorPaintingTest extends EditorPaintingTestCase {
   @Test
   public void testRoundedHighlighterAcrossSoftWrap() {
     myFixture.runTest(() -> {
-      var state = setSelectionLook(true, true);
+      var state = setSelectionLook(true, false);
       try {
         myFixture.initText("abcdefgh");
         configureSoftWraps(4);
@@ -875,7 +1400,7 @@ public class EditorPaintingTest extends EditorPaintingTestCase {
   @Test
   public void testRoundedHighlighterAcrossBlockInlay() {
     myFixture.runTest(() -> {
-      var state = setSelectionLook(true, true);
+      var state = setSelectionLook(true, false);
       try {
         myFixture.initText("abcd\nefgh\n<caret>ijklmnopqrst");
         myFixture.addBlockInlay(myFixture.getEditor().getDocument().getLineStartOffset(1), true);
@@ -1406,19 +1931,25 @@ public class EditorPaintingTest extends EditorPaintingTestCase {
     });
   }
 
-  private void addCustomLinesFolding(int startLine, int endLine) {
-    FoldingModel foldingModel = myFixture.getEditor().getFoldingModel();
-    foldingModel.runBatchFoldingOperation(() -> foldingModel.addCustomLinesFolding(startLine, endLine, new OurCustomFoldRegionRenderer()));
+  private static boolean containsRed(BufferedImage image) {
+    return containsColor(image, Color.red);
   }
 
-  private static boolean containsRed(BufferedImage image) {
-    int rgb = Color.red.getRGB();
+  private static boolean containsColor(BufferedImage image, Color color) {
+    return firstColumnWithColor(image, color) >= 0;
+  }
+
+  /**
+   * Returns the smallest x with a pixel of {@code color}, or -1 when the image has no such pixel.
+   */
+  private static int firstColumnWithColor(BufferedImage image, Color color) {
+    int rgb = color.getRGB();
     for (int x = 0; x < image.getWidth(); x++) {
       for (int y = 0; y < image.getHeight(); y++) {
-        if (image.getRGB(x, y) == rgb) return true;
+        if (image.getRGB(x, y) == rgb) return x;
       }
     }
-    return false;
+    return -1;
   }
 
   private static void setSeverity(RangeHighlighter highlighter, HighlightSeverity severity) {
@@ -1522,38 +2053,6 @@ public class EditorPaintingTest extends EditorPaintingTestCase {
     @Override
     public GutterIconRenderer calcGutterIconRenderer(@NotNull Inlay inlay) {
       return myGutterIconRenderer;
-    }
-  }
-
-  private static class OurCustomFoldRegionRenderer implements CustomFoldRegionRenderer {
-    private static final int WIDTH = 25;
-    private static final int HEIGHT = 15;
-
-    @Override
-    public int calcWidthInPixels(@NotNull CustomFoldRegion region) {
-      return WIDTH;
-    }
-
-    @Override
-    public int calcHeightInPixels(@NotNull CustomFoldRegion region) {
-      return HEIGHT;
-    }
-
-    @Override
-    public void paint(@NotNull CustomFoldRegion region,
-                      @NotNull Graphics2D g,
-                      @NotNull Rectangle2D targetRegion,
-                      @NotNull TextAttributes textAttributes) {
-      g.setColor(Color.pink);
-      Rectangle r = targetRegion.getBounds();
-      int startX = r.x;
-      int endX = r.x + r.width - 1;
-      int startY = r.y;
-      int endY = r.y + r.height - 1;
-      g.drawLine(startX, startY, startX, endY);
-      g.drawLine(startX, endY, endX, endY);
-      g.drawLine(endX, endY, endX, startY);
-      g.drawLine(endX, startY, startX, startY);
     }
   }
 }

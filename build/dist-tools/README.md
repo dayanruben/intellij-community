@@ -5,8 +5,8 @@ tool. A crate under `crates/` exists when two tools share it, or when it is the 
 own goldens. Code that one tool uses lives in that tool. Bazel builds every binary through `rules_rs`, and `cargo`
 serves the edit-test loop and rust-analyzer.
 
-The ultimate tools `dist` and `content-report` are a second workspace, `build/dist-tools` in the ultimate root.
-They use the crates of this workspace through path dependencies.
+The ultimate tool `dist` is a second workspace, `build/dist-tools` in the ultimate root.
+It uses the crates of this workspace through path dependencies.
 
 The contracts are in the specs under `build/openspec/specs/` of the ultimate root. The explainer
 [`from-an-iml-to-a-dist.md`](../../../build/docs/explainers/from-an-iml-to-a-dist.md#where-the-code-goes) names each tool by its Bazel label.
@@ -20,22 +20,25 @@ distribution still runs. They are not in this workspace.
 
 Run a test target from the ultimate root. From `community/`, drop the `@community` prefix.
 
+A crate marked "Shared, not a distribution tool" serves the tools of other workspaces, and no distribution tool links
+it. It stays here, because its users take their third-party crates from `@dt`. The identity of a distribution tool
+states no package of such a crate.
+
 | Crate | Content | Bazel test target |
 |---|---|---|
 | `crates/appinfo` | The application info: the descriptor XML round trip, the markers, the frontend merge, and the reader of the facts that `product-info.json` states. | `@community//build/dist-tools/crates/appinfo:appinfo_test` |
-| `crates/checkout-files` | The files of a git checkout, as `git ls-files --cached --others --exclude-standard` lists them, without the `git` executable: the index reader and the walk. BT links it. Its `Cargo.toml` spells the `[package]` values inline, so a crate of another workspace can link it by path. | `@community//build/dist-tools/crates/checkout-files:checkout-files_test` |
+| `crates/checkout-files` | Shared, not a distribution tool. The files of a git checkout, as `git ls-files --cached --others --exclude-standard` lists them, without the `git` executable: the index reader and the walk. BT links it. Its `Cargo.toml` spells the `[package]` values inline, so a crate of another workspace can link it by path. | `@community//build/dist-tools/crates/checkout-files:checkout-files_test` |
 | `crates/cli` | The command line of every tool: the options `--key=value` and `--flag`, the positional arguments, the refusal of every other form, and the `ERROR:` line of a failure. | `@community//build/dist-tools/crates/cli:cli_test` |
 | `crates/component` | The component contract of the collector and the composer: the manifest, the types and the reader of the local layout, the core classpath order, and the host paths. | `@community//build/dist-tools/crates/component:component_test` |
-| `crates/contentreport` | The reader of an executed packaging recipe and of a built distribution, for `dist` and `content-report`. | `@community//build/dist-tools/crates/contentreport:contentreport_test` |
-| `crates/dev-launch` | The `java` command line of a distribution: the distribution properties, the class path, the main class, the custom command, and the text of the argument file. The guest agent of `community/tools/vm` links it, and no Bazel action runs it. It links no other crate of this workspace, and its `Cargo.toml` spells the `[package]` values inline, so a crate of another workspace can link it by path. | `@community//build/dist-tools/crates/dev-launch:dev-launch_test` |
 | `crates/distpath` | The slash-path rules: the path inside a distribution, the jar entry name, the link target, and the lexical path functions `clean`, `dir` and `join`. | `@community//build/dist-tools/crates/distpath:distpath_test` |
-| `crates/docs-gate` | The docs gate of a docs site on the declared bun and OpenSpec CLI: the declared runtime, the run with a deadline, and the meaning of the sentinel and the exit code. The Rust tests of the docs sites link it. | `@community//build/dist-tools/crates/docs-gate:docs-gate_test` |
-| `crates/filemeta` | Inventory JSON version 1, the hash of a link target, and the directory creation with the mode 0755. | `@community//build/dist-tools/crates/filemeta:filemeta_test` |
+| `crates/docs-gate` | Shared, not a distribution tool. The docs gate of a docs site on the declared bun and OpenSpec CLI: the declared runtime, the run with a deadline, and the meaning of the sentinel and the exit code. The Rust tests of the docs sites link it. | `@community//build/dist-tools/crates/docs-gate:docs-gate_test` |
+| `crates/filemeta` | The inventory JSON, the hash of a link target, and the directory creation with the mode 0755. | `@community//build/dist-tools/crates/filemeta:filemeta_test` |
 | `crates/fscopy` | The copy that clones where the volume supports it, the mode helpers, and the path helpers. | `@community//build/dist-tools/crates/fscopy:fscopy_test` |
 | `crates/jarpack` | The frozen-bytes engine of the packer: the jar reader and writer, the merge, the `__index__`, and the native tree of a presigned library. The remainder packer merges through it, and the descriptor writer reads library jars through its reader. | `@community//build/dist-tools/crates/jarpack:jarpack_test` |
 | `crates/javaglob` | The `java.nio` glob subset that the plan files use. | `@community//build/dist-tools/crates/javaglob:javaglob_test` |
+| `crates/prompt` | Shared, not a distribution tool. The terminal menus, questions and messages of `./build/dist.cmd update-ide`, over `cliclack`. Only the ultimate `dist` links it. | `@community//build/dist-tools/crates/prompt:prompt_test` |
 | `crates/planfile` | The plan file, the remainder contract, the plugin classpath record, and the asset and link-graph rules that the remainder packer and the collector share. | `@community//build/dist-tools/crates/planfile:planfile_test` |
-| `crates/pluginpack` | The remainder engine: the plan and the execution of a plugin remainder, with the Kotlin goldens. Only the remainder packer links it. | `@community//build/dist-tools/crates/pluginpack:pluginpack_test` |
+| `crates/pluginpack` | The remainder engine: the plan and the execution of a plugin remainder. Only the remainder packer links it. | `@community//build/dist-tools/crates/pluginpack:pluginpack_test` |
 | `crates/testkit` | The helpers that the tests of several crates share: the `testdata/` lookup, a temporary directory with a real path, the working directory of one test, and the file, mode and link helpers. Only `[dev-dependencies]` name it, so no tool links it. | `@community//build/dist-tools/crates/testkit:testkit_test` |
 | `crates/trace` | The span API of the traced tools and the Jaeger span file of `--trace-file`. The API is written by hand, so no tool links the `tracing` crates. | `@community//build/dist-tools/crates/trace:trace_test` |
 | `crates/xxh3` | The hash4j xxh3 hashes: the two hashes of the `__index__` keys, and the content hash of a file or a stream in blocks of 256 KiB. | `@community//build/dist-tools/crates/xxh3:xxh3_test` |
@@ -49,27 +52,24 @@ Run a test target from the ultimate root. From `community/`, drop the `@communit
 | `bins/product-files` | The tool of `dist_product_files`. | `@community//build/dist-tools/bins/product-files:product-files_test` |
 | `bins/project-model-tree` | The `materializer` of `intellij_project_model_tree`. | `@community//build/dist-tools/bins/project-model-tree:project-model-tree_test` |
 | `bins/runtime-layout` | The runtime layout tool. | `@community//build/dist-tools/bins/runtime-layout:runtime-layout_test` |
-| `bins/tool-identity` | The identity writer: the identity file of each distribution tool, from the facts and the files that `dist_tool` states. | `@community//build/dist-tools/bins/tool-identity:tool-identity_test` |
+| `bins/tool-identity` | The identity writer: the identity file of each distribution tool, from the facts, the files and the locked packages that `dist_tool` states. A `Cargo.lock` package that the tool does not link leaves the identity unchanged. | `@community//build/dist-tools/bins/tool-identity:tool-identity_test` |
 | `build/dist-tools/bins/dist` | The binary of `./build/dist.cmd`, in the ultimate root. | `//build/dist-tools/bins/dist:dist_test` |
-| `build/dist-tools/bins/content-report` | The `content-report pure` command, in the ultimate root. | `//build/dist-tools/bins/content-report:content-report_test` |
 
 The `API.md` of a crate states its supported subset and the input that it refuses. Rustdoc states the public items.
 
-## The two gates
+## The gates
 
-A change to a tool must pass both gates. Run them from the ultimate root, then the third command in `community/`.
+A change to a tool must pass the tests and, when it can move a composed byte, the fingerprint and the snapshot diff.
+Run the tests from the ultimate root, then the second command in `community/`.
 
 ```sh
-./build/dist.cmd jars
 ./bazel.cmd test @community//build/dist-tools/... //build/dist-tools/...
 cd community && ./bazel.cmd test //build/dist-tools/...
 ```
 
-- `jars` pairs each packed content-module jar of the platform payload with its `JarPackager` reference jar and compares the
-  bytes. It fails on a differing jar, on a jar without a partner on either side, and on an empty compare.
-- The tests include the frozen jar digests in `crates/jarpack/src/tests/golden.rs`, the Kotlin goldens of
-  `crates/pluginpack/testdata`, the plan file corpus, the crate closure test of each action tool, and the
-  `<crate>-clippy` test of every crate.
+- The tests include the frozen jar digests in `crates/jarpack/src/tests/golden.rs`, the crate closure test of each action
+  tool, and the `<crate>-clippy` test of every crate. `//build/dist-tools/plan-corpus:plan-corpus_test` of the ultimate
+  root reads every checked-in plan file.
 - The clippy tests of the community crates run only from `community/`. The clippy aspect of rules_rust skips a target
   of an external repository, and from the ultimate root this module is one. There the tests are incompatible, and
   `bazel test` reports them as skipped. The clippy tests of the ultimate tools run from the ultimate root.
@@ -77,7 +77,7 @@ cd community && ./bazel.cmd test //build/dist-tools/...
   bytes. The validation spec states them. Run them after a change that can move a composed byte:
 
 ```sh
-./bazel.cmd build //build:idea_air_dist && cat out/bazel-bin/build/idea_air_dist.dist/fingerprint.txt
+./bazel.cmd build //build:idea_air_dist && cat out/bazel-bin/build/idea_air_dist.fingerprint
 ./build/dist.cmd snapshot take //build:idea_air_dist out/dist-snapshots/<name>.json
 ./build/dist.cmd snapshot diff out/dist-snapshots/<baseline>.json out/dist-snapshots/<name>.json
 ```
@@ -86,9 +86,8 @@ cd community && ./bazel.cmd test //build/dist-tools/...
   `./bazel.cmd test @community//platform/build-scripts/bazel-rules:bazel_rules_tests`.
 - Before a commit, run `cargo fmt --check` and `cargo clippy --all-targets` in this directory and in
   `build/dist-tools`, and `bun community/build/rust-tools/sync.mjs --check` from the ultimate root.
-- `./build/dist.cmd` runs `//build/dist-tools/bins/dist:dist_opt`, the binary built in `opt`, and
-  `replay` runs `bins/content-module-packer:content-module-packer_opt`. The unit test of each binary stays on the
-  `rust_binary`.
+- `./build/dist.cmd` runs `//build/dist-tools/bins/dist:dist_opt`, the binary built in `opt`. The unit test stays on
+  the `rust_binary`.
 - A launch target runs one tool of this workspace at start: `bins/dev-home:dev-home_opt`, the generation writer. Its
   stub runs it, and then the native launcher of the generation.
 
@@ -134,13 +133,13 @@ cp out/bazel-bin/build/dist-tools/bins/<bin>/<bin>_closure.txt build/dist-tools/
 ## The subset rule
 
 A tool supports only the input that the repository produces. It refuses all other input with an error that names the
-input. So an unused shape of the former tool has no code here, and a shape that no producer writes cannot pass in
-silence.
+input. So a shape that no producer writes has no code here, and it cannot pass in silence.
 
-`crates/planfile/testdata/corpus` holds a copy of the checked-in plan files. The corpus test reads and derives every
-copy, and it requires every accepted source kind and operation kind to occur. The `javaglob` test requires a recorded
-JDK answer for every glob of the corpus. A plan author who needs a new shape changes the contract, the corpus and the
-`API.md` of the crate together.
+The plan corpus test, `build/dist-tools/plan-corpus` of the ultimate root, reads the checked-in plan files of both
+halves. The generator lists them in `build/dist-tools/plan_files.bzl` of each half. The test derives and plans every file,
+and it requires every accepted source kind and operation kind to occur. It also requires a recorded JDK answer for
+every glob of the files. Most plan files belong to closed products, so the test and its record live in the ultimate
+root. A plan author who needs a new shape changes the contract, the record and the `API.md` of the crate together.
 
 ## Cargo beside Bazel
 
@@ -167,14 +166,14 @@ JDK answer for every glob of the corpus. A plan author who needs a new shape cha
 - A test reads `testdata/` through `testkit::testdata_dir`: from `DT_TESTDATA_DIR` under Bazel, and from the run-time
   `CARGO_MANIFEST_DIR` under `cargo test`. The process wrapper of rules_rust refuses `env!("CARGO_MANIFEST_DIR")`.
 - A test that reads the `testdata/` of another crate adds that crate's `<name>_testdata` filegroup to `test_data` of
-  `dist_rust_crate`. The `javaglob` crate reads the plan corpus this way.
+  `dist_rust_crate`.
 - A new crate or binary goes into `members` of `Cargo.toml`. Then run `cargo build` to update `Cargo.lock`.
 
 ### After a change of `Cargo.lock`
 
 `community/MODULE.bazel` generates the crate hub `@dt` from `Cargo.toml`, `Cargo.lock` and `.cargo/config.toml` of
 this directory. The hub also resolves the triples `aarch64-unknown-linux-musl` and `x86_64-unknown-linux-musl`, where
-no distribution tool runs. The guest agent of `community/tools/vm` links `dev-launch` for both, and the closure checks of
+no distribution tool runs. The guest agent of `community/tools/vm` links `fscopy` for both, and the closure checks of
 `vm` and `air-trace` analyze `distpath` for x86_64. After a change of `Cargo.lock`, update the Bazel
 lockfiles of both roots:
 
@@ -200,13 +199,12 @@ old split until the workspace `Cargo.toml` changes. Touch it (a comment line is 
 
 ## Profile the packer
 
-The packer accepts many `output=` groups in one flag file, so one process can pack the whole population. This command
-gives every recipe as its expanded command line:
+One packer action packs one jar. This command gives the recipe of each action as its expanded command line:
 
 ```sh
 ./bazel.cmd aquery --output=text --include_param_files 'mnemonic("PackContentModuleJar", //... + @community//...)'
 ```
 
-Join the recipes into one flag file, and change each `output=` path so that the run does not write into `bazel-out`.
-Remove the groups whose sources are not in the output base. Then run the packer from the exec root under a sampling
-profiler. The measurement rules are in `build/AGENTS.md` of the ultimate root.
+Copy the recipe of one action into a flag file, and change its `output=`, `metadata-file=` and `trace-file=` paths so
+that the run does not write into `bazel-out`. Then run the packer from the exec root under a sampling profiler. The
+measurement rules are in `build/AGENTS.md` of the ultimate root.

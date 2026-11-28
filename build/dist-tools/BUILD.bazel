@@ -12,8 +12,8 @@ rust_lints_as_errors(
 )
 
 # Clippy over the `cfg(windows)` code that a macOS or Linux host never compiles, one test per Windows host:
-# `:clippy-windows-x86_64` and `:clippy-windows-arm64`. The binaries bring every crate that they link. `contentreport`
-# and `docs-gate` are here because only the ultimate root links them, and `testkit` because only the tests link it.
+# `:clippy-windows-x86_64` and `:clippy-windows-arm64`. The binaries bring every crate that they link. `docs-gate` is
+# here because only the ultimate root links it, and `testkit` because only the tests link it.
 # The tests run from the community root only.
 windows_clippy_tests(
     targets = [
@@ -27,21 +27,24 @@ windows_clippy_tests(
         "//build/dist-tools/bins/project-model-tree",
         "//build/dist-tools/bins/runtime-layout",
         "//build/dist-tools/bins/tool-identity",
-        "//build/dist-tools/crates/contentreport",
         "//build/dist-tools/crates/docs-gate",
         "//build/dist-tools/crates/testkit",
     ],
 )
 
-# The files of this workspace that pin what a crate of a tool links: the versions in `Cargo.lock`, the features in
-# `Cargo.toml` and the build settings in `.cargo/config.toml`. The identity of each distribution tool hashes them, see
-# `dist_tool`.
+# The files of this workspace that pin how a crate of a tool builds: the features in `Cargo.toml` and the build
+# settings in `.cargo/config.toml`. The identity of each distribution tool hashes them, see `dist_tool`. The identity
+# takes only the packages of `Cargo.lock` that the tool links, so `Cargo.lock` is exported alone.
 filegroup(
     name = "tool_identity_manifests",
     srcs = [
         ".cargo/config.toml",
-        "Cargo.lock",
         "Cargo.toml",
     ],
+    visibility = ["//platform/build-scripts/bazel-rules:__pkg__"],
+)
+
+exports_files(
+    ["Cargo.lock"],
     visibility = ["//platform/build-scripts/bazel-rules:__pkg__"],
 )

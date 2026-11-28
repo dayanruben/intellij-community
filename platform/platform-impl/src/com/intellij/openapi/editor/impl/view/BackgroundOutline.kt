@@ -7,6 +7,7 @@ import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.TestOnly
 import java.awt.geom.Path2D
 import java.awt.geom.Point2D
+import java.awt.geom.Rectangle2D
 import java.util.Arrays
 import kotlin.math.abs
 import kotlin.math.max
@@ -41,13 +42,15 @@ object BackgroundOutline {
    * Gives the background of [styleId] as rectangles to fill at the device pixels and corner pieces to fill with
    * antialiasing.
    *
-   * The coordinates are aligned to the pixels of [device]. Together the pieces cover the shape of [build] for the aligned
-   * rows, with the same corners. An edge too short for two corner squares of whole device pixels can change a pixel in
-   * part.
+   * The coordinates are aligned to the pixels of [device]. Inside [clip], the pieces cover the shape of [build] for the
+   * aligned rows, with the same corners. An edge too short for two corner squares of whole device pixels can change a
+   * pixel in part. A corner piece more than one device pixel outside [clip] is left out, because it paints no pixel of
+   * the clip. The rectangles still leave out its square. When the shape covers [clip] and the reach of a corner around it,
+   * the pieces are one rectangle over the clip.
    */
   @JvmStatic
-  fun split(rows: BackgroundRows, styleId: Int, radius: Double, device: DeviceGrid): BackgroundPieces {
-    return OutlineGrid(rows, styleId, device).split(radius, device)
+  fun split(rows: BackgroundRows, styleId: Int, radius: Double, device: DeviceGrid, clip: Rectangle2D): BackgroundPieces {
+    return OutlineGrid(rows, styleId, device).split(radius, device, clip)
   }
 
   /**
@@ -327,8 +330,21 @@ private class OutlineGrid(rows: BackgroundRows, styleId: Int, private val device
    * Splits the shape into rectangles at the device pixels of [device] and antialiased corner pieces.
    * A convex corner leaves a square of whole device pixels out of the rectangles, at most one half of each of its edges.
    * A concave corner adds its fillet outside the rectangles.
+   * Only the corner pieces near [clip] get a path.
+   * A shape that covers [clip] and the reach of a corner around it gives one rectangle over the clip and no corner.
    */
-  fun split(radius: Double, device: DeviceGrid): BackgroundPieces {
+  fun split(radius: Double, device: DeviceGrid, clip: Rectangle2D): BackgroundPieces {
+    val reachX = radius + CORNER_REACH_PIXELS * device.pixelWidth
+    val reachY = radius + CORNER_REACH_PIXELS * device.pixelHeight
+    if (covers(clip.minX - reachX, clip.minY - reachY, clip.maxX + reachX, clip.maxY + reachY)) {
+      val clipRectangle = doubleArrayOf(
+        device.alignX(clip.minX - device.pixelWidth),
+        device.alignY(clip.minY - device.pixelHeight),
+        device.alignX(clip.maxX + device.pixelWidth),
+        device.alignY(clip.maxY + device.pixelHeight),
+      )
+      return BackgroundPieces(clipRectangle, emptyList())
+    }
     val pieces = ArrayList<CornerPiece>()
     for (cycle in trace()) {
       if (cycle.size < 3) {
@@ -341,7 +357,10 @@ private class OutlineGrid(rows: BackgroundRows, styleId: Int, private val device
         }
       }
     }
-    return BackgroundPieces(rectanglesWithout(pieces), cornerPaths(pieces, device))
+    val visiblePieces = pieces.filter { piece ->
+      piece.isNear(clip, device)
+    }
+    return BackgroundPieces(rectanglesWithout(pieces), cornerPaths(visiblePieces, device))
   }
 
   /**
@@ -556,6 +575,37 @@ private class OutlineGrid(rows: BackgroundRows, styleId: Int, private val device
     }
   }
 
+  /**
+   * Tells whether the union covers the area from [left] to [right] and from [top] to [bottom].
+   * An area that touches a band or a cell the union does not cover gives `false`.
+   */
+  private fun covers(left: Double, top: Double, right: Double, bottom: Double): Boolean {
+    if (cellCount == 0 || bandCount == 0) {
+      return false
+    }
+    if (left < xs[0] || right > xs[cellCount] || top < ys[0] || bottom > ys[bandCount]) {
+      return false
+    }
+    val firstCell = cellAt(left)
+    val lastCell = cellAt(right)
+    for (band in bandAt(top)..bandAt(bottom)) {
+      for (cell in firstCell..lastCell) {
+        if (!isCovered(band, cell)) {
+          return false
+        }
+      }
+    }
+    return true
+  }
+
+  private fun cellAt(x: Double): Int {
+    val found = Arrays.binarySearch(xs, x)
+    if (found >= 0) {
+      return found
+    }
+    return max(0, -found - 2)
+  }
+
   private fun isCovered(band: Int, cell: Int): Boolean {
     if (band !in 0 until bandCount || cell !in 0 until cellCount) {
       return false
@@ -679,6 +729,18 @@ private class OutlineGrid(rows: BackgroundRows, styleId: Int, private val device
     val squareBottom: Double get() = max(y, innerY)
     val top: Double = min(min(y, innerY), min(startY, endY))
     val bottom: Double = max(max(y, innerY), max(startY, endY))
+    private val left: Double = min(min(x, innerX), min(startX, endX))
+    private val right: Double = max(max(x, innerX), max(startX, endX))
+
+    /**
+     * Tells whether the piece comes within one device pixel of [clip].
+     */
+    fun isNear(clip: Rectangle2D, device: DeviceGrid): Boolean {
+      return right >= clip.minX - device.pixelWidth &&
+             left <= clip.maxX + device.pixelWidth &&
+             bottom >= clip.minY - device.pixelHeight &&
+             top <= clip.maxY + device.pixelHeight
+    }
 
     fun appendTo(path: Path2D.Double) {
       path.moveTo(x - back * dx(incoming), y - back * dy(incoming))
@@ -695,6 +757,12 @@ private class OutlineGrid(rows: BackgroundRows, styleId: Int, private val device
      * Two coordinates that differ by less than this are one coordinate of the grid.
      */
     private const val EPSILON: Double = 1e-2
+
+    /**
+     * How many device pixels beyond the radius a corner piece can paint. The count covers the whole pixels of its square,
+     * the alignment of its corner and the pixels at a clip edge.
+     */
+    private const val CORNER_REACH_PIXELS: Double = 4.0
 
     /**
      * The direction difference of a right turn. With the interior on the right, a right turn is a convex corner.

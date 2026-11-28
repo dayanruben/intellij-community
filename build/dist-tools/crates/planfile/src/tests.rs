@@ -1,7 +1,5 @@
-//! The port of `planfile_test.go`. The `mustDerive` of the former tool also planned the derived recipe. That check
-//! needs the `pluginpack` crate, so its tests hold it.
-
-mod corpus;
+//! The tests of the plan file reader and the derivation. The plan corpus test of the ultimate root reads and plans every
+//! checked-in plan file.
 
 use testkit::{plan_text, require_case_error};
 
@@ -10,8 +8,7 @@ use crate::contract::{
     Manifest, Producer, Reference, Source,
 };
 use crate::{
-    DEFAULT_MODE, Derivation, EXECUTABLE_MODE, JarWriter, ManifestPolicy, OperationKind, PlanFile, classpath, derive, module_jar_asset,
-    read,
+    DEFAULT_MODE, Derivation, EXECUTABLE_MODE, JarWriter, ManifestPolicy, OperationKind, PlanFile, derive, module_jar_asset, read,
 };
 
 fn read_plan(text: &str) -> anyhow::Result<PlanFile> {
@@ -86,8 +83,6 @@ fn derive_refusing(
     derive(
         &must_read_plan(text),
         inputs,
-        "plugins/demo",
-        b"<idea-plugin/>",
         version,
         &strings(independent_modules),
         &strings(refused_modules),
@@ -385,18 +380,6 @@ fn read_refuses_malformed_forms() {
             "a Kotlin operation kind",
             operation(r#"{"id": "n", "kind": "native-archive", "output": "o", "manifest": "keep"}"#),
             r#"has the kind "native-archive"; the packer executes only layout-assets"#,
-        ),
-        (
-            "the retired module-filter kind",
-            operation(r#"{"id": "n", "kind": "module-filter", "inputs": [{"artifact": "a"}], "output": "o", "manifest": "keep"}"#),
-            r#"operation "n" has the kind "module-filter"; the packer executes only layout-assets"#,
-        ),
-        (
-            "the primary input of the retired module-filter kind",
-            operation(
-                r#"{"id": "n", "kind": "module-filter", "input": {"artifact": "a"}, "output": "o", "manifest": "keep", "excludes": ["drop/**"]}"#,
-            ),
-            "unknown field `input`",
         ),
         (
             "an operation without a kind",
@@ -929,7 +912,7 @@ fn derive_compiles_every_operation_kind() {
 }
 
 #[test]
-fn derive_writes_the_plan_scope_class_path() {
+fn derive_states_the_class_path_flag_in_the_rows() {
     let inputs = catalogue(vec![file_artifact("demo.main"), file_artifact("run")]);
     let derivation = must_derive(
         &plan_text(
@@ -946,12 +929,9 @@ fn derive_writes_the_plan_scope_class_path() {
         1,
         &["demo.content"],
     );
-    let want = classpath::record("demo", b"<idea-plugin/>", &["lib/util.jar", "lib/demo.jar"]).unwrap();
-    assert_eq!(derivation.class_path, want);
-    assert!(
-        want.windows(26).any(|window| window == b"lib/demo.jar\x00\x0clib/util.jar"),
-        "the plugin jar goes first"
-    );
+    // The collector writes the record from the rows: a jar directly under `lib/` without `classPath: false`.
+    let hidden = derivation.assets.iter().find(|row| row.destination == "lib/hidden.jar").unwrap();
+    assert_eq!(hidden.class_path, Some(false));
 }
 
 #[test]
@@ -1105,38 +1085,6 @@ fn derive_refuses_what_the_packer_does_not_execute() {
     }
 }
 
-#[test]
-fn derive_refuses_an_invalid_plugin_directory() {
-    let text = plan_text(1, r#"{"destination": "bin/tool", "inputs": ["tool"]}"#, &[]);
-    for directory in [
-        "",
-        ".",
-        "..",
-        "/",
-        "demo",
-        "plugins/",
-        "plugins/.",
-        "plugins/..",
-        "plugins/a/b",
-        "plugins\\demo",
-        "plugins/a\\b",
-    ] {
-        let result = derive(
-            &must_read_plan(&text),
-            &catalogue(vec![file_artifact("tool")]),
-            directory,
-            b"",
-            1,
-            &[],
-            &[],
-        );
-        assert!(
-            format!("{:#}", result.unwrap_err()).contains("is not plugins/<name>"),
-            "{directory:?}"
-        );
-    }
-}
-
 /// The chain names the modules its product mode refuses. An asset whose every module is refused is omitted: no row, no
 /// classpath jar, no operation, and the inputs that only it reads leave the catalogue of the derivation. An asset that
 /// merges a refused module with a kept one stays whole, and a jar without a module is never omitted. A refused module
@@ -1193,8 +1141,6 @@ fn derive_omits_an_asset_whose_every_module_is_refused() {
         ["demo.backend", "demo.main", "@lib//:demo-lib/a.jar", "raw"],
         "the module input that only the omitted jar reads left the catalogue, and the merged input stayed"
     );
-    let expected = classpath::record("demo", b"<idea-plugin/>", &["lib/demo.jar", "lib/demo-lib.jar", "lib/main.jar"]).unwrap();
-    assert_eq!(derivation.class_path, expected);
 
     // Without a refusal the same plan derives every asset, so the refused list alone changes the derivation.
     let complete = derive_plan(&text, &inputs, 1, &["demo.content", "demo.shared"]).unwrap_or_else(|error| panic!("{error}"));

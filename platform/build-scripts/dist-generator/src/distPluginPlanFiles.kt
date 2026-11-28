@@ -47,7 +47,6 @@ internal class DistPluginPlanFiles private constructor(
   bindings: Map<DistPluginPlanKey, EmittedRecord>,
   homes: Map<String, DistPluginPlanHome>,
   exportedFiles: Map<String, List<String>>,
-  reusedHomes: Set<String>,
 ) {
   @JvmField
   val files: Map<String, String> = Collections.unmodifiableMap(TreeMap(files))
@@ -59,15 +58,8 @@ internal class DistPluginPlanFiles private constructor(
   @JvmField
   val exportedFiles: Map<String, List<String>> = Collections.unmodifiableMap(TreeMap(exportedFiles))
 
-  /**
-   * The plugins whose home is the own package of the plugin, where the community half writes the same plan files, sorted.
-   * Only the ultimate half has such a plugin. [updates] neither writes nor sweeps these files.
-   */
-  @JvmField
-  val reusedHomes: Set<String> = Collections.unmodifiableSet(TreeSet(reusedHomes))
-
   /** Direct file maps are inert. Collection binds the emitted files to their owner records. */
-  constructor(files: Map<String, String>, updates: DistPluginPlanUpdates) : this(files, updates, emptyMap(), emptyMap(), emptyMap(), emptySet())
+  constructor(files: Map<String, String>, updates: DistPluginPlanUpdates) : this(files, updates, emptyMap(), emptyMap(), emptyMap())
 
   /** The plan home of [mainModule], which has at least one emitted plan file. */
   fun home(mainModule: String): DistPluginPlanHome {
@@ -271,7 +263,7 @@ internal class DistPluginPlanFiles private constructor(
         files = files.filterKeys { it.substringBeforeLast('/', "") !in reusedDirectories },
         sweepDirectories = planSweepDirectories(projectRoot, index, planHomes),
       )
-      return DistPluginPlanFiles(files, updates, bindings, homes, exportedFiles, reusedHomes.keys)
+      return DistPluginPlanFiles(files, updates, bindings, homes, exportedFiles)
     }
   }
 }
@@ -661,4 +653,22 @@ private fun collectObsoleteProjections(projectRoot: Path, relativeDirectory: Str
     }
   }
   return obsolete.sorted()
+}
+
+/**
+ * The `.bzl` text that lists a label for every plan file in [relativePaths], in path order. `dist_complex_plugin` declares
+ * the filegroup `<plan file>` without `.json` in the package of the plan home, so the directory is the package of the
+ * label.
+ */
+internal fun renderDistPlanFiles(relativePaths: Collection<String>, generatedByHeader: String): String = buildString {
+  append(generatedByHeader)
+  append("#\n")
+  append("# The filegroup of every plan file of this half, in path order. The corpus test of the plan readers,\n")
+  append("# `//build/dist-tools/plan-corpus` of the ultimate root, reads each listed file.\n")
+  append("\n")
+  append("DIST_PLAN_FILES = [\n")
+  for (relativePath in relativePaths.sorted()) {
+    append("    \"//").append(relativePath.substringBeforeLast('/', "")).append(':').append(relativePath.substringAfterLast('/').removeSuffix(".json")).append("\",\n")
+  }
+  append("]\n")
 }

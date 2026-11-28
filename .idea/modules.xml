@@ -573,7 +573,6 @@
       <module fileurl="file://$PROJECT_DIR$/plugins/gradle/codeInsight/toml/intellij.gradle.codeInsight.toml.iml" filepath="$PROJECT_DIR$/plugins/gradle/codeInsight/toml/intellij.gradle.codeInsight.toml.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/gradle/codeInsight/toml/backend/intellij.gradle.codeInsight.toml.backend.iml" filepath="$PROJECT_DIR$/plugins/gradle/codeInsight/toml/backend/intellij.gradle.codeInsight.toml.backend.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/gradle/codeInsight/toml/backend/tests.integration/intellij.gradle.codeInsight.toml.backend.tests.integration.iml" filepath="$PROJECT_DIR$/plugins/gradle/codeInsight/toml/backend/tests.integration/intellij.gradle.codeInsight.toml.backend.tests.integration.iml" />
-      <module fileurl="file://$PROJECT_DIR$/plugins/gradle/intellij.gradle.common.iml" filepath="$PROJECT_DIR$/plugins/gradle/intellij.gradle.common.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/gradle/completion/intellij.gradle.completion.iml" filepath="$PROJECT_DIR$/plugins/gradle/completion/intellij.gradle.completion.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/gradle/completion/kotlin/intellij.gradle.completion.kotlin.iml" filepath="$PROJECT_DIR$/plugins/gradle/completion/kotlin/intellij.gradle.completion.kotlin.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/gradle/completion/kotlin/tests/intellij.gradle.completion.kotlin.tests.iml" filepath="$PROJECT_DIR$/plugins/gradle/completion/kotlin/tests/intellij.gradle.completion.kotlin.tests.iml" />
@@ -599,6 +598,7 @@
       <module fileurl="file://$PROJECT_DIR$/plugins/gradle/java/tests/integration/eel/intellij.gradle.java.tests.integration.eel.iml" filepath="$PROJECT_DIR$/plugins/gradle/java/tests/integration/eel/intellij.gradle.java.tests.integration.eel.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/gradle/java/tests/integration/service/intellij.gradle.java.tests.integration.service.iml" filepath="$PROJECT_DIR$/plugins/gradle/java/tests/integration/service/intellij.gradle.java.tests.integration.service.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/gradle/java/tests/quarantine/intellij.gradle.java.tests.quarantine.iml" filepath="$PROJECT_DIR$/plugins/gradle/java/tests/quarantine/intellij.gradle.java.tests.quarantine.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/gradle/java/tests/unit/intellij.gradle.java.tests.unit.iml" filepath="$PROJECT_DIR$/plugins/gradle/java/tests/unit/intellij.gradle.java.tests.unit.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/gradle/java/toml/intellij.gradle.java.toml.iml" filepath="$PROJECT_DIR$/plugins/gradle/java/toml/intellij.gradle.java.toml.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/gradle/java/toml/tests/intellij.gradle.java.toml.tests.iml" filepath="$PROJECT_DIR$/plugins/gradle/java/toml/tests/intellij.gradle.java.toml.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/gradle/jps-plugin/intellij.gradle.jps.iml" filepath="$PROJECT_DIR$/plugins/gradle/jps-plugin/intellij.gradle.jps.iml" />
@@ -622,6 +622,7 @@
       <module fileurl="file://$PROJECT_DIR$/plugins/gradle/tests/integration/service/intellij.gradle.tests.integration.service.iml" filepath="$PROJECT_DIR$/plugins/gradle/tests/integration/service/intellij.gradle.tests.integration.service.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/gradle/intellij.gradle.tests.main.iml" filepath="$PROJECT_DIR$/plugins/gradle/intellij.gradle.tests.main.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/gradle/tests/quarantine/intellij.gradle.tests.quarantine.iml" filepath="$PROJECT_DIR$/plugins/gradle/tests/quarantine/intellij.gradle.tests.quarantine.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/gradle/tests/unit/intellij.gradle.tests.unit.iml" filepath="$PROJECT_DIR$/plugins/gradle/tests/unit/intellij.gradle.tests.unit.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/gradle/tooling-extension-api/intellij.gradle.toolingExtension.iml" filepath="$PROJECT_DIR$/plugins/gradle/tooling-extension-api/intellij.gradle.toolingExtension.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/gradle/tooling-extension-impl/intellij.gradle.toolingExtension.impl.iml" filepath="$PROJECT_DIR$/plugins/gradle/tooling-extension-impl/intellij.gradle.toolingExtension.impl.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/gradle/tooling-extension-impl/intellij.gradle.toolingExtension.tests.iml" filepath="$PROJECT_DIR$/plugins/gradle/tooling-extension-impl/intellij.gradle.toolingExtension.tests.iml" />
@@ -2410,9 +2411,6 @@
       <module fileurl="file://$PROJECT_DIR$/python/python-ty/intellij.python.ty.iml" filepath="$PROJECT_DIR$/python/python-ty/intellij.python.ty.iml" />
       <module fileurl="file://$PROJECT_DIR$/python/python-ty/common/intellij.python.ty.common.iml" filepath="$PROJECT_DIR$/python/python-ty/common/intellij.python.ty.common.iml" />
       <module fileurl="file://$PROJECT_DIR$/python/python-ty/frontend/intellij.python.ty.frontend.iml" filepath="$PROJECT_DIR$/python/python-ty/frontend/intellij.python.ty.frontend.iml" />
-      <module fileurl="file://$PROJECT_DIR$/python/python-type-engine/intellij.python.typeEngine.iml" filepath="$PROJECT_DIR$/python/python-type-engine/intellij.python.typeEngine.iml" />
-      <module fileurl="file://$PROJECT_DIR$/python/python-type-engine/common/intellij.python.typeEngine.common.iml" filepath="$PROJECT_DIR$/python/python-type-engine/common/intellij.python.typeEngine.common.iml" />
-      <module fileurl="file://$PROJECT_DIR$/python/python-type-engine/frontend/intellij.python.typeEngine.frontend.iml" filepath="$PROJECT_DIR$/python/python-type-engine/frontend/intellij.python.typeEngine.frontend.iml" />
       <module fileurl="file://$PROJECT_DIR$/python/python-uv/backend/intellij.python.uv.backend.iml" filepath="$PROJECT_DIR$/python/python-uv/backend/intellij.python.uv.backend.iml" />
       <module fileurl="file://$PROJECT_DIR$/python/python-uv/common/intellij.python.uv.common.iml" filepath="$PROJECT_DIR$/python/python-uv/common/intellij.python.uv.common.iml" />
       <module fileurl="file://$PROJECT_DIR$/python/python-uv/frontend/intellij.python.uv.frontend.iml" filepath="$PROJECT_DIR$/python/python-uv/frontend/intellij.python.uv.frontend.iml" />
@@ -2474,6 +2472,7 @@
       <module fileurl="file://$PROJECT_DIR$/plugins/sh/spellchecker/intellij.sh.spellchecker.iml" filepath="$PROJECT_DIR$/plugins/sh/spellchecker/intellij.sh.spellchecker.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/sh/terminal/intellij.sh.terminal.iml" filepath="$PROJECT_DIR$/plugins/sh/terminal/intellij.sh.terminal.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/sh/terminal/frontend/intellij.sh.terminal.frontend.iml" filepath="$PROJECT_DIR$/plugins/sh/terminal/frontend/intellij.sh.terminal.frontend.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/sh/terminal/frontend/intellij.sh.terminal.frontend.tests.iml" filepath="$PROJECT_DIR$/plugins/sh/terminal/frontend/intellij.sh.terminal.frontend.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/sh/core/intellij.sh.tests.iml" filepath="$PROJECT_DIR$/plugins/sh/core/intellij.sh.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/platform/smart-update/intellij.smart.update.iml" filepath="$PROJECT_DIR$/platform/smart-update/intellij.smart.update.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/space/jps-plugin/intellij.space.java.jps.iml" filepath="$PROJECT_DIR$/plugins/space/jps-plugin/intellij.space.java.jps.iml" />

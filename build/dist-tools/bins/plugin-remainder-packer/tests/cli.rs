@@ -1,7 +1,5 @@
-//! The tests of the Go `pluginpack_test` target that ran the packer binary. They are
-//! `TestRawTreeIsAbsentUntilGoExecution`, `TestBinaryOutputAliasesPreserveContractFiles`, and the projection half of
-//! `TestGoPlanDerivationMatchesKotlinPreparer`. The fourth is `TestRelativeDirectoryRootsResolveThroughWorkingDirectoryLinks`.
-//! The Go test changed the working directory of its process. The port starts the binary in that directory instead.
+//! The tests that run the packer binary as a process. A test that needs another working directory starts the binary
+//! in that directory.
 //!
 //! The tests read the path of the packer binary from `CARGO_BIN_EXE_plugin-remainder-packer` at run time. Where the
 //! variable is absent, each test skips with a message.
@@ -9,6 +7,7 @@
 #![expect(clippy::tests_outside_test_module, reason = "a Cargo integration test has no #[cfg(test)] module")]
 
 use std::fs;
+#[cfg(unix)]
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -57,6 +56,7 @@ fn snapshot(root: &Path) -> Vec<String> {
     record
 }
 
+#[cfg(unix)]
 fn jar(entries: &[(&str, &str)]) -> Vec<u8> {
     let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
     for (name, content) in entries {
@@ -66,9 +66,8 @@ fn jar(entries: &[(&str, &str)]) -> Vec<u8> {
     writer.finish().unwrap().into_inner()
 }
 
-/// Writes the plan file, the input catalogue and the classpath descriptor of one plugin under `contracts`. The plan
-/// copies `source` as the tree `resources`, or as the file `lib/raw.jar`. The result is the argument list of the packer
-/// without its four outputs.
+/// Writes the plan file and the input catalogue of one plugin under `contracts`. The plan copies `source` as the tree
+/// `resources`, or as the file `lib/raw.jar`. The result is the argument list of the packer without its three outputs.
 fn projection_contracts(contracts: &Path, tree: bool, source: &Path) -> Vec<String> {
     let (version, kind, asset) = if tree {
         (
@@ -83,12 +82,9 @@ fn projection_contracts(contracts: &Path, tree: bool, source: &Path) -> Vec<Stri
     let catalogue = serde_json::json!({"version": 1, "artifacts": [{"id": "raw", "kind": kind, "root": source}]});
     write_file(contracts.join("plan.json"), plan.as_bytes());
     write_file(contracts.join("catalogue.json"), serde_json::to_vec(&catalogue).unwrap());
-    write_file(contracts.join("descriptor.xml"), b"<idea-plugin><id>test.plugin</id></idea-plugin>");
     vec![
         format!("--projection={}", contracts.join("plan.json").display()),
         format!("--input-catalogue={}", contracts.join("catalogue.json").display()),
-        format!("--classpath-descriptor={}", contracts.join("descriptor.xml").display()),
-        "--plugin-directory=plugins/test".to_owned(),
         format!("--execution-version={version}"),
     ]
 }
@@ -98,7 +94,6 @@ fn outputs(output: &str, inventory: &str, root: &Path) -> Vec<String> {
         format!("--output-dir={output}"),
         format!("--inventory={inventory}"),
         format!("--assets={}", root.join("assets.json").display()),
-        format!("--classpath={}", root.join("plugin-classpath.txt").display()),
     ]
 }
 
@@ -113,7 +108,7 @@ fn raw_tree_is_absent_until_execution() {
     arguments.extend(outputs("plugin", "inventory.json", root.path()));
     let output = run(&packer, &arguments, root.path());
     assert!(!output.status.success(), "the packer accepted the missing raw tree");
-    for name in ["plugin", "inventory.json", "assets.json", "plugin-classpath.txt"] {
+    for name in ["plugin", "inventory.json", "assets.json"] {
         assert!(
             !exists(&root.path().join(name)),
             "the packer wrote {name} before the raw tree validation"
@@ -145,7 +140,7 @@ fn binary_output_aliases_preserve_contract_files() {
     let Some(packer) = packer() else { return };
     for tree in [false, true] {
         for (name, alias_name) in [("Contracts", "contracts"), ("Caf\u{e9}", "Cafe\u{301}")] {
-            for document in ["plan.json", "catalogue.json", "descriptor.xml"] {
+            for document in ["plan.json", "catalogue.json"] {
                 for destination in ["payload", "inventory"] {
                     let root = tempfile::tempdir().unwrap();
                     let mut source = root.path().join("source");
@@ -244,76 +239,7 @@ fn relative_directory_roots_resolve_through_working_directory_links() {
     assert_eq!(fs::read(output.join("resources/input.txt")).unwrap(), b"relative input");
 }
 
-/// The projection mode of the packer writes the same directory, inventory, asset rows and classpath record as the
-/// in-process derivation of the same plan file.
-#[test]
-fn projection_mode_matches_the_in_process_derivation() {
-    let Some(packer) = packer() else { return };
-    let root = tempfile::tempdir().unwrap();
-    let inputs = root.path().join("inputs");
-    write_file(inputs.join("raw/keep/Service.txt"), b"copied into the jar");
-    write_file(
-        inputs.join("demo.extra.jar"),
-        jar(&[
-            ("demo/extra/Main.class", "class of demo.extra"),
-            ("META-INF/MANIFEST.MF", "Manifest-Version: 1.0\r\nModule: demo.extra\r\n\r\n"),
-        ]),
-    );
-    let plan = r#"{"version": 1, "plugin": "filtered", "variant": "", "assets": [
-      {"destination": "lib/main.jar", "recipe": {"sources": [{"input": "filtered:output", "kind": "prepared", "filter": "prepared"}, {"input": "demo.extra", "kind": "module", "filter": "module-v1"}], "writer": {"manifest": "keep", "mergeEntities": true}}}],
-      "operations": [{"id": "filter", "kind": "layout-assets", "inputs": [{"artifact": "raw"}], "output": "filtered:output", "manifest": "keep",
-        "layoutAssets": {"format": "entries", "assets": [{"destination": "", "sources": [0]}]}}]}"#;
-    let catalogue_json = serde_json::json!({"version": 1, "artifacts": [
-        {"id": "raw", "kind": "directory", "root": inputs.join("raw")},
-        {"id": "demo.extra", "kind": "file", "root": inputs.join("demo.extra.jar")},
-    ]});
-    let descriptor = b"<idea-plugin><id>filtered</id><version>1</version></idea-plugin>";
-    write_file(root.path().join("plan.json"), plan.as_bytes());
-    write_file(root.path().join("catalogue.json"), serde_json::to_vec(&catalogue_json).unwrap());
-    write_file(root.path().join("descriptor.xml"), descriptor);
-
-    let file = planfile::read(&root.path().join("plan.json")).unwrap();
-    let catalogue: planfile::contract::Catalogue = planfile::json::read(&root.path().join("catalogue.json")).unwrap();
-    let derivation = planfile::derive(&file, &catalogue, "plugins/filtered", descriptor, 1, &[], &[]).unwrap();
-    let in_process = root.path().join("in-process");
-    pluginpack::plan(&derivation.recipe, &derivation.catalogue)
-        .unwrap()
-        .write(&in_process.join("plugin"), &in_process.join("inventory.json"))
-        .unwrap();
-
-    let packed = root.path().join("packed");
-    let arguments = vec![
-        format!("--projection={}", root.path().join("plan.json").display()),
-        format!("--input-catalogue={}", root.path().join("catalogue.json").display()),
-        format!("--classpath-descriptor={}", root.path().join("descriptor.xml").display()),
-        "--plugin-directory=plugins/filtered".to_owned(),
-        "--execution-version=1".to_owned(),
-        format!("--output-dir={}", packed.join("plugin").display()),
-        format!("--inventory={}", packed.join("inventory.json").display()),
-        format!("--assets={}", packed.join("assets.json").display()),
-        format!("--classpath={}", packed.join("plugin-classpath.txt").display()),
-    ];
-    let result = run(&packer, &arguments, root.path());
-    assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
-    assert!(result.stdout.is_empty(), "a run that succeeds writes nothing to stdout");
-    assert_eq!(
-        snapshot(&packed.join("plugin")),
-        snapshot(&in_process.join("plugin")),
-        "the plugin directory differs"
-    );
-    assert_eq!(
-        filemeta::read(&packed.join("inventory.json")).unwrap(),
-        filemeta::read(&in_process.join("inventory.json")).unwrap(),
-        "the inventory differs"
-    );
-    assert_eq!(
-        fs::read(packed.join("assets.json")).unwrap(),
-        serde_json::to_vec(&derivation.assets).unwrap()
-    );
-    assert_eq!(fs::read(packed.join("plugin-classpath.txt")).unwrap(), derivation.class_path);
-}
-
-/// The payload, the inventory, the asset rows and the classpath of a tree copy and of a file copy do not depend on the
+/// The payload, the inventory and the asset rows of a tree copy and of a file copy do not depend on the
 /// umask or on the mode of an input. A child run packs under each umask, once with inputs of mode 0555, as Bazel stages
 /// them, and once with files of mode 0644.
 #[cfg(unix)]
@@ -350,7 +276,7 @@ fn the_output_does_not_depend_on_the_umask_or_the_input_modes() {
             arguments.extend(outputs("plugin", "inventory.json", root.path()));
             let result = run(&packer, &arguments, root.path());
             assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
-            for name in ["inventory.json", "assets.json", "plugin-classpath.txt"] {
+            for name in ["inventory.json", "assets.json"] {
                 output.extend(fs::read(root.path().join(name)).unwrap());
             }
             output.extend(snapshot(&root.path().join("plugin")).join("\n").into_bytes());

@@ -4,9 +4,11 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use distpath::INDEX_FILE_NAME;
+
 use crate::nativelib::{self, Arch, Family};
 use crate::tests::testjar::{self, Scratch, entry, entry_names, is_library, module_source, pack, parse_recipe, read_entry, write_zip_jar};
-use crate::{INDEX_FILE_NAME, MergeOptions, MergeSpec, NativeSpec, NativeTree, Source};
+use crate::{MergeSpec, NativeSpec, NativeTree, Source};
 
 /// A presigned library as `JarPackager` sees one. It is a jar with a Maven name and one native per platform under a
 /// common prefix. It also has a class that must stay in the jar.
@@ -102,9 +104,9 @@ fn pack_error(spec: &MergeSpec) -> String {
 #[test]
 fn parse_flag_file_natives_mode_takes_all_three_lines_the_lib_or_none() {
     let scratch = Scratch::new();
-    let specs = parse_recipe(
+    let spec = parse_recipe(
         &scratch,
-        "output=out/a.jar\nnative-tree=out/native\nnative-variant=darwin_aarch64\nnative-lib=jna\nlibrary=lib/jna-5.14.0.jar\nmodule=mod/a.jar\noutput=out/b.jar\nmodule=mod/b.jar\n",
+        "output=out/a.jar\nnative-tree=out/native\nnative-variant=darwin_aarch64\nnative-lib=jna\nlibrary=lib/jna-5.14.0.jar\nmodule=mod/a.jar\n",
     )
     .unwrap();
     let want = NativeSpec {
@@ -115,15 +117,14 @@ fn parse_flag_file_natives_mode_takes_all_three_lines_the_lib_or_none() {
             arch: Arch::AArch64,
         }),
     };
-    assert_eq!(specs[0].native.as_ref(), Some(&want));
+    assert_eq!(spec.native.as_ref(), Some(&want));
     assert!(
-        is_library(&specs[0].sources[0]) && !is_library(&specs[0].sources[1]),
+        is_library(&spec.sources[0]) && !is_library(&spec.sources[1]),
         "`library=` alone marks a library source"
     );
-    assert_eq!(specs[1].native, None, "the second group inherited the natives mode of the first");
 
     let reserving = parse_recipe(&scratch, "output=out/a.jar\nnative-lib=jna\nlibrary=lib/jna-5.14.0.jar\n").unwrap();
-    let reservation = reserving[0].native.as_ref().unwrap();
+    let reservation = reserving.native.as_ref().unwrap();
     assert_eq!(
         *reservation,
         NativeSpec {
@@ -138,7 +139,7 @@ fn parse_flag_file_natives_mode_takes_all_three_lines_the_lib_or_none() {
         "output=out/a.jar\nnative-tree=/tmp/native\nnative-variant=windows_x64\nnative-lib=jna\nlibrary=lib/jna-5.14.0.jar\n",
     )
     .unwrap();
-    let tree = absolute[0].native.as_ref().unwrap().tree.as_ref().unwrap();
+    let tree = absolute.native.as_ref().unwrap().tree.as_ref().unwrap();
     assert_eq!(tree.dir, Path::new("/tmp/native"));
     assert_eq!((tree.family, tree.arch), (Family::Windows, Arch::X64));
 
@@ -207,11 +208,6 @@ fn parse_flag_file_natives_mode_takes_all_three_lines_the_lib_or_none() {
             "the tree is an input",
             "output=out/a.jar\nnative-tree=lib/jna-5.14.0.jar\nnative-variant=darwin_aarch64\nnative-lib=jna\nlibrary=lib/jna-5.14.0.jar\n",
         ),
-        (
-            "two groups share the tree",
-            "output=out/a.jar\nnative-tree=out/native\nnative-variant=darwin_aarch64\nnative-lib=jna\nlibrary=lib/jna-5.14.0.jar\n\
-             output=out/b.jar\nnative-tree=out/native\nnative-variant=darwin_aarch64\nnative-lib=pty4j\nlibrary=lib/pty4j-0.13.jar\n",
-        ),
     ] {
         assert!(
             parse_recipe(&scratch, lines).is_err(),
@@ -228,7 +224,7 @@ fn parse_flag_file_natives_mode_packs() {
     let library = native_library_source(&scratch);
     let module = module_source(&scratch, "module.jar");
     let tree = scratch.dir().join("native");
-    let specs = parse_recipe(
+    let spec = parse_recipe(
         &scratch,
         &format!(
             "output=out/a.jar\nnative-tree={}\nnative-variant=linux_x64\nnative-lib=foo\nlibrary={}\nmodule={}\n",
@@ -238,7 +234,7 @@ fn parse_flag_file_natives_mode_packs() {
         ),
     )
     .unwrap();
-    let (data, _) = pack(&scratch, specs[0].clone());
+    let (data, _) = pack(&scratch, spec);
     assert!(
         !entry_names(&data).iter().any(|name| nativelib::is_native_entry(name)),
         "the natives stayed in the jar"
@@ -340,10 +336,7 @@ fn natives_reservation_packs_the_natives_mode_jar_and_no_tree() {
         }),
         sources(),
     );
-    assert!(
-        missing.pack(&MergeOptions::default()).is_err(),
-        "packed a reservation of a library that no source is"
-    );
+    assert!(missing.pack().is_err(), "packed a reservation of a library that no source is");
 }
 
 #[test]
@@ -683,7 +676,7 @@ fn natives_mode_creates_each_directory_with_mode_0755() {
         Some(native.clone()),
         vec![Source::library(&library)],
     )
-    .pack(&MergeOptions::default())
+    .pack()
     .unwrap();
     for (dir, want) in [(tree.to_path_buf(), 0o775), (tree.join("darwin-aarch64"), 0o755)] {
         let metadata = fs::metadata(&dir).unwrap_or_else(|error| panic!("{}: {error}", dir.display()));
@@ -698,9 +691,7 @@ fn natives_mode_refuses_an_absent_tree() {
     let library_jar = native_library_source(&scratch);
     let native = native_spec(&scratch, "darwin_aarch64", "foo");
     let output = scratch.dir().join("intellij.libraries.foo.jar");
-    let error = spec(&output, Some(native.clone()), vec![library(&library_jar)])
-        .pack(&MergeOptions::default())
-        .unwrap_err();
+    let error = spec(&output, Some(native.clone()), vec![library(&library_jar)]).pack().unwrap_err();
     assert_eq!(
         format!("{error:#}"),
         format!(

@@ -58,6 +58,7 @@ import com.intellij.ui.treeStructure.TreeStateListener
 import com.intellij.util.EditSourceOnDoubleClickHandler
 import com.intellij.util.EditSourceOnEnterKeyHandler
 import com.intellij.util.asDisposable
+import com.intellij.util.containers.nullize
 import com.intellij.util.ui.initOnShow
 import com.intellij.util.ui.launchOnShow
 import com.intellij.util.ui.tree.TreeUtil
@@ -470,10 +471,11 @@ internal class TreeBasedFrontendProjectViewPane(
       node.projectViewNode.let { paneTreeModel.createNavigatable(it) }
     }.toTypedArray()
     sink.lazy(CommonDataKeys.VIRTUAL_FILE) {
-      selectedNodes.firstOrNull()?.projectViewNode?.userObject?.getVirtualFile() 
+      selectedNodes.firstOrNull()?.projectViewNode?.userObject?.getVirtualFile()
+      ?: selectedNodes.flatMap { it.projectViewNode.userObject.getVirtualFiles() }.distinct().singleOrNull()
     }
     sink.lazy(CommonDataKeys.VIRTUAL_FILE_ARRAY) {
-      selectedNodes.mapNotNull { it.projectViewNode.userObject.getVirtualFile() }.toTypedArray()
+      selectedNodes.flatMap { it.projectViewNode.userObject.getVirtualFiles() }.distinct().nullize()?.toTypedArray()
     }
     val selectedFileNodes = selectedNodes.map { it.projectViewNode }.filter { !it.isDirectory() && it.canNavigateToSource() }
     if (selectedFileNodes.isNotEmpty()) {

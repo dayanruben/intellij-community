@@ -225,6 +225,7 @@ private fun readRootElementChild(
     PluginXmlConst.PROJECT_COMPONENTS_ELEM -> readComponents(reader, builder.projectContainerBuilder)
     PluginXmlConst.MODULE_COMPONENTS_ELEM -> readComponents(reader, builder.moduleContainerBuilder)
     PluginXmlConst.APPLICATION_LISTENERS_ELEM -> readListeners(reader, builder.appContainerBuilder)
+    PluginXmlConst.WORKSPACE_LISTENERS_ELEM -> readListeners(reader, builder.workspaceContainerBuilder)
     PluginXmlConst.PROJECT_LISTENERS_ELEM -> readListeners(reader, builder.projectContainerBuilder)
     PluginXmlConst.EXTENSIONS_ELEM -> readExtensions(reader, builder, readContext.interner)
     PluginXmlConst.EXTENSION_POINTS_ELEM -> readExtensionPoints(
@@ -386,6 +387,7 @@ private fun readExtensions(reader: XMLStreamReader2, builder: PluginDescriptorBu
     val containerBuilder: ScopedElementsContainerBuilder
     when (qualifiedExtensionPointName) {
       PluginXmlConst.FQN_APPLICATION_SERVICE -> containerBuilder = builder.appContainerBuilder
+      PluginXmlConst.FQN_WORKSPACE_SERVICE -> containerBuilder = builder.workspaceContainerBuilder
       PluginXmlConst.FQN_PROJECT_SERVICE -> containerBuilder = builder.projectContainerBuilder
       PluginXmlConst.FQN_MODULE_SERVICE -> containerBuilder = builder.moduleContainerBuilder
       else -> {
@@ -1288,6 +1290,7 @@ private fun readRegisteredServiceKeys(
 
     when (qualifiedExtensionPointName) {
       PluginXmlConst.FQN_APPLICATION_SERVICE,
+      PluginXmlConst.FQN_WORKSPACE_SERVICE,
       PluginXmlConst.FQN_PROJECT_SERVICE,
       PluginXmlConst.FQN_MODULE_SERVICE,
         -> {

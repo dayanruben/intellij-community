@@ -4,6 +4,8 @@ package com.intellij.openapi.editor.impl.view;
 import com.intellij.diagnostic.Dumpable;
 import com.intellij.ide.ui.UISettings;
 import com.intellij.openapi.Disposable;
+import com.intellij.openapi.application.Application;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.CustomFoldRegion;
 import com.intellij.openapi.editor.Editor;
@@ -53,6 +55,8 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
 import org.jetbrains.annotations.VisibleForTesting;
 
+import javax.swing.border.Border;
+import javax.swing.border.CompoundBorder;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Font;
@@ -68,6 +72,7 @@ import java.awt.font.FontRenderContext;
 import java.awt.font.LineMetrics;
 import java.awt.geom.AffineTransform;
 import java.awt.geom.Point2D;
+import java.beans.PropertyChangeListener;
 import java.text.Bidi;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -89,8 +94,11 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
   private static final LineLayout NOT_INITIALIZED_PREFIX = new SingleChunkLayout(null);
   private static final AtomicReferenceFieldUpdater<EditorView, EditorViewSnapshot> SNAPSHOT_UPDATER
     = AtomicReferenceFieldUpdater.newUpdater(EditorView.class, EditorViewSnapshot.class, "mySnapshot");
+  private static final String BORDER_PROPERTY = "border";
+  private static final String UI_PROPERTY = "UI";
 
   private volatile EditorViewSnapshot mySnapshot;
+  private final PropertyChangeListener myInsetsListener = e -> updateInsets();
   private final AtomicInteger myFoldRegionLayoutGeneration = new AtomicInteger();
   private final EditorImpl myEditor;
   private final EditorModel myEditorModel;
@@ -112,7 +120,8 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
     mySnapshot = new EditorViewSnapshot(
       normalizeFontRenderContext(readFontRenderContext(), true),
       readTabSize(settings),
-      settings.isRtlEnabled()
+      settings.isRtlEnabled(),
+      readInsets()
     );
     myEditorModel = editorModel;
     myDocument = myEditorModel.getDocument();
@@ -124,6 +133,8 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
     myTabFragment = new TabFragment(this);
 
     myEditor.getContentComponent().addHierarchyListener(this);
+    myEditor.getContentComponent().addPropertyChangeListener(BORDER_PROPERTY, myInsetsListener);
+    myEditor.getContentComponent().addPropertyChangeListener(UI_PROPERTY, myInsetsListener);
     getScrollingModel().addVisibleAreaListener(this);
 
     Disposer.register(this, myLogicalPositionCache);
@@ -497,6 +508,8 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
   @Override
   public void dispose() {
     getScrollingModel().removeVisibleAreaListener(this);
+    myEditor.getContentComponent().removePropertyChangeListener(UI_PROPERTY, myInsetsListener);
+    myEditor.getContentComponent().removePropertyChangeListener(BORDER_PROPERTY, myInsetsListener);
     myEditor.getContentComponent().removeHierarchyListener(this);
   }
 
@@ -504,6 +517,7 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
   public void hierarchyChanged(@NotNull HierarchyEvent e) {
     if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0 && e.getComponent().isShowing()) {
       checkFontRenderContext(null);
+      updateInsets();
     }
   }
 
@@ -532,6 +546,7 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
            ", char height: " + charHeight +
            ", max char width: " + charWidth +
            ", tab size: " + snapshot.tabSize() +
+           ", insets: " + snapshot.insets() +
            " ,size manager: " + mySizeManager.dumpState() +
            " ,logical position cache: " + myLogicalPositionCache.dumpState() +
            "]";
@@ -766,8 +781,72 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
     return result;
   }
 
-  Insets getInsets() {
-    return myEditor.getContentComponent().getInsets();
+  /**
+   * Returns the content component insets from the snapshot. The caller owns the result.
+   * The snapshot takes new insets at a border change, at a UI update, when the editor becomes showing,
+   * and at each call of {@link #updateInsets}.
+   */
+  public Insets getInsets() {
+    return mySnapshot.insets().toInsets();
+  }
+
+  private @NotNull EditorInsets readInsets() {
+    Insets insets = myEditor.getContentComponent().getInsets();
+    return new EditorInsets(insets.top, insets.left, insets.bottom, insets.right);
+  }
+
+  /**
+   * Puts the current insets of the content component into the snapshot.
+   * Returns true when they differ from the insets of the previous snapshot.
+   */
+  public boolean updateInsets() {
+    EditorInsets insets = readInsets();
+    EditorViewSnapshot previous = SNAPSHOT_UPDATER.getAndUpdate(this, snapshot -> snapshot.withInsets(insets));
+    return !previous.insets().equals(insets);
+  }
+
+  /**
+   * Describes how the snapshot insets differ from the content component insets.
+   * Returns null when they are equal.
+   */
+  public @Nullable String findInsetsMismatch() {
+    EditorInsets snapshotInsets = mySnapshot.insets();
+    EditorInsets componentInsets = readInsets();
+    if (snapshotInsets.equals(componentInsets)) {
+      return null;
+    }
+    return "The content component insets changed without an event that updates the snapshot." +
+           " Snapshot: " + snapshotInsets +
+           ", component: " + componentInsets +
+           ", border: " + describeBorder(myEditor.getContentComponent().getBorder());
+  }
+
+  /**
+   * Reports a result of {@link #findInsetsMismatch}.
+   * It is an error in tests and in the internal mode, and a warning elsewhere.
+   */
+  public static void reportInsetsMismatch(@Nullable String mismatch) {
+    if (mismatch == null) {
+      return;
+    }
+    Application application = ApplicationManager.getApplication();
+    if (application.isUnitTestMode() || application.isInternal()) {
+      LOG.error(mismatch);
+    } else {
+      LOG.warn(mismatch);
+    }
+  }
+
+  private static String describeBorder(@Nullable Border border) {
+    if (border == null) {
+      return "null";
+    }
+    if (border instanceof CompoundBorder compound) {
+      String outside = describeBorder(compound.getOutsideBorder());
+      String inside = describeBorder(compound.getInsideBorder());
+      return "CompoundBorder(" + outside + ", " + inside + ")";
+    }
+    return border.getClass().getName();
   }
 
   private void runPaintCallback() {
@@ -783,6 +862,13 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
 
   public float getPlainSpaceWidth() {
     return getSnapshotWithMetrics().plainSpaceWidth();
+  }
+
+  /**
+   * Returns the editor font size of the colors scheme that the current metrics were measured with.
+   */
+  int getEditorFontSize() {
+    return getSnapshotWithMetrics().metrics().editorFontSize();
   }
 
   public int getCaretHeight() {
@@ -1040,6 +1126,7 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
     int newCapHeight = (int)font.createGlyphVector(fontRenderContext, "H").getVisualBounds().getHeight();
 
     return new EditorViewMetrics(
+      /* editorFontSize= */ colorsScheme.getEditorFontSize(),
       /* plainSpaceWidth= */ newPlainSpaceWidth,
       /* lineHeight= */ newLineHeight,
       /* descent= */ newDescent,

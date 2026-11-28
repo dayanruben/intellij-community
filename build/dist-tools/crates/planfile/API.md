@@ -18,10 +18,10 @@ modules `contract`, `validate`, `json` and `classpath`.
 The crate supports only the shapes that the checked-in `*.dev-plan.json` files use. It refuses every other shape with
 an error that names it. The table lists the refused shapes.
 
-`testdata/corpus/` holds a copy of each of these files, without the Starlark test fixture. The corpus test reads and
-derives every copy, and it requires every accepted source kind and operation kind to occur. Its catalogue declares a
-library for each library source and for each `@<repository>//:<name>` input of a layout-assets operation, as the
-generated catalogue does. A plan author who needs a new shape updates the corpus and the contract together.
+The plan corpus test of the ultimate root, `build/dist-tools/plan-corpus`, reads and derives every checked-in plan
+file, and it requires every accepted source kind and operation kind to occur. Its catalogue declares a library for each
+library source and for each `@<repository>//:<name>` input of a layout-assets operation, as the generated catalogue
+does. A plan author who needs a new shape updates the contract and this table together.
 
 A plan file holds `operations` only. The packer reads the ID, the input artifacts and the output of an operation from
 the operation itself. `preparations` is an unknown key.
@@ -39,7 +39,7 @@ the operation itself. `preparations` is an unknown key.
 | a writer manifest other than `single-meaningful-source`, `keep` and `drop` | unknown variant |
 | `preparations`, `preparationRoots`, and every field of a Kotlin-executed operation | unknown field |
 | `layoutSignature`, because a plan file carries no layout signature | unknown field |
-| an operation kind other than `layout-assets`, for example the retired `module-filter` | the kind |
+| an operation kind other than `layout-assets` | the kind |
 | an operation manifest other than `keep` | the manifest |
 | a layout format other than `tree` and `entries`, or a transform kind other than `archive-tree`, such as the removed `tree-map` and `gzip-xml-archive` | unknown variant |
 | the `tree-map` fields `excludes` and `directoryExcludes` on a transform | unknown field |

@@ -5,7 +5,7 @@ The component contract that the collector and the composer share. Each line name
 
 The crate implements only the inputs that the repository produces. Every other input fails with an error that names
 it. The collector writes the manifests, and the composer reads them. `intellij_dist.bzl` writes the metadata
-catalogue with `json.encode`, and the collector reads it with `json::read`. The composer writes the local layout, and
+catalogue with `json.encode`, and the collector reads it with `planfile::json::read`. The composer writes the local layout, and
 `dev-home` and `dist` read it with `layout::read_layout`.
 
 A host path is a `Path` or a `PathBuf`. A path inside a distribution is a `str` in slash form. A list of names is a
@@ -21,8 +21,9 @@ Every function returns `anyhow::Result`. An I/O or JSON error has the path as it
 
 ## JSON rules (`json`)
 
-- `json::read(path: &Path) -> Result<T>`: reads and decodes a JSON file. The error names the file. The collector reads
-  the metadata catalogue with it, and the composer reads the composition spec.
+- `json::read(path: &Path) -> Result<T>`: reads and decodes a JSON file. The error names the file. The composer reads
+  the composition spec and `product-info.json` with it, and `dev-home` reads the home spec. The tools of the plan side
+  link `planfile` and not this crate, so they read through `planfile::json`.
 
 Every reader is plain serde. A type refuses an unknown key, and a repeated key of a struct fails. A key without
 `Option` or a default is required, and `null` fails for it. An `Option` key takes `null`, and an absent `Option` key
@@ -40,13 +41,12 @@ the field order. No producer writes such an array.
 - `paths::absolute_path(value: impl AsRef<Path>) -> Result<PathBuf>`: the absolute path of a `host_path`. A relative
   path starts at the working directory. A path that is not UTF-8 fails.
 
-## Component manifest v12 (`manifest`)
+## Component manifest (`manifest`)
 
 Only the composer reads a manifest. Every path of a manifest is ASCII after `distpath::validate_path`, so `str::cmp`
 gives the order of Java `String.compareTo` for the entries and the fingerprint.
 
-- `manifest::MANIFEST_VERSION: i32`: 12.
-- `ComponentManifest { version, kind, os, arch, plugin, main_class, core_class_path, entries }`: one
+- `ComponentManifest { kind, os, arch, plugin, main_class, core_class_path, entries }`: one
   manifest. JSON states every key. `main_class` is an `Option<String>`. `plugin: bool` is true for a plugin
   component.
 - `ComponentEntry`: one entry, with the JSON `type` first. `ComponentFile { relative_path, hash, executable, source,
@@ -63,11 +63,9 @@ gives the order of Java `String.compareTo` for the entries and the fingerprint.
 - `ComponentEntry::to_metadata() -> filemeta::Entry`: the inventory entry for `filemeta::merge`. A file without a
   mode gets the conventional mode.
 - `manifest::conventional_mode(executable: bool) -> u32`: 0o755 or 0o644. A file without a mode has this mode.
-- `manifest::read_component_manifest(path) -> Result<ComponentManifest>`: checks the version first, then decodes and
-  applies `validate_manifest`. A manifest of another version fails with its version, and a manifest without a version
-  is version 9.
-- `manifest::validate_manifest(manifest) -> Result<()>`: checks the version and `validate_entry_mode` for each
-  entry. Each `core_class_path` value must be a `component-file` entry of the same manifest.
+- `manifest::read_component_manifest(path) -> Result<ComponentManifest>`: decodes and applies `validate_manifest`.
+  The collector and the composer run in one build, so a manifest has no version.
+- `manifest::validate_manifest(manifest) -> Result<()>`: checks `validate_entry_mode` for each entry. Each `core_class_path` value must be a `component-file` entry of the same manifest.
 - `manifest::write_component_manifest(path, manifest) -> Result<()>`: writes the `to_json` bytes and creates the
   parent directory.
 - `manifest::validate_entry_mode(entry) -> Result<()>`: the value rules of the Kotlin `validateDevBuildEntryMode`. A

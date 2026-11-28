@@ -2,6 +2,7 @@
 package com.intellij.psi.impl.source.javadoc;
 
 import com.intellij.lang.ASTNode;
+import com.intellij.lang.FileASTNode;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.JavaDocTokenType;
 import com.intellij.psi.JavaElementVisitor;
@@ -12,13 +13,16 @@ import com.intellij.psi.PsiLanguageInjectionHost;
 import com.intellij.psi.impl.source.SourceTreeToPsiMap;
 import com.intellij.psi.impl.source.tree.CompositePsiElement;
 import com.intellij.psi.impl.source.tree.JavaDocElementType;
+import com.intellij.psi.impl.source.tree.SharedImplUtil;
 import com.intellij.psi.javadoc.PsiDocComment;
 import com.intellij.psi.javadoc.PsiSnippetDocTag;
 import com.intellij.psi.javadoc.PsiSnippetDocTagBody;
 import com.intellij.psi.javadoc.PsiSnippetDocTagValue;
 import com.intellij.psi.tree.TokenSet;
+import com.intellij.psi.util.CachedValuesManager;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.IncorrectOperationException;
+import com.intellij.util.ObjectUtils;
 import com.intellij.util.text.CharArrayUtil;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
@@ -89,8 +93,17 @@ public class PsiSnippetDocTagImpl extends CompositePsiElement implements PsiSnip
     return true;
   }
 
+  /**
+   * Returns the ranges of the snippet body lines in this tag, without the leading asterisks and the common indent.
+   * The list is cached until the next PSI change.
+   */
   @Contract(pure = true)
   public @NotNull List<@NotNull TextRange> getContentRanges() {
+    return CachedValuesManager.getProjectPsiDependentCache(this, tag -> Collections.unmodifiableList(tag.computeContentRanges()));
+  }
+
+  @Contract(pure = true)
+  private @NotNull List<@NotNull TextRange> computeContentRanges() {
     boolean isMarkdown = PsiUtil.isInMarkdownDocComment(this);
     final PsiSnippetDocTagValue valueElement = getValueElement();
     if (valueElement == null) return Collections.emptyList();
@@ -246,15 +259,22 @@ public class PsiSnippetDocTagImpl extends CompositePsiElement implements PsiSnip
       @Override
       public boolean decode(@NotNull TextRange rangeInsideHost, @NotNull StringBuilder outChars) {
         final List<TextRange> ranges = myHost.getContentRanges();
+        final ASTNode node = myHost.getNode();
+        final FileASTNode fileNode = SharedImplUtil.findFileElement(node);
+        final CharSequence chars = fileNode != null ? fileNode.getChars() : myHost.getText();
+        final int tagOffset = fileNode != null ? node.getStartOffset() - fileNode.getStartOffset() : 0;
 
-        final String content = rangeInsideHost.substring(myHost.getText());
-
-        myOffsets = new int[content.length() + 1];
+        myOffsets = new int[rangeInsideHost.getLength() + 1];
         Arrays.fill(myOffsets, -1);
 
         int i = 0;
         boolean decoded = false;
-        for (TextRange range : ranges) {
+        // the comparator never returns 0, so the search gives the insertion index: the first range at or after the start
+        final int start = rangeInsideHost.getStartOffset();
+        final int first = -ObjectUtils.binarySearch(0, ranges.size(), index -> ranges.get(index).getStartOffset() < start ? -1 : 1) - 1;
+        for (int rangeIndex = first; rangeIndex < ranges.size(); rangeIndex++) {
+          final TextRange range = ranges.get(rangeIndex);
+          if (range.getStartOffset() > rangeInsideHost.getEndOffset()) break;
           if (!rangeInsideHost.contains(range)) continue;
 
           for (int j = 0; j < range.getLength(); j++) {
@@ -262,7 +282,7 @@ public class PsiSnippetDocTagImpl extends CompositePsiElement implements PsiSnip
           }
 
           decoded = true;
-          outChars.append(range.substring(myHost.getText()));
+          outChars.append(chars, tagOffset + range.getStartOffset(), tagOffset + range.getEndOffset());
         }
         myOffsets[i] = rangeInsideHost.getEndOffset();
 

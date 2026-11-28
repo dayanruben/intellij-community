@@ -111,7 +111,11 @@ private val IGNORED_FIELDS = setOf(
   "com.intellij.testFramework.HeavyPlatformTestCase.myEditorListenerTracker",
   "com.intellij.testFramework.HeavyPlatformTestCase.myProject",
 
-  "org.mockito.internal.util.MockUtil.defaultMockMaker", // mocks
+  // mocks: the interceptor maps of Mockito hold stubbed answers, and an answer may hold test PSI.
+  // Block the maps themselves, not each static route to them.
+  "org.mockito.internal.util.MockUtil.defaultMockMaker",
+  "org.mockito.internal.creation.bytebuddy.InlineDelegateByteBuddyMockMaker.mocks",
+  "org.mockito.internal.creation.bytebuddy.MockMethodAdvice.interceptors",
 
   "com.intellij.testFramework.junit5.showcase.JUnit5ModuleFixtureTest.seenModule", // can be disposed
   "com.intellij.platform.testFramework.junit5.codeInsight.fixture.CodeInsightModuleFixtureTest.previousModule",
@@ -147,8 +151,25 @@ private val IGNORED_FIELDS = setOf(
 
 private const val LEAKED_WSM = "leakedWorkspaceModel"
 
-// Access this set only on the EDT. Weak keys do not keep leaked storage alive.
-private val reportedStorages = Collections.newSetFromMap(CollectionFactory.createWeakIdentityMap<EntityStorage, Boolean>(16, 0.75f))
+private class LeakReport(val reporter: String) {
+  var cleanupReported = false
+}
+
+/** Access this map only on the EDT. Weak keys do not keep leaked storage alive. */
+private lateinit var reportedStorages: MutableMap<EntityStorage, LeakReport>
+
+private fun brokenCleanupMessage(storagesByReporter: Map<String, List<EntityStorage>>, testClass: Class<*>?): String = buildString {
+  appendLine("Found workspace model storage that another check already reported. This is not a new leak.")
+  appendLine("The cleanup of the reporting test is broken: it does not release the storage.")
+  testClass?.let { appendLine("Found again in test: ${it.name}") }
+  for ((reportedBy, instances) in storagesByReporter) {
+    appendLine("Reported first by: $reportedBy")
+    for (instance in instances) {
+      appendLine("  Instance: $instance")
+    }
+  }
+  append("Total already reported storage instances: ${storagesByReporter.values.sumOf { it.size }}")
+}
 
 /**
  * Can return duplicates
@@ -185,8 +206,12 @@ private fun doTestWorkspaceModelLeak(unitTestProject: Project? = null, testClass
 
   while (true) {
     var projects: Set<Project> = emptySet()
+    var cleanupFailureName: String? = null
     try {
       runInEdtAndWait {
+        if (!::reportedStorages.isInitialized) {
+          reportedStorages = CollectionFactory.createWeakIdentityMap(16, 0.75f)
+        }
         projects = collectAllNonDisposedProjects(unitTestProject)
 
         fun collectSnapshots(): List<EntityStorage> = buildList {
@@ -200,12 +225,13 @@ private fun doTestWorkspaceModelLeak(unitTestProject: Project? = null, testClass
         expectedStorages.addAll(collectSnapshots())
 
         fun isLeak(storage: EntityStorage): Boolean {
-          if (storage in expectedStorages || storage in reportedStorages) return false
+          if (storage in expectedStorages) return false
           expectedStorages.addAll(collectSnapshots())
           return storage !in expectedStorages
         }
 
         val newLeaks = mutableListOf<EntityStorage>()
+        val storagesByReporter = mutableMapOf<String, MutableList<EntityStorage>>()
         var firstLeakDetails: String? = null
         LeakHunter.processLeaks(
           LeakHunter.allRoots(),
@@ -214,26 +240,48 @@ private fun doTestWorkspaceModelLeak(unitTestProject: Project? = null, testClass
           null,
           shouldExamineField,
         ) { storage, backLink ->
-          if (firstLeakDetails == null) {
-            firstLeakDetails = LeakHunter.getLeakedObjectDetails(storage, backLink, true)
+          val report = reportedStorages[storage]
+          if (report == null) {
+            if (firstLeakDetails == null) {
+              firstLeakDetails = LeakHunter.getLeakedObjectDetails(storage, backLink, true)
+            }
+            newLeaks.add(storage)
           }
-          newLeaks.add(storage)
+          else if (!report.cleanupReported) {
+            storagesByReporter.getOrPut(report.reporter) { mutableListOf() }.add(storage)
+          }
           true
         }
-        firstLeakDetails?.let { details ->
-          reportedStorages.addAll(newLeaks)
-          val message = if (newLeaks.size == 1) details else "$details\nTotal new leaked storage instances: ${newLeaks.size}"
-          println(message)
-          println(";-----")
-          ThreadUtil.printThreadDump()
-          throw AssertionError(message)
+        val details = firstLeakDetails
+        val message = if (details != null) {
+          val reporter = testClass?.name ?: "the application teardown check"
+          newLeaks.forEach { reportedStorages[it] = LeakReport(reporter) }
+          if (newLeaks.size == 1) details else "$details\nTotal new leaked storage instances: ${newLeaks.size}"
         }
+        else if (storagesByReporter.isNotEmpty()) {
+          cleanupFailureName = "Broken workspace model cleanup in ${storagesByReporter.keys.joinToString()}"
+          for (storages in storagesByReporter.values) {
+            storages.forEach { reportedStorages.getValue(it).cleanupReported = true }
+          }
+          brokenCleanupMessage(storagesByReporter, testClass)
+        }
+        else {
+          return@runInEdtAndWait
+        }
+        println(message)
+        println(";-----")
+        if (details != null) {
+          ThreadUtil.printThreadDump()
+        }
+        throw AssertionError(message)
       }
       break
     }
     catch (e: AssertionError) {
-      publishHeapDump(LEAKED_WSM)
-      val testName = testClass?.let { "Workspace model leak in test ${it.name}" } ?: "Workspace model leak"
+      val testName = cleanupFailureName ?: run {
+        publishHeapDump(LEAKED_WSM)
+        testClass?.let { "Workspace model leak in test ${it.name}" } ?: "Workspace model leak"
+      }
       reportSoftAssertFailure(testName, e)
       return
     }

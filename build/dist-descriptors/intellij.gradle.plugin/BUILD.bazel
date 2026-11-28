@@ -36,6 +36,7 @@ dist_plugin_descriptor(
     },
     module_descriptors = [
         "@community//libraries/gradle:resources/intellij.libraries.gradle.xml",
+        "@community//libraries/groovy/ant:resources/intellij.libraries.groovy.ant.xml",
         "@community//plugins/gradle/backend:resources/intellij.gradle.backend.xml",
         "@community//plugins/gradle/codeInsight/backend:resources/intellij.gradle.codeInsight.backend.xml",
         "@community//plugins/gradle/codeInsight/groovy/backend:resources/intellij.gradle.codeInsight.groovy.backend.xml",
@@ -81,6 +82,9 @@ dev_plugin(
         "//plugins/gradle/completion:completion_content_module_jar",
         "//plugins/gradle/properties:properties_content_module_jar",
         "//plugins/gradle/settings:settings_content_module_jar",
+        "//plugins/gradle/tooling-extension-api:toolingExtension_content_module_jar",
+        "//plugins/gradle/tooling-extension-impl:toolingExtension-impl_content_module_jar",
+        "//plugins/gradle/tooling-proxy:tooling-proxy_content_module_jar",
         "//plugins/gradle:gradle_content_module_jar",
     ],
     descriptor = "//build/dist-descriptors/intellij.gradle.plugin:intellij.gradle.plugin_dev_descriptor",
@@ -89,26 +93,15 @@ dev_plugin(
             "intellij.libraries.gradle",
             "@lib//:libraries-gradle-_gradle",
         ],
-        "lib/gradle-plugin.jar": [
-            "intellij.gradle.plugin",
-            "intellij.gradle.common",
-        ],
-        "lib/gradle-tooling-proxy.jar": [
-            "intellij.gradle.toolingProxy",
-        ],
-        "lib/gradle-tooling-extension-api.jar": [
-            "intellij.gradle.toolingExtension",
-        ],
-        "lib/gradle-tooling-extension-impl.jar": [
-            "intellij.gradle.toolingExtension.impl",
-        ],
-        "lib/groovy.jar": [
-            "intellij.libraries.groovy",
-            "@lib//:libraries-groovy-groovy",
-        ],
-        "lib/groovy-ant.jar": [
+        "lib/intellij.libraries.groovy.ant.jar": [
             "intellij.libraries.groovy.ant",
             "@lib//:libraries-groovy-ant-groovy-ant",
+        ],
+        "lib/gradle-plugin.jar": [
+            "intellij.gradle.plugin",
+        ],
+        "lib/groovy.jar": [
+            "@lib//:gradle-plugin-groovy",
         ],
         "lib/ant/ant-antlr.jar": [
             "@lib//ant/lib:ant-antlr.jar",
@@ -190,9 +183,9 @@ dev_plugin(
         ],
     },
     libraries = [
+        "@lib//:gradle-plugin-groovy",
         "@lib//:libraries-gradle-_gradle",
         "@lib//:libraries-groovy-ant-groovy-ant",
-        "@lib//:libraries-groovy-groovy",
         "@lib//ant/lib:ant-antlr.jar",
         "@lib//ant/lib:ant-apache-bcel.jar",
         "@lib//ant/lib:ant-apache-bsf.jar",
@@ -224,16 +217,14 @@ dev_plugin(
     module_jar_paths = {
         "intellij.gradle": "lib/intellij.gradle.jar",
         "intellij.gradle.settings": "lib/intellij.gradle.settings.jar",
+        "intellij.gradle.toolingExtension": "lib/intellij.gradle.toolingExtension.jar",
+        "intellij.gradle.toolingExtension.impl": "lib/intellij.gradle.toolingExtension.impl.jar",
+        "intellij.gradle.toolingProxy": "lib/intellij.gradle.toolingProxy.jar",
     },
     modules = {
         "//libraries/gradle": "intellij.libraries.gradle",
-        "//libraries/groovy": "intellij.libraries.groovy",
         "//libraries/groovy/ant": "intellij.libraries.groovy.ant",
         "//plugins/gradle/plugin": "intellij.gradle.plugin",
-        "//plugins/gradle/tooling-extension-api:toolingExtension": "intellij.gradle.toolingExtension",
-        "//plugins/gradle/tooling-extension-impl:toolingExtension-impl": "intellij.gradle.toolingExtension.impl",
-        "//plugins/gradle/tooling-proxy": "intellij.gradle.toolingProxy",
-        "//plugins/gradle:gradle-common": "intellij.gradle.common",
     },
     plugin_directory = "plugins/gradle",
     stamp_class_modes = [

@@ -2,6 +2,9 @@
 package com.intellij.openapi.editor.impl.view
 
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.editor.EditorCustomElementRenderer
+import com.intellij.openapi.editor.EditorFactory
+import com.intellij.openapi.editor.Inlay
 import com.intellij.openapi.editor.ex.BidiTextDirection
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.editor.ex.EditorSettingsExternalizable
@@ -9,19 +12,33 @@ import com.intellij.openapi.editor.impl.EditorViewAccessor
 import com.intellij.openapi.editor.impl.editorModelFixture
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.platform.testFramework.junit5.codeInsight.fixture.codeInsightModuleFixture
+import com.intellij.testFramework.LoggedErrorProcessor
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.junit5.fixture.projectFixture
+import com.intellij.ui.scale.JBUIScale
+import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import java.awt.Component
 import java.awt.Font
+import java.awt.Insets
+import java.awt.Point
+import java.awt.event.HierarchyEvent
 import java.text.Bidi
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
+import javax.swing.BorderFactory
+import javax.swing.JComponent
+import javax.swing.ScrollPaneConstants
+import javax.swing.border.AbstractBorder
+import javax.swing.border.EmptyBorder
 
 @TestApplication
 class EditorViewSnapshotTest {
@@ -184,9 +201,281 @@ class EditorViewSnapshotTest {
     )
   }
 
+  @Test
+  fun `test a border set after the first read moves the text`(): Unit = fixture.runTest {
+    initText("text")
+    assertEquals(
+      Point(0, 0),
+      editor.offsetToXY(0),
+      "Without a border the text starts at the origin",
+    )
+    editor.contentComponent.border = BorderFactory.createEmptyBorder(3, 7, 0, 0)
+    assertEquals(
+      Point(7, 3),
+      editor.offsetToXY(0),
+      "The text starts at the insets of the new border",
+    )
+  }
+
+  @Test
+  fun `test a UI update takes the insets of a border at the new scale`(): Unit = fixture.runTest {
+    initText("text")
+    val originalScale = JBUIScale.scale(1f)
+    try {
+      JBUIScale.setUserScaleFactorForTest(1f)
+      editor.contentComponent.border = JBUI.Borders.empty(3, 7, 0, 0)
+      assertEquals(
+        Point(7, 3),
+        editor.offsetToXY(0),
+        "The text starts at the insets of the border at the scale 1",
+      )
+      JBUIScale.setUserScaleFactorForTest(2f)
+      editor.contentComponent.updateUI()
+      assertEquals(
+        Point(14, 6),
+        editor.offsetToXY(0),
+        "After the UI update the text starts at the insets of the border at the scale 2",
+      )
+    } finally {
+      JBUIScale.setUserScaleFactorForTest(originalScale)
+      editor.contentComponent.updateUI()
+    }
+  }
+
+  @Test
+  fun `test an editor that becomes showing takes the insets of a border at the new scale`(): Unit = fixture.runTest {
+    initText("text")
+    val view = EditorViewAccessor.getView(editor)
+    val originalScale = JBUIScale.scale(1f)
+    try {
+      JBUIScale.setUserScaleFactorForTest(1f)
+      editor.contentComponent.border = JBUI.Borders.empty(3, 7, 0, 0)
+      JBUIScale.setUserScaleFactorForTest(2f)
+      view.hierarchyChanged(showingEvent())
+      assertEquals(
+        Point(14, 6),
+        editor.offsetToXY(0),
+        "An editor that becomes showing takes the insets of the border at the scale 2",
+      )
+    } finally {
+      JBUIScale.setUserScaleFactorForTest(originalScale)
+      editor.contentComponent.updateUI()
+    }
+  }
+
+  @Test
+  fun `test a layout of the scroll pane takes the insets that follow a scroll bar`(): Unit = fixture.runTest {
+    initText("text")
+    val view = EditorViewAccessor.getView(editor)
+    val scrollPane = editorEx.scrollPane
+    val scrollBar = scrollPane.horizontalScrollBar
+    scrollPane.horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
+    scrollPane.setSize(200, 100)
+    scrollPane.doLayout()
+    editor.contentComponent.border = ScrollBarGapBorder { scrollBar.isVisible }
+    val insetsBefore = editor.contentComponent.insets
+    scrollPane.horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_ALWAYS
+    scrollPane.doLayout()
+    val componentInsets = editor.contentComponent.insets
+    assertNotEquals(
+      insetsBefore,
+      componentInsets,
+      "The visible scroll bar adds a gap to the insets of the border",
+    )
+    assertEquals(
+      componentInsets,
+      view.insets,
+      "The layout of the scroll pane puts the gap into the snapshot",
+    )
+  }
+
+  @Test
+  fun `test an opacity change of a scroll bar takes the insets that follow it`(): Unit = fixture.runTest {
+    initText("text")
+    val view = EditorViewAccessor.getView(editor)
+    val scrollBar = editorEx.scrollPane.horizontalScrollBar
+    scrollBar.isOpaque = true
+    editor.contentComponent.border = ScrollBarGapBorder { !scrollBar.isOpaque }
+    val insetsBefore = editor.contentComponent.insets
+    scrollBar.isOpaque = false
+    val componentInsets = editor.contentComponent.insets
+    assertNotEquals(
+      insetsBefore,
+      componentInsets,
+      "The transparent scroll bar adds a gap to the insets of the border",
+    )
+    assertEquals(
+      componentInsets,
+      view.insets,
+      "The opacity change puts the gap into the snapshot",
+    )
+  }
+
+  @Test
+  fun `test hiding a scroll bar outside a layout takes the insets that follow it`(): Unit = fixture.runTest {
+    initText("text")
+    val view = EditorViewAccessor.getView(editor)
+    val scrollBar = editorEx.scrollPane.horizontalScrollBar
+    scrollBar.isVisible = true
+    editor.contentComponent.border = ScrollBarGapBorder { scrollBar.isVisible }
+    val insetsBefore = editor.contentComponent.insets
+    scrollBar.isVisible = false
+    val componentInsets = editor.contentComponent.insets
+    assertNotEquals(
+      insetsBefore,
+      componentInsets,
+      "The hidden scroll bar removes the gap from the insets of the border",
+    )
+    assertEquals(
+      componentInsets,
+      view.insets,
+      "The visibility change puts the insets into the snapshot",
+    )
+  }
+
+  @Test
+  fun `test a layout takes the gap that the viewport adds for a transparent scroll bar on the left`(): Unit = fixture.runTest {
+    initText("text")
+    val view = EditorViewAccessor.getView(editor)
+    val scrollPane = editorEx.scrollPane
+    val scrollBar = scrollPane.verticalScrollBar
+    editorEx.verticalScrollbarOrientation = EditorEx.VERTICAL_SCROLLBAR_LEFT
+    editorEx.setVerticalScrollbarVisible(true)
+    scrollBar.isOpaque = false
+    scrollPane.setSize(200, 100)
+    scrollPane.doLayout()
+    val componentInsets = editor.contentComponent.insets
+    assertTrue(
+      scrollBar.width > 0,
+      "The layout gives the scroll bar a width",
+    )
+    assertEquals(
+      scrollBar.width,
+      componentInsets.left,
+      "The border of the viewport adds the width of the transparent scroll bar on the left",
+    )
+    assertEquals(
+      componentInsets,
+      view.insets,
+      "The layout of the scroll pane puts the gap into the snapshot",
+    )
+  }
+
+  @Test
+  fun `test the release of an editor ignores insets that the release changes`(): Unit = fixture.runTest {
+    val editorFactory = EditorFactory.getInstance()
+    val otherEditor = editorFactory.createEditor(editorFactory.createDocument("text")) as EditorEx
+    val scrollBar = otherEditor.scrollPane.verticalScrollBar
+    scrollBar.isOpaque = true
+    otherEditor.contentComponent.border = ScrollBarGapBorder { !scrollBar.isOpaque }
+    editorFactory.releaseEditor(otherEditor)
+    assertFalse(
+      scrollBar.isOpaque,
+      "The release installs the default UI, which makes the scroll bar transparent",
+    )
+  }
+
+  @Test
+  fun `test a block inlay takes the insets of the view`(): Unit = fixture.runTest {
+    initText("text")
+    val inlay = editor.inlayModel.addBlockElement(0, false, true, 0, FixedSizeRenderer())!!
+    val originalScale = JBUIScale.scale(1f)
+    try {
+      JBUIScale.setUserScaleFactorForTest(1f)
+      editor.contentComponent.border = JBUI.Borders.emptyLeft(7)
+      JBUIScale.setUserScaleFactorForTest(2f)
+      val textX = editor.offsetToXY(0).x
+      assertEquals(
+        7,
+        textX,
+        "Before a UI update the view keeps the insets of the scale 1",
+      )
+      assertEquals(
+        textX,
+        inlay.bounds!!.x,
+        "The inlay starts where the text starts",
+      )
+      assertEquals(
+        inlay,
+        editor.inlayModel.getElementAt(Point(textX, 0)),
+        "A point at the start of the text hits the inlay",
+      )
+    } finally {
+      JBUIScale.setUserScaleFactorForTest(originalScale)
+      editor.contentComponent.updateUI()
+    }
+  }
+
+  @Test
+  fun `test the release of an editor reports insets that changed without a border change`(): Unit = fixture.runTest {
+    val editorFactory = EditorFactory.getInstance()
+    val otherEditor = editorFactory.createEditor(editorFactory.createDocument("text"))
+    val border = MutableLeftBorder()
+    otherEditor.contentComponent.border = border
+    border.changeLeft(7)
+    val error = LoggedErrorProcessor.executeAndReturnLoggedError {
+      editorFactory.releaseEditor(otherEditor)
+    }
+    assertTrue(
+      error.message!!.contains(MutableLeftBorder::class.java.name),
+      "The message must name the border class, but it was '${error.message}'",
+    )
+  }
+
+  @Test
+  fun `test a change of the returned insets leaves the view alone`(): Unit = fixture.runTest {
+    initText("text")
+    val view = EditorViewAccessor.getView(editor)
+    editor.contentComponent.border = BorderFactory.createEmptyBorder(3, 7, 0, 0)
+    view.insets.left = 100
+    assertEquals(
+      Point(7, 3),
+      editor.offsetToXY(0),
+      "The caller owns the returned insets, so the text stays at the insets of the border",
+    )
+  }
+
+  private fun showingEvent(): HierarchyEvent {
+    val shownComponent = object : JComponent() {
+      override fun isShowing(): Boolean {
+        return true
+      }
+    }
+    return HierarchyEvent(
+      shownComponent,
+      HierarchyEvent.HIERARCHY_CHANGED,
+      shownComponent,
+      null,
+      HierarchyEvent.SHOWING_CHANGED.toLong(),
+    )
+  }
+
+  private class MutableLeftBorder : EmptyBorder(0, 0, 0, 0) {
+    fun changeLeft(value: Int) {
+      left = value
+    }
+  }
+
+  /**
+   * Adds a bottom gap while [hasGap] holds, as the border of a scroll pane view does for a transparent scroll bar.
+   */
+  private class ScrollBarGapBorder(private val hasGap: () -> Boolean) : AbstractBorder() {
+    override fun getBorderInsets(c: Component, insets: Insets): Insets {
+      insets.set(0, 0, if (hasGap()) GAP else 0, 0)
+      return insets
+    }
+  }
+
+  private class FixedSizeRenderer : EditorCustomElementRenderer {
+    override fun calcWidthInPixels(inlay: Inlay<*>): Int = 50
+
+    override fun calcHeightInPixels(inlay: Inlay<*>): Int = 10
+  }
+
   companion object {
     private val projectFixture = projectFixture(openAfterCreation = true)
     private const val REINIT_COUNT = 200
     private const val TIMEOUT_SECONDS = 30L
+    private const val GAP = 5
   }
 }

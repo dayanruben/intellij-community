@@ -15,7 +15,7 @@ load(
     "dist_plugin_descriptor_target_name",
     "dist_stamp_class_consumer_transition",
 )
-load(":intellij_dist.bzl", "DistPlacementInfo", "IntellijDevFragmentInfo")
+load(":intellij_dist.bzl", "DistPlacementInfo", "IntellijDevComponentInfo")
 
 # The application info of the fixture product, an EAP product without a release date.
 _EMPTY_JAR = "PK\005\006" + ("\000" * 18)
@@ -372,18 +372,18 @@ def _component_test_impl(ctx):
     env = analysistest.begin(ctx)
     target = analysistest.target_under_test(env)
     remainder = ctx.attr.remainder[0][DevPluginRemainderInfo]
-    fragment = target[IntellijDevFragmentInfo]
+    component = target[IntellijDevComponentInfo]
     actions = [action for action in analysistest.target_actions(env) if action.mnemonic == "CollectDevPluginComponent"]
     asserts.equals(env, 1, len(actions))
     action = actions[0]
-    asserts.equals(env, ctx.attr.kind, fragment.name)
-    asserts.equals(env, _short_paths(remainder.outputs.values()), _short_paths(fragment.payload.to_list()))
+    asserts.equals(env, ctx.attr.kind, component.name)
+    asserts.equals(env, _short_paths(remainder.outputs.values()), _short_paths(component.payload.to_list()))
 
     # A remainder without a reused jar places each of its outputs at its own destination.
     placement = target[DistPlacementInfo]
     asserts.equals(env, {"plugins/test/" + key: value.short_path for key, value in remainder.outputs.items()}, {key: value.short_path for key, value in placement.files.items()})
     asserts.equals(env, {}, placement.trees)
-    for input_file in [remainder.metadata, remainder.assets, remainder.classpath]:
+    for input_file in [remainder.metadata, remainder.assets, remainder.classpath_descriptor]:
         asserts.true(env, input_file.short_path in _short_paths(action.inputs.to_list()))
     asserts.true(env, "--kind=" + ctx.attr.kind in action.argv)
     asserts.false(env, [argument for argument in action.argv if argument.startswith("--platform-prefix")])
@@ -414,14 +414,14 @@ _component_test = analysistest.make(
 
 def _derived_remainder_test_impl(ctx):
     """The derived form binds the platform-substituted resource, adds the descriptor under the derived ID, and states
-    the plugin directory from the main module."""
+    the plugin directory of the runtime layout part from the main module."""
     env = analysistest.begin(ctx)
     asserts.equals(env, 1, len(ctx.attr.catalogue))
     asserts.equals(env, 1, len(ctx.attr.raw))
     catalogue = ctx.attr.catalogue[0][DevPluginArtifactCatalogueInfo]
     asserts.equals(env, ctx.attr.raw[0][DefaultInfo].files.to_list()[0], catalogue.artifacts["raw"])
     asserts.equals(env, ["raw", ctx.attr.descriptor_id], catalogue.artifacts.keys())
-    actions = [action for action in analysistest.target_actions(env) if action.mnemonic == "PackDevPluginRemainder"]
+    actions = [action for action in analysistest.target_actions(env) if action.mnemonic == "DistRuntimeLayoutPart"]
     asserts.equals(env, 1, len(actions))
     asserts.true(env, "--plugin-directory=" + ctx.attr.plugin_directory in actions[0].argv)
     return analysistest.end(env)
@@ -449,8 +449,8 @@ _derived_remainder_test = analysistest.make(
 
 def _remainder_from_plan_test_impl(ctx):
     """A chain packs the remainder from the plan file in one action. The action reads the plan file, the input
-    catalogue, the classpath descriptor and every catalogue artifact. It writes the remainder, the inventory, the
-    asset table and the classpath record, and the provider hands all four to the component."""
+    catalogue and every catalogue artifact. It writes the remainder, the inventory and the asset table, and the provider
+    hands all three to the component, with the classpath descriptor of the record."""
     env = analysistest.begin(ctx)
     target = analysistest.target_under_test(env)
     remainder = target[DevPluginRemainderInfo]
@@ -512,21 +512,19 @@ def _remainder_from_plan_test_impl(ctx):
     asserts.true(env, packer.split("/")[-1].startswith("plugin-remainder-packer"))
 
     # The tool inputs are the packer and its runfiles tree, both below the executable's path.
-    expected_inputs = [graph.projection, catalogue.catalogue, classpath_descriptor, descriptor, raw]
+    expected_inputs = [graph.projection, catalogue.catalogue, descriptor, raw]
     inputs = [file for file in action.inputs.to_list() if not file.path.startswith(packer)]
     asserts.equals(env, sorted(_short_paths(expected_inputs)), sorted(_short_paths(inputs)))
     input_by_short_path = {file.short_path: file for file in inputs}
-    asserts.equals(env, remainder.outputs.values() + [remainder.metadata, remainder.assets, remainder.classpath], action.outputs.to_list())
+    asserts.equals(env, remainder.outputs.values() + [remainder.metadata, remainder.assets], action.outputs.to_list())
+    asserts.equals(env, classpath_descriptor.short_path, remainder.classpath_descriptor.short_path)
     asserts.equals(env, [
         "--projection=" + input_by_short_path[graph.projection.short_path].path,
         "--input-catalogue=" + input_by_short_path[catalogue.catalogue.short_path].path,
-        "--classpath-descriptor=" + input_by_short_path[classpath_descriptor.short_path].path,
-        "--plugin-directory=plugins/test",
         "--execution-version=%d" % graph.execution_version,
         "--output-dir=" + remainder.root,
         "--inventory=" + remainder.metadata.path,
         "--assets=" + remainder.assets.path,
-        "--classpath=" + remainder.classpath.path,
     ], action.argv[1:])
     asserts.equals(env, remainder.outputs.values(), target[DefaultInfo].files.to_list())
 
@@ -553,7 +551,7 @@ def _remainder_from_plan_test_impl(ctx):
     asserts.equals(env, remainder.outputs.values(), groups.dist_plugin_remainder.to_list())
     asserts.equals(env, [remainder.metadata], groups.file_metadata.to_list())
     asserts.equals(env, [remainder.assets], groups.dist_plugin_assets.to_list())
-    asserts.equals(env, [remainder.classpath], groups.dist_plugin_classpath.to_list())
+    asserts.false(env, hasattr(groups, "dist_plugin_classpath"))
 
     # A catalogue of resources alone is empty content, and a remainder without a reused jar adds nothing to it.
     content = target[DistContentInfo]
@@ -628,7 +626,7 @@ def _split_part_test_impl(ctx):
     asserts.true(env, "--descriptor-asset=" + ctx.attr.descriptor_asset in argv, str(argv))
     written = sorted([file.path.split(".plugin/", 1)[1] for file in packs[0].outputs.to_list() if ".plugin/" in file.path])
     asserts.equals(env, ctx.attr.files, written)
-    asserts.equals(env, ctx.attr.part == "descriptor", len([argument for argument in argv if argument.startswith("--classpath-descriptor=")]) == 1)
+    asserts.equals(env, [], [argument for argument in argv if argument.startswith("--classpath-descriptor=")])
     asserts.equals(env, [], [argument for argument in argv if argument.startswith("--assets=") or argument.startswith("--refused-module=")])
     asserts.equals(env, sorted(ctx.attr.rows), sorted([argument.removeprefix("--rows=").split(":", 1)[0] for argument in argv if argument.startswith("--rows=")]))
     asserts.equals(env, sorted(ctx.attr.refusals), sorted([argument.removeprefix("--mode-refused-module=") for argument in argv if argument.startswith("--mode-refused-module=")]))
@@ -665,13 +663,14 @@ def _split_component_test_impl(ctx):
     asserts.true(env, descriptor_part.endswith("_descriptor_remainder.plugin"), descriptor_part)
     asserts.true(env, spec["descriptorRemainder"]["metadata"].startswith(descriptor_part.rsplit("/", 1)[0] + "/"), str(spec))
     asserts.true(env, spec["assets"].endswith("_descriptor_remainder" + ctx.attr.rows_suffix + ".assets.json"), spec["assets"])
-    asserts.true(env, spec["classpath"].endswith("_descriptor_remainder" + ctx.attr.rows_suffix + ".plugin-classpath.txt"), spec["classpath"])
+    asserts.false(env, "classpath" in spec)
+    asserts.true(env, spec.get("descriptor"), str(spec))
 
     # The descriptor part runs in the class of the leaf. That is the class of the component, unless the leaf embeds
     # every content module and the component keeps a mode.
     configuration = specs[0].outputs.to_list()[0].path.split("/bin/", 1)[0]
     asserts.equals(env, ctx.attr.own_class, descriptor_part.split("/bin/", 1)[0] == configuration, descriptor_part + " and " + configuration)
-    placed = sorted([file.path.split(".plugin/", 1)[1] for file in target[IntellijDevFragmentInfo].payload.to_list() if ".plugin/" in file.path])
+    placed = sorted([file.path.split(".plugin/", 1)[1] for file in target[IntellijDevComponentInfo].payload.to_list() if ".plugin/" in file.path])
     asserts.equals(env, ctx.attr.placed, placed)
     return analysistest.end(env)
 
@@ -748,13 +747,13 @@ def _reused_component_test_impl(ctx):
     target = analysistest.target_under_test(env)
     remainder = ctx.attr.remainder[0][DevPluginRemainderInfo]
     content = ctx.attr.content_jar[ContentModuleJarInfo]
-    fragment = target[IntellijDevFragmentInfo]
+    component = target[IntellijDevComponentInfo]
     actions = [action for action in analysistest.target_actions(env) if action.mnemonic == "CollectDevPluginComponent"]
     asserts.equals(env, 1, len(actions))
 
     # The macro derives the remainder and the component from one list of owner targets, so the reused content module
     # jar reaches the payload beside the remainder.
-    payload = fragment.payload.to_list()
+    payload = component.payload.to_list()
     asserts.equals(env, 2, len(payload))
     asserts.true(env, remainder.outputs["lib/test.jar"].short_path in _short_paths(payload))
     asserts.true(env, content.jar.short_path in [file.short_path for file in payload])
@@ -830,7 +829,7 @@ def _remainder_outputs_test_impl(ctx):
         asserts.equals(env, remainder.root + ("/" + key if key else ""), file.path)
     actions = [action for action in analysistest.target_actions(env) if action.mnemonic == "PackDevPluginRemainder"]
     asserts.equals(env, 1, len(actions))
-    asserts.equals(env, remainder.outputs.values() + [remainder.metadata, remainder.assets, remainder.classpath], actions[0].outputs.to_list())
+    asserts.equals(env, remainder.outputs.values() + [remainder.metadata, remainder.assets], actions[0].outputs.to_list())
     return analysistest.end(env)
 
 _REMAINDER_OUTPUTS_ATTRS = {
@@ -1449,7 +1448,7 @@ def dev_plugin_remainder_test_suite(name):
     )
 
     # A chain over a plan file with a layout-assets operation. The packer executes the operation in the remainder
-    # action. The same action writes the asset table and the classpath record the component reads.
+    # action. The same action writes the asset table that the component reads.
     plan_chain = name + "_plan_chain"
     dist_complex_plugin_variant(
         name = plan_chain,
@@ -1493,7 +1492,7 @@ def dev_plugin_remainder_test_suite(name):
     )
 
     # A split remainder: the jar of the main module reads the descriptor, so the chain packs every other asset in a
-    # neutral part. The descriptor part packs the main jar and writes the rows and the record.
+    # neutral part. The descriptor part packs the main jar and writes the rows.
     split_chain = name + "_split_chain"
     dist_complex_plugin_variant(
         name = split_chain,

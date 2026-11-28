@@ -4,6 +4,7 @@ package com.intellij.openapi.projectRoots.impl.jdkDownloader
 import com.intellij.execution.wsl.WslPath
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.edtWriteAction
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectBundle
 import com.intellij.openapi.projectRoots.ProjectJdkTable
@@ -26,6 +27,10 @@ import org.jetbrains.annotations.ApiStatus
 import java.io.IOException
 import java.nio.file.Path
 import kotlin.coroutines.resume
+
+private val LOG = logger<JdkDownloadUtil>()
+
+private fun Sdk.describe(): String = "'$name' (home: $homePath, id: ${System.identityHashCode(this)})"
 
 @ApiStatus.Internal
 object JdkDownloadUtil {
@@ -97,11 +102,6 @@ object JdkDownloadUtil {
     return registeredSdk ?: createDownloadSdkInternal(sdkType, sdkDownloadTask)
   }
 
-  @Deprecated(message = "Use #downloadSdk(Project?, Sdk) for proper background progress", replaceWith = ReplaceWith("downloadSdk(project, sdk)"))
-  suspend fun downloadSdk(sdk: Sdk): Boolean {
-    return downloadSdk(null, sdk)
-  }
-
   suspend fun downloadSdk(project: Project?, sdk: Sdk): Boolean {
     return withContext(Dispatchers.EDT) {
       Disposer.newDisposable("The JdkDownloader#downloadSdk lifecycle").use { disposable ->
@@ -112,6 +112,7 @@ object JdkDownloadUtil {
             continuation.resume(it)
           }
           if (!registered) {
+            LOG.info("No pending download to wait for the SDK ${sdk.describe()}")
             continuation.resume(false)
           }
         }

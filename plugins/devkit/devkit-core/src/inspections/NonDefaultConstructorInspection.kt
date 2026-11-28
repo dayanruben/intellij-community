@@ -50,6 +50,7 @@ internal class NonDefaultConstructorInspection : DevKitUastInspectionBase(UClass
     // hack, allow Project-level @Service
     var isServiceAnnotation = false
     var extensionPoint: ExtensionPoint? = null
+    var isWorkspaceService = false
     if (isLightService(javaPsi)) {
       area = null
       isService = true
@@ -67,6 +68,7 @@ internal class NonDefaultConstructorInspection : DevKitUastInspectionBase(UClass
       }
 
       area = getArea(extensionPoint)
+      isWorkspaceService = extensionPoint?.name?.value == "workspaceService"
       isService = extensionPoint?.beanClass?.stringValue == serviceBeanFqn
       if (isService) {
         for (candidate in locateExtensionsByPsiClass(javaPsi)) {
@@ -93,11 +95,12 @@ internal class NonDefaultConstructorInspection : DevKitUastInspectionBase(UClass
       }
     }
 
-    val isAppLevelExtensionPoint = area == null || area == Area.IDEA_APPLICATION
+    val isAppLevelExtensionPoint = !isWorkspaceService && (area == null || area == Area.IDEA_APPLICATION)
 
     var errors: MutableList<ProblemDescriptor>? = null
     loop@ for (method in constructors) {
-      if (isAllowedParameters(method.parameterList, extensionPoint, isAppLevelExtensionPoint, serviceClientKind, isServiceAnnotation)) {
+      if (isAllowedParameters(method.parameterList, extensionPoint, isAppLevelExtensionPoint, isWorkspaceService,
+                              serviceClientKind, isServiceAnnotation)) {
         // allow to have empty constructor and extra (e.g. DartQuickAssistIntention)
         return null
       }
@@ -118,6 +121,7 @@ internal class NonDefaultConstructorInspection : DevKitUastInspectionBase(UClass
         if (area == null) DevKitBundle.message("inspections.non.default.warning.suffix.project.or.module")
         else {
           when {
+            isWorkspaceService -> DevKitBundle.message("inspections.non.default.warning.suffix.workspace")
             isAppLevelExtensionPoint -> ""
             area == Area.IDEA_PROJECT -> DevKitBundle.message("inspections.non.default.warning.suffix.project")
             else -> DevKitBundle.message("inspections.non.default.warning.suffix.module")
@@ -243,6 +247,7 @@ private val allowedClientProjectSessionsQualifiedNames = setOf(
 private val allowedServiceQualifiedNames = setOf(
   "com.intellij.openapi.project.Project",
   "com.intellij.openapi.module.Module",
+  "com.intellij.openapi.workspace.Workspace",
   "com.intellij.util.messages.MessageBus",
   "com.intellij.openapi.options.SchemeManagerFactory",
   "com.intellij.openapi.editor.actionSystem.TypedActionHandler",
@@ -255,6 +260,7 @@ private val allowedServiceNames = allowedServiceQualifiedNames.mapTo(HashSet(all
 private fun isAllowedParameters(list: PsiParameterList,
                                 extensionPoint: ExtensionPoint?,
                                 isAppLevelExtensionPoint: Boolean,
+                                isWorkspaceService: Boolean,
                                 clientKind: ClientKind?,
                                 isServiceAnnotation: Boolean): Boolean {
   if (list.isEmpty) {
@@ -281,6 +287,14 @@ private fun isAllowedParameters(list: PsiParameterList,
 
     val qualifiedName = (type.resolve() ?: return false).qualifiedName
     if (!allowedServiceQualifiedNames.contains(qualifiedName)) {
+      return false
+    }
+
+    if (name == "Workspace" && !isWorkspaceService && !isServiceAnnotation) {
+      return false
+    }
+
+    if (isWorkspaceService && (name == "Project" || name == "Module")) {
       return false
     }
 

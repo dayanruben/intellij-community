@@ -29,7 +29,6 @@ import org.jetbrains.intellij.build.ZipSource
 import org.jetbrains.intellij.build.buildJar
 import org.jetbrains.intellij.build.checkForNoDiskSpace
 import org.jetbrains.intellij.build.computeModuleSourcesByContent
-import org.jetbrains.intellij.build.dev.DistRecipe
 import org.jetbrains.intellij.build.dev.syntheticTestPluginModuleName
 import org.jetbrains.intellij.build.getLibraryFileName
 import org.jetbrains.intellij.build.getLibraryRoots
@@ -65,19 +64,6 @@ import kotlin.io.path.invariantSeparatorsPathString
 
 private fun isJarPreSigned(file: Path, context: BuildContext): Boolean {
   return context.productProperties.presignedNativeLibs.containsKey(getLibNameBySourceFile(file))
-}
-
-/**
- * Selects the jars an assembly actually writes, out of everything the layout put in them.
- *
- * A split distribution fragment lays the whole layout out - that part is metadata, and cheap - and then packs only
- * the jars it owns, so that reading and zipping is what the split divides. Ownership is decided per jar name against
- * an explicit generated set (see `org.jetbrains.intellij.build.dev.PlatformJarSelector`): a name is all a filter sees,
- * because a jar as a whole belongs to one producer regardless of what the layout put into it.
- */
-@ApiStatus.Internal
-fun interface DistributionAssetFilter {
-  fun accept(relativeOutputFile: String): Boolean
 }
 
 class JarPackager private constructor(
@@ -117,7 +103,6 @@ class JarPackager private constructor(
       dryRun: Boolean,
       searchableOptionSet: SearchableOptionSetDescriptor? = null,
       descriptorCache: ScopedCachedDescriptorContainer? = null,
-      assetFilter: DistributionAssetFilter? = null,
       nativeFilesInPluginDir: Boolean = false,
       context: BuildContext,
     ): Collection<DistributionFileEntry> {
@@ -134,23 +119,14 @@ class JarPackager private constructor(
         searchableOptionSet = searchableOptionSet,
         cachedDescriptorWriterProvider = descriptorCache
       )
-      packager.computeModuleCustomLibrarySources(layout, assetFilter)
+      packager.computeModuleCustomLibrarySources(layout)
 
       packager.computeProjectLibrariesSources(
         outDir = outputDir,
         layout = layout,
         copiedFiles = packager.copiedFiles,
-        assetFilter = assetFilter,
       )
-      // The whole layout is computed above, but only the owned jars are packed and reported: everything downstream -
-      // the built files, the distribution entries, the classpath - must see one consistent subset.
-      val assets = if (assetFilter == null) {
-        packager.assets.values
-      }
-      else {
-        // By the path of the jar and not by `relativePath`, which is empty for a module library jar directly under `lib/`.
-        packager.assets.values.filter { assetFilter.accept(outputDir.relativize(it.file).invariantSeparatorsPathString) }
-      }
+      val assets = packager.assets.values
 
       val cacheManager = if (context is BuildContextImpl) context.jarCacheManager else NonCachingJarCacheManager
       val buildAssetResult = buildJars(
@@ -311,9 +287,8 @@ class JarPackager private constructor(
   }
 
   private fun handleCustomAssets(layout: PluginLayout, jarAsset: AssetDescriptor) {
-    // A dry layout packs no jar, and every reader of its entries drops a `CustomAssetEntry`. An asset supplier
-    // resolves the library roots and the files it reads, and a reference fragment declares only the files it packs.
-    // So a dry layout evaluates no custom asset.
+    // A dry layout packs no jar, and every reader of its entries drops a `CustomAssetEntry`. So a dry layout evaluates
+    // no custom asset.
     if (dryRun) {
       return
     }
@@ -507,7 +482,7 @@ class JarPackager private constructor(
     }
   }
 
-  private fun computeModuleCustomLibrarySources(layout: BaseLayout, assetFilter: DistributionAssetFilter?) {
+  private fun computeModuleCustomLibrarySources(layout: BaseLayout) {
     for (item in layout.includedModuleLibraries) {
       var relativePath = item.relativeOutputPath
       val targetFile: Path
@@ -528,9 +503,6 @@ class JarPackager private constructor(
         }
       }
 
-      // The filter names a jar by its `lib/`-relative path. `relativePath` is empty for a jar directly under `lib/`, so
-      // the filter reads the path of the target file instead.
-      if (assetFilter != null && !assetFilter.accept(outDir.relativize(targetFile).invariantSeparatorsPathString)) continue
       val library = context.outputProvider.findRequiredModule(item.moduleName).libraryCollection.libraries.find { getLibraryFileName(it) == item.libraryName }
                     ?: throw IllegalArgumentException("Cannot find library ${item.libraryName} in '${item.moduleName}' module")
       val asset = getJarAsset(targetFile, relativePath)
@@ -543,7 +515,6 @@ class JarPackager private constructor(
     outDir: Path,
     layout: BaseLayout,
     copiedFiles: LibraryFileCopyTracker,
-    assetFilter: DistributionAssetFilter?,
   ) {
     if (layout.includedProjectLibraries.isEmpty()) {
       return
@@ -560,7 +531,6 @@ class JarPackager private constructor(
       if (outPath != null) {
         if (outPath.endsWith(".jar")) {
           val targetFile = outDir.resolve(outPath)
-          if (assetFilter != null && !assetFilter.accept(outPath)) continue
           val asset = getJarAsset(targetFile, outPath)
           val files = copiedFiles.getLibraryFiles(library = library, targetFile = targetFile, outputProvider = outputProvider)
           filesToSourceWithMapping(asset, files, library, outPath, libraryData)
@@ -578,7 +548,6 @@ class JarPackager private constructor(
       if (libraryData.packMode == LibraryPackMode.STANDALONE_MERGED) {
         val targetFile = libOutputDir.resolve(nameToJarFileName(libName))
         val relativeOutputFile = outDir.relativize(targetFile).invariantSeparatorsPathString
-        if (assetFilter != null && !assetFilter.accept(relativeOutputFile)) continue
         addLibrary(
           targetFile = targetFile,
           relativeOutputFile = relativeOutputFile,
@@ -586,7 +555,6 @@ class JarPackager private constructor(
         )
       }
       else {
-        if (assetFilter != null && !assetFilter.accept(nameToJarFileName(libName))) continue
         for (file in getLibraryRoots(library, outputProvider)) {
           val targetFile = libOutputDir.resolve(file.fileName.toString())
           val relativeOutputFile = outDir.relativize(targetFile).invariantSeparatorsPathString
@@ -793,16 +761,6 @@ private fun buildAsset(
     assetSources = asset.sources,
     includedModuleSources = includedModules.values,
     descriptorModuleSources = includedModules.entries.find { it.key.moduleName == (layout as? PluginLayout)?.mainModule }?.value,
-  )
-
-  // The merged list, not the two collections it came from: this is the order the jar writer and the jar cache use, so
-  // it is the only order a recipe of this run can state. Recorded before the early return below, because an output with
-  // no sources is a fact about the run too.
-  DistRecipe.record(
-    outputFile = asset.file,
-    sources = sources,
-    includedModules = includedModules.keys,
-    layout = layout,
   )
 
   if (sources.isEmpty()) {

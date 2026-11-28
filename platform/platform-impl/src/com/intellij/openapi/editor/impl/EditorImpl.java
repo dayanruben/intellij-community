@@ -1517,6 +1517,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
       if (isReleased) {
         throwDisposalError("Double release of editor:");
       }
+      String insetsMismatchBeforeRelease = myView.findInsetsMismatch();
       RMTreeReference.processQueue(); // document maybe stuck in RangeMarkerTree queue
       myTraceableDisposable.kill(null);
 
@@ -1563,6 +1564,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
       myVerticalScrollBar.setPersistentUI(JBScrollBar.createDefaultUI());
       mouseSelectionStateAlarm.dispose();
       errorStripeDelayedRepaintAlarm.dispose();
+      EditorView.reportInsetsMismatch(insetsMismatchBeforeRelease);
     });
   }
 
@@ -2960,6 +2962,27 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     return EditorThreading.compute(myScrollPane::getInsets);
   }
 
+  /**
+   * Returns the content component insets from the view snapshot. The caller owns the result.
+   * The snapshot also takes new insets after a layout of the scroll pane,
+   * and at a visibility or opacity change of a scroll bar.
+   */
+  @ApiStatus.Internal
+  public @NotNull Insets getContentInsets() {
+    return myView.getInsets();
+  }
+
+  /**
+   * Puts the current content insets into the view snapshot, and repaints the content when they change.
+   * It does nothing before the view exists and after the release.
+   */
+  private void updateContentInsets() {
+    EditorView view = myView;
+    if (view != null && !isReleased && view.updateInsets()) {
+      myEditorComponent.repaint();
+    }
+  }
+
   @Override
   public int logicalPositionToOffset(@NotNull LogicalPosition pos) {
     return myView.logicalPositionToOffset(pos);
@@ -3770,6 +3793,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
       addPropertyChangeListener("opaque", _ -> {
         revalidate();
         repaint();
+        updateContentInsets();
       });
     }
 
@@ -3777,6 +3801,12 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     public void setOpaque(boolean opaque) {
       myOpaque = opaque;
       super.setOpaque(opaque || shouldScrollBarBeOpaque());
+    }
+
+    @Override
+    public void setVisible(boolean visible) {
+      super.setVisible(visible);
+      updateContentInsets();
     }
 
     @Override
@@ -5178,7 +5208,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     VisualPosition visualPosition = location.getVisualPosition();
     LogicalPosition logicalPosition = location.getLogicalPosition();
     int offset = location.getOffset();
-    int relX = point.x - myEditorComponent.getInsets().left;
+    int relX = point.x - getContentInsets().left;
     Inlay<?> inlayCandidate = inEditingArea ? myInlayModel.getElementAt(location, true) : null;
     Inlay<?> inlay = inlayCandidate == null ||
                      (inlayCandidate.getPlacement() == Inlay.Placement.BELOW_LINE ||
@@ -5533,15 +5563,17 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   }
 
   /**
-   * Says that the selection stops at the text, and that it does not fill the line. This is true when the Islands theme
-   * is on, the editor is not in column mode, and the registry key {@code editor.old.full.horizontal.selection.enabled}
-   * of {@code registry} is off.
+   * Says that the selection stops at the text, and that it does not fill the line.
+   * It is false in column mode, and while the registry key {@code editor.old.full.horizontal.selection.enabled} of
+   * {@code registry} is on. Otherwise, the choice of the user decides. Without a choice, the current theme decides.
    */
   @ApiStatus.Internal
   public boolean isHuggingHighlighting(@NotNull EditorRegistry registry) {
-    return !registry.isOldFullHorizontalSelectionEnabled()
-           && !isColumnMode()
-           && IslandsState.Companion.isEnabled();
+    if (registry.isOldFullHorizontalSelectionEnabled() || isColumnMode()) {
+      return false;
+    }
+    Boolean option = getSettingsSnapshot().getHuggingHighlightingOption();
+    return option != null ? option : IslandsState.Companion.isEnabled();
   }
 
   @TestOnly
@@ -5617,6 +5649,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
         myGutterComponent.updateSize(true, true);
       }
       super.layout();
+      updateContentInsets();
     }
 
     @Override

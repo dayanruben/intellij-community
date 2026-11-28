@@ -124,16 +124,13 @@ verbose_file_reads = "warn"
 
 [workspace.dependencies]
 anyhow = "1.0.104"
+cliclack = "0.5.7"
+console = "0.16.6"
 crc32fast = "1.5.2"
-crossterm = "0.29.0"
 flate2 = "1.1.10"
 getrandom = "0.4.3"
 httpdate = "1.0.3"
 ignore = "0.4.34"
-# The dialog of `update-ide` asks its menus through `inquire`, whose terminal backend is `crossterm`.
-inquire = { version = "0.9.4", default-features = false, features = ["crossterm"] }
-indexmap = "2.14.2"
-java-properties = "2.0.0"
 libc = "0.2.189"
 memmap2 = "0.9.11"
 quick-xml = "0.42.0"
@@ -141,7 +138,6 @@ rayon = "1.12.0"
 regex = { version = "1.13.1", default-features = false, features = ["std", "perf", "unicode-perl"] }
 ruzstd = "0.9.0"
 same-file = "1.0.6"
-saphyr = "0.0.12"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.151", features = ["preserve_order", "raw_value"] }
 sha2 = "0.11.0"
@@ -157,7 +153,6 @@ appinfo = { path = "crates/appinfo" }
 checkout-files = { path = "crates/checkout-files" }
 cli = { path = "crates/cli" }
 component = { path = "crates/component" }
-dev-launch = { path = "crates/dev-launch" }
 distpath = { path = "crates/distpath" }
 filemeta = { path = "crates/filemeta" }
 fscopy = { path = "crates/fscopy" }

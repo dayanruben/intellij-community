@@ -15,6 +15,7 @@
  */
 package com.intellij.openapi.editor;
 
+import com.intellij.openapi.actionSystem.IdeActions;
 import com.intellij.openapi.editor.colors.EditorColors;
 import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.editor.ex.util.EditorUtil;
@@ -25,6 +26,7 @@ import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.testFramework.EditorTestUtil;
 import com.intellij.testFramework.TestDataPath;
 import com.intellij.testFramework.junit5.TestApplication;
+import com.intellij.util.ThrowableRunnable;
 import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.api.Test;
 
@@ -243,10 +245,108 @@ public class RightAlignedEditorPaintingTest extends EditorPaintingTestCase {
     });
   }
 
+  private void runTestHuggingHighlighter(boolean rounded) {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(rounded, true);
+      try {
+        initText("first longer line\nsecond line");
+        addRangeHighlighter(13, 19, HighlighterLayer.WARNING, null, Color.red);
+        checkResult();
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  /**
+   * Gives the color of the stub before the start of line 1, with a guarded block from {@code start} to {@code end}.
+   */
+  private int guardStubBeforeSecondLine(int start, int end) throws IOException {
+    initText("ab\ncd\nef");
+    Editor editor = myFixture.getEditor();
+    editor.getDocument().createGuardedBlock(start, end);
+    BufferedImage image = paintEditor(false, null, null);
+    int x = (int)editor.offsetToXY(3).getX() - 5;
+    int y = editor.visualLineToYRange(1)[0] + 7;
+    return image.getRGB(x, y);
+  }
+
+  private void runWithHuggingLook(ThrowableRunnable<Exception> test) {
+    myFixture.runTest(() -> {
+      var state = setSelectionLook(false, true);
+      try {
+        test.run();
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
+  public void testGuardedBlockOfOneLineGivesNoStubBeforeIt() {
+    runWithHuggingLook(() -> {
+      int color = guardStubBeforeSecondLine(3, 5);
+      Color guard = myFixture.getEditor().getColorsScheme().getColor(EditorColors.READONLY_FRAGMENT_BACKGROUND_COLOR);
+      assertNotEquals(guard.getRGB(), color, "the stub before line 1");
+    });
+  }
+
+  @Test
+  public void testGuardedBlockOverLineBreakGivesStubBeforeNextLine() {
+    runWithHuggingLook(() -> {
+      int color = guardStubBeforeSecondLine(0, 5);
+      Color guard = myFixture.getEditor().getColorsScheme().getColor(EditorColors.READONLY_FRAGMENT_BACKGROUND_COLOR);
+      assertEquals(guard.getRGB(), color, "the stub before line 1");
+    });
+  }
+
+  @Test
+  public void testHuggingHighlighterRounded() {
+    runTestHuggingHighlighter(true);
+  }
+
+  @Test
+  public void testHuggingHighlighterStraight() {
+    runTestHuggingHighlighter(false);
+  }
+
+  @Test
+  public void testHuggingSelectionOverBlockInlays() {
+    myFixture.runTest(() -> {
+      var state = setNewSelectionEnabled(true);
+      try {
+        initText("line 1\nline 2\na");
+        Document document = myFixture.getEditor().getDocument();
+        myFixture.addBlockInlay(document.getLineStartOffset(0));
+        myFixture.addBlockInlay(document.getLineStartOffset(1));
+        myFixture.executeAction(IdeActions.ACTION_EDITOR_TEXT_END);
+        myFixture.executeAction(IdeActions.ACTION_EDITOR_MOVE_CARET_UP_WITH_SELECTION);
+        myFixture.executeAction(IdeActions.ACTION_EDITOR_MOVE_CARET_LEFT_WITH_SELECTION);
+        checkResult();
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
+  @Test
+  public void testCustomFoldRegionInsideHuggingSelection() {
+    myFixture.runTest(() -> {
+      var state = setNewSelectionEnabled(true);
+      try {
+        initText("<selection>\ntext\n<caret></selection>");
+        addCustomLinesFolding(1, 1);
+        checkResult();
+      } finally {
+        restoreSelectionState(state);
+      }
+    });
+  }
+
   @Test
   public void testMultiLineHighlighterRounded() {
     myFixture.runTest(() -> {
-      var state = setNewSelectionEnabled(true);
+      var state = setSelectionLook(true, false);
       try {
         initText("ab\ncdef\nghijklmnop");
         addRangeHighlighter(1, 5, HighlighterLayer.WARNING, null, Color.red);
@@ -275,7 +375,7 @@ public class RightAlignedEditorPaintingTest extends EditorPaintingTestCase {
   @Test
   public void testFillReachesClipWiderThanViewportRightAligned() {
     myFixture.runTest(() -> {
-      var state = setSelectionLook(true, true);
+      var state = setSelectionLook(true, false);
       try {
         initText("ab\ncdef\nghijklmnop");
         Editor editor = myFixture.getEditor();

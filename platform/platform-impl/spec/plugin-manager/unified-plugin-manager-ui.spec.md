@@ -517,6 +517,7 @@ Untested: Community tests verify the Enter handler, but they do not verify the S
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageViewTest.kt
 
 - A collapsed section header must show “Show more” on hover or keyboard focus.
+- The header must use the space for its title and count while “Show more” is hidden.
 - An expanded section header must show “Show less” when the section can collapse.
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageViewTest.kt (
     `section header reveals Show more on hover and keyboard focus`
@@ -779,10 +780,14 @@ Untested: No focused test verifies Shift-selection across sections.
     `new repository header stays visible after a section replacement`
   )
 
-- A long section title must yield space to its count and actions.
+- The count must remain visible when the title is shortened and in both expansion states.
+- The gap before the expansion action must be at least the gap between the title and the count.
+- The title, count, and expansion action text must share a baseline.
+- The title must use a trailing ellipsis if the full title does not fit beside the count and any visible action.
 - A shortened title must expose its full value as its accessible name and tooltip.
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageViewTest.kt (
-    `long repository title truncates without hiding controls`;
+    `repository header gives the title room until it reveals Show more`;
+    `expansion control projects all items and emits semantic intent`;
     `long non-repository section title uses trailing ellipsis`
   )
 
@@ -826,7 +831,7 @@ Untested: No focused test verifies Shift-selection across sections.
 - Enter and Space on the focused link must open the Marketplace home page.
 - The link must use muted text.
 - The link must match the expansion row's height and spacing above it.
-- The link and the expansion row must use a rounded highlight on hover and a rounded outline on keyboard focus.
+- The link and the expansion row must use the same rounded highlight for hover and keyboard focus.
   [@test] ../../testSrc/com/intellij/ide/plugins/unified/UnifiedPluginsPageRealRowsTest.kt (
     `Marketplace link follows Suggested rows in arrow order and stays outside Tab order`;
     `Marketplace link requires all Suggested results to be visible and loaded`

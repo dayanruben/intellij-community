@@ -12,15 +12,11 @@ load(":dist_runtime_module_repository.bzl", "dist_runtime_module_repository")
 load(
     ":intellij_dist.bzl",
     "DistPlacementInfo",
-    "IntellijDevBuildInputsInfo",
-    "IntellijDevFragmentInfo",
-    "IntellijDevReferenceInfo",
+    "IntellijDevComponentInfo",
     "IntellijDistInfo",
     "IntellijProjectModelTreeInfo",
     "dist_home_path",
-    "intellij_build_inputs",
-    "intellij_fragment",
-    "intellij_fragments_dist",
+    "intellij_components_dist",
     "intellij_packed_jars_component",
 )
 
@@ -216,17 +212,12 @@ def _platform_payload_test_impl(ctx):
     env = analysistest.begin(ctx)
     target = analysistest.target_under_test(env)
     payload = target[DistPlatformPayloadInfo]
-    reference = target[DistContentInfo]
     packed = ctx.attr.packed[ContentModuleJarInfo]
     nested = ctx.attr.nested[DistPlatformJarInfo]
     natives = ctx.attr.natives[ContentModuleJarInfo]
     native = natives.native_trees[_PAYLOAD_PLATFORM]
 
-    # The destination, not the file name: this is the set the owning fragment must not pack, and a nested jar whose
-    # base name reached it would leave both producers writing the same jar to two places.
-    asserts.equals(env, sorted([packed.relative_path, nested.relative_path, natives.relative_path]), payload.packed_jar_names)
-
-    # Jars only, because the byte gate reads this set. The native tree of the payload's platform travels in the jar's
+    # Jars only. The native tree of the payload's platform travels in the jar's
     # record, with its own metadata. A jar without one says so with `None` and an empty directory.
     asserts.equals(env, [packed.jar, nested.jar, natives.jar], payload.packed_jars.to_list())
 
@@ -259,8 +250,7 @@ def _platform_payload_test_impl(ctx):
         ], key = lambda entry: entry.destination),
         payload.layout,
     )
-    asserts.equals(env, list(packed.member_jars) + list(natives.member_jars), reference.module_jars.to_list())
-    asserts.equals(env, list(packed.library_jars), reference.library_jars.to_list())
+    asserts.false(env, DistContentInfo in target, "the payload publishes no content of its own")
     return analysistest.end(env)
 
 _platform_payload_test = analysistest.make(
@@ -274,28 +264,6 @@ _platform_payload_test = analysistest.make(
 
 # The platform the test payloads are for.
 _PAYLOAD_PLATFORM = "linux_x64"
-
-def _build_inputs_test_impl(ctx):
-    env = analysistest.begin(ctx)
-    target = analysistest.target_under_test(env)
-    info = target[IntellijDevBuildInputsInfo]
-    expected = []
-    for module in ctx.attr.modules:
-        expected.extend(module[_KtJvmInfo].all_output_jars)
-    expected.extend(ctx.attr.library[JavaInfo].transitive_runtime_jars.to_list())
-    for file in expected:
-        asserts.true(env, file in info.files.to_list(), file.path)
-    asserts.equals(env, sorted([info.manifest, info.inputs_origin]), sorted(target[DefaultInfo].files.to_list()))
-    asserts.equals(env, 2, len(analysistest.target_actions(env)))
-    return analysistest.end(env)
-
-_build_inputs_test = analysistest.make(
-    _build_inputs_test_impl,
-    attrs = {
-        "library": attr.label(mandatory = True, providers = [JavaInfo]),
-        "modules": attr.label_list(mandatory = True, providers = [_KtJvmInfo]),
-    },
-)
 
 def _tool_fixture_impl(ctx):
     executable = ctx.actions.declare_file(ctx.label.name + ".sh")
@@ -313,44 +281,6 @@ _tool_fixture = rule(
     attrs = {"_zipper": _ZIPPER},
     executable = True,
     outputs = {"data": "%{name}.data"},
-)
-
-def _fragment_test_impl(ctx):
-    env = analysistest.begin(ctx)
-    target = analysistest.target_under_test(env)
-    inputs = ctx.attr.build_inputs[IntellijDevBuildInputsInfo]
-    actions = [action for action in analysistest.target_actions(env) if action.mnemonic.startswith("IntellijDev")]
-    asserts.equals(env, 1, len(actions))
-    layout = target[OutputGroupInfo].runtime_module_repository_layout.to_list()
-    asserts.equals(env, 1, len(layout))
-    if actions:
-        action = actions[0]
-        for file in inputs.files.to_list():
-            asserts.true(env, file in action.inputs.to_list(), file.path)
-
-        # The runtime module repository reference also writes the layout it generates the repository from, beside the
-        # home.
-        asserts.true(env, layout[0] in action.outputs.to_list())
-        asserts.true(env, "--runtime-module-repository-layout=" + layout[0].path in action.argv)
-
-    # A reference builds no plugin, so it declares no plugin output: the packed plugin components own that group. It
-    # publishes no component provider, so no distribution can compose it.
-    asserts.false(env, hasattr(target[OutputGroupInfo], "dist_plugin_outputs"))
-    asserts.false(env, IntellijDevFragmentInfo in target)
-    asserts.equals(env, "platform_runtime_module_repository", target[IntellijDevReferenceInfo].name)
-    asserts.equals(
-        env,
-        [target.label.name + ".home"],
-        [file.basename for file in target[DefaultInfo].files.to_list()],
-    )
-    return analysistest.end(env)
-
-_fragment_test = analysistest.make(
-    _fragment_test_impl,
-    attrs = {
-        "build_inputs": attr.label(mandatory = True, providers = [IntellijDevBuildInputsInfo]),
-    },
-    config_settings = {_TRACE_SPANS: False},
 )
 
 def _runtime_module_repository_test_impl(ctx):
@@ -412,7 +342,7 @@ def _fake_component_impl(ctx):
     return [
         DefaultInfo(files = depset([manifest, plugin_output]), runfiles = ctx.runfiles(files = [payload])),
         OutputGroupInfo(dist_plugin_outputs = depset([plugin_output])),
-        IntellijDevFragmentInfo(
+        IntellijDevComponentInfo(
             name = ctx.attr.component_name,
             payload = depset([payload]),
             manifest = manifest,
@@ -439,7 +369,7 @@ def _distribution_groups_test_impl(ctx):
 _distribution_groups_test = analysistest.make(
     _distribution_groups_test_impl,
     attrs = {
-        "production": attr.label_list(mandatory = True, providers = [IntellijDevFragmentInfo]),
+        "production": attr.label_list(mandatory = True, providers = [IntellijDevComponentInfo]),
     },
     config_settings = {_TRACE_SPANS: False},
 )
@@ -483,7 +413,7 @@ _sibling_vm_options_test = analysistest.make(
 def _packed_component_test_impl(ctx):
     env = analysistest.begin(ctx)
     target = analysistest.target_under_test(env)
-    component = target[IntellijDevFragmentInfo]
+    component = target[IntellijDevComponentInfo]
     payload = component.payload.to_list()
     natives = ctx.attr.natives[ContentModuleJarInfo]
     native = natives.native_trees[_PAYLOAD_PLATFORM]
@@ -594,20 +524,6 @@ _unpacked_archive_component_test = analysistest.make(
     _unpacked_archive_component_test_impl,
     attrs = {"executable_list": attr.bool(mandatory = True)},
     config_settings = {_TRACE_SPANS: False},
-)
-
-def _manifest_test_impl(ctx):
-    env = analysistest.begin(ctx)
-    target = analysistest.target_under_test(env)
-    info = target[IntellijDevBuildInputsInfo]
-    asserts.true(env, info.manifest.basename.endswith(ctx.attr.expected_suffix))
-    asserts.equals(env, [info.manifest, info.inputs_origin], target[DefaultInfo].files.to_list())
-    asserts.equals(env, 2, len(analysistest.target_actions(env)))
-    return analysistest.end(env)
-
-_manifest_test = analysistest.make(
-    _manifest_test_impl,
-    attrs = {"expected_suffix": attr.string(mandatory = True)},
 )
 
 def _declaration_test_impl(ctx):
@@ -992,35 +908,8 @@ def dist_content_test_suite(name):
         expected_message = "does not have mandatory providers",
     )
 
-    inputs = name + "_inputs"
-    intellij_build_inputs(
-        name = inputs,
-        content = [":" + payload],
-    )
-    tests.append(inputs + "_test")
-    _build_inputs_test(
-        name = tests[-1],
-        target_under_test = ":" + inputs,
-        library = ":" + library,
-        modules = [":" + packed_owner],
-    )
-
     fixture = name + "_tool"
     _tool_fixture(name = fixture, tags = ["manual"])
-    fragment = name + "_fragment"
-    intellij_fragment(
-        name = fragment,
-        assembler = ":" + fixture,
-        platform_prefix = "idea",
-        target_platform = "linux_x64",
-        fragment_name = "platform_runtime_module_repository",
-        runtime_module_repository = True,
-        project_model_tree = ":" + fixture,
-        bazel_targets_json = ":" + fixture + ".data",
-        build_inputs = ":" + inputs,
-        preloaded_manifests = [":" + fixture + ".data"],
-        tags = ["manual"],
-    )
     repository_files = [name + "_repository_core.xml", name + "_repository_targets.json", name + "_repository_facts.json"]
     for file in repository_files:
         native.genrule(name = file + "_file", outs = [file], cmd = "echo '{}' > $@", tags = ["manual"])
@@ -1069,23 +958,16 @@ def dist_content_test_suite(name):
             expected_message = expected_message,
         )
 
-    tests.append(fragment + "_test")
-    _fragment_test(
-        name = tests[-1],
-        target_under_test = ":" + fragment,
-        build_inputs = ":" + inputs,
-    )
-
     production = [name + "_component_first", name + "_component_second"]
     for component in production:
         _fake_component(name = component, component_name = component)
     distribution = name + "_distribution"
-    intellij_fragments_dist(
+    intellij_components_dist(
         name = distribution,
         composer = ":" + fixture,
-        fragments = [":" + component for component in production],
+        components = [":" + component for component in production],
         platform_prefix = "idea",
-        expect_fragments = production,
+        expect_components = production,
         tags = ["manual"],
     )
     tests.append(distribution + "_test")
@@ -1099,12 +981,12 @@ def dist_content_test_suite(name):
     # that the rule refuses.
     for suffix, prefix in [("", ""), ("_contents", "Contents")]:
         sibling = name + "_sibling_distribution" + suffix
-        intellij_fragments_dist(
+        intellij_components_dist(
             name = sibling,
             composer = ":" + fixture,
-            fragments = [":" + component for component in production],
+            components = [":" + component for component in production],
             platform_prefix = "idea",
-            expect_fragments = production,
+            expect_components = production,
             sibling_vm_options = ["-Da=1", "-Dexport=${EXPORT}/x"],
             output_base = "/output-base",
             home_prefix = prefix,
@@ -1119,12 +1001,12 @@ def dist_content_test_suite(name):
         ("no_output_base", False, ["-Dexport=${EXPORT}"], "", "names ${EXPORT}, so output_base is required"),
     ]:
         refused = "%s_sibling_%s" % (name, suffix)
-        intellij_fragments_dist(
+        intellij_components_dist(
             name = refused,
             composer = ":" + fixture,
-            fragments = [":" + component for component in production],
+            components = [":" + component for component in production],
             platform_prefix = "idea",
-            expect_fragments = production,
+            expect_components = production,
             local_launch = local_launch,
             sibling_vm_options = lines,
             output_base = output_base,
@@ -1216,11 +1098,6 @@ def dist_content_test_suite(name):
         )
         tests.append(refused + "_test")
         _expected_failure_test(name = tests[-1], target_under_test = ":" + refused, expected_message = message)
-
-    empty_inputs = name + "_empty_inputs"
-    intellij_build_inputs(name = empty_inputs)
-    tests.append(empty_inputs + "_test")
-    _manifest_test(name = tests[-1], target_under_test = ":" + empty_inputs, expected_suffix = ".bazel-inputs")
 
     tests.extend(_plugin_macro_tests(name))
     tests.extend(_derived_rows_tests(name))

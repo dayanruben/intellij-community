@@ -62,7 +62,7 @@ public class BaseCompletionLookupArranger extends LookupArranger implements Comp
     .thenComparing(p -> StringUtil.notNullize(p.getTailText()).length())
     .thenComparing(LookupElementPresentation::getTailText, NaturalComparator.INSTANCE)
     .thenComparing(LookupElementPresentation::getTypeText, NaturalComparator.INSTANCE);
-  private static final Comparator<LookupElement> BY_PRESENTATION_COMPARATOR =
+  private static final Comparator<LookupElement> LOOKUP_ELEMENT_COMPARATOR =
     Comparator.comparing(DEFAULT_PRESENTATION::get, PRESENTATION_COMPARATOR);
   @ApiStatus.Internal
   public static final int MAX_PREFERRED_COUNT = 5;
@@ -320,11 +320,12 @@ public class BaseCompletionLookupArranger extends LookupArranger implements Comp
   private @NotNull List<LookupElement> sortByPresentation(@NotNull Iterable<? extends LookupElement> source) {
     List<LookupElement> startMatches = new ArrayList<>();
     List<LookupElement> middleMatches = new ArrayList<>();
-    for (LookupElement element : source) {
-      (itemMatcher(element).isStartMatch(element) ? startMatches : middleMatches).add(element);
+    for (LookupElement el : source) {
+      List<LookupElement> list = itemMatcher(el).isStartMatch(el) ? startMatches : middleMatches;
+      list.add(el);
     }
-    ContainerUtil.sort(startMatches, BY_PRESENTATION_COMPARATOR);
-    ContainerUtil.sort(middleMatches, BY_PRESENTATION_COMPARATOR);
+    ContainerUtil.sort(startMatches, LOOKUP_ELEMENT_COMPARATOR);
+    ContainerUtil.sort(middleMatches, LOOKUP_ELEMENT_COMPARATOR);
     startMatches.addAll(middleMatches);
     return startMatches;
   }
@@ -388,7 +389,7 @@ public class BaseCompletionLookupArranger extends LookupArranger implements Comp
 
   private synchronized @NotNull Pair<List<LookupElement>, Integer> doArrangeItems(@NotNull LookupElementListPresenter lookup,
                                                                                   boolean onExplicitAction) {
-    return TraceKt.use(TelemetryManager.getInstance().getTracer(CodeCompletion).spanBuilder("arrangeItems"), span -> {
+    return TraceKt.use(TelemetryManager.getInstance().getTracer(CodeCompletion).spanBuilder("arrangeItems"), _ -> {
       List<LookupElement> items = getMatchingItems();
       Iterable<LookupElement> filteredIterableItems;
       if (!hasCustomElements()) {
@@ -483,7 +484,7 @@ public class BaseCompletionLookupArranger extends LookupArranger implements Comp
     addPrefixItems(model);
     addFrozenItems(items, model);
     if (model.size() < MAX_PREFERRED_COUNT) {
-      addSomeItems(model, byRelevance, lastAdded -> model.size() >= MAX_PREFERRED_COUNT);
+      addSomeItems(model, byRelevance, _ -> model.size() >= MAX_PREFERRED_COUNT);
     }
     addCurrentlySelectedItemToTop(lookup, items, model);
 

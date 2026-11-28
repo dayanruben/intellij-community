@@ -10,8 +10,7 @@ dependency in the packer re-keys every packing action when the crate changes.
 ```rust
 trace::run_traced(SERVICE_NAME, trace_file.as_deref(), FAILURE, stderr, |tracer, stderr| {
     let root = tracer.span("pack content modules");
-    root.tag("jars", specs.len());
-    // On a worker thread: let span = root.child("pack jar"); span.tag("jar", name); span.fail(&error);
+    // let span = root.child("pack jar"); span.tag("jar", name); span.fail(&error);
     root.end();
     0
 })
@@ -35,9 +34,6 @@ trace::run_traced(SERVICE_NAME, trace_file.as_deref(), FAILURE, stderr, |tracer,
 | `Span::end_after<T, E: Display>(self, &Result<T, E>)` | Ends the span; an error first fails it with `{error:#}`, the error with its causes. |
 | `enum TagValue { Str(String), Long(i64) }` | The value of a tag. `From` converts `&str`, `String`, `i64`, `u64` and `usize`. A `u64` or a `usize` past `i64::MAX` saturates. |
 
-In the former tool, `Tracer::new`, `Tracer::write_file` and `Span::fail` had the names `NewTracer`, `WriteFile` and
-`Span.Fail`.
-
 ## Mapping to the document
 
 - The name of the span is the operation name.
@@ -51,10 +47,10 @@ In the former tool, `Tracer::new`, `Tracer::write_file` and `Span::fail` had the
   key, and a span with no tags has no `tags` key.
 - `startTime` and `duration` are in microseconds, truncated. `startTimeNano` and `durationNano` follow them.
 - The file lists the spans in the order they started.
-- `serde_json` writes the document. The tracer then escapes U+2028 and U+2029, as the former writer did. The other
-  bytes are the bytes of `serde_json`.
+- `serde_json` writes the document, and the file holds its bytes. U+2028 and U+2029 stay unescaped, because a JSON
+  reader accepts them in a string.
 - The process tag `time` is the start of the run as an HTTP date in UTC, for example `Sun, 09 Sep 2001 01:46:40 GMT`.
-  The former writer used the local time with a numeric offset. A person reads the tag, and no tool parses it.
+  A person reads the tag, and no tool parses it.
 - The trace id and the span ids come from `getrandom`.
 
 ## Supported subset

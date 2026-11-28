@@ -261,6 +261,58 @@ abstract class GitRepositoryReaderNewTest(private val usingReftable: Boolean) {
     assertThat(readState().state).isEqualTo(State.REVERTING)
   }
 
+  @Test
+  fun `test cherry-pick state of a single conflicting commit ends after continue`(): Unit = with(context) {
+    checkSingleConflictEndsAfterContinue("cherry-pick", State.GRAFTING)
+  }
+
+  @Test
+  fun `test cherry-pick state of a single conflicting commit ends after abort`(): Unit = with(context) {
+    checkSingleConflictEndsAfterAbort("cherry-pick", State.GRAFTING)
+  }
+
+  @Test
+  fun `test revert state of a single conflicting commit ends after continue`(): Unit = with(context) {
+    checkSingleConflictEndsAfterContinue("revert", State.REVERTING)
+  }
+
+  @Test
+  fun `test revert state of a single conflicting commit ends after abort`(): Unit = with(context) {
+    checkSingleConflictEndsAfterAbort("revert", State.REVERTING)
+  }
+
+  private fun GitPlatformTestContext.checkSingleConflictEndsAfterContinue(command: String, stateInProgress: State) {
+    val file = "file.txt"
+    prepareSingleConflict(command, file)
+
+    assertInProgressWithoutSequencer(stateInProgress)
+
+    overwrite(file, "resolved content")
+    git("add $file")
+    git("$command --continue --no-edit")
+
+    assertThat(readState().state).isEqualTo(State.NORMAL)
+  }
+
+  private fun GitPlatformTestContext.checkSingleConflictEndsAfterAbort(command: String, stateInProgress: State) {
+    prepareSingleConflict(command, "file.txt")
+
+    assertInProgressWithoutSequencer(stateInProgress)
+
+    git("$command --abort")
+
+    assertThat(readState().state).isEqualTo(State.NORMAL)
+  }
+
+  private fun GitPlatformTestContext.assertInProgressWithoutSequencer(stateInProgress: State) {
+    assertThat(repo.repositoryFiles.sequencerTodoFile).describedAs("An operation on one commit has no sequencer").doesNotExist()
+
+    val state = readState()
+    assertThat(state.state).isEqualTo(stateInProgress)
+    assertThat(state.localBranches.keys.map { it.name }).describedAs("The ref of the operation is not a branch").containsExactly("master")
+    assertThat(state.remoteBranches).isEmpty()
+  }
+
   private fun GitPlatformTestContext.readState(): GitBranchState {
     val config = GitConfig.read(project, projectNioRoot)
     val reader = GitRepositoryReader(project, repo.repositoryFiles)
@@ -275,6 +327,15 @@ private fun GitPlatformTestContext.prepareStateForApplyChangesTest(command: Stri
   overwrite(file, "newer content")
   val commit2 = addCommit("modified $file 2")
   git("$command $commit $commit2", true)
+}
+
+private fun GitPlatformTestContext.prepareSingleConflict(command: String, file: String) {
+  makeCommit(file)
+  overwrite(file, "new content")
+  val commit = addCommit("modified $file 1")
+  overwrite(file, "newer content")
+  addCommit("modified $file 2")
+  git("$command $commit", true)
 }
 
 private fun GitPlatformTestContext.moveToDetachedHead(): String {

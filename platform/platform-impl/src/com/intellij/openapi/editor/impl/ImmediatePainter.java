@@ -17,6 +17,7 @@ import com.intellij.openapi.editor.ex.util.EditorUIUtil;
 import com.intellij.openapi.editor.ex.util.EditorUtil;
 import com.intellij.openapi.editor.ex.util.LexerEditorHighlighter;
 import com.intellij.openapi.editor.impl.caret.model.CaretRepaintMetrics;
+import com.intellij.openapi.editor.impl.view.DefaultBackgrounds;
 import com.intellij.openapi.editor.impl.view.EditorPainter;
 import com.intellij.openapi.editor.impl.view.FontLayoutService;
 import com.intellij.openapi.editor.impl.view.IterationState;
@@ -38,6 +39,7 @@ import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.ImageUtil;
 import com.intellij.util.ui.StartupUiUtil;
 import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.JComponent;
 import java.awt.Color;
@@ -169,7 +171,9 @@ public final class ImmediatePainter {
                                  document.getTextLength() + ", highlighter's last offset:" + highlighter.getSegments().getLastValidOffset(),
                                  e);
     }
-    final Color backgroundAfterLineEnd = updateAttributes(editor, offset, attributes);
+    final Color typedSyntaxBackground = attributes.get(1).getBackgroundColor();
+    final AfterLineEnd afterLineEnd = updateAttributes(editor, offset, attributes);
+    final Color backgroundAfterLineEnd = afterLineEnd.background();
 
     final TextAttributes attributes1 = attributes.get(0);
     final TextAttributes attributes2 = attributes.get(1);
@@ -177,7 +181,7 @@ public final class ImmediatePainter {
     if (!(canRender(attributes1) && canRender(attributes2))) {
       return false;
     }
-    if (!canRenderBackgrounds(editor, attributes1, attributes2, backgroundAfterLineEnd)) {
+    if (!canRenderBackgrounds(editor, attributes1, attributes2, afterLineEnd, typedSyntaxBackground)) {
       return false;
     }
 
@@ -237,7 +241,7 @@ public final class ImmediatePainter {
 
     final Shape originalClip = g.getClip();
 
-    float clipStartX = (float)PaintUtil.alignToInt(p2x > editor.getContentComponent().getInsets().left ? p2x - caretShift : p2x,
+    float clipStartX = (float)PaintUtil.alignToInt(p2x > editor.getContentInsets().left ? p2x - caretShift : p2x,
                                                    g, PaintUtil.RoundingMode.FLOOR);
     float clipEndX = (float)PaintUtil.alignToInt(p2x + width2 - caretShift + caretWidth,
                                                  g, PaintUtil.RoundingMode.CEIL);
@@ -280,19 +284,39 @@ public final class ImmediatePainter {
   /**
    * Whether this painter can draw these backgrounds of the previous character, the typed character and the area after the
    * line end. It fills straight rectangles, so it skips a change of the background color while the editor rounds the
-   * highlighting.
+   * highlighting. It paints no stub, so while the editor ends the highlighting at the text, it skips a highlighter
+   * background over the line break and a syntax background of the typed character.
    */
   private static boolean canRenderBackgrounds(
     EditorImpl editor,
     TextAttributes previous,
     TextAttributes typed,
-    Color afterLineEnd
+    AfterLineEnd afterLineEnd,
+    @Nullable Color typedSyntaxBackground
   ) {
+    if (editor.isHuggingHighlighting()
+        && (afterLineEnd.exactRangeBackground() || isSyntaxBackground(editor, typedSyntaxBackground))) {
+      return false;
+    }
     if (!editor.isRoundedHighlighting()) {
       return true;
     }
     Color background = typed.getBackgroundColor();
-    return background.equals(previous.getBackgroundColor()) && background.equals(afterLineEnd);
+    return background.equals(previous.getBackgroundColor()) && background.equals(afterLineEnd.background());
+  }
+
+  /**
+   * Says that the lexer gives this color as a background that differs from the background of the editor.
+   */
+  private static boolean isSyntaxBackground(EditorImpl editor, @Nullable Color color) {
+    return color != null && !DefaultBackgrounds.of(editor).isDefault(color);
+  }
+
+  /**
+   * The background after the line end, and whether a background of an {@link HighlighterTargetArea#EXACT_RANGE}
+   * highlighter covers the line break.
+   */
+  private record AfterLineEnd(Color background, boolean exactRangeBackground) {
   }
 
   private void paintWithDoubleBuffering(final Graphics2D graphics, final Consumer<? super Graphics2D> painter) {
@@ -385,7 +409,7 @@ public final class ImmediatePainter {
     return caretColor == null ? new JBColor(Gray._0, Gray._255) : caretColor;
   }
 
-  private static Color updateAttributes(final EditorImpl editor, final int offset, final List<? extends TextAttributes> attributes) {
+  private static AfterLineEnd updateAttributes(final EditorImpl editor, final int offset, final List<? extends TextAttributes> attributes) {
     final List<RangeHighlighterEx> list1 = new ArrayList<>();
     final List<RangeHighlighterEx> list2 = new ArrayList<>();
     final List<RangeHighlighterEx> afterLineEndHighlighters = new ArrayList<>();
@@ -418,7 +442,16 @@ public final class ImmediatePainter {
     updateAttributes(editor, attributes.get(1), list2);
     var afterLineEndAttributes = new TextAttributes();
     updateAttributes(editor, afterLineEndAttributes, afterLineEndHighlighters);
-    return afterLineEndAttributes.getBackgroundColor();
+    boolean exactRangeBackground = false;
+    for (RangeHighlighterEx highlighter : afterLineEndHighlighters) {
+      if (highlighter.getTargetArea() == HighlighterTargetArea.EXACT_RANGE) {
+        TextAttributes highlighterAttributes = highlighter.getTextAttributes(editor.getColorsScheme());
+        if (highlighterAttributes != null && highlighterAttributes.getBackgroundColor() != null) {
+          exactRangeBackground = true;
+        }
+      }
+    }
+    return new AfterLineEnd(afterLineEndAttributes.getBackgroundColor(), exactRangeBackground);
   }
 
   // TODO Unify with com.intellij.openapi.editor.impl.view.IterationState.setAttributes

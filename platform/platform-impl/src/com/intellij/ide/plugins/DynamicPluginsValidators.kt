@@ -304,6 +304,7 @@ internal object DynamicPluginsValidators {
     validateScope: IssueReporter.(ContainerDescriptor) -> Unit,
   ) {
     validateScope(descriptor.appContainerDescriptor)
+    validateScope(descriptor.workspaceContainerDescriptor)
     validateScope(descriptor.projectContainerDescriptor)
     validateScope(descriptor.moduleContainerDescriptor)
   }

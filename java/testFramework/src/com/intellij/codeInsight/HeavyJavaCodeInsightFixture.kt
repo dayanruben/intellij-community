@@ -7,6 +7,7 @@ import com.intellij.ide.DataManager
 import com.intellij.ide.highlighter.JavaFileType
 import com.intellij.ide.highlighter.ModuleFileType
 import com.intellij.ide.highlighter.ProjectFileType
+import com.intellij.ide.impl.OpenProjectTask
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.IdeActions
 import com.intellij.openapi.application.ReadAction
@@ -39,6 +40,7 @@ import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VfsUtilCore
+import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.openapi.vfs.VirtualFileVisitor
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.newvfs.impl.VfsRootAccess
@@ -47,6 +49,7 @@ import com.intellij.pom.java.LanguageLevel
 import com.intellij.project.stateStore
 import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiDocumentManager
+import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiFileFactory
 import com.intellij.psi.PsiJavaFile
@@ -88,6 +91,7 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.function.BiFunction
+import java.util.function.Consumer
 import java.util.function.Function
 import java.util.function.Supplier
 
@@ -172,7 +176,10 @@ open class HeavyJavaCodeInsightFixture(context: Context, val testDataPath: Strin
    */
   var configureInterceptor: ConfigureInterceptor? = null
 
-  private val psiManager: PsiManagerEx
+  /**
+   * The PSI manager of [project]. It is `myPsiManager` of [com.intellij.testFramework.JavaPsiTestCase].
+   */
+  val psiManager: PsiManagerEx
     get() = PsiManagerEx.getInstanceEx(project)
 
   val javaFacade: JavaPsiFacadeEx
@@ -234,7 +241,11 @@ open class HeavyJavaCodeInsightFixture(context: Context, val testDataPath: Strin
     IndexingTestUtil.waitUntilIndexesAreReady(project)
   }
 
-  private fun setUpJdk(jdk: Sdk) {
+  /**
+   * Adds [jdk] to the JDK table and makes it the JDK of each module.
+   * It is `setUpJdk` of [com.intellij.testFramework.JavaProjectTestCase], with the JDK as a parameter.
+   */
+  fun setUpJdk(jdk: Sdk) {
     val jdkTable = ProjectJdkTable.getInstance()
     if (jdkTable.allJdks.none { it === jdk }) {
       WriteAction.runAndWait<RuntimeException> { jdkTable.addJdk(jdk, project) }
@@ -320,13 +331,54 @@ open class HeavyJavaCodeInsightFixture(context: Context, val testDataPath: Strin
 
   /**
    * Copies the directory [rootPath] to a new directory in the temporary directory of the test.
-   * The new directory becomes a content root and a source root of [module].
+   * When [addProjectRoots] is `true`, the new directory becomes a content root and a source root of [module].
    */
-  fun createTestProjectStructure(rootPath: String?): VirtualFile {
+  @JvmOverloads
+  fun createTestProjectStructure(rootPath: String?, addProjectRoots: Boolean = true): VirtualFile {
     val dir = Files.createTempDirectory(tempRoot, "structure")
-    val result = HeavyTestHelper.createTestProjectStructure(module, rootPath, dir, true)
+    val result = HeavyTestHelper.createTestProjectStructure(module, rootPath, dir, addProjectRoots)
     runInEdtAndWait { PsiDocumentManager.getInstance(project).commitAllDocuments() }
     return result
+  }
+
+  /**
+   * The action of [doMultiFileTest]. It gets the copy of the `before` directory and the `after` directory of the test data.
+   */
+  fun interface MultiFileAction {
+    @Throws(Exception::class)
+    fun performAction(rootDir: VirtualFile, rootAfter: VirtualFile?)
+  }
+
+  /**
+   * Runs a test of [com.intellij.refactoring.MultiFileTestCase] with the test data directory [path] in [testDataPath].
+   *
+   * The fixture copies `<path>/before` to a new temporary directory with [createTestProjectStructure], without project roots.
+   * Then [prepareProject] adds the roots of the copy. Without [prepareProject], the copy becomes a content root and a source root of
+   * [module]. Then the fixture waits for the indexes.
+   * On the EDT, in one block, it runs [action], the postponed formatting and the save of all documents.
+   * When [compareResults] is `true`, it compares the copy with `<path>/after` in the same block.
+   */
+  fun doMultiFileTest(path: String, prepareProject: Consumer<VirtualFile>?, compareResults: Boolean, action: MultiFileAction) {
+    val fullPath = testDataPath + path
+    val rootDir = createTestProjectStructure("$fullPath/before", false)
+    if (prepareProject == null) {
+      addSourceContentToRoots(module, rootDir)
+    }
+    else {
+      prepareProject.accept(rootDir)
+    }
+    runInEdtAndWait { PsiDocumentManager.getInstance(project).commitAllDocuments() }
+
+    val rootAfter = LocalFileSystem.getInstance().findFileByPath("$fullPath/after".replace(File.separatorChar, '/'))
+    IndexingTestUtil.waitUntilIndexesAreReady(project)
+    runInEdtAndWait {
+      action.performAction(rootDir, rootAfter)
+      WriteCommandAction.runWriteCommandAction(project) { PostprocessReformattingAspect.getInstance(project).doPostponedFormatting() }
+      FileDocumentManager.getInstance().saveAllDocuments()
+      if (compareResults) {
+        PlatformTestUtil.assertDirectoriesEqual(rootAfter!!, rootDir)
+      }
+    }
   }
 
   /**
@@ -355,6 +407,33 @@ open class HeavyJavaCodeInsightFixture(context: Context, val testDataPath: Strin
     modulesToDispose.add(module)
     IndexingTestUtil.waitUntilIndexesAreReady(project)
     return module
+  }
+
+  /**
+   * Creates a new Java module [moduleName] in the project directory. The module closes with the project.
+   * It is `createModule` of [com.intellij.testFramework.JavaProjectTestCase].
+   * A sub-fixture overrides it to put the module file in another directory, as an override of `doCreateRealModule` did.
+   */
+  open fun createModule(moduleName: String): Module {
+    val moduleFile = project.stateStore.projectBasePath.resolve(moduleName + ModuleFileType.DOT_DEFAULT_EXTENSION)
+    val newModule = WriteAction.computeAndWait<Module, RuntimeException> {
+      ModuleManager.getInstance(project).newModule(moduleFile, JavaModuleType.getModuleType().id)
+    }
+    IndexingTestUtil.waitUntilIndexesAreReady(project)
+    return newModule
+  }
+
+  /**
+   * Creates a new Java module with the module file [moduleFile]. The fixture disposes the module after the test.
+   * It is `createModule(Path)` of [com.intellij.testFramework.JavaModuleTestCase].
+   */
+  fun createModule(moduleFile: Path): Module {
+    val newModule = WriteAction.computeAndWait<Module, RuntimeException> {
+      ModuleManager.getInstance(project).newModule(moduleFile, JavaModuleType.getModuleType().id)
+    }
+    modulesToDispose.add(newModule)
+    IndexingTestUtil.waitUntilIndexesAreReady(project)
+    return newModule
   }
 
   fun findVirtualFile(filePath: String): VirtualFile {
@@ -654,18 +733,57 @@ open class HeavyJavaCodeInsightFixture(context: Context, val testDataPath: Strin
    * Returns the reference at the marker. The new file becomes [file].
    * It is `configureByFile` of [com.intellij.testFramework.JavaResolveTestCase].
    */
-  fun configureReferenceByFile(filePath: String): PsiReference {
-    val vFile = VfsTestUtil.findFileByCaseSensitivePath(testDataPath + filePath)
-    val fileText = StringUtil.convertLineSeparators(VfsUtilCore.loadText(vFile))
-    val offset = fileText.indexOf(REFERENCE_MARKER)
-    check(offset >= 0) { "Expected to find $REFERENCE_MARKER marker in file but was none" }
-    val text = fileText.substring(0, offset) + fileText.substring(offset + REFERENCE_MARKER.length)
-    val psiFile = createFile(vFile.name, text)
-    file = psiFile
+  fun configureReferenceByFile(filePath: String): PsiReference = configureReferenceByFile(filePath, null)
+
+  /**
+   * Writes the file [filePath] of the test data without its [REFERENCE_MARKER] to a new file in [parentDir], as [createFile] does.
+   * Without [parentDir], it works as the overload without it.
+   * Returns the reference at the marker. The new file becomes [file].
+   * It is `configureByFile(filePath, parentDir)` of [com.intellij.testFramework.JavaResolveTestCase] for a file that [parentDir] does not have.
+   */
+  fun configureReferenceByFile(filePath: String, parentDir: VirtualFile?): PsiReference {
+    val offset = configureByFileWithoutMarker(filePath, REFERENCE_MARKER, parentDir)
+    val psiFile = file!!
     return checkNotNull(ReadAction.computeBlocking<PsiReference?, RuntimeException> { psiFile.findReferenceAt(offset) }) {
       "No reference at $offset in $filePath"
     }
   }
+
+  /**
+   * Writes the file [filePath] of the test data without its [marker] to a new source root of [module].
+   * Returns the PSI element at the marker. The new file becomes [file].
+   * It is `configureByFileWithMarker` of [com.intellij.testFramework.JavaPsiTestCase], with a path relative to [testDataPath].
+   */
+  fun configureByFileWithMarker(filePath: String, marker: String): PsiElement? {
+    val offset = configureByFileWithoutMarker(filePath, marker)
+    val psiFile = file!!
+    return ReadAction.computeBlocking<PsiElement?, RuntimeException> { psiFile.findElementAt(offset) }
+  }
+
+  private fun configureByFileWithoutMarker(filePath: String, marker: String, parentDir: VirtualFile? = null): Int {
+    val vFile = VfsTestUtil.findFileByCaseSensitivePath(testDataPath + filePath)
+    val fileText = StringUtil.convertLineSeparators(VfsUtilCore.loadText(vFile))
+    val offset = fileText.indexOf(marker)
+    check(offset >= 0) { "Expected to find $marker marker in file but was none" }
+    val text = fileText.substring(0, offset) + fileText.substring(offset + marker.length)
+    file = if (parentDir == null) createFile(vFile.name, text) else createFile(module, parentDir, vFile.name, text)
+    return offset
+  }
+
+  /**
+   * Creates a non-physical file [fileName] with [text], of the file type of [fileName].
+   * It is `createDummyFile` of [com.intellij.testFramework.JavaPsiTestCase]. Call it in a read action.
+   */
+  fun createDummyFile(fileName: String, text: String): PsiFile {
+    val type = FileTypeRegistry.getInstance().getFileTypeByFileName(fileName)
+    return PsiFileFactory.getInstance(project).createFileFromText(fileName, type, text)
+  }
+
+  /**
+   * Returns the text of the file [name] in [testDataPath], with `\n` line separators.
+   * It is `loadFile` of [com.intellij.testFramework.JavaPsiTestCase].
+   */
+  fun loadFile(name: String): String = StringUtil.convertLineSeparators(FileUtil.loadFile(File(testDataPath + File.separatorChar + name)))
 
   fun findClass(name: String): PsiClass {
     val aClass = ReadAction.computeBlocking<PsiClass?, RuntimeException> { javaFacade.findClass(name, ProjectScope.getProjectScope(project)) }
@@ -800,6 +918,68 @@ open class HeavyJavaCodeInsightFixture(context: Context, val testDataPath: Strin
     const val REFERENCE_MARKER: String = "<ref>"
 
     /**
+     * Creates the file [name] in [dir] in a write action. The requestor is [dir].
+     * It is `createChildData` of [com.intellij.testFramework.HeavyPlatformTestCase].
+     */
+    @JvmStatic
+    fun createChildData(dir: VirtualFile, name: String): VirtualFile =
+      WriteAction.computeAndWait<VirtualFile, IOException> { dir.createChildData(dir, name) }
+
+    /**
+     * Creates the directory [name] in [dir] in a write action. The requestor is [dir].
+     * It is `createChildDirectory` of [com.intellij.testFramework.HeavyPlatformTestCase].
+     */
+    @JvmStatic
+    fun createChildDirectory(dir: VirtualFile, name: String): VirtualFile =
+      WriteAction.computeAndWait<VirtualFile, IOException> { dir.createChildDirectory(dir, name) }
+
+    /**
+     * Writes [text] to [file] in a write action.
+     * It is `setFileText` of [com.intellij.testFramework.HeavyPlatformTestCase].
+     */
+    @JvmStatic
+    fun setFileText(file: VirtualFile, text: String) {
+      WriteAction.runAndWait<IOException> { LoadTextUtil.write(null, file, file, text, -1) }
+    }
+
+    /**
+     * Renames [file] in a write command.
+     * It is `rename` of [com.intellij.testFramework.HeavyPlatformTestCase].
+     */
+    @JvmStatic
+    fun rename(file: VirtualFile, newName: String) {
+      WriteCommandAction.writeCommandAction(null).run<IOException> { file.rename(file, newName) }
+    }
+
+    /**
+     * Moves [file] to [newParent] in a write command.
+     * It is `move` of [com.intellij.testFramework.HeavyPlatformTestCase].
+     */
+    @JvmStatic
+    fun move(file: VirtualFile, newParent: VirtualFile) {
+      WriteCommandAction.writeCommandAction(null).run<IOException> { file.move(file, newParent) }
+    }
+
+    /**
+     * Copies [file] to [newParent] as [copyName] in a write command, and returns the copy.
+     * It is `copy` of [com.intellij.testFramework.HeavyPlatformTestCase].
+     */
+    @JvmStatic
+    fun copy(file: VirtualFile, newParent: VirtualFile, copyName: String): VirtualFile =
+      WriteCommandAction.writeCommandAction(null).compute<VirtualFile, IOException> { file.copy(file, newParent, copyName) }
+
+    /**
+     * Returns the directory of the module file of [module], and creates it when it does not exist.
+     * It is `getOrCreateModuleDir` of [com.intellij.testFramework.HeavyPlatformTestCase].
+     */
+    @JvmStatic
+    fun getOrCreateModuleDir(module: Module): VirtualFile {
+      val moduleDir = module.moduleNioFile.parent
+      Files.createDirectories(moduleDir)
+      return checkNotNull(VirtualFileManager.getInstance().refreshAndFindFileByNioPath(moduleDir)) { moduleDir.toString() }
+    }
+
+    /**
      * Creates a [HeavyJavaCodeInsightFixture] with a new project for each test. Declare it as an instance field.
      * [testDataPath] is the prefix of each test data path of the helpers.
      * See [heavyJavaCodeInsightSubFixture] for [testDataProjectDir].
@@ -822,6 +1002,7 @@ open class HeavyJavaCodeInsightFixture(context: Context, val testDataPath: Strin
      * By default, the project is new and empty. When [testDataProjectDir] is set, it gets the test name
      * without the `test` prefix and with a lowercase first letter, and returns a directory with an `.ipr` project.
      * The fixture opens a copy of this project, as a JUnit 3 test that overrides `setUpProject` with `loadAndOpenProject` does.
+     * A new project is directory-based. See [heavyJavaCodeInsightFileBasedSubFixture] for a file-based project.
      */
     @TestOnly
     @JvmStatic
@@ -830,18 +1011,62 @@ open class HeavyJavaCodeInsightFixture(context: Context, val testDataPath: Strin
       debugName: String,
       testDataProjectDir: Function<String, String>? = null,
       create: (Context) -> T,
+    ): TestFixture<T> = subFixture(debugName, testDataProjectDir, fileBasedProject = false, create)
+
+    /**
+     * Creates a sub-fixture of [HeavyJavaCodeInsightFixture] with [create], with a new file-based project for each test.
+     * The project has an `.ipr` file, as the project of [com.intellij.testFramework.HeavyPlatformTestCase] has.
+     * See [heavyJavaCodeInsightSubFixture] for the lifecycle.
+     */
+    @TestOnly
+    @JvmStatic
+    fun <T : HeavyJavaCodeInsightFixture> heavyJavaCodeInsightFileBasedSubFixture(
+      debugName: String,
+      create: (Context) -> T,
+    ): TestFixture<T> = subFixture(debugName, testDataProjectDir = null, fileBasedProject = true, create)
+
+    /**
+     * Creates a sub-fixture of [HeavyJavaCodeInsightFixture] with [create], with a new project for each test.
+     * The project, its directory or `.ipr` file and the main module get the name of the test method,
+     * as on [com.intellij.testFramework.HeavyPlatformTestCase].
+     * Use it when an expected text holds the name of the project or of the main module.
+     * [directoryBasedProject] chooses a directory-based project or a project with an `.ipr` file.
+     * See [heavyJavaCodeInsightSubFixture] for the lifecycle.
+     */
+    @TestOnly
+    @JvmStatic
+    fun <T : HeavyJavaCodeInsightFixture> heavyJavaCodeInsightTestNamedSubFixture(
+      debugName: String,
+      directoryBasedProject: Boolean,
+      create: (Context) -> T,
+    ): TestFixture<T> =
+      subFixture(debugName, testDataProjectDir = null, fileBasedProject = !directoryBasedProject, create, testNamedProject = true)
+
+    private fun <T : HeavyJavaCodeInsightFixture> subFixture(
+      debugName: String,
+      testDataProjectDir: Function<String, String>?,
+      fileBasedProject: Boolean,
+      create: (Context) -> T,
+      testNamedProject: Boolean = false,
     ): TestFixture<T> =
       testFixture(debugName) { testContext ->
         val tempRoot = tempPathFixture().init()
         val extensionContext = testContext.extensionContext
         val testMethod = extensionContext.requiredTestMethod
         val projectDisposable = Disposer.newDisposable(debugName)
-        val project = if (testDataProjectDir == null) {
-          projectFixture(tempPathFixture(), openAfterCreation = true).init()
-        }
-        else {
-          val projectDir = testDataProjectDir.apply(PlatformTestUtil.getTestName(testMethod.name, true))
-          openTestDataProject(projectDir, tempPathFixture().init(), projectDisposable)
+        val project = when {
+          testDataProjectDir == null && testNamedProject -> {
+            val projectName = FileUtil.sanitizeFileName(testMethod.name, false)
+            val projectPath = testNamedPathFixture(projectName + if (fileBasedProject) ProjectFileType.DOT_DEFAULT_EXTENSION else "")
+            projectFixture(projectPath, OpenProjectTask { this.projectName = projectName }, openAfterCreation = true).init()
+          }
+          testDataProjectDir == null -> {
+            projectFixture(if (fileBasedProject) iprPathFixture() else tempPathFixture(), openAfterCreation = true).init()
+          }
+          else -> {
+            val projectDir = testDataProjectDir.apply(PlatformTestUtil.getTestName(testMethod.name, true))
+            openTestDataProject(projectDir, tempPathFixture().init(), projectDisposable)
+          }
         }
         val context = Context(project, tempRoot, extensionContext.requiredTestClass, testMethod, testDataProjectDir != null)
         val fixture = create(context)
@@ -855,6 +1080,14 @@ open class HeavyJavaCodeInsightFixture(context: Context, val testDataPath: Strin
           }
         }
       }
+
+    private fun iprPathFixture(): TestFixture<Path> = testFixture("iprPathFixture") {
+      initialized(tempPathFixture().init().resolve("test" + ProjectFileType.DOT_DEFAULT_EXTENSION)) {}
+    }
+
+    private fun testNamedPathFixture(fileName: String): TestFixture<Path> = testFixture("testNamedPathFixture") {
+      initialized(tempPathFixture().init().resolve(fileName)) {}
+    }
 
     private fun openTestDataProject(projectDir: String, dir: Path, disposable: Disposable): Project {
       val copyDir = checkNotNull(LocalFileSystem.getInstance().refreshAndFindFileByNioFile(dir)) { dir.toString() }

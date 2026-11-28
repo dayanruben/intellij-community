@@ -355,7 +355,9 @@ com.intellij.modcommand.ModTemplateBuilder
 - sf:EP_NAME:com.intellij.lang.LanguageExtension
 - a:createFilter(com.intellij.modcompletion.ModCompletionItemProvider,com.intellij.modcompletion.ModCompletionItemProvider$CompletionContext):java.util.function.Predicate
 *f:com.intellij.modcompletion.ModCompletionItemPresentation
+- java.lang.Comparable
 - <init>(com.intellij.openapi.util.text.MarkupText):V
+- compareTo(com.intellij.modcompletion.ModCompletionItemPresentation):I
 - detailIcon():javax.swing.Icon
 - detailText():com.intellij.openapi.util.text.MarkupText
 - equals(java.lang.Object):Z
@@ -405,8 +407,10 @@ com.intellij.modcommand.ModTemplateBuilder
 *a:com.intellij.modcompletion.PsiUpdateCompletionItem
 - com.intellij.modcompletion.ModCompletionItem
 - p:<init>(java.lang.String,java.lang.Object):V
-- p:calculateEndOffsetForOverwrite(com.intellij.openapi.editor.Document,I):I
+- p:calculateEndOffsetForOverwrite(java.lang.CharSequence,I):I
 - contextObject():java.lang.Object
+- pf:getLookupStringWithCompletionChar(com.intellij.modcompletion.ModCompletionItem$InsertionContext):java.lang.String
+- p:getTextToInsert(com.intellij.modcommand.ActionContext,com.intellij.modcompletion.ModCompletionItem$InsertionContext):java.lang.String
 - mainLookupString():java.lang.String
 - perform(com.intellij.modcommand.ActionContext,com.intellij.modcompletion.ModCompletionItem$InsertionContext):com.intellij.modcommand.ModCommand
 - p:shouldAddCompletionChar(com.intellij.modcompletion.ModCompletionItem$InsertionContext):Z

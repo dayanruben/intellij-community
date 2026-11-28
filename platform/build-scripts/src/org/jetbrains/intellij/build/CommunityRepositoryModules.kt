@@ -165,18 +165,7 @@ fun getCommunityRepositoryPlugins(): PersistentList<PluginLayout> {
       spec.withModule("intellij.maven.artifactResolver.common", "artifact-resolver-m31.jar")
       spec.withModule("intellij.maven.server", relativeJarPath = "maven-server.jar")
     },
-    pluginAuto(
-      listOf(
-        "intellij.gradle.plugin",
-        "intellij.gradle",
-        "intellij.gradle.common",
-      )
-    ) { spec ->
-      spec.withModule("intellij.gradle.toolingProxy", "gradle-tooling-proxy.jar")
-      spec.withModule("intellij.gradle.toolingExtension", "gradle-tooling-extension-api.jar")
-      spec.withModule("intellij.gradle.toolingExtension.impl", "gradle-tooling-extension-impl.jar")
-      spec.withModule("intellij.libraries.groovy", "groovy.jar")
-      spec.withModule("intellij.libraries.groovy.ant", "groovy-ant.jar")
+    pluginAuto("intellij.gradle.plugin") { spec ->
       spec.withProjectLibrary("Ant", "ant", LibraryPackMode.STANDALONE_SEPARATE)
     },
     pluginAuto(listOf("intellij.devkit")) { spec ->
@@ -694,23 +683,11 @@ private fun createAndroidPluginLayout(
   }
 }
 
-fun groovyPlugin(additionalModules: List<String> = emptyList(), addition: ((PluginLayout.PluginLayoutBuilder) -> Unit)? = null): PluginLayout {
+fun groovyPlugin(): PluginLayout {
   return pluginAuto("intellij.groovy") { spec ->
-    spec.withModules(
-      listOf(
-        "intellij.groovy.psi",
-        "intellij.groovy.structuralSearch",
-      )
-    )
-    spec.withModule("intellij.groovy.rt", "groovy-rt.jar")
-    spec.withModule("intellij.groovy.rt.classLoader", "groovy-rt-class-loader.jar")
-    spec.withModule("intellij.groovy.constants.rt", "groovy-constants-rt.jar")
-    spec.withModules(additionalModules)
-
     spec.withResourceFromModule("intellij.groovy.psi", "standardDsls", "lib/standardDsls")
     spec.withResource("hotswap/gragent.jar", "lib/agent")
     spec.withResourceFromModule("intellij.groovy.psi", "resources/conf/console.groovy", "lib")
-    addition?.invoke(spec)
   }
 }
 

@@ -27,6 +27,7 @@ private const val RADIUS: Double = 2.0
 private const val IMAGE_WIDTH: Int = 48
 private const val IMAGE_HEIGHT: Int = 44
 private const val MARGIN: Double = 2.0
+private val EVERYWHERE: Rectangle2D = Rectangle2D.Double(-1e6, -1e6, 2e6, 2e6)
 
 internal class BackgroundOutlineTest {
   @Test
@@ -186,7 +187,7 @@ internal class BackgroundOutlineTest {
     val transform = AffineTransform(1.5, 0.0, 0.0, 1.5, 0.25, 0.75)
     val device = DeviceGrid.of(transform)!!
 
-    val rectangles = BackgroundOutline.split(rows, STYLE, 2.5, device).rectangles
+    val rectangles = BackgroundOutline.split(rows, STYLE, 2.5, device, EVERYWHERE).rectangles
 
     assertTrue(rectangles.isNotEmpty())
     for (index in rectangles.indices step 4) {
@@ -202,11 +203,57 @@ internal class BackgroundOutlineTest {
     for (shape in shapes()) {
       for (scale in doubleArrayOf(1.0, 2.0)) {
         val device = DeviceGrid.of(AffineTransform.getScaleInstance(scale, scale))!!
-        val bounds = BackgroundOutline.split(shape.rows, STYLE, 2.5, device).corners
+        val bounds = BackgroundOutline.split(shape.rows, STYLE, 2.5, device, EVERYWHERE).corners
           .map { it.bounds2D }
           .sortedBy { it.minY }
         for (index in 1 until bounds.size) {
           assertTrue(bounds[index].minY - bounds[index - 1].maxY >= 1 / scale, "${shape.name}, scale $scale")
+        }
+      }
+    }
+  }
+
+  @Test
+  fun `a corner far from the clip gets no path, and the rectangles stay`() {
+    val rows = BackgroundRows()
+    rows.addRow(0, 0.0, 30.0)
+    val device = DeviceGrid.of(AffineTransform())!!
+
+    val everywhere = BackgroundOutline.split(rows, STYLE, RADIUS, device, EVERYWHERE)
+    val left = BackgroundOutline.split(rows, STYLE, RADIUS, device, Rectangle2D.Double(0.0, 0.0, 5.0, ROW_HEIGHT))
+
+    assertEquals(4, pieceCount(everywhere.corners))
+    assertEquals(2, pieceCount(left.corners))
+    assertArrayEquals(everywhere.rectangles, left.rectangles)
+  }
+
+  @Test
+  fun `a clip deep inside the shape gives one rectangle over the clip and no corner`() {
+    val rows = BackgroundRows()
+    rows.addRow(0, 0.0, 60.0)
+    rows.addRow(1, 0.0, 40.0)
+    rows.addRow(1, 30.0, 60.0)
+    rows.addRow(2, 0.0, 60.0)
+    val device = DeviceGrid.of(AffineTransform.getScaleInstance(1.5, 1.5))!!
+
+    val inside = BackgroundOutline.split(rows, STYLE, RADIUS, device, Rectangle2D.Double(25.0, 14.0, 6.0, 8.0))
+    val nearEdge = BackgroundOutline.split(rows, STYLE, RADIUS, device, Rectangle2D.Double(2.0, 14.0, 6.0, 8.0))
+
+    assertEquals(0, pieceCount(inside.corners))
+    assertEquals(4, inside.rectangles.size)
+    assertTrue(inside.rectangles[0] <= 25.0 && inside.rectangles[1] <= 14.0, inside.rectangles.contentToString())
+    assertTrue(inside.rectangles[2] >= 31.0 && inside.rectangles[3] >= 22.0, inside.rectangles.contentToString())
+    assertTrue(nearEdge.rectangles.size > 4, nearEdge.rectangles.contentToString())
+  }
+
+  @Test
+  fun `the split for a clip fills the pixels of the clip as the split for the whole shape`() {
+    for (shape in shapes()) {
+      for (scale in doubleArrayOf(1.0, 1.5, 2.0)) {
+        for (clip in clips()) {
+          val whole = paint(scale, clip) { graphics -> fillSplit(graphics, shape.rows, 2.5, EVERYWHERE) }
+          val clipped = paint(scale, clip) { graphics -> fillSplit(graphics, shape.rows, 2.5, graphics.clipBounds) }
+          assertArrayEquals(whole, clipped, "${shape.name}, scale $scale, clip $clip")
         }
       }
     }
@@ -244,6 +291,11 @@ internal class BackgroundOutlineTest {
     val touching = BackgroundRows()
     touching.addRow(0, 0.0, 10.0)
     touching.addRow(1, 10.0, 20.0)
+    val block = BackgroundRows()
+    block.addRow(0, 0.0, 44.0)
+    block.addRow(1, 0.0, 30.0)
+    block.addRow(1, 25.0, 44.0)
+    block.addRow(2, 0.0, 44.0)
     return listOf(
       Shape("one row", oneRow),
       Shape("a step", step),
@@ -251,16 +303,48 @@ internal class BackgroundOutlineTest {
       Shape("a narrow row", narrow),
       Shape("a short edge", shortEdge),
       Shape("two shapes at one corner", touching),
+      Shape("a block of overlapping rows", block),
     )
   }
 
   private class Shape(val name: String, val rows: BackgroundRows)
 
   /**
+   * Gives small clips all over the shapes of [shapes], and clips that cut a shape in two.
+   */
+  private fun clips(): List<Rectangle2D> {
+    val clips = ArrayList<Rectangle2D>()
+    for (x in 0 until 40 step 3) {
+      for (y in 0 until 40 step 4) {
+        clips.add(Rectangle2D.Double(x.toDouble(), y.toDouble(), 3.0, 4.0))
+      }
+      clips.add(Rectangle2D.Double(x.toDouble(), 0.0, 1.0, 40.0))
+    }
+    clips.add(Rectangle2D.Double(0.0, 0.0, 15.0, 40.0))
+    clips.add(Rectangle2D.Double(0.0, 5.0, 40.0, 10.0))
+    return clips
+  }
+
+  private fun pieceCount(paths: List<Path2D>): Int {
+    var count = 0
+    for (path in paths) {
+      val iterator = path.getPathIterator(null)
+      val coordinates = DoubleArray(6)
+      while (!iterator.isDone) {
+        if (iterator.currentSegment(coordinates) == PathIterator.SEG_MOVETO) {
+          count++
+        }
+        iterator.next()
+      }
+    }
+    return count
+  }
+
+  /**
    * Fills the split of [rows] as the editor fills it: the rectangles at the device pixels and the corners with antialiasing.
    */
-  private fun fillSplit(graphics: Graphics2D, rows: BackgroundRows, radius: Double) {
-    val pieces = BackgroundOutline.split(rows, STYLE, radius, DeviceGrid.of(graphics.transform)!!)
+  private fun fillSplit(graphics: Graphics2D, rows: BackgroundRows, radius: Double, clip: Rectangle2D = EVERYWHERE) {
+    val pieces = BackgroundOutline.split(rows, STYLE, radius, DeviceGrid.of(graphics.transform)!!, clip)
     val rectangles = pieces.rectangles
     for (index in rectangles.indices step 4) {
       val rectangle = Rectangle2D.Double(
@@ -278,9 +362,9 @@ internal class BackgroundOutlineTest {
   }
 
   /**
-   * Gives the pixels of an image that [fill] paints in black with antialiasing at [scale].
+   * Gives the pixels of an image that [fill] paints in black with antialiasing at [scale], inside [clip].
    */
-  private fun paint(scale: Double, fill: (Graphics2D) -> Unit): IntArray {
+  private fun paint(scale: Double, clip: Rectangle2D = EVERYWHERE, fill: (Graphics2D) -> Unit): IntArray {
     val width = (IMAGE_WIDTH * scale).toInt()
     val height = (IMAGE_HEIGHT * scale).toInt()
     val image = BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB)
@@ -288,6 +372,7 @@ internal class BackgroundOutlineTest {
     try {
       graphics.scale(scale, scale)
       graphics.translate(MARGIN, MARGIN)
+      graphics.clip(clip)
       GraphicsUtil.setupAAPainting(graphics)
       graphics.color = Color.BLACK
       fill(graphics)

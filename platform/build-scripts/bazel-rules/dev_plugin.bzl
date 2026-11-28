@@ -25,7 +25,7 @@ load(":content_module_jar.bzl", "ContentModuleJarInfo", "declare_spans", "librar
 load(":dev_plugin_source_tree.bzl", "source_tree_entries", "source_tree_prefix")
 load(":dist_content.bzl", "DistContentInfo")
 load(":dist_plugin_descriptor.bzl", "DIST_STAMP_CLASS_ATTRS", "DIST_STAMP_CLASS_FLAG_ATTR", "DistPluginDescriptorInfo", "dist_check_stamp_class", "dist_mode_refusals", "dist_neutral_product_transition", "dist_stamp_class_transition")
-load(":intellij_dist.bzl", "DistPlacementInfo", "IntellijDevFragmentInfo")
+load(":intellij_dist.bzl", "DistPlacementInfo", "IntellijDevComponentInfo")
 load(":java_glob.bzl", "executable_destinations")
 
 DistRuntimeLayoutInfo = provider(
@@ -556,7 +556,6 @@ def _dev_plugin_impl(ctx):
     # Written at analysis, and built only when a runtime module repository asks for it.
     runtime_layout = ctx.actions.declare_file(ctx.label.name + ".runtime-layout.json")
     ctx.actions.write(runtime_layout, json.encode({
-        "version": 1,
         "descriptorModule": main_module,
         "directory": plugin_directory,
         "order": "plugin",
@@ -577,7 +576,7 @@ def _dev_plugin_impl(ctx):
         # The raw content, published beside the packed component: `dist_plugin_content` unions it per product for
         # the reference that lays the plugin out without packing it.
         inputs.content,
-        IntellijDevFragmentInfo(
+        IntellijDevComponentInfo(
             name = main_module,
             payload = payload,
             manifest = manifest,

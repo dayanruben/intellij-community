@@ -138,9 +138,6 @@ internal fun DistHalf.requireWritable(relativePath: String) {
 /** What a half can plan beyond the common facts. */
 @ApiStatus.Internal
 enum class DistCapability {
-  /** The reference files of the gates, `build/dist_reference_plan.bzl` and `build/dist_reference_inputs.bzl`. */
-  REFERENCE_PLAN,
-
   /** A platform patch of a layout patcher, see [DistPlatformPatchSupport]. */
   PLATFORM_PATCHES,
 
@@ -175,12 +172,6 @@ data class SplitDistribution(
   @JvmField val onDemandPluginModules: List<String> = emptyList(),
   /** The plugins that every distribution of the product adds, beside the modules of its run configurations. */
   @JvmField val additionalPluginModules: List<String> = emptyList(),
-  /**
-   * The modules whose runtime classpath a platform patch of the product loads. The reference that applies the patch
-   * declares the raw outputs and the libraries of each module and of its dependency closure. The jars that the
-   * payload packs do not change that set.
-   */
-  @JvmField val runtimeClasspathModules: List<String> = emptyList(),
   /**
    * The update mode of the product. A product with another mode than [DistUpdatePlugins.NONE] is an updater product:
    * each of its update plugins gets a component in the `additional` tier, see [DistHalf.updatePluginModules].
@@ -515,12 +506,6 @@ interface DistEmbeddedFrontendClasses {
   /** The home of the class of [product]. A product that no class states is its own home. */
   fun home(product: String): String
 
-  /** The products of [home] that embed the frontend, in the product order. */
-  fun embeddingMembers(home: String): List<String>
-
-  /** The frontend products of [home], in the product order. */
-  fun frontendMembers(home: String): List<String>
-
   /** The label of the jar that packs the root descriptor of every frontend product, keyed by the frontend product. */
   fun frontendRootDescriptorJars(): Map<String, String>
 
@@ -534,10 +519,6 @@ interface DistEmbeddedFrontendClasses {
 /** The classes of a half without an embedded frontend: every product is its own home, and no product reads a class. */
 internal object NoDistEmbeddedFrontendClasses : DistEmbeddedFrontendClasses {
   override fun home(product: String): String = product
-
-  override fun embeddingMembers(home: String): List<String> = emptyList()
-
-  override fun frontendMembers(home: String): List<String> = emptyList()
 
   override fun frontendRootDescriptorJars(): Map<String, String> = emptyMap()
 

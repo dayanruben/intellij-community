@@ -2,15 +2,28 @@
 package com.intellij.openapi.vcs
 
 import com.intellij.idea.IgnoreJUnit3
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ex.ApplicationEx
+import com.intellij.openapi.application.impl.TestOnlyThreading
 import com.intellij.openapi.application.runWriteAction
+import com.intellij.openapi.editor.Document
+import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.impl.FileDocumentManagerBase
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.vcs.LineStatusTrackerTestUtil.assertBaseTextContentIs
 import com.intellij.openapi.vcs.LineStatusTrackerTestUtil.assertTextContentIs
 import com.intellij.openapi.vcs.LineStatusTrackerTestUtil.parseInput
 import com.intellij.openapi.vcs.changes.Change
+import com.intellij.openapi.vcs.changes.VcsFreezingProcess
+import com.intellij.openapi.vcs.ex.LocalLineStatusTracker
 import com.intellij.openapi.vcs.ex.PartialLocalLineStatusTracker
+import com.intellij.openapi.vcs.ex.SimpleLocalLineStatusTracker
+import com.intellij.openapi.vcs.impl.LocalLineStatusTrackerProvider
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.testFramework.LoggedErrorProcessor
+import com.intellij.testFramework.PlatformTestUtil
+import com.intellij.util.ui.UIUtil
 
 class LineStatusTrackerManagerTest : BaseLineStatusTrackerManagerTest() {
   private val FILE_1 = "file1.txt"
@@ -111,6 +124,167 @@ class LineStatusTrackerManagerTest : BaseLineStatusTrackerManagerTest() {
 
     lstm.releaseTrackerFor(document1, requester1)
     assertNull(lstm.getLineStatusTracker(document1))
+  }
+
+  fun `test partial tracker lifecycle - locks are prohibited`() {
+    createChangelist("Test")
+    val file = addLocalFile(name = FILE_1, content = "a_b_c_d_e", baseContent = "a_b1_c_d1_e")
+    refreshCLM()
+    file.assertNullTracker()
+
+    val document = file.document
+    val requester = Any()
+
+    withLocksProhibited { lstm.requestTrackerFor(document, requester) }
+    assertTrue(file.tracker is PartialLocalLineStatusTracker)
+
+    lstm.waitUntilBaseContentsLoaded()
+    assertTrue(file.tracker!!.isOperational())
+
+    withLocksProhibited { lstm.releaseTrackerFor(document, requester) }
+    file.assertNullTracker()
+  }
+
+  fun `test simple tracker lifecycle - locks are prohibited`() {
+    arePartialChangelistsSupported = false
+    val file = addLocalFile(name = FILE_1, content = "a_b_c_d_e", baseContent = "a_b1_c_d1_e")
+    refreshCLM()
+    file.assertNullTracker()
+
+    val document = file.document
+    val requester = Any()
+
+    withLocksProhibited { lstm.requestTrackerFor(document, requester) }
+    assertTrue(file.tracker is SimpleLocalLineStatusTracker)
+
+    lstm.waitUntilBaseContentsLoaded()
+    assertTrue(file.tracker!!.isOperational())
+
+    withLocksProhibited { lstm.releaseTrackerFor(document, requester) }
+    file.assertNullTracker()
+  }
+
+  fun `test partial tracker lifecycle - file is deleted`() {
+    createChangelist("Test")
+    val file = addLocalFile(name = FILE_1, content = "a_b_c_d_e", baseContent = "a_b1_c_d1_e")
+    refreshCLM()
+
+    val document = file.document
+    val requester = Any()
+    lstm.requestTrackerFor(document, requester)
+    val tracker = lstm.getLineStatusTracker(document)
+    assertTrue(tracker is PartialLocalLineStatusTracker)
+
+    removeLocalFile(FILE_1)
+    UIUtil.dispatchAllInvocationEvents()
+    assertNull(lstm.getLineStatusTracker(document))
+    assertTrue(tracker!!.isReleased)
+
+    lstm.releaseTrackerFor(document, requester)
+    assertNull(lstm.getLineStatusTracker(document))
+  }
+
+  fun `test simple tracker lifecycle - file is deleted`() {
+    arePartialChangelistsSupported = false
+    val file = addLocalFile(name = FILE_1, content = "a_b_c_d_e", baseContent = "a_b1_c_d1_e")
+    refreshCLM()
+
+    val document = file.document
+    val requester = Any()
+    lstm.requestTrackerFor(document, requester)
+    val tracker = lstm.getLineStatusTracker(document)
+    assertTrue(tracker is SimpleLocalLineStatusTracker)
+
+    removeLocalFile(FILE_1)
+    UIUtil.dispatchAllInvocationEvents()
+    assertNull(lstm.getLineStatusTracker(document))
+    assertTrue(tracker!!.isReleased)
+
+    lstm.releaseTrackerFor(document, requester)
+    assertNull(lstm.getLineStatusTracker(document))
+  }
+
+  /**
+   * Runs the [task] without the write-intent lock of the test, so that each lock request in the [task] fails.
+   */
+  private fun withLocksProhibited(task: () -> Unit) {
+    withoutWriteIntentLock {
+      (ApplicationManager.getApplication() as ApplicationEx).withLocksProhibited("The tracker manager must take no lock here") {
+        task()
+      }
+    }
+  }
+
+  /**
+   * The test holds the write-intent lock, so a read action in the [task] takes no lock.
+   * Without that lock, the read action takes the read lock.
+   */
+  private fun withoutWriteIntentLock(task: () -> Unit) {
+    TestOnlyThreading.releaseTheAcquiredWriteIntentLockThenExecuteActionAndTakeWriteIntentLockBack { task() }
+  }
+
+  fun `test tracker provider fails to create a tracker`() {
+    val file = addLocalFile(name = FILE_1, content = "a_b_c_d_e", baseContent = "a_b1_c_d1_e")
+    refreshCLM()
+    val provider = object : LocalLineStatusTrackerProvider {
+      override fun isTrackedFile(project: Project, file: VirtualFile): Boolean = true
+      override fun isMyTracker(tracker: LocalLineStatusTracker<*>): Boolean = false
+      override fun createTracker(project: Project, file: VirtualFile, document: Document): LocalLineStatusTracker<*> {
+        throw IllegalStateException("The provider fails")
+      }
+    }
+    ExtensionPointName<LocalLineStatusTrackerProvider>("com.intellij.openapi.vcs.impl.LocalLineStatusTrackerProvider")
+      .point.registerExtension(provider, testRootDisposable)
+
+    val document = file.document
+    val requester = Any()
+    val errors = mutableListOf<Throwable?>()
+    val errorCollector = object : LoggedErrorProcessor() {
+      override fun processError(category: String, message: String, details: Array<out String>, t: Throwable?): Set<Action> {
+        errors.add(t)
+        return Action.NONE
+      }
+    }
+    LoggedErrorProcessor.executeWith(errorCollector).use {
+      // The manager logs the exception of the provider, and the file gets no tracker.
+      lstm.requestTrackerFor(document, requester)
+      assertNull(lstm.getLineStatusTracker(document))
+
+      lstm.releaseTrackerFor(document, requester)
+      assertNull(lstm.getLineStatusTracker(document))
+    }
+    assertTrue(errors.isNotEmpty())
+    assertTrue(errors.all { it is IllegalStateException })
+  }
+
+  fun `test tracker provider implements only the deprecated createTracker`() {
+    val file = addLocalFile(name = FILE_1, content = "a_b_c_d_e", baseContent = "a_b1_c_d1_e")
+    refreshCLM()
+
+    val calledFiles = mutableListOf<VirtualFile>()
+    var hasReadAccess = false
+    val provider = object : LocalLineStatusTrackerProvider {
+      override fun isTrackedFile(project: Project, file: VirtualFile): Boolean = true
+      override fun isMyTracker(tracker: LocalLineStatusTracker<*>): Boolean = false
+
+      @Deprecated("Implement createTracker(Project, VirtualFile, Document)")
+      override fun createTracker(project: Project, file: VirtualFile): LocalLineStatusTracker<*>? {
+        calledFiles.add(file)
+        hasReadAccess = ApplicationManager.getApplication().isReadAccessAllowed
+        return null
+      }
+    }
+    ExtensionPointName<LocalLineStatusTrackerProvider>("com.intellij.openapi.vcs.impl.LocalLineStatusTrackerProvider")
+      .point.registerExtension(provider, testRootDisposable)
+
+    val document = file.document
+    val requester = Any()
+    withoutWriteIntentLock { lstm.requestTrackerFor(document, requester) }
+    assertEquals(listOf(file), calledFiles)
+    assertTrue(hasReadAccess)
+    assertNull(lstm.getLineStatusTracker(document))
+
+    lstm.releaseTrackerFor(document, requester)
   }
 
   fun `test partial tracker lifecycle - with partial changes without editor`() {
@@ -479,6 +653,25 @@ class LineStatusTrackerManagerTest : BaseLineStatusTrackerManagerTest() {
     val tracker = file.tracker as PartialLocalLineStatusTracker
     assertTrue(tracker.isValid())
     lstm.releaseTrackerFor(file.document, this)
+    file.assertNullTracker()
+  }
+
+  fun `test bulk refresh freezes tracker - freezing process on a background thread`() {
+    val file = addLocalFile(name = FILE_1, content = "a_b_c_d_e2", baseContent = "a_b_c_d_e")
+    refreshCLM()
+
+    file.withOpenedEditor {
+      val tracker = file.tracker as PartialLocalLineStatusTracker
+      lstm.waitUntilBaseContentsLoaded()
+      assertTrue(tracker.isValid())
+
+      var isValidInOperation = true
+      val process = VcsFreezingProcess(project, "Test") { isValidInOperation = tracker.isValid() }
+      PlatformTestUtil.waitForFuture(ApplicationManager.getApplication().executeOnPooledThread { process.execute() })
+
+      assertFalse(isValidInOperation)
+      assertTrue(tracker.isValid())
+    }
     file.assertNullTracker()
   }
 

@@ -1,8 +1,6 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.editor.impl.view
 
-import com.intellij.openapi.editor.impl.EditorImpl
-import com.intellij.openapi.editor.markup.HighlighterLayer
 import com.intellij.util.ui.GraphicsUtil
 import it.unimi.dsi.fastutil.ints.IntArrayList
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet
@@ -25,11 +23,7 @@ import java.util.TreeMap
  * A rectangle outside the clip of the paint gives the corners of its neighbors, and it paints nothing.
  * The model lives for one paint. It keeps no state for the next paint.
  */
-internal class HighlighterVisualModel(
-  private val editor: EditorImpl,
-  private val yShift: Int,
-  private val huggingHighlighting: Boolean,
-) {
+internal class HighlighterVisualModel(private val yShift: Int) : BackgroundFill {
   private val rows = BackgroundRows()
   private val styleIds = TreeMap<BackgroundLayer, Int>(BackgroundLayer.STYLE_ORDER)
   private val styles = ArrayList<BackgroundLayer>()
@@ -41,33 +35,21 @@ internal class HighlighterVisualModel(
   private val extensionColors = ArrayList<Color>()
 
   /**
-   * Gives for each background of [addLineExtensionBackground] the number of rows that the painter added before it.
+   * Gives for each background of [fillLineExtensionBackground] the number of rows that the painter added before it.
    */
   private val rowCountsBeforeExtensions = IntArrayList()
-
-  fun paintSelectionBlock(block: Rectangle2D) {
-    val color = editor.editorModel.selectionModel.textAttributes.backgroundColor ?: return
-    val layer = BackgroundLayer(
-      color,
-      HighlighterLayer.SELECTION,
-      true,
-      huggingHighlighting,
-      false,
-      Int.MAX_VALUE,
-    )
-    paintBackgroundBlock(block, layer)
-  }
 
   /**
    * Adds one block with several [layers]. The list starts at the top layer.
    * The block records which of its styles lies directly above which, and [paint] keeps this order.
    */
-  fun paintLayeredBlock(block: Rectangle2D, layers: List<BackgroundLayer>) {
+  override fun fillLayeredBlock(block: Rectangle2D, layers: List<BackgroundLayer>, count: Int) {
     chain.clear()
     var lowest: BackgroundLayer? = null
-    for (layer in layers) {
+    for (index in 0 until count) {
+      val layer = layers[index]
       if (layer.forcesBackground) {
-        paintBackgroundBlock(block, layer)
+        fillBlock(block, layer)
         continue
       }
       if (lowest != null && layer > lowest) continue
@@ -78,7 +60,14 @@ internal class HighlighterVisualModel(
     }
   }
 
-  fun paintBackgroundBlock(block: Rectangle2D, layer: BackgroundLayer) {
+  /**
+   * Adds the stub as one block with all [layers]. A style of a filling layer covers the stub already, so its shape keeps.
+   */
+  override fun fillStub(block: Rectangle2D, layers: List<BackgroundLayer>, count: Int) {
+    fillLayeredBlock(block, layers, count)
+  }
+
+  override fun fillBlock(block: Rectangle2D, layer: BackgroundLayer) {
     addRow(rows, block, styleIdOf(layer))
   }
 
@@ -86,7 +75,7 @@ internal class HighlighterVisualModel(
    * Adds the box of a background after the end of a line.
    * The box joins no other box and no style of [paint].
    */
-  fun addAfterLineEndBox(block: Rectangle2D, layer: BackgroundLayer) {
+  override fun fillAfterLineEndBox(block: Rectangle2D, layer: BackgroundLayer) {
     addRow(boxRows, block, boxStyles.size)
     boxStyles.add(layer)
   }
@@ -96,16 +85,24 @@ internal class HighlighterVisualModel(
    * It covers each block that the painter added before it, where they overlap.
    * Each block that the painter adds after it covers it, where they overlap.
    */
-  fun addLineExtensionBackground(block: Rectangle2D, color: Color) {
+  override fun fillLineExtensionBackground(block: Rectangle2D, color: Color) {
     addRow(extensionRows, block, extensionColors.size)
     extensionColors.add(color)
     rowCountsBeforeExtensions.add(rows.size)
   }
 
   /**
+   * Runs [paint] and then [paintAfterLineEndBoxes].
+   */
+  override fun paintCollected(graphics: Graphics2D, lineHeight: Int) {
+    paint(graphics, lineHeight)
+    paintAfterLineEndBoxes(graphics, lineHeight)
+  }
+
+  /**
    * Fills the shapes of all styles from the bottom up.
-   * A style fills after each style that a block of [paintLayeredBlock] puts below it.
-   * The backgrounds of [addLineExtensionBackground] fill among the styles.
+   * A style fills after each style that a block of [fillLayeredBlock] puts below it.
+   * The backgrounds of [fillLineExtensionBackground] fill among the styles.
    * A background of a line extension fills after each style of an earlier block that overlaps it.
    * It fills before each style of a later block that overlaps it.
    * Of the ready ones, the first one fills next: the styles in the [BackgroundLayer] order, then the line extensions.
@@ -114,7 +111,7 @@ internal class HighlighterVisualModel(
    * A background of a line extension that no later block overlaps fills last.
    * A corner of a rounded shape gets the radius `lineHeight / 6`, limited to one half of each of its two edges.
    */
-  fun paint(graphics: Graphics2D, lineHeight: Int) {
+  private fun paint(graphics: Graphics2D, lineHeight: Int) {
     if (styles.isEmpty() && extensionColors.isEmpty()) {
       return
     }
@@ -131,10 +128,10 @@ internal class HighlighterVisualModel(
   }
 
   /**
-   * Fills the boxes of [addAfterLineEndBox] in the order of the calls.
+   * Fills the boxes of [fillAfterLineEndBox] in the order of the calls.
    * Each box is a shape of its own. A rounded box gets the corners of [paint].
    */
-  fun paintAfterLineEndBoxes(graphics: Graphics2D, lineHeight: Int) {
+  private fun paintAfterLineEndBoxes(graphics: Graphics2D, lineHeight: Int) {
     if (boxStyles.isEmpty()) {
       return
     }
@@ -336,6 +333,7 @@ internal class HighlighterVisualModel(
 
   /**
    * Fills the shape of [styleId] with its straight parts at the device pixels and its corners with antialiasing.
+   * A corner far from the clip is not filled.
    */
   private fun fillRounded(
     graphics: Graphics2D,
@@ -349,7 +347,8 @@ internal class HighlighterVisualModel(
       graphics.fill(BackgroundOutline.build(source, styleId, radius))
       return
     }
-    val pieces = BackgroundOutline.split(source, styleId, radius, device)
+    val clip = graphics.clipBounds ?: UNCLIPPED
+    val pieces = BackgroundOutline.split(source, styleId, radius, device, clip)
     val rectangles = pieces.rectangles
     val rectangle = Rectangle2D.Double()
     for (index in rectangles.indices step 4) {
@@ -380,7 +379,7 @@ internal class HighlighterVisualModel(
   /**
    * Gives the id of the style of [layer].
    * The style keeps the largest span of its layers.
-   * The span orders the styles that no block of [paintLayeredBlock] orders.
+   * The span orders the styles that no block of [fillLayeredBlock] orders.
    */
   private fun styleIdOf(layer: BackgroundLayer): Int {
     val known = styleIds[layer]
@@ -423,5 +422,15 @@ internal class HighlighterVisualModel(
      * Two rectangles that share a strip thinner than this do not overlap.
      */
     private const val MIN_OVERLAP: Double = 1e-2
+
+    /**
+     * The clip of a graphics without a clip. It holds every corner.
+     */
+    private val UNCLIPPED: Rectangle2D = Rectangle2D.Double(
+      -Double.MAX_VALUE / 2,
+      -Double.MAX_VALUE / 2,
+      Double.MAX_VALUE,
+      Double.MAX_VALUE,
+    )
   }
 }

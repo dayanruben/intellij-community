@@ -8,11 +8,11 @@ import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.platform.lsp.api.LspClient
 import com.intellij.platform.lsp.api.customization.LspCodeActionsSupport
 import com.intellij.platform.lsp.api.customization.LspIntentionAction
 import com.intellij.platform.lsp.impl.LspClientImpl
+import com.intellij.platform.lsp.impl.features.intention.isEnabledAndPreferred
 import com.intellij.platform.lsp.impl.features.intention.toCodeAction
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiManager
@@ -45,8 +45,9 @@ internal class LspQuickFixSet(
     LspQuickFixWrapper(this@LspQuickFixSet, index)
   }
 
+  // The stamp is not the VFS modification count: that moves on each write to a VFS record, for example when the
+  // document of any file loads, with no change in the project.
   private var psiModCountWhenRequestSent: Long = 0
-  private var vfsModCountWhenRequestSent: Long = 0
 
   internal fun ensureInitialized() {
     // IntentionAction.text and IntentionAction.isAvailable are normally called from BGT.
@@ -60,8 +61,7 @@ internal class LspQuickFixSet(
       ProgressManager.checkCanceled()
 
       val psiModCount = PsiManager.getInstance(lspClient.project).modificationTracker.modificationCount
-      val vfsModCount = VirtualFileManager.getInstance().modificationCount
-      if (psiModCountWhenRequestSent == psiModCount && vfsModCountWhenRequestSent == vfsModCount) {
+      if (psiModCountWhenRequestSent == psiModCount) {
         return // already up-to-date
       }
 
@@ -88,10 +88,8 @@ internal class LspQuickFixSet(
       }
       lspClient.requestExecutor
         .sendRequestAsyncButWaitForResponseWithCheckCanceled({ it.textDocumentService.codeAction(params) }) { lsp4jResults ->
-          if (psiModCount == PsiManager.getInstance(lspClient.project).modificationTracker.modificationCount &&
-              vfsModCount == VirtualFileManager.getInstance().modificationCount) {
+          if (psiModCount == PsiManager.getInstance(lspClient.project).modificationTracker.modificationCount) {
             psiModCountWhenRequestSent = psiModCount
-            vfsModCountWhenRequestSent = vfsModCount
 
             lsp4jResults?.let { codeActionsReceived(it.map { lsp4jResult -> lsp4jResult.toCodeAction() }) }
           }
@@ -106,7 +104,7 @@ internal class LspQuickFixSet(
   private fun codeActionsReceived(codeActions: List<CodeAction>) {
     val codeActionsSupport = lspClient.descriptor.lspCustomization.codeActionsCustomizer as? LspCodeActionsSupport ?: return
     var i = 0
-    for (codeAction in codeActions) {
+    for (codeAction in codeActions.sortedByDescending { it.isEnabledAndPreferred }) {
       if (i == quickFixes.size) {
         thisLogger().info("Received ${codeActions.size} quick fixes from server, only ${quickFixes.size} will be handled")
         break

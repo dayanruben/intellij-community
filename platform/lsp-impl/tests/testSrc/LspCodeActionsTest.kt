@@ -8,17 +8,23 @@ import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.impl.DocumentMarkupModel
+import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.platform.lsp.api.LspBundle
 import com.intellij.platform.lsp.common.fakeLspIntegrationFixture
 import com.intellij.platform.lsp.testFramework.awaitFileOpenedByLspServer
 import com.intellij.platform.testFramework.junit5.codeInsight.fixture.codeInsightFixture
+import com.intellij.testFramework.IndexingTestUtil
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.common.waitUntilAssertSucceeds
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.junit5.fixture.moduleFixture
 import com.intellij.testFramework.junit5.fixture.projectFixture
 import com.intellij.testFramework.junit5.fixture.tempPathFixture
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
 import org.eclipse.lsp4j.CodeAction
 import org.eclipse.lsp4j.CodeActionKind
@@ -36,11 +42,13 @@ import org.eclipse.lsp4j.TextEdit
 import org.eclipse.lsp4j.WorkspaceEdit
 import org.eclipse.lsp4j.jsonrpc.messages.Either
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
+import java.nio.file.Files
 
 @TestApplication
 class LspCodeActionsTest {
@@ -104,16 +112,20 @@ class LspCodeActionsTest {
     }
 
     @Test
-    fun `each code action of the server is one available intention`() = timeoutRunBlocking {
-      val virtualFile = codeInsightFixture.configureByText("test.txt", "hello world").virtualFile
+    fun `preferred intentions come first and ties keep server order`() = timeoutRunBlocking {
+      val virtualFile = codeInsightFixture.configureByText("preferredIntentions.txt", "hello world").virtualFile
       awaitFileOpenedByLspServer(project, virtualFile)
       val serverSession = fakeLspIntegration.serverSession(virtualFile)
       val fileUri = serverSession.fileUri(virtualFile)
 
+      val capabilities = serverSession.receivedRequests(serverSession.INITIALIZE).single().capabilities
+      assertEquals(true, capabilities.textDocument.codeAction.isPreferredSupport)
+
       val codeActionRequest = serverSession.expectRequest(serverSession.CODE_ACTION, { it.textDocument.uri == fileUri }) {
-        listOf("First", "Second").map { actionTitle ->
+        listOf("Third" to null, "First" to true, "Fourth" to false, "Second" to true).map { (actionTitle, preferred) ->
           Either.forRight(CodeAction().apply {
             title = actionTitle
+            isPreferred = preferred
             edit = WorkspaceEdit(mapOf(fileUri to listOf(TextEdit(Range(Position(0, 0), Position(0, 5)), actionTitle))))
           })
         }
@@ -123,7 +135,63 @@ class LspCodeActionsTest {
       codeActionRequest.await()
 
       val lspIntentionTexts = intentions.filter { it.familyName == LspBundle.message("intention.family.name") }.map { it.text }
-      assertEquals(listOf("First", "Second"), lspIntentionTexts)
+      assertEquals(listOf("First", "Second", "Third", "Fourth"), lspIntentionTexts)
+    }
+
+    @Test
+    fun `a document load of another project file during the request keeps the quick fix of the server`() = timeoutRunBlocking {
+      // No daemon runs in this test: instantiate the pass registrar, so it assigns LspHighlightingApplier.GROUP_ID.
+      TextEditorHighlightingPassRegistrar.getInstance(project)
+      val virtualFile = codeInsightFixture.configureByText("load-during-request.txt", "hello world").virtualFile
+      val document = codeInsightFixture.editor.document
+      awaitFileOpenedByLspServer(project, virtualFile)
+      val serverSession = fakeLspIntegration.serverSession(virtualFile)
+      val fileUri = serverSession.fileUri(virtualFile)
+      // Written to disk and not read yet, so the first load of its document stores its content in the VFS.
+      val otherFile = withContext(Dispatchers.IO) {
+        val path = Files.writeString(virtualFile.parent.toNioPath().resolve("loaded-during-request.txt"), "hello")
+        LocalFileSystem.getInstance().refreshAndFindFileByNioFile(path)!!
+      }
+      // Indexing of the new file must not run during the request: a write action would restart the read action
+      // that waits for the answer, and the restart asks again.
+      IndexingTestUtil.suspendUntilIndexesAreReady(project)
+
+      serverSession.sendNotification(serverSession.PUBLISH_DIAGNOSTICS) {
+        PublishDiagnosticsParams(
+          fileUri,
+          listOf(Diagnostic(Range(Position(0, 0), Position(0, 5)), "problem", DiagnosticSeverity.Error, "fake"))
+        )
+      }
+      var quickFix: IntentionAction? = null
+      waitUntilAssertSucceeds(message = "the diagnostic must reach the markup with its quick fixes") {
+        quickFix = errorHighlight(document)?.findRegisteredQuickFix { descriptor, _ -> descriptor.action }
+        assertNotNull(quickFix)
+      }
+      val requestArrived = CompletableDeferred<Unit>()
+      val answerAllowed = CompletableDeferred<Unit>()
+      // the only expected request: a second one fails the test
+      serverSession.expectRequest(serverSession.CODE_ACTION, {
+        it.textDocument.uri == fileUri && it.context.only == listOf(CodeActionKind.QuickFix)
+      }) {
+        requestArrived.complete(Unit)
+        answerAllowed.await()
+        listOf(Either.forRight(CodeAction().apply {
+          title = "Fix the problem"
+          kind = CodeActionKind.QuickFix
+          edit = WorkspaceEdit(mapOf(fileUri to listOf(TextEdit(Range(Position(0, 0), Position(0, 5)), "fixed"))))
+        }))
+      }
+      // A quick fix asks the server for its code action on the first `getText()` call, and only in a background thread.
+      val text = async(Dispatchers.IO) { readAction { quickFix!!.text } }
+      requestArrived.await()
+      val vfsModificationCount = VirtualFileManager.getInstance().modificationCount
+      readAction { FileDocumentManager.getInstance().getDocument(otherFile) }
+      assertNotEquals(vfsModificationCount, VirtualFileManager.getInstance().modificationCount,
+                      "the first load of the document must write to the VFS")
+      answerAllowed.complete(Unit)
+
+      assertEquals("Fix the problem", text.await())
+      serverSession.awaitExpected()
     }
   }
 
@@ -132,10 +200,10 @@ class LspCodeActionsTest {
     private val fakeLspIntegration by projectFixture.fakeLspIntegrationFixture()
 
     @Test
-    fun `quick fixes work with a dynamic registration only`() = timeoutRunBlocking {
+    fun `dynamic registration exposes the preferred fix even when it arrives ninth`() = timeoutRunBlocking {
       // No daemon runs in this test: instantiate the pass registrar, so it assigns LspHighlightingApplier.GROUP_ID.
       TextEditorHighlightingPassRegistrar.getInstance(project)
-      val virtualFile = codeInsightFixture.configureByText("test.txt", "hello world").virtualFile
+      val virtualFile = codeInsightFixture.configureByText("preferredQuickFix.txt", "hello world").virtualFile
       val document = codeInsightFixture.editor.document
       awaitFileOpenedByLspServer(project, virtualFile)
       val serverSession = fakeLspIntegration.serverSession(virtualFile)
@@ -158,10 +226,13 @@ class LspCodeActionsTest {
       serverSession.expectRequest(serverSession.CODE_ACTION, {
         it.textDocument.uri == fileUri && it.context.only == listOf(CodeActionKind.QuickFix)
       }) {
-        listOf(Either.forRight(CodeAction().apply {
-          title = "Fix the problem"
-          kind = CodeActionKind.QuickFix
-        }))
+        (1..9).map { index ->
+          Either.forRight(CodeAction("Fix $index").apply {
+            kind = CodeActionKind.QuickFix
+            isPreferred = index == 9
+            edit = WorkspaceEdit()
+          })
+        }
       }
       serverSession.sendRequest(serverSession.REGISTER_CAPABILITY) {
         RegistrationParams(listOf(Registration("code-actions", "textDocument/codeAction", CodeActionRegistrationOptions().apply {
@@ -178,7 +249,7 @@ class LspCodeActionsTest {
       val quickFixText = withContext(Dispatchers.IO) { readAction { quickFix!!.text } }
       serverSession.awaitExpected()
 
-      assertEquals("Fix the problem", quickFixText)
+      assertEquals("Fix 9", quickFixText)
     }
 
     @Suppress("AssertBetweenInconvertibleTypes") // Qodana bug

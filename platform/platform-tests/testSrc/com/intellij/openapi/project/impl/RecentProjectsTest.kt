@@ -10,12 +10,14 @@ import com.intellij.configurationStore.StateStorageManager
 import com.intellij.ide.AppLifecycleListener
 import com.intellij.ide.ProjectGroup
 import com.intellij.ide.ProjectGroupActionGroup
+import com.intellij.ide.RecentProjectIconHelper
 import com.intellij.ide.RecentProjectListActionProvider
 import com.intellij.ide.RecentProjectsManager
 import com.intellij.ide.RecentProjectsManagerBase
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.application.UI
 import com.intellij.openapi.components.PersistentStateComponent
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.StateStorageOperation
@@ -24,6 +26,8 @@ import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectCloseListener
 import com.intellij.openapi.project.ex.ProjectManagerEx
+import com.intellij.openapi.util.IconLoader
+import com.intellij.openapi.util.ScalableIcon
 import com.intellij.project.stateStore
 import com.intellij.testFramework.ExtensionTestUtil
 import com.intellij.testFramework.PlatformTestUtil
@@ -34,7 +38,9 @@ import com.intellij.testFramework.createTestOpenProjectOptions
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.junit5.TestDisposable
 import com.intellij.ui.DeferredIconImpl
+import com.intellij.ui.IconDeferrer
 import com.intellij.ui.JBColor
+import com.intellij.ui.RetrievableIcon
 import com.intellij.util.IconUtil
 import com.intellij.util.PathUtil
 import com.intellij.util.messages.SimpleMessageBusConnection
@@ -49,6 +55,7 @@ import org.junit.jupiter.api.extension.RegisterExtension
 import java.awt.Color
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.FileTime
 import javax.swing.Icon
 import kotlin.test.assertEquals
 
@@ -149,6 +156,118 @@ class RecentProjectsTest {
   fun solutionLikeProjectIconForDarkTheme() {
     JBColor.setDark(true)
     doSolutionLikeProjectIcon()
+  }
+
+  @Test
+  fun projectIconChangesWithTheme() = timeoutRunBlocking {
+    val projectPath = createProjectWithIcons()
+
+    for (dark in listOf(false, true, false)) {
+      JBColor.setDark(dark)
+      assertSingleColorIcon(loadProjectIcon(projectPath), if (dark) Color.RED else Color.BLUE)
+    }
+  }
+
+  @Test
+  fun projectIconFallsBackToLightVariant() = timeoutRunBlocking {
+    val projectPath = createProjectWithIcons()
+    Files.delete(projectPath.resolve(".idea/icon_dark.svg"))
+
+    for (dark in listOf(false, true, false)) {
+      JBColor.setDark(dark)
+      assertSingleColorIcon(loadProjectIcon(projectPath), Color.BLUE)
+    }
+  }
+
+  @Test
+  fun projectIconDropsDeletedOlderVariant() = timeoutRunBlocking {
+    val projectPath = createProjectWithIcons()
+    val darkFile = projectPath.resolve(".idea/icon_dark.svg")
+    Files.setLastModifiedTime(darkFile, FileTime.fromMillis(Files.getLastModifiedTime(darkFile).toMillis() - 10_000))
+    JBColor.setDark(true)
+    assertSingleColorIcon(loadProjectIcon(projectPath), Color.RED)
+
+    Files.delete(darkFile)
+    IconDeferrer.getInstance().clearCache()
+    assertSingleColorIcon(loadProjectIcon(projectPath), Color.BLUE)
+  }
+
+  @Test
+  fun projectIconChangesWithThemeWithoutReload() = timeoutRunBlocking {
+    val projectPath = createProjectWithIcons()
+    JBColor.setDark(false)
+    val icon = loadProjectIcon(projectPath)
+
+    for (dark in listOf(true, false)) {
+      JBColor.setDark(dark)
+      assertSingleColorIcon(icon, if (dark) Color.RED else Color.BLUE)
+    }
+  }
+
+  @Test
+  fun projectIconProvidesDarkVariant() = timeoutRunBlocking {
+    val projectPath = createProjectWithIcons()
+    JBColor.setDark(false)
+    val icon = (loadProjectIcon(projectPath) as RetrievableIcon).retrieveIcon()
+
+    assertSingleColorIcon(IconLoader.getDarkIcon(icon, true), Color.RED)
+    JBColor.setDark(true)
+    assertSingleColorIcon(IconLoader.getDarkIcon(icon, false), Color.BLUE)
+  }
+
+  @Test
+  fun projectFileIconRespectsScale() = timeoutRunBlocking {
+    val icon = RecentProjectIconHelper.createIcon(data = svgIcon("0000ff").toByteArray(), svg = true,
+                                                  darkData = svgIcon("ff0000").toByteArray(), darkSvg = true,
+                                                  size = 16) as ScalableIcon
+    JBColor.setDark(false)
+    val scaledIcon = icon.scale(2f)
+    assertThat(scaledIcon.iconWidth).isEqualTo(2 * icon.iconWidth)
+    assertThat(scaledIcon.iconHeight).isEqualTo(2 * icon.iconHeight)
+    assertFilledIcon(scaledIcon, Color.BLUE)
+
+    val darkIcon = IconLoader.getDarkIcon(scaledIcon, true)
+    assertThat(darkIcon.iconWidth).isEqualTo(scaledIcon.iconWidth)
+    assertFilledIcon(darkIcon, Color.RED)
+  }
+
+  private suspend fun assertFilledIcon(icon: Icon, expectedColor: Color) = withContext(Dispatchers.EDT) {
+    val iconImage = IconUtil.toBufferedImage(icon)
+    assertThat(iconImage.width).isEqualTo(icon.iconWidth)
+    for (x in 0 until iconImage.width) {
+      for (y in 0 until iconImage.height) {
+        assertThat(iconImage.getRGB(x, y)).isEqualTo(expectedColor.rgb)
+      }
+    }
+  }
+
+  private fun svgIcon(color: String): String {
+    return """
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16">
+        <rect width="16" height="16" fill="#$color"/>
+      </svg>
+    """.trimIndent()
+  }
+
+  private fun createProjectWithIcons(): Path {
+    val dotIdea = Files.createDirectories(tempDir.newPath("project").resolve(".idea"))
+    for ((name, color) in mapOf("icon.svg" to "0000ff", "icon_dark.svg" to "ff0000")) {
+      Files.writeString(dotIdea.resolve(name), svgIcon(color))
+    }
+    // Equal timestamps ensure that cache validation must check the theme.
+    Files.setLastModifiedTime(dotIdea.resolve("icon_dark.svg"), Files.getLastModifiedTime(dotIdea.resolve("icon.svg")))
+    return dotIdea.parent
+  }
+
+  private suspend fun loadProjectIcon(projectPath: Path): Icon {
+    return evaluateProjectIcon(RecentProjectsManagerBase.getInstanceEx().getProjectIcon(projectPath, isProjectValid = true))
+  }
+
+  private suspend fun evaluateProjectIcon(icon: Icon): Icon {
+    if (icon is DeferredIconImpl<*>) {
+      withContext(Dispatchers.UI) { icon.scheduleEvaluation(null, 0, 0) }?.join()
+    }
+    return icon
   }
 
   private fun doSolutionLikeProjectIcon() = timeoutRunBlocking {

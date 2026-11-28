@@ -72,4 +72,31 @@ class NonDefaultConstructorInspectionTest {
 
     myFixture.testHighlighting("ServiceWithCoroutineScope.java")
   }
+
+  @Test
+  fun `test workspace service with Workspace and CoroutineScope`() {
+    addWorkspaceStubs()
+    myFixture.addClass("package kotlinx.coroutines; public interface CoroutineScope {}")
+    myFixture.configureByFile("workspace/plugin.xml")
+    myFixture.testHighlighting("workspace/WorkspaceService.java")
+  }
+
+  @Test
+  fun `test workspace service with Project`() {
+    addWorkspaceStubs()
+    myFixture.configureByFile("workspace/plugin.xml")
+    myFixture.testHighlighting("workspace/WorkspaceServiceWithProject.java")
+  }
+
+  @Test
+  fun `test light service with Workspace`() {
+    addWorkspaceStubs()
+    myFixture.addClass("package com.intellij.openapi.components; public @interface Service {}")
+    myFixture.testHighlighting("LightServiceWithWorkspace.java")
+  }
+
+  private fun addWorkspaceStubs() {
+    myFixture.addClass("package com.intellij.openapi.project; public class Project {}")
+    myFixture.addClass("package com.intellij.openapi.workspace; public interface Workspace {}")
+  }
 }

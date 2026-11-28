@@ -31,6 +31,7 @@ import com.intellij.openapi.application.impl.ApplicationImpl
 import com.intellij.openapi.components.ComponentManager
 import com.intellij.openapi.components.ComponentManagerEx
 import com.intellij.openapi.components.service
+import com.intellij.openapi.components.serviceIfCreated
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.trace
@@ -49,6 +50,9 @@ import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.project.ex.ProjectManagerEx
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.registry.Registry
+import com.intellij.openapi.workspace.Workspace
+import com.intellij.openapi.workspace.WorkspaceManager
+import com.intellij.openapi.workspace.impl.ProjectWorkspaceManagerImpl
 import com.intellij.platform.diagnostic.telemetry.IJTracer
 import com.intellij.platform.diagnostic.telemetry.PlatformMetrics
 import com.intellij.platform.diagnostic.telemetry.Scope
@@ -748,6 +752,7 @@ internal class DynamicPluginsSupportImpl(
     if (ProjectManagerEx.getInstanceEx().isDefaultProjectInitialized) {
       openedProjects.add(ProjectManagerEx.getInstanceEx().defaultProject)
     }
+    val workspaces = liveWorkspacesOrEmpty()
 
     val appExtensionArea = app.extensionArea
     val priorityUnloadListeners = mutableListOf<Runnable>()
@@ -780,6 +785,14 @@ internal class DynamicPluginsSupportImpl(
     val appMessageBus = app.messageBus as MessageBusEx
     app.unloadServices(module, module.appContainerDescriptor.services)
     appMessageBus.unsubscribeLazyListeners(module, module.appContainerDescriptor.listeners)
+
+    for (workspace in workspaces) {
+      val container = workspace.getComponentManagerImpl()
+      val containerDescriptor = module.workspaceContainerDescriptor
+      container.unloadServices(module, containerDescriptor.services)
+      (container.messageBus as MessageBusEx).unsubscribeLazyListeners(module, containerDescriptor.listeners)
+      createDisposeTreePredicate(module)?.let { Disposer.disposeChildren(workspace, it) }
+    }
 
     for (project in openedProjects) {
       (project as ComponentManagerEx).unloadServices(module, module.projectContainerDescriptor.services)
@@ -865,6 +878,10 @@ internal class DynamicPluginsSupportImpl(
   ) {
     app.registerComponents(descriptors = descriptors, app = app, listenerCallbacks = listenerCallbacks)
 
+    for (workspace in liveWorkspacesOrEmpty()) {
+      workspace.getComponentManagerImpl().registerComponents(descriptors = descriptors, app = app, listenerCallbacks = listenerCallbacks)
+    }
+
     val openedProjects = ProjectUtil.getOpenProjects().toMutableList()
     @Suppress("TestOnlyProblems")
     if (ProjectManagerEx.getInstanceEx().isDefaultProjectInitialized) {
@@ -913,6 +930,12 @@ internal class DynamicPluginsSupportImpl(
     private const val DISREGARD_ISSUES_PROPERTY: String = "ide.plugins.disregard.dynamic.plugin.reconfiguration.issues"
 
     private val tracer: IJTracer by lazy { TelemetryManager.getInstance().getTracer(Scope("dynamicPluginsSupport", PlatformMetrics)) }
+
+    /** Gives the live workspaces. It does not create the manager: without the manager, no workspace exists. */
+    private fun liveWorkspacesOrEmpty(): List<Workspace> {
+      val manager = serviceIfCreated<WorkspaceManager>() as? ProjectWorkspaceManagerImpl
+      return manager?.liveWorkspaces() ?: emptyList()
+    }
   }
 
   private class DeferredLoadListeners {

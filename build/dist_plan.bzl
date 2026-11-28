@@ -3,7 +3,7 @@
 # The plan of every split product: the facts that its distribution reads. Bazel consumes this plan directly
 # and fails when the requested product is absent.
 #
-# What the fragments of a product declare as their inputs lives in `dist_fragment_inputs.bzl`, which churns
+# What the components of a product declare as their inputs lives in `dist_component_inputs.bzl`, which churns
 # with every model change.
 #
 # There is deliberately no content digest here. An action key already covers everything that decides what the
@@ -65,11 +65,6 @@ _PLATFORM_ASSETS = {
 
 _LAUNCH = struct(
     idea_properties = "//bin:idea.properties",
-    vmoptions = {
-        "darwin": "idea.vmoptions",
-        "linux": "idea64.vmoptions",
-        "windows": "idea64.exe.vmoptions",
-    },
     mac_bundle = struct(icons = {
         "idea.icns": struct(release = "//build:idea-community-images/mac/product.icns", eap = "//build:idea-community-images/mac/product_EAP.icns"),
     }),
@@ -88,12 +83,11 @@ DIST_PLANS = {
     "Idea": _PLAN_AndroidStudio,
 }
 
-# The launch model of every product, which its `platform_resources` component renders. A model file takes the
-# case-safe name of its product, so two products never share one file on a case-insensitive disk. The map is
-# apart from the plans, so products with equal launch facts still share one plan.
-DIST_LAUNCH_MODELS = {
-    "AndroidStudio": "//build/dist-launch:AndroidStudio.launch.json",
-    "Idea": "//build/dist-launch:idea_community.launch.json",
+# The case-safe name of each product whose name differs from its key. The launch model of a product, which its
+# `platform_resources` component renders, is `build/dist-launch/<case-safe name>.launch.json`. So two products
+# never share one file on a case-insensitive disk. Every other product names its model by its key.
+DIST_CASE_SAFE_NAMES = {
+    "Idea": "idea_community",
 }
 
 # The application info sources of every product. The product files action and the plugin descriptor actions read
@@ -104,7 +98,7 @@ DIST_APPLICATION_INFOS = {
 }
 
 # The `lib/` jar order of the platform as a rule with two lists, for every product with the runtime module repository
-# fragment. The core plugin lists the jars of `first` in that order. Then it lists every other jar with a module,
+# component. The core plugin lists the jars of `first` in that order. Then it lists every other jar with a module,
 # sorted by its smallest member module name. Then it lists the jars of `last` in that order. Bazel knows the member
 # names, but not the two lists. Equal lists are one private struct, named as a shared plan field is named.
 DIST_PLATFORM_JAR_ORDERS = {

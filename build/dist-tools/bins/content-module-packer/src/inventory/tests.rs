@@ -1,8 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
-//! The inventory of a pack. The Go tests of the inventory were in `main_test.go` and ran the whole binary. These run the
-//! inventory function and check the same metadata. The tests of the option surface and the spans are in `tests.rs` of
-//! the binary.
+//! The inventory of a pack. These tests run the inventory function. The tests of the option surface and the spans are in
+//! `tests.rs` of the binary.
 
 #![allow(
     clippy::cast_possible_wrap,
@@ -16,7 +15,7 @@ use std::path::{Path, PathBuf};
 
 use filemeta::EntryType;
 use jarpack::nativelib::{Arch, Family};
-use jarpack::{MergeOptions, MergeReport, MergeSpec, NativeSpec, NativeTree, Source};
+use jarpack::{MergeReport, MergeSpec, NativeSpec, NativeTree, Source};
 use tempfile::TempDir;
 use zip::{CompressionMethod, ZipArchive};
 
@@ -26,7 +25,7 @@ use crate::tests::write_jar;
 /// The steps of the binary: the directories, the jar, then the inventory from the report of the merge.
 fn pack(spec: &MergeSpec) -> anyhow::Result<InventoryReport> {
     crate::pack::create_directories(spec)?;
-    let merged = spec.pack(&MergeOptions::default())?;
+    let merged = spec.pack()?;
     write_inventory(spec, &merged)
 }
 

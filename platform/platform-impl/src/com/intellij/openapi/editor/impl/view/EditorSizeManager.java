@@ -56,7 +56,6 @@ final class EditorSizeManager implements PrioritizedDocumentListener, Disposable
   private static final Logger LOG = Logger.getInstance(EditorSizeManager.class);
 
   private static final int UNKNOWN_WIDTH = Integer.MAX_VALUE;
-  private static final int SPECIFIC_LINES_RECALC_THRESHOLD = 2;
 
   private final EditorView myView;
   private final EditorImpl myEditor;
@@ -196,7 +195,7 @@ final class EditorSizeManager implements PrioritizedDocumentListener, Disposable
     if (myFoldingModel.getCollapsedRegionAtOffset(startOffset) != region) return;
     int visualLine = myView.offsetToVisualLine(startOffset, false);
     myLineWidths.set(visualLine, region.getWidthInPixels());
-    invalidateWidth(true, visualLine);
+    invalidateWidth(visualLine, visualLine);
   }
 
   @Override
@@ -424,7 +423,7 @@ final class EditorSizeManager implements PrioritizedDocumentListener, Disposable
       }
       else {
         boolean needFullScan = true;
-        if (myStartInvalidLine <= myEndInvalidLine && (myEndInvalidLine - myStartInvalidLine) < SPECIFIC_LINES_RECALC_THRESHOLD) {
+        if (myStartInvalidLine <= myEndInvalidLine && (myStartInvalidLine > 0 || myEndInvalidLine < myView.getVisibleLineCount() - 1)) {
           IntPair pair = calculateTextPreferredWidth(myStartInvalidLine, myEndInvalidLine);
           needFullScan = pair.first < myWidthInPixels &&
                          myStartInvalidLine <= myWidthDefiningLineNumber &&
@@ -618,7 +617,14 @@ final class EditorSizeManager implements PrioritizedDocumentListener, Disposable
       endVisualLine = swap;
     }
     int lineDiff = myView.getVisibleLineCount() - myLineWidths.size();
-    invalidateWidth(lineDiff == 0 && startVisualLine == endVisualLine, startVisualLine);
+    int oldEndVisualLine = endVisualLine - lineDiff;
+    if (oldEndVisualLine >= startVisualLine) {
+      shiftLineNumbers(startVisualLine, oldEndVisualLine, lineDiff);
+      invalidateWidth(startVisualLine, endVisualLine);
+    }
+    else {
+      invalidateWidth(0, Integer.MAX_VALUE);
+    }
     if (lineDiff > 0) {
       int[] newEntries = new int[lineDiff];
       myLineWidths.addAll(startVisualLine, IntArrayList.wrap(newEntries));
@@ -690,7 +696,7 @@ final class EditorSizeManager implements PrioritizedDocumentListener, Disposable
         }
       }
       if (sizeInvalidated) {
-        invalidateWidth(startVisualLine == endVisualLine, startVisualLine);
+        invalidateWidth(startVisualLine, endVisualLine);
         myEditor.getContentComponent().revalidate();
       }
     }
@@ -700,16 +706,40 @@ final class EditorSizeManager implements PrioritizedDocumentListener, Disposable
     }
   }
 
-  private void invalidateWidth(boolean invalidateOneLine, int invalidVisualLine) {
+  /**
+   * Marks the visual lines from {@code startVisualLine} to {@code endVisualLine}, both inclusive, as changed.
+   * Give the numbers of the lines after the change.
+   */
+  private void invalidateWidth(int startVisualLine, int endVisualLine) {
     myWidthIsValid = false;
-    if (invalidateOneLine) {
-      myStartInvalidLine = Math.min(myStartInvalidLine, invalidVisualLine);
-      myEndInvalidLine = Math.max(myEndInvalidLine, invalidVisualLine);
+    myStartInvalidLine = Math.min(myStartInvalidLine, startVisualLine);
+    myEndInvalidLine = Math.max(myEndInvalidLine, endVisualLine);
+  }
+
+  /**
+   * Moves the stored line numbers to the numbering after a change that replaces the visual lines
+   * from {@code startVisualLine} to {@code oldEndVisualLine}, both inclusive, and adds {@code lineDiff} lines.
+   * A line after the replaced lines moves by {@code lineDiff}.
+   * A replaced line moves to {@code startVisualLine}, so it stays in the changed range.
+   */
+  private void shiftLineNumbers(int startVisualLine, int oldEndVisualLine, int lineDiff) {
+    if (lineDiff == 0) {
+      return;
     }
-    else {
-      myStartInvalidLine = 0;
-      myEndInvalidLine = Integer.MAX_VALUE;
+    myWidthDefiningLineNumber = shiftLineNumber(myWidthDefiningLineNumber, startVisualLine, oldEndVisualLine, lineDiff);
+    if (myStartInvalidLine <= myEndInvalidLine) {
+      myStartInvalidLine = shiftLineNumber(myStartInvalidLine, startVisualLine, oldEndVisualLine, lineDiff);
+      if (myEndInvalidLine != Integer.MAX_VALUE) {
+        myEndInvalidLine = shiftLineNumber(myEndInvalidLine, startVisualLine, oldEndVisualLine, lineDiff);
+      }
     }
+  }
+
+  private static int shiftLineNumber(int visualLine, int startVisualLine, int oldEndVisualLine, int lineDiff) {
+    if (visualLine > oldEndVisualLine) {
+      return visualLine + lineDiff;
+    }
+    return Math.min(visualLine, startVisualLine);
   }
 
   private boolean checkDirty() {
@@ -729,6 +759,7 @@ final class EditorSizeManager implements PrioritizedDocumentListener, Disposable
       for (int i = 0; i < visibleLineCount; i++) {
         myLineWidths.set(i, UNKNOWN_WIDTH);
       }
+      invalidateWidth(0, Integer.MAX_VALUE);
       myDirty = false;
     }
     return false;

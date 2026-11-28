@@ -1,11 +1,6 @@
 load("@community//build:jps_module.bzl", "jps_module")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
-# `DevDistMain` has no binary of its own here. It resolves every module and library jar by label through the
-# runfiles tree, so an assembler that can actually assemble has to carry a repository's whole jar set as `data`;
-# that binary is `//build:dist_reference_assembler` in the ultimate repository, and its community counterpart
-# will live beside the community jar set the same way.
-
 ### auto-generated section `build intellij.platform.buildScripts.devBuildServer.legacy` start
 jvm_library(
     name = "buildScripts-devBuildServer-legacy",
@@ -40,16 +35,12 @@ jvm_library(
     ],
     deps = [
         # do not sort,
-        "//platform/build-scripts/plugin-preparation",
         "@lib//:kotlin-stdlib",
         "//platform/build-scripts",
         "//platform/build-scripts/dev-launch",
         "//libraries/kotlinx/serialization/core",
         "//build/tasks",
         "//platform/util",
-        "//libraries/opentelemetry",
-        "//platform/diagnostic/telemetry",
-        "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable",
         "//platform/build-scripts/downloader",
         "//platform/buildData",
         "//libraries/teamcity/service-messages:libraries-teamcity-service-messages",

@@ -22,10 +22,8 @@ Three things the attribute form got wrong and this does not:
   `getattr(ctx.rule.attr, "content_module_jar_libraries", None)` - a name-based read of another rule's attributes that
   answers `None` rather than failing when the name is wrong. They are this rule's own attributes now.
 
-The point of packing here at all is what the action declares: the jars it merges, and nothing else. A reference that
-packs these jars evaluates the whole product layout, so it declares the shared project-model tree, and any `.iml` edit
-re-keys it. No component packs these jars through a layout. The reference that `./build/dist.cmd jars` builds
-packs them only to compare this packer with `JarPackager` byte for byte.
+The point of packing here at all is what the action declares: the jars it merges, and nothing else. No component packs
+these jars through a product layout, so no packing action declares the shared project-model tree.
 
 **Source order is load-bearing.** The packer resolves an entry name offered by more than one source to the first source
 offering it. To reproduce what the in-process `JarPackager` writes, every library jar comes before every module output,
@@ -45,7 +43,7 @@ ContentModuleJarInfo = provider(
     doc = """A packed `lib/<module>.jar` of the platform distribution, and what went into it.
 
     The recipe travels with the jar because everything downstream needs it and this is the only target that knows it. A
-    fragment handed this jar must stop declaring the module jars and libraries whose bytes are now inside it, and the
+    component handed this jar must stop declaring the module jars and libraries whose bytes are now inside it, and the
     reference target that packs the same jars the `JarPackager` way declares exactly these two lists. Reading them here
     is what replaced `dist_content.bzl` asking another rule for attributes by name - `getattr(ctx.rule.attr,
     "content_module_jar_libraries", None)`, which answered `None` rather than failing when the name was wrong.""",
@@ -63,7 +61,7 @@ ContentModuleJarInfo = provider(
         "member_jars": "tuple of File: the own jar of every merged module, this jar's own module included.",
         "member_modules": """tuple of string: the same members by JPS module name.
 
-        The names, because that is what a payload is written in: a fragment's declared inputs are pruned by asking which
+        The names, because that is what a payload is written in: a component's declared inputs are pruned by asking which
         module contributed each one, and a module name is the one key that means the same thing on both sides of the
         loading/analysis boundary - a label does not, since a repository rule writes `@community//...` where an
         analysis-time `Label` reads back canonically.""",
@@ -235,7 +233,7 @@ def pack_jar(ctx, output, spans, module_jars, library_jars, merged_module_names,
     if spans:
         # Inside the flag file, as a `trace-file=` line, because the action passes only `--flagfile=`. Every other
         # producer of these span files takes a `--trace-file=` argument instead. It follows `output=`, because the
-        # grammar starts a group there.
+        # grammar takes that line first.
         #
         # The `File`, not `spans.path`: this argument travels in a param file that output path mapping may rewrite, and
         # only the `File` form is rewritten with it. `intellij_dist.bzl`'s `_declare_spans` passes the string,
@@ -501,7 +499,7 @@ DistPlatformJarInfo = provider(
         "metadata": "The file hash metadata from the same packing action.",
         # The jar's own file name says where the jar goes only while every destination is flat. A platform jar can name
         # a subdirectory of the plugin's `lib/`, so the destination travels with the jar. The consumers that place it
-        # and the fragment that stops packing it must agree on `ext/platform-main.jar`, not on `platform-main.jar`.
+        # and the component that stops packing it must agree on `ext/platform-main.jar`, not on `platform-main.jar`.
         "relative_path": "string: the jar's destination, relative to the plugin's own `lib/`.",
         "member_jars": "tuple of File: the own jar of every merged module.",
         "member_modules": "tuple of string: the same members by JPS module name.",

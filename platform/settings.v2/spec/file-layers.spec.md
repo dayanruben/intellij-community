@@ -111,7 +111,8 @@ This table maps each layer and locality to its file. The requirements below defi
   project open in its own coroutine, and indexing does not wait for it.
 - The file layer must be absent in the light mode. A write at a file context then lands in the project layer, and
   a read at a file context sees the project value. After the move to the full mode, the file layer loads, and a
-  write at a file context lands in the directory config. See
+  write at a file context lands in the directory config. A directory config on the disk must stay invisible in
+  the light mode, load after the move to the full mode, and be invisible again after the move back. See
   [ADR 0164](../adr/0164-file-settings-are-off-in-the-light-mode-until-the-move-to-the-full-mode.md).
   [@test] ../../../../platform/unified/integrationTests/testSrc/com/intellij/platform/unified/integrationTests/JetBrainsLightSettingsTest.kt
 - The file layer must find only the configs in the project content. A config in an excluded directory never loads.
@@ -169,6 +170,19 @@ This table maps each layer and locality to its file. The requirements below defi
 ### Changes on disk
 
 - The application, project and file layers must watch their files and reload a file after an external change.
+- An external edit of an application config file must reach the settings when the IDE frame gets the focus.
+  See [ADR 00GVJM](../adr/00GVJM-the-application-layer-registers-the-options-directory-as-a-watch-root.md).
+  [@test] ../../../../tests/remote-driver-tests/settingsSmoke/testSrc/com/intellij/driver/tests/idea/platform/settings/AppSettingsFileExternalEditTest.kt
+- A VFS event of one config file must refresh only that file: the layer reads and pushes that file, and not the
+  files of the other localities.
+  See [ADR 00GVJL](../adr/00GVJL-a-refresh-on-a-vfs-event-reads-the-config-file-from-the-vfs-and-every-other-read-takes-the-disk.md).
+  [@test] ../test/src/com/intellij/platform/settings/v2/LayerRefreshOrderTest.kt
+- A refresh that a VFS event starts must read the content that the VFS holds for the config file, when the VFS
+  knows a valid file and can read its content. A save from the IDE editor then reaches the settings at once.
+  Every other read must take the disk.
+  See [ADR 00GVJL](../adr/00GVJL-a-refresh-on-a-vfs-event-reads-the-config-file-from-the-vfs-and-every-other-read-takes-the-disk.md).
+  [@test] ../../../../remote-dev/settings/v2/lambdaTests/src/com/intellij/platform/settings/v2/lambdaTests/ConfigFileEditTest.kt
+  [@test] ../test/src/com/intellij/platform/settings/v2/JsonConfigFileVfsReadTest.kt
 - The watch start and a write must make the config file known to the VFS through an asynchronous lookup.
   Settings v2 must never run a synchronous VFS refresh or lookup, so the application load never waits for the EDT
   on its behalf.

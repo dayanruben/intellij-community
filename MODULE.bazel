@@ -118,6 +118,7 @@ single_version_override(
         "//:build/llvm-0.8.27-clang-cl-quote-includes.patch",  # TODO: remove that once merged to upstream https://github.com/hermeticbuild/hermetic-llvm/issues/807
         "//:build/llvm-0.8.27-msvc-windows-subsystem.patch",  # TODO: remove that once merged to upstream https://github.com/hermeticbuild/hermetic-llvm/issues/817
         "//:build/llvm-0.8.27-msvc-setargv.patch",  # TODO: report to upstream https://github.com/hermeticbuild/hermetic-llvm/issues
+        "//:build/llvm-0.8.27-pkgutil-windows-directory-symlinks.patch",  # TODO: remove that once https://github.com/hermeticbuild/pkgutil/pull/8 is in the prebuilt extras of hermetic-llvm
     ],
 )
 
@@ -338,7 +339,7 @@ crate.from_cargo(
         "x86_64-pc-windows-msvc",
         "aarch64-unknown-linux-gnu",
         "x86_64-unknown-linux-gnu",
-        # No distribution tool runs on the two Linux musl triples. The guest agent links `dev-launch` and its crates, and
+        # No distribution tool runs on the two Linux musl triples. The guest agent links `fscopy` and its crates, and
         # `:vm-guest-agent-linux-*` builds them for both. The closure checks of `vm` and `air-trace` analyze bt-core for
         # x86_64 Linux musl, and through bt-core `distpath` and its `anyhow`.
         "aarch64-unknown-linux-musl",

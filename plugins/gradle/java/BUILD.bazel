@@ -1,29 +1,17 @@
-load("@community//build:bazel_targets_json.bzl", "current_bazel_targets_json")
 load("@community//build:jps_module.bzl", "jps_module")
-load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
-BAZEL_TARGETS_JSON = current_bazel_targets_json()
+filegroup(
+    name = "testData_files",
+    srcs = glob(["testData/**"]),
+    visibility = ["//visibility:public"],
+)
 
 ### auto-generated section `dev intellij.gradle.java` start
 content_module_jar(module = ":java")
 ### auto-generated section `dev intellij.gradle.java` end
 
-jps_test(
-    name = "java-tests_test",
-    data = [
-        "@community//plugins/gradle:testData_files",
-        "@lib//:junit/junit-4.13.2.jar",
-        "@lib//:org.junit.jupiter/junit-jupiter-params-6.1.3.jar",
-        BAZEL_TARGETS_JSON,
-    ],
-    jvm_flags = [
-        "-Dintellij.build.bazel.targets.json.file=$(rlocationpath %s)" % BAZEL_TARGETS_JSON,
-    ],
-    tags = ["gradle-tests"],
-    runtime_deps = [":java-tests_test_lib"],
-)
 ### skip generation section `test intellij.gradle.java.tests`
 
 ### auto-generated section `build intellij.gradle.java` start
@@ -45,7 +33,7 @@ jvm_library(
         ["resources/**/*"],
     ),
     visibility = ["//visibility:public"],
-    exports = ["//plugins/gradle:gradle-common"],
+    exports = ["//plugins/gradle"],
     runtime_deps = [
         # do not sort,
         "//java/java-indexing-api:indexing",
@@ -61,7 +49,6 @@ jvm_library(
         # do not sort,
         "@lib//:kotlin-stdlib",
         "//plugins/gradle",
-        "//plugins/gradle:gradle-common",
         "//plugins/gradle/jps-plugin:jps",
         "//platform/analysis-api:analysis",
         "//platform/code-style-api:codeStyle",
@@ -151,6 +138,7 @@ jvm_library(
         "//plugins/properties/plugin",
         "//plugins/gradle/codeInsight/groovy/backend",
         "//plugins/maven/plugin",
+        "//plugins/maven/jps",
         "//plugins/junit",
         "//platform/main/intellij.platform.monolith.main:monolith-main",
         "//community-resources:customization",

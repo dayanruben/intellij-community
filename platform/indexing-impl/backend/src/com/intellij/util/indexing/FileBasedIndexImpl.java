@@ -75,6 +75,7 @@ import com.intellij.psi.stubs.StubUpdatingIndex;
 import com.intellij.psi.util.CachedValueProvider;
 import com.intellij.psi.util.CachedValuesManager;
 import com.intellij.reference.SoftReference;
+import com.intellij.util.ExceptionUtil;
 import com.intellij.util.FlushingDaemon;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.Processor;
@@ -111,6 +112,7 @@ import com.intellij.util.indexing.projectFilter.ProjectIndexableFilesFilterHolde
 import com.intellij.util.indexing.storage.FileBasedIndexLayoutProvider;
 import com.intellij.util.indexing.storage.VfsAwareIndexStorageLayout;
 import com.intellij.util.indexing.storage.sharding.ShardableIndexExtension;
+import com.intellij.util.io.ClosedStorageException;
 import com.intellij.util.io.CorruptedException;
 import com.intellij.util.io.IOUtil;
 import com.intellij.util.io.storage.HeavyProcessLatch;
@@ -576,7 +578,7 @@ public final class FileBasedIndexImpl extends FileBasedIndexEx {
                                        @NotNull IndexVersionRegistrationSink versionRegistrationStatusSink,
                                        @NotNull IntSet dirtyFiles) throws Exception {
     ID<K, V> name = extension.getName();
-    int version = getIndexExtensionVersion(extension);
+    int version = getIndexExtensionVersion(extension) + GlobalIndexFilter.getFiltersVersion(name);
 
     IndexVersion.IndexVersionDiff diff = IndexVersion.versionDiffers(name, version);
     versionRegistrationStatusSink.setIndexVersionDiff(name, diff);
@@ -596,7 +598,7 @@ public final class FileBasedIndexImpl extends FileBasedIndexEx {
     }
 
     return initIndexStorage(
-      extension, layout, version, diff instanceof IndexVersion.IndexVersionDiff.InitialBuild, state, versionRegistrationStatusSink, dirtyFiles
+      extension, layout, version, diff == IndexVersion.IndexVersionDiff.UP_TO_DATE, state, versionRegistrationStatusSink, dirtyFiles
     );
   }
 
@@ -619,7 +621,7 @@ public final class FileBasedIndexImpl extends FileBasedIndexEx {
   private static <K, V> IntSet initIndexStorage(@NotNull FileBasedIndexExtension<K, V> extension,
                                                 @NotNull VfsAwareIndexStorageLayout<K, V> layout,
                                                 int version,
-                                                boolean isInitialBuild,
+                                                boolean isUpToDate,
                                                 @NotNull IndexConfiguration state,
                                                 @NotNull IndexVersionRegistrationSink registrationStatusSink,
                                                 @NotNull IntSet dirtyFiles) throws Exception {
@@ -631,7 +633,7 @@ public final class FileBasedIndexImpl extends FileBasedIndexEx {
     int attemptCount = 2;
     for (int attempt = 0; attempt < attemptCount; attempt++) {
       try {
-        index = createIndex(extension, layout, isInitialBuild);
+        index = createIndex(extension, layout, isUpToDate);
 
         for (FileBasedIndexInfrastructureExtension infrastructureExtension : FileBasedIndexInfrastructureExtension.EP_NAME.getExtensionList()) {
           UpdatableIndex<K, V, FileContent, ?> intermediateIndex = infrastructureExtension.combineIndex(extension, index);
@@ -640,10 +642,7 @@ public final class FileBasedIndexImpl extends FileBasedIndexEx {
           }
         }
 
-        state.registerIndex(indexId,
-                            index,
-                            inputFilter,
-                            version + GlobalIndexFilter.getFiltersVersion(indexId));
+        state.registerIndex(indexId, index, inputFilter, version);
         break;
       }
       catch (Exception e) {
@@ -674,6 +673,7 @@ public final class FileBasedIndexImpl extends FileBasedIndexEx {
 
         registrationStatusSink.setIndexVersionDiff(indexId, new IndexVersion.IndexVersionDiff.CorruptedRebuild(version));
         IndexVersion.rewriteVersion(indexId, version);
+        isUpToDate = false;
         IndexStatisticGroup.reportIndexRebuild(indexId, e, true);
 
         boolean lastAttempt = (attempt == attemptCount - 1);
@@ -713,7 +713,7 @@ public final class FileBasedIndexImpl extends FileBasedIndexEx {
 
   private static @NotNull <K, V> UpdatableIndex<K, V, FileContent, ?> createIndex(@NotNull FileBasedIndexExtension<K, V> extension,
                                                                                   @NotNull VfsAwareIndexStorageLayout<K, V> layout,
-                                                                                  boolean isInitialBuild)
+                                                                                  boolean isUpToDate)
     throws StorageException, IOException {
     //noinspection removal
     if (FileBasedIndexExtension.USE_VFS_FOR_FILENAME_INDEX && extension.getName() == FilenameIndex.NAME) {
@@ -727,7 +727,7 @@ public final class FileBasedIndexImpl extends FileBasedIndexEx {
     }
     else if (extension instanceof CustomImplementationFileBasedIndexExtension) {
       @SuppressWarnings("unchecked") UpdatableIndex<K, V, FileContent, ?> index =
-        ((CustomImplementationFileBasedIndexExtension<K, V>)extension).createIndexImplementation(extension, layout, isInitialBuild);
+        ((CustomImplementationFileBasedIndexExtension<K, V>)extension).createIndexImplementation(extension, layout, isUpToDate);
       return index;
     }
     else {
@@ -926,14 +926,14 @@ public final class FileBasedIndexImpl extends FileBasedIndexEx {
           removeSingleIndexValue(indexId, fileId);
         }
         catch (Throwable e) {
-          LOG.info(e);
+          LOG.debug(e);
           if (unexpectedError == null) {
             unexpectedError = e;
           }
         }
       }
 
-      if (unexpectedError != null) {
+      if (unexpectedError != null && !(isShutdownStarted() && ExceptionUtil.causedBy(unexpectedError, ClosedStorageException.class))) {
         LOG.error(unexpectedError);
       }
     }
@@ -1130,12 +1130,15 @@ public final class FileBasedIndexImpl extends FileBasedIndexEx {
 
   void ensureDirtyFileIndexesDeleted(@NotNull Collection<Integer> dirtyFiles) {
     if (dirtyFiles.isEmpty()) return;
-    ProgressManager.getInstance().executeNonCancelableSection(() -> {
-      Collection<ID<?, ?>> indexIDs = myRegisteredIndexes.getState().getIndexIDs();
-      for (int fileId : dirtyFiles) {
-        removeFileDataFromIndices(indexIDs, fileId, null);
-      }
-    });
+    RegisteredIndexes registeredIndexes = myRegisteredIndexes;
+    if (registeredIndexes == null) throw new CancellationException("The file-based index is shut down");
+    Collection<ID<?, ?>> indexIDs = registeredIndexes.getState().getIndexIDs();
+    for (int fileId : dirtyFiles) {
+      ProgressManager.checkCanceled();
+      // The tumbler and the JVM shutdown hook shut down the index, but they do not cancel the job of the caller.
+      if (registeredIndexes.isShutdownPerformed()) throw new CancellationException("The file-based index is shut down");
+      ProgressManager.getInstance().executeNonCancelableSection(() -> removeFileDataFromIndices(indexIDs, fileId, null));
+    }
   }
 
   @Override
